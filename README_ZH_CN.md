@@ -11,7 +11,7 @@ Kelivo Plus 是基于 [Chevey339/kelivo](https://github.com/Chevey339/kelivo) �
 | 助手配置 | 主要依靠用户手动进入设置页编辑 | 新增神经权能网关，允许获得授权的助手在对话中执行配置导入、修改与撤销 |
 | 助手权限 | 普通助手设置 | 新增“允许该助手启用神经权能网关”的权限开关，默认关闭 |
 | 技能系统 | 无独立 Skills 工作流 | 新增技能模型、导入器、技能页、助手技能绑定和触发注入 |
-| MCP 工具 | 原有 MCP 接入与内置 Fetch | 新增内置 Files、Images、GitHub 等 MCP 服务，并优化工具折叠与中文说明 |
+| MCP 工具 | 原有 MCP 接入与内置 Fetch | 新增内置 Files、Images、GitHub、SO/ELF 逆向分析等 MCP 服务，并优化工具折叠与中文说明 |
 | GitHub 工具 | 偏只读/基础能力 | 新增分组式写入工具，覆盖仓库、分支、文件、Issue、PR、Release、Actions、Secrets、Variables 等能力 |
 | 搜索 | 多 API 搜索服务 | 新增本地混合搜索，聚合 Bing Local、DuckDuckGo、百度、搜狗、360，带过滤、去重和排序 |
 | 移动端导入 | 手动导入为主 | 支持对话中从文本、上一条生成内容、分享文件等来源导入到目标配置 |
@@ -51,7 +51,24 @@ Kelivo Plus 是基于 [Chevey339/kelivo](https://github.com/Chevey339/kelivo) �
 - `@kelivo/files`：本地文件读取、写入、目录浏览等文件能力。
 - `@kelivo/images`：图片理解、图片任务辅助能力。
 - `@kelivo/github`：GitHub 仓库、文件、Issue、PR、Release、Actions、Secrets、Variables 等能力。
+- `@kelivo/so`：纯 Dart 实现的 ELF/.so 逆向分析工具集（共 20 个工具），无需额外原生依赖。
 - 内置 MCP 运行在 App 内部，不需要用户额外启动 Node/Python 服务。
+
+### SO/ELF 逆向分析工具
+
+`@kelivo/so` 提供一套完整的内存级 ELF 分析工具，新建助手时默认启用：
+
+| 类别 | 工具 |
+| --- | --- |
+| 基础分析 | `so_parse_header`、`so_list_sections`、`so_list_symbols`、`so_list_imports`、`so_list_exports`、`so_list_dependencies` |
+| 内容提取 | `so_list_strings`、`so_read_hexdump`、`so_section_details` |
+| 段与重定位 | `so_analyze_segments`、`so_analyze_dynamic`、`so_analyze_relocations` |
+| 搜索 | `so_search_bytes`、`so_search_strings`、`so_section_search` |
+| 符号查询 | `so_symbol_lookup` |
+| 地址转换 | `so_addr_to_offset`、`so_offset_to_addr` |
+| 对比与注释 | `so_compare_headers`、`so_list_notes` |
+
+所有工具支持传入本地文件 `path` 或 `base64` 编码的字节数据。解析器为纯 Dart 实现，完全在进程内运行，不依赖 Rizin、LIEF 等外部原生库。
 
 ### GitHub 写入工具
 
