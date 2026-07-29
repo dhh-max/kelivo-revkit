@@ -50,8 +50,8 @@ class KelivoSoRequestPayload {
       throw ArgumentError('Invalid arguments: expected object with path|base64');
     }
     final map = args.cast<String, dynamic>();
-    final limit = _asInt(map['limit'], 1000).clamp(1, 100000);
-    final minLength = _asInt(map['min_length'], 4).clamp(1, 256);
+    final int limit = _asInt(map['limit'], 1000).clamp(1, 100000) as int;
+    final int minLength = _asInt(map['min_length'], 4).clamp(1, 256) as int;
 
     final b64 = (map['base64'] ?? '').toString().trim();
     if (b64.isNotEmpty) {
@@ -572,9 +572,9 @@ class KelivoSoAnalyzer {
   static Map<String, dynamic> hexdump(KelivoSoRequestPayload p, Map<String, dynamic> args) {
     try {
       final elf = _open(p);
-      final offset = _asInt(args['offset'], 0).clamp(0, p.bytes.length - 1);
-      final size = _asInt(args['size'], 512).clamp(1, 4096);
-      final end = (offset + size).clamp(0, p.bytes.length);
+      final int offset = _asInt(args['offset'], 0).clamp(0, p.bytes.length - 1) as int;
+      final int size = _asInt(args['size'], 512).clamp(1, 4096) as int;
+      final int end = (offset + size).clamp(0, p.bytes.length) as int;
       final sb = StringBuffer();
       sb.writeln('Hex dump at offset 0x${offset.toRadixString(16)}, $end bytes:');
       sb.writeln('      00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F  ASCII');
@@ -587,7 +587,7 @@ class KelivoSoAnalyzer {
           ascii.write(byte >= 0x20 && byte < 0x7f ? String.fromCharCode(byte) : '.');
         }
         if (end - i < 16) {
-          line.write('  ' * (16 - (end - i)));
+          line.write('   ' * (16 - (end - i)));
         }
         sb.writeln('$line ${ascii.toString().padRight(16)}');
       }
@@ -762,7 +762,7 @@ class KelivoSoAnalyzer {
       if (rawPattern.isEmpty) return _err('pattern is required');
       // Normalize: remove spaces, convert ?? to .
       final hex = rawPattern.replaceAll(RegExp(r'\s+'), '').toUpperCase();
-      final limit = _asInt(args['limit'], 50).clamp(1, 500);
+      final int limit = _asInt(args['limit'], 50).clamp(1, 500) as int;
       final sb = StringBuffer()
         ..writeln('Searching for pattern: $rawPattern (normalized: $hex)');
       // Build byte and mask arrays
@@ -812,7 +812,7 @@ class KelivoSoAnalyzer {
       if (secName.isEmpty) return _err('section name is required');
       final sec = elf.sectionByName(secName);
       if (sec == null) return _ok('Section "$secName" not found.');
-      final limit = _asInt(args['limit'], 256).clamp(1, 4096);
+      final int limit = _asInt(args['limit'], 256).clamp(1, 4096) as int;
       final dataOffset = sec.offset;
       final dataSize = sec.size;
       final showSize = dataSize > limit ? limit : dataSize;
@@ -845,8 +845,8 @@ class KelivoSoAnalyzer {
     try {
       final query = (args['query'] ?? '').toString().trim().toLowerCase();
       if (query.isEmpty) return _err('query is required');
-      final limit = _asInt(args['limit'], 100).clamp(1, 10000);
-      final minLen = _asInt(args['min_length'], 4).clamp(1, 256);
+      final int limit = _asInt(args['limit'], 100).clamp(1, 10000) as int;
+      final int minLen = _asInt(args['min_length'], 4).clamp(1, 256) as int;
       final bytes = p.bytes;
       final matches = <String>[];
       final sb = StringBuffer();
@@ -885,7 +885,7 @@ class KelivoSoAnalyzer {
     try {
       final nameQuery = (args['name'] ?? '').toString().trim().toLowerCase();
       if (nameQuery.isEmpty) return _err('name is required');
-      final limit = _asInt(args['limit'], 50).clamp(1, 500);
+      final int limit = _asInt(args['limit'], 50).clamp(1, 500) as int;
       final elf = _open(p);
       final results = <ElfSymbol>[];
       void collect(ElfSection? symsec, ElfSection? strsec) {
@@ -918,7 +918,7 @@ class KelivoSoAnalyzer {
       final rawPattern = (args['pattern'] ?? '').toString().trim();
       if (secName.isEmpty) return _err('section is required');
       if (rawPattern.isEmpty) return _err('pattern is required');
-      final limit = _asInt(args['limit'], 50).clamp(1, 500);
+      final int limit = _asInt(args['limit'], 50).clamp(1, 500) as int;
       final elf = _open(p);
       final sec = elf.sectionByName(secName);
       if (sec == null) return _ok('Section "$secName" not found.');
@@ -1104,6 +1104,14 @@ class KelivoSoAnalyzer {
       out.add(_PhdrEntry(type: pType, offset: pOffset, vaddr: pVaddr, filesz: pFilesz, memsz: pMemsz));
     }
     return out;
+  }
+
+  static int _asInt(dynamic v, int defaultValue) {
+    if (v == null) return defaultValue;
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    final parsed = int.tryParse(v.toString());
+    return parsed ?? defaultValue;
   }
 
   static int _align4(int v) => (v + 3) & ~3;
