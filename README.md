@@ -13,7 +13,7 @@ Kelivo Plus is a modified open-source build based on [Chevey339/kelivo](https://
 | Assistant configuration | Mostly manual settings pages | 神经权能网关 can import and edit configuration from chat after explicit assistant authorization |
 | Assistant permissions | Standard assistant settings | Adds an opt-in 神经权能网关 permission switch for app configuration control |
 | Skills | No standalone reusable Skills workflow | Adds Skill model, importer, Skills page, assistant binding, and trigger-based injection |
-| Built-in MCP | MCP integration with built-in Fetch | Adds built-in Files, Images, GitHub, and in-memory MCP services |
+| Built-in MCP | MCP integration with built-in Fetch | Adds built-in Files, Images, GitHub, SO/ELF reverse-engineering, and in-memory MCP services |
 | GitHub tools | Read-oriented or basic tooling | Adds grouped write-capable tools for repos, files, issues, PRs, releases, actions, secrets, and variables |
 | Search | Multiple API-backed providers | Adds API-key-free local hybrid search using Bing Local, DuckDuckGo, Baidu, Sogou, and 360 with filtering/ranking |
 | Mobile import flow | Mostly manual import | Supports chat-driven import from text, previous generated content, shared files, and user instructions |
@@ -52,6 +52,23 @@ Create a world book from this setting document and use character and location na
 - `@kelivo/files`: local file read/write and directory operations.
 - `@kelivo/images`: image-oriented helper tools.
 - `@kelivo/github`: GitHub repository, file, issue, PR, release, Actions, secrets, and variables operations.
+- `@kelivo/so`: pure-Dart ELF/.so reverse engineering toolkit (20 tools). No native dependencies required.
+
+### SO/ELF Reverse Engineering Tools
+
+`@kelivo/so` provides a comprehensive set of in-memory ELF analysis tools, enabled by default for all new assistants:
+
+| Category | Tools |
+| --- | --- |
+| Basic analysis | `so_parse_header`, `so_list_sections`, `so_list_symbols`, `so_list_imports`, `so_list_exports`, `so_list_dependencies` |
+| Content extraction | `so_list_strings`, `so_read_hexdump`, `so_section_details` |
+| Segments & relocations | `so_analyze_segments`, `so_analyze_dynamic`, `so_analyze_relocations` |
+| Search | `so_search_bytes`, `so_search_strings`, `so_section_search` |
+| Symbol query | `so_symbol_lookup` |
+| Address conversion | `so_addr_to_offset`, `so_offset_to_addr` |
+| Compare & notes | `so_compare_headers`, `so_list_notes` |
+
+All tools accept either a local file `path` or `base64`-encoded bytes. No external native libraries (Rizin, LIEF, etc.) are needed — the parser is implemented in pure Dart and runs entirely in-process.
 
 ### GitHub Write Tools
 
