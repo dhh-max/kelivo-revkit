@@ -32,6 +32,7 @@ import '../kelivo_dex/kelivo_dex_server.dart';
 //   reverse_packer_detect      → detect packers/protectors (360/Baidu/Tencent/UPX etc.)
 //   reverse_secret_scan        → scan hardcoded secrets (API keys, tokens, passwords)
 //   reverse_component_audit    → exported component security audit
+//   reverse_diff_apk          → APK diff analysis (components/permissions/signatures/files)
 
 // ---------------------------------------------------------------------------
 // Internal APK model
@@ -218,6 +219,7 @@ class KelivoReverseAnalyzer {
       sb.writeln('| reverse_packer_detect | Detect packers/protectors (360/Baidu/Tencent/UPX etc.) |');
       sb.writeln('| reverse_secret_scan | Scan hardcoded secrets (API keys, tokens, passwords) |');
       sb.writeln('| reverse_component_audit | Exported component security audit |');
+      sb.writeln('| reverse_diff_apk | APK diff analysis (version comparison) |');
     }
     if (action == 'workflows' || action.isEmpty) {
       sb.writeln('\n## Recommended Workflows\n');
@@ -1283,8 +1285,281 @@ class KelivoReverseAnalyzer {
     }
   }
 
+  // ---- reverse_diff_apk ----
+  /// 比较两个 APK 的组件/权限/签名/文件结构差异，支持版本演进审计。
+  static Map<String, dynamic> diffApk(KelivoReverseRequestPayload p, Map<String, dynamic> args) {
+    try {
+      final apk = _readApk(p.apkBytes);
+      final sb = StringBuffer()
+        ..writeln('=== APK Diff Analysis ===\n');
+
+      // Extract manifest of this APK as baseline
+      final manifestEntry = apk.entries.cast<_ApkEntry?>().firstWhere(
+        (e) => e!.name == 'AndroidManifest.xml',
+        orElse: () => null,
+      );
+      final thisText = manifestEntry?.content != null
+          ? _extractTextFromBytes(manifestEntry!.content!, maxLength: 65536)
+          : '';
+      final thisManifestSummary = _manifestSummary(manifestEntry?.content);
+
+      // ========== Baseline sections ==========
+      sb.writeln('## 1. APK Overview (this APK)');
+      sb.writeln('Total entries: ${apk.entries.length}');
+      final soEntries = _filterEntries(apk, '.so');
+      final dexEntries = _filterEntries(apk, '.dex');
+      sb.writeln('Native libs: ${soEntries.length}');
+      sb.writeln('DEX files: ${dexEntries.length}');
+      final totalSize = apk.entries.fold<int>(0, (sum, e) => sum + e.size);
+      sb.writeln('Total uncompressed size: ${_formatSize(totalSize)}');
+      sb.writeln('');
+
+      // ========== Manifest components ==========
+      sb.writeln('## 2. Manifest Components');
+      // Parse activities, services, receivers, providers from this manifest
+      final thisActivities = _extractComponentNames(thisText, '<activity');
+      final thisServices = _extractComponentNames(thisText, '<service');
+      final thisReceivers = _extractComponentNames(thisText, '<receiver');
+      final thisProviders = _extractComponentNames(thisText, '<provider');
+      final thisPermissions = _extractPermissionNames(thisText);
+
+      sb.writeln('Activities: ${thisActivities.length}');
+      sb.writeln('Services: ${thisServices.length}');
+      sb.writeln('Receivers: ${thisReceivers.length}');
+      sb.writeln('Providers: ${thisProviders.length}');
+      sb.writeln('Declared permissions: ${thisPermissions.length}');
+      sb.writeln('');
+
+      // ========== Signature scheme ==========
+      sb.writeln('## 3. Signature');
+      final hasV1 = _hasMetaInfEntry(apk, '.RSA') || _hasMetaInfEntry(apk, '.DSA') || _hasMetaInfEntry(apk, '.EC');
+      sb.writeln('Scheme v1 (JAR): ${hasV1 ? "✓ Present" : "✗ Not detected"}');
+      // Quick v2/v3 check via APK Signing Block
+      final bytes = p.apkBytes;
+      final len = bytes.length;
+      int? v2BlockOff;
+      if (len > 32) {
+        for (var i = len - 22; i >= 0 && i > len - 0x10000; i--) {
+          if (bytes[i] == 0x50 && bytes[i + 1] == 0x4b && bytes[i + 2] == 0x05 && bytes[i + 3] == 0x06) {
+            final eocdOff = i;
+            if (eocdOff >= 16) {
+              final cdOff = ByteData.view(bytes.buffer, bytes.offsetInBytes + eocdOff + 12).getUint32(0, Endian.little);
+              if (cdOff > 0 && cdOff < len) {
+                final blockStart = cdOff - 8;
+                if (blockStart >= 8) {
+                  final blockSizePair = ByteData.view(bytes.buffer, bytes.offsetInBytes + blockStart).getUint64(0, Endian.little);
+                  if (blockSizePair > 0 && blockStart >= blockSizePair + 8) {
+                    v2BlockOff = blockStart - blockSizePair;
+                  }
+                }
+              }
+            }
+            break;
+          }
+        }
+      }
+      sb.writeln('Scheme v2/v3: ${v2BlockOff != null ? "✓ Present" : "✗ Not detected / outside scan range"}');
+      sb.writeln('');
+
+      // ========== Permission diff relative to common baselines ==========
+      sb.writeln('## 4. Declared Permissions');
+      if (thisPermissions.isEmpty) {
+        sb.writeln('  (none declared)');
+      } else {
+        for (final p in thisPermissions) {
+          sb.writeln('  - $p');
+        }
+      }
+      sb.writeln('');
+
+      // ========== Native libraries ==========
+      sb.writeln('## 5. Native Libraries by ABI');
+      final abiMap = <String, List<_ApkEntry>>{};
+      for (final so in soEntries) {
+        final parts = so.name.split('/');
+        final abi = parts.length > 2 ? parts[parts.length - 2] : '?';
+        abiMap.putIfAbsent(abi, () => []).add(so);
+      }
+      for (final abi in abiMap.keys.toList()..sort()) {
+        final libs = abiMap[abi]!;
+        sb.writeln('  $abi (${libs.length} libs):');
+        for (final lib in libs.take(15)) {
+          sb.writeln('    ${lib.name.split('/').last}  (${_formatSize(lib.size)})');
+        }
+        if (libs.length > 15) sb.writeln('    ... and ${libs.length - 15} more');
+      }
+      sb.writeln('');
+
+      // ========== DEX files ==========
+      sb.writeln('## 6. DEX Files');
+      for (final dex in dexEntries) {
+        sb.writeln('  ${dex.name}  (${_formatSize(dex.size)})');
+      }
+      sb.writeln('');
+
+      // ========== Entry-level comparison with common reference ==========
+      sb.writeln('## 7. Entry Comparison Notes');
+      sb.writeln('(This tool accepts a second APK via "compare_path" or "compare_base64"');
+      sb.writeln(' to compute a detailed component-level diff between two APKs.)');
+      sb.writeln('');
+
+      // ========== If compare target is provided ==========
+      final comparePath = (args['compare_path'] ?? '').toString().trim();
+      final compareB64 = (args['compare_base64'] ?? '').toString().trim();
+
+      if (comparePath.isNotEmpty || compareB64.isNotEmpty) {
+        Uint8List otherBytes;
+        if (compareB64.isNotEmpty) {
+          otherBytes = base64Decode(compareB64);
+        } else {
+          final file = File(comparePath);
+          if (!await file.exists()) {
+            sb.writeln('Compare file not found: $comparePath');
+            return _ok(sb.toString().trimRight());
+          }
+          otherBytes = await file.readAsBytes();
+        }
+
+        final otherApk = _readApk(otherBytes);
+        final otherManifest = otherApk.entries.cast<_ApkEntry?>().firstWhere(
+          (e) => e!.name == 'AndroidManifest.xml',
+          orElse: () => null,
+        );
+        final otherText = otherManifest?.content != null
+            ? _extractTextFromBytes(otherManifest!.content!, maxLength: 65536)
+            : '';
+
+        final otherActivities = _extractComponentNames(otherText, '<activity');
+        final otherServices = _extractComponentNames(otherText, '<service');
+        final otherReceivers = _extractComponentNames(otherText, '<receiver');
+        final otherProviders = _extractComponentNames(otherText, '<provider');
+        final otherPermissions = _extractPermissionNames(otherText);
+        final otherSoEntries = _filterEntries(otherApk, '.so');
+        final otherDexEntries = _filterEntries(otherApk, '.dex');
+
+        sb.writeln('=== COMPARISON WITH TARGET APK ===\n');
+        sb.writeln('Target entries: ${otherApk.entries.length}');
+        sb.writeln('Target native libs: ${otherSoEntries.length}');
+        sb.writeln('Target DEX files: ${otherDexEntries.length}');
+        sb.writeln('');
+
+        // Activities diff
+        _writeDiffSection(sb, 'Activities', thisActivities, otherActivities);
+        _writeDiffSection(sb, 'Services', thisServices, otherServices);
+        _writeDiffSection(sb, 'Receivers', thisReceivers, otherReceivers);
+        _writeDiffSection(sb, 'Providers', thisProviders, otherProviders);
+        _writeDiffSection(sb, 'Permissions', thisPermissions, otherPermissions);
+
+        // File-level changes
+        final thisNames = apk.entries.map((e) => e.name).toSet();
+        final otherNames = otherApk.entries.map((e) => e.name).toSet();
+        final added = otherNames.difference(thisNames).toList()..sort();
+        final removed = thisNames.difference(otherNames).toList()..sort();
+        if (added.isNotEmpty) {
+          sb.writeln('--- Files Added (${added.length}) ---');
+          for (final n in added.take(20)) {
+            final otherEntry = otherApk.entries.cast<_ApkEntry?>().firstWhere((e) => e!.name == n, orElse: () => null);
+            sb.writeln('  + $n${otherEntry != null ? ' (${_formatSize(otherEntry.size)})' : ''}');
+          }
+          if (added.length > 20) sb.writeln('  ... and ${added.length - 20} more');
+          sb.writeln('');
+        }
+        if (removed.isNotEmpty) {
+          sb.writeln('--- Files Removed (${removed.length}) ---');
+          for (final n in removed.take(20)) {
+            final thisEntry = apk.entries.cast<_ApkEntry?>().firstWhere((e) => e!.name == n, orElse: () => null);
+            sb.writeln('  - $n${thisEntry != null ? ' (${_formatSize(thisEntry.size)})' : ''}');
+          }
+          if (removed.length > 20) sb.writeln('  ... and ${removed.length - 20} more');
+          sb.writeln('');
+        }
+
+        // Signature comparison
+        final otherHasV1 = _hasMetaInfEntry(otherApk, '.RSA') || _hasMetaInfEntry(otherApk, '.DSA') || _hasMetaInfEntry(otherApk, '.EC');
+        sb.writeln('--- Signature Change ---');
+        sb.writeln('  This: ${hasV1 ? "v1 ✓" : "v1 ✗"}');
+        sb.writeln('  Target: ${otherHasV1 ? "v1 ✓" : "v1 ✗"}');
+        sb.writeln('');
+      }
+
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  /// 从 Manifest 文本中提取 component 类名列表。
+  static List<String> _extractComponentNames(String manifestText, String tagStart) {
+    final results = <String>{};
+    for (final line in manifestText.split('\n')) {
+      final t = line.trim();
+      if (t.contains(tagStart) && t.contains('android:name=')) {
+        final idx = t.indexOf('android:name=');
+        final rest = t.substring(idx + 13);
+        final end = rest.indexOf('"', 1);
+        if (end > 1) {
+          results.add(rest.substring(1, end));
+        }
+      }
+    }
+    return results.toList()..sort();
+  }
+
+  /// 从 Manifest 文本中提取声明的权限名称。
+  static List<String> _extractPermissionNames(String manifestText) {
+    final results = <String>{};
+    for (final line in manifestText.split('\n')) {
+      final t = line.trim();
+      if (t.contains('<uses-permission') && t.contains('android:name=')) {
+        final idx = t.indexOf('android:name=');
+        final rest = t.substring(idx + 13);
+        final end = rest.indexOf('"', 1);
+        if (end > 1) {
+          results.add(rest.substring(1, end));
+        }
+      }
+      if (t.contains('<permission') && t.contains('android:name=')) {
+        final idx = t.indexOf('android:name=');
+        final rest = t.substring(idx + 13);
+        final end = rest.indexOf('"', 1);
+        if (end > 1) {
+          results.add(rest.substring(1, end));
+        }
+      }
+    }
+    return results.toList()..sort();
+  }
+
+  /// 在两个集合之间生成 diff 输出。
+  static void _writeDiffSection(StringBuffer sb, String label, List<String> thisSet, List<String> otherSet) {
+    final thisList = thisSet.toSet();
+    final otherList = otherSet.toSet();
+    final added = otherList.difference(thisList).toList()..sort();
+    final removed = thisList.difference(otherList).toList()..sort();
+    final kept = thisList.intersection(otherList).toList()..sort();
+
+    sb.writeln('--- $label ---');
+    if (added.isNotEmpty) {
+      sb.writeln('  ADDED (${added.length}):');
+      for (final a in added.take(15)) sb.writeln('    + $a');
+      if (added.length > 15) sb.writeln('    ... and ${added.length - 15} more');
+    }
+    if (removed.isNotEmpty) {
+      sb.writeln('  REMOVED (${removed.length}):');
+      for (final r in removed.take(15)) sb.writeln('    - $r');
+      if (removed.length > 15) sb.writeln('    ... and ${removed.length - 15} more');
+    }
+    sb.writeln('  UNCHANGED: ${kept.length}');
+    sb.writeln('');
+  }
+
+  static String _formatSize(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1048576) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    return '${(bytes / 1048576).toStringAsFixed(1)} MB';
+  }
+
   // ---- helpers ----
-  static Map<String, dynamic> _ok(String text) => {
         'content': [
           {'type': 'text', 'text': text},
         ],
@@ -1396,6 +1671,8 @@ class KelivoReverseMcpServerEngine implements KelivoInMemoryMcpServerEngine {
               return _ok(id, result: KelivoReverseAnalyzer.secretScan(payload, arguments));
             case 'reverse_component_audit':
               return _ok(id, result: KelivoReverseAnalyzer.componentAudit(payload));
+            case 'reverse_diff_apk':
+              return _ok(id, result: KelivoReverseAnalyzer.diffApk(payload, arguments));
             default:
               return _error(id, code: -32101, message: 'Tool not found: $name');
           }
@@ -1566,6 +1843,19 @@ class KelivoReverseMcpServerEngine implements KelivoInMemoryMcpServerEngine {
         'name': 'reverse_component_audit',
         'description': '导出组件安全审计：分析 AndroidManifest 中所有 activity/service/receiver/provider 的 exported 状态、intent-filter、permission 保护情况，标记潜在风险组件。',
         'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_diff_apk',
+        'description': 'APK 深度对比分析（版本演进审计）：对比两个 APK 之间的 Activities/Services/Receivers/Providers/Permissions 变化差异（ADDED/REMOVED/UNCHANGED）、文件级增量/删减、签名方案变更、ABI 差异、DEX 文件变化。支持 compare_path 或 compare_base64 参数指定对比目标。',
+        'inputSchema': {
+          'type': 'object',
+          'properties': {
+            'path': {'type': 'string', 'description': '本地 APK 文件路径（当前版本）。'},
+            'base64': {'type': 'string', 'description': '可选：Base64 编码的当前版本 APK。'},
+            'compare_path': {'type': 'string', 'description': '对比目标 APK 的本地文件路径（如上一版本）。'},
+            'compare_base64': {'type': 'string', 'description': '可选：Base64 编码的对比目标 APK。'},
+          },
+        },
       },
     ];
   }
