@@ -15,19 +15,23 @@ import '../kelivo_dex/kelivo_dex_server.dart';
 /// Serves as the entry-point for APK static analysis. Uses @kelivo/so and
 /// @kelivo/dex under the hood for deep analysis of specific targets.
 ///
-/// Tools (12):
-///   reverse_meta_info          → tool self-description & recommended workflows
-///   reverse_open_apk           → open APK, list manifest summary, dex & native libs
-///   reverse_list_targets       → enumerate all analysis targets in the APK
-///   reverse_manifest_summary   → parse AndroidManifest.xml (package, components, permissions)
-///   reverse_list_native_libs   → list all .so files inside APK
-///   reverse_list_dex_files     → list all classes*.dex files
-///   reverse_analyze_so         → aggregated header/import/export/dep/string analysis for a .so
-///   reverse_analyze_dex        → aggregated header/class/method/string analysis for a .dex
-///   reverse_find_jni_bridges   → locate JNI registration clues (JNI_OnLoad, Java_*, etc.)
-///   reverse_search_strings     → cross-target string search (APK metadata + so strings + dex strings)
-///   reverse_report             → structured reverse engineering report
-///   reverse_quick_triage       → one-shot quick triage: entry, permissions, so, dex, JNI clues, suspicious strings
+/// Tools (16):
+//   reverse_meta_info          → tool self-description & recommended workflows
+//   reverse_open_apk           → open APK, list manifest summary, dex & native libs
+//   reverse_list_targets       → enumerate all analysis targets in the APK
+//   reverse_manifest_summary   → parse AndroidManifest.xml (package, components, permissions)
+//   reverse_list_native_libs   → list all .so files inside APK
+//   reverse_list_dex_files     → list all classes*.dex files
+//   reverse_analyze_so         → aggregated header/import/export/dep/string analysis for a .so
+//   reverse_analyze_dex        → aggregated header/class/method/string analysis for a .dex
+//   reverse_find_jni_bridges   → locate JNI registration clues (JNI_OnLoad, Java_*, etc.)
+//   reverse_search_strings     → cross-target string search (APK metadata + so strings + dex strings)
+//   reverse_report             → structured reverse engineering report
+//   reverse_quick_triage       → one-shot quick triage: entry, permissions, so, dex, JNI clues, suspicious strings
+//   reverse_signature_audit    → APK signature scheme & certificate analysis
+//   reverse_packer_detect      → detect packers/protectors (360/Baidu/Tencent/UPX etc.)
+//   reverse_secret_scan        → scan hardcoded secrets (API keys, tokens, passwords)
+//   reverse_component_audit    → exported component security audit
 
 // ---------------------------------------------------------------------------
 // Internal APK model
@@ -44,6 +48,12 @@ class _ApkEntry {
 class _ApkInfo {
   final List<_ApkEntry> entries;
   _ApkInfo(this.entries);
+}
+
+class _SecretPattern {
+  final String pattern;
+  final String label;
+  _SecretPattern(this.pattern, this.label);
 }
 
 // ---------------------------------------------------------------------------
@@ -204,6 +214,10 @@ class KelivoReverseAnalyzer {
       sb.writeln('| reverse_search_strings | Cross-target string search |');
       sb.writeln('| reverse_report | Structured reverse engineering report |');
       sb.writeln('| reverse_quick_triage | One-shot quick triage |');
+      sb.writeln('| reverse_signature_audit | APK signature scheme & certificate analysis |');
+      sb.writeln('| reverse_packer_detect | Detect packers/protectors (360/Baidu/Tencent/UPX etc.) |');
+      sb.writeln('| reverse_secret_scan | Scan hardcoded secrets (API keys, tokens, passwords) |');
+      sb.writeln('| reverse_component_audit | Exported component security audit |');
     }
     if (action == 'workflows' || action.isEmpty) {
       sb.writeln('\n## Recommended Workflows\n');
@@ -211,7 +225,8 @@ class KelivoReverseAnalyzer {
       sb.writeln('2. **Deep analysis**: reverse_open_apk → reverse_analyze_dex → reverse_analyze_so');
       sb.writeln('3. **JNI investigation**: reverse_open_apk → reverse_find_jni_bridges → reverse_analyze_so');
       sb.writeln('4. **String sweep**: reverse_search_strings (cross-target)');
-      sb.writeln('5. **Report**: reverse_report (after data collection)');
+      sb.writeln('5. **Security audit**: reverse_signature_audit → reverse_packer_detect → reverse_secret_scan → reverse_component_audit');
+      sb.writeln('6. **Report**: reverse_report (after data collection)');
     }
     if (action == 'describe' || action.isEmpty) {
       sb.writeln('\n## About\n');
@@ -739,6 +754,535 @@ class KelivoReverseAnalyzer {
     }
   }
 
+  // ---- reverse_signature_audit ----
+  /// 解析 APK 签名信息（META-INF/*.RSA/*.DSA/*.EC 证书 + APK 签名方案检测）。
+  static Map<String, dynamic> signatureAudit(KelivoReverseRequestPayload p) {
+    try {
+      final apk = _readApk(p.apkBytes);
+      final sb = StringBuffer()
+        ..writeln('=== APK Signature Audit ===\n');
+
+      // Detect signature scheme by checking APK Signing Block
+      // (APK v2/v3 block is located before Central Directory at end of ZIP)
+      final bytes = p.apkBytes;
+      final len = bytes.length;
+      int? v2BlockOffset;
+      if (len > 32) {
+        // End of Central Directory: last 22 bytes minimum
+        for (var i = len - 22; i >= 0 && i > len - 0x10000; i--) {
+          if (bytes[i] == 0x50 && bytes[i + 1] == 0x4b && bytes[i + 2] == 0x05 && bytes[i + 3] == 0x06) {
+            // EOCD found at i; APK Signing Block is before the Central Directory offset
+            final eocdOff = i;
+            if (eocdOff >= 16) {
+              final cdOff = ByteData.view(bytes.buffer, bytes.offsetInBytes + eocdOff + 12).getUint32(0, Endian.little);
+              if (cdOff > 0 && cdOff < len) {
+                // Magic number for APK Signing Block: 0x504b0607 before the Central Directory
+                final blockStart = cdOff - 8;
+                if (blockStart >= 8) {
+                  final blockSizePair = ByteData.view(bytes.buffer, bytes.offsetInBytes + blockStart).getUint64(0, Endian.little);
+                  final blockSize = blockSizePair; // second value is same
+                  if (blockSize > 0 && blockStart >= blockSize + 8) {
+                    v2BlockOffset = blockStart - blockSize;
+                  }
+                }
+              }
+            }
+            break;
+          }
+        }
+      }
+
+      sb.writeln('APK Signature Scheme:');
+      sb.writeln('  Scheme v1 (JAR):  ${_hasMetaInfEntry(apk, '.RSA') || _hasMetaInfEntry(apk, '.DSA') || _hasMetaInfEntry(apk, '.EC') ? '✓ Present' : '✗ Not detected'}');
+      sb.writeln('  Scheme v2/v3:    ${v2BlockOffset != null ? '✓ Present (block at 0x${v2BlockOffset.toRadixString(16)})' : '✗ Not detected / outside scan range'}');
+
+      sb.writeln('');
+
+      // Parse META-INF certificates
+      final certEntries = <_ApkEntry>[];
+      for (final e in apk.entries) {
+        final name = e.name.toUpperCase();
+        if (name.startsWith('META-INF/') && (name.endsWith('.RSA') || name.endsWith('.DSA') || name.endsWith('.EC') || name.endsWith('.SF'))) {
+          certEntries.add(e);
+        }
+      }
+
+      if (certEntries.isEmpty) {
+        sb.writeln('No META-INF certificate files found (unsigned APK?).');
+      } else {
+        sb.writeln('META-INF Certificate Files (${certEntries.length}):');
+        for (final e in certEntries) {
+          final fname = e.name.split('/').last;
+          sb.writeln('  $fname  (${e.size} bytes)');
+        }
+
+        // Attempt to read issuer/subject from .RSA/.DSA/.EC (PKCS7 / DER)
+        for (final e in certEntries) {
+          final name = e.name.toUpperCase();
+          if (!name.endsWith('.RSA') && !name.endsWith('.DSA') && !name.endsWith('.EC')) continue;
+          final content = e.content;
+          if (content == null || content.length < 20) continue;
+          final fname = e.name.split('/').last;
+          sb.writeln('\n--- $fname ---');
+
+          // Heuristic DER parsing: search for PrintableString/UTF8String sequences
+          // that look like DN fields (CN=, O=, OU=, L=, etc.)
+          final text = _extractTextFromBytes(content, maxLength: 8192);
+          final dnClues = <String>[];
+          for (final line in text.split('\n')) {
+            final t = line.trim();
+            if (t.contains('CN=') || t.contains('O=') || t.contains('OU=') ||
+                t.contains('L=') || t.contains('ST=') || t.contains('C=') ||
+                t.contains('EMAILADDRESS') || t.contains('SERIALNUMBER') ||
+                t.contains('Not Before') || t.contains('Not After')) {
+              dnClues.add(t);
+            }
+          }
+          if (dnClues.isNotEmpty) {
+            for (final clue in dnClues.take(20)) {
+              sb.writeln('  $clue');
+            }
+          } else {
+            // Fallback: show raw hex dump of first 128 bytes of cert
+            final showLen = content.length > 128 ? 128 : content.length;
+            final hexStr = content.sublist(0, showLen).map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
+            sb.writeln('  (DER/PKCS7 blob, first $showLen bytes: $hexStr${content.length > 128 ? '...' : ''})');
+          }
+        }
+
+        // Parse .SF file for digest entries
+        for (final e in certEntries) {
+          if (!e.name.toUpperCase().endsWith('.SF')) continue;
+          final content = e.content;
+          if (content == null) continue;
+          final text = _extractTextFromBytes(content, maxLength: 4096);
+          final digestLines = text.split('\n').where((l) => l.contains('-Digest') || l.contains('Name:')).toList();
+          if (digestLines.isNotEmpty) {
+            sb.writeln('\n--- ${e.name.split('/').last} (${digestLines.length} digest entries) ---');
+            for (final d in digestLines.take(25)) {
+              sb.writeln('  $d');
+            }
+          }
+        }
+      }
+
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  static bool _hasMetaInfEntry(_ApkInfo apk, String suffix) {
+    final upperSuffix = suffix.toUpperCase();
+    return apk.entries.any((e) {
+      final name = e.name.toUpperCase();
+      return name.startsWith('META-INF/') && name.endsWith(upperSuffix);
+    });
+  }
+
+  // ---- reverse_packer_detect ----
+  /// 检测 APK 是否被加固/加壳（基于已知 Packer 指纹和可疑特征）。
+  static Map<String, dynamic> packerDetect(KelivoReverseRequestPayload p) {
+    try {
+      final apk = _readApk(p.apkBytes);
+      final bytes = p.apkBytes;
+      final sb = StringBuffer()
+        ..writeln('=== Packer / Protector Detection ===\n');
+
+      final findings = <String>[];
+
+      // Check for known packer artifacts in APK entries
+      final allNames = apk.entries.map((e) => e.name).toList();
+      final allNamesUpper = allNames.map((n) => n.toUpperCase()).toList();
+
+      // Tencent Legacy (MSDK / soso)
+      if (allNamesUpper.any((n) => n.contains('LIBTPOS') || n.contains('LIBTPROTECT') || n.contains('TENCENT'))) {
+        findings.add('⚠️ Tencent Legacy Packer (libtpos/libtprotect)');
+      }
+      // 360
+      if (allNamesUpper.any((n) => n.contains('LIBJIAGU') || n.contains('LIB360') || n.contains('QIHOO'))) {
+        findings.add('⚠️ Qihoo 360 Packer (libjiagu/lib360)');
+      }
+      // Baidu
+      if (allNamesUpper.any((n) => n.contains('BAIDUPROTECT') || n.contains('LIBBAIDU'))) {
+        findings.add('⚠️ Baidu Packer');
+      }
+      // Ali (Taobao / Alipay)
+      if (allNamesUpper.any((n) => n.contains('ALIPROTECT') || n.contains('LIBAVMP') || n.contains('LIBAPSE'))) {
+        findings.add('⚠️ Alibaba Packer (libavmp/libapse)');
+      }
+      // Bangcle / SecNeo
+      if (allNamesUpper.any((n) => n.contains('BANGCLE') || n.contains('SECNEO') || n.contains('LIBSEPNEO'))) {
+        findings.add('⚠️ Bangcle / SecNeo Packer');
+      }
+      // NetEase
+      if (allNamesUpper.any((n) => n.contains('LIBMAA') || n.contains('NETEASE') || n.contains('HEXIN'))) {
+        findings.add('⚠️ NetEase Packer');
+      }
+      // Tencent Legu
+      if (allNamesUpper.any((n) => n.contains('LEGUS') || n.contains('LIBLEGU') || n.contains('SHELL'))) {
+        findings.add('⚠️ Tencent Legu Packer');
+      }
+      // Ijiami
+      if (allNamesUpper.any((n) => n.contains('IJIAMI') || n.contains('LIBIJIAMI'))) {
+        findings.add('⚠️ Ijiami Packer');
+      }
+
+      // Check for suspicious files that indicate packing
+      // 1. Stub DEX (very small classes.dex with main dex hidden)
+      for (final e in _filterEntries(apk, '.dex')) {
+        if (e.content != null && e.content!.length < 8096 && e.name == 'classes.dex') {
+          findings.add('⚠️ Suspiciously small classes.dex (${e.content!.length} bytes) — possible stub DEX');
+        }
+        // Check for multi-dex that contains packer stub
+        if (e.name.contains('classes') && e.content != null) {
+          final text = _extractTextFromBytes(e.content!, maxLength: 2048);
+          if (text.contains('com.secneo') || text.contains('com.stub') ||
+              text.contains('wrapper') || text.contains('ProxyApplication')) {
+            findings.add('⚠️ Stub/Proxy class detected in ${e.name}');
+          }
+        }
+      }
+
+      // 2. Abnormal entry points
+      final manifestEntry = apk.entries.cast<_ApkEntry?>().firstWhere(
+        (e) => e!.name == 'AndroidManifest.xml',
+        orElse: () => null,
+      );
+      if (manifestEntry?.content != null) {
+        final manifestText = _extractTextFromBytes(manifestEntry!.content!, maxLength: 4096);
+        final appComponents = manifestText.split('\n').where((l) =>
+            l.contains('android:name=') &&
+            (l.contains('application') || l.contains('activity') || l.contains('provider'))
+        ).toList();
+        for (final comp in appComponents) {
+          final t = comp.trim();
+          if (t.contains('com.secneo') || t.contains('stub') ||
+              t.contains('wrapper') || t.contains('Proxy') ||
+              t.contains('StubApp') || t.contains('ShellApplication')) {
+            findings.add('⚠️ Suspicious application/component entry: $t');
+          }
+        }
+      }
+
+      // 3. Check for anti-tamper / anti-debug libraries
+      if (allNames.any((n) => n.contains('libinject') || n.contains('libantidebug') ||
+          n.contains('antidebug') || n.contains('libtrace'))) {
+        findings.add('⚠️ Anti-debug / anti-tamper library detected');
+      }
+
+      // 4. ELF section anomalies (packed .so)
+      for (final so in _filterEntries(apk, '.so')) {
+        if (so.content == null || so.content!.length < 64) continue;
+        try {
+          final elf = ElfImage.parse(so.content!);
+          final text = _extractTextFromBytes(so.content!, maxLength: 2048);
+          // Check for UPX magic
+          if (text.contains('UPX!') || text.contains('UPX0') || text.contains('UPX1')) {
+            findings.add('⚠️ UPX compressed: ${so.name.split('/').last}');
+          }
+          // Check for very few sections with huge .text (packed)
+          if (elf.sections.length <= 3 && elf.sections.any((s) => s.name == '.text' && s.size > 500000)) {
+            findings.add('⚠️ Suspicious ELF structure (packed?): ${so.name.split('/').last} (${elf.sections.length} sections, large .text)');
+          }
+          // Check for custom section names often used by packers
+          for (final sec in elf.sections) {
+            if (sec.name.startsWith('.pack') || sec.name.startsWith('.upx') ||
+                sec.name.startsWith('.themida') || sec.name.startsWith('.vmp') ||
+                sec.name.startsWith('.guard') || sec.name == 'PACKER' ||
+                sec.name == 'protect' || sec.name == 'shrink') {
+              findings.add('⚠️ Packer section "${sec.name}" in ${so.name.split('/').last}');
+            }
+          }
+        } catch (_) {}
+      }
+
+      if (findings.isEmpty) {
+        sb.writeln('No known packer/protector fingerprints detected.');
+        sb.writeln('(Note: absence of fingerprints does not guarantee the APK is unpacked.)');
+      } else {
+        sb.writeln('Findings (${findings.length}):\n');
+        for (final f in findings) {
+          sb.writeln(f);
+        }
+      }
+
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  // ---- reverse_secret_scan ----
+  /// 扫描 APK 中可能硬编码的密钥、令牌和敏感字符串。
+  static Map<String, dynamic> secretScan(KelivoReverseRequestPayload p, Map<String, dynamic> args) {
+    try {
+      final apk = _readApk(p.apkBytes);
+      final sb = StringBuffer()
+        ..writeln('=== Hardcoded Secret Scan ===\n');
+
+      // Regex-style patterns (heuristic)
+      final patterns = <_SecretPattern>[
+        _SecretPattern(r'(?i)(api[_-]?key|apikey)\s*[:=]\s*["\']([^"\']{8,})["\']', 'API Key'),
+        _SecretPattern(r'(?i)(secret|secret[_-]?key)\s*[:=]\s*["\']([^"\']{8,})["\']', 'Secret Key'),
+        _SecretPattern(r'(?i)(token|access[_-]?token|auth[_-]?token)\s*[:=]\s*["\']([^"\']{8,})["\']', 'Token'),
+        _SecretPattern(r'(?i)(password|pwd|passwd)\s*[:=]\s*["\']([^"\']{4,})["\']', 'Password'),
+        _SecretPattern(r'["\'](?:sk-[a-zA-Z0-9]{20,})["\']', 'OpenAI API Key (sk-...)'),
+        _SecretPattern(r'["\'](?:AKIA[0-9A-Z]{16})["\']', 'AWS Access Key ID'),
+        _SecretPattern(r'(?i)(jwt|bearer)\s+([a-zA-Z0-9_\-]+\.[a-zA-Z0-9_\-]+\.[a-zA-Z0-9_\-]+)', 'JWT / Bearer Token'),
+        _SecretPattern(r'(?i)(private[_-]?key|rsa[_-]?private)\s*[:=]\s*["\']([^"\']{10,})["\']', 'Private Key'),
+        _SecretPattern(r'-----BEGIN\s+(RSA\s+)?PRIVATE\s+KEY-----', 'PEM Private Key'),
+        _SecretPattern(r'(?i)(aws[_-]?secret|aws_secret)\s*[:=]\s*["\']([^"\']{10,})["\']', 'AWS Secret Key'),
+        _SecretPattern(r'(?i)(firebase|fcm|gcm)[_-]?(key|sender|server)\s*[:=]\s*["\']([^"\']{8,})["\']', 'Firebase/FCM/GCM Key'),
+        _SecretPattern(r'(?i)(google[_-]?maps[_-]?api[_-]?key)\s*[:=]\s*["\']([^"\']{8,})["\']', 'Google Maps API Key'),
+        _SecretPattern(r'(?i)(stripe[_-]?(live|test|publishable|secret)[_-]?key)\s*[:=]\s*["\']([^"\']{8,})["\']', 'Stripe Key'),
+        _SecretPattern(r'(?i)(twilio|sendgrid|mailgun)[_-]?(api[_-]?key|sid|token)\s*[:=]\s*["\']([^"\']{8,})["\']', 'Twilio/SendGrid/Mailgun Key'),
+        _SecretPattern(r'(?i)(mongodb|postgres|mysql|jdbc|redis):\/\/[^\s"\'<>]{8,}', 'Database Connection String'),
+        _SecretPattern(r'(?i)(git[_-]?token|github[_-]?token|gitlab[_-]?token)\s*[:=]\s*["\']([^"\']{8,})["\']', 'Git Token'),
+      ];
+
+      int totalFindings = 0;
+      final limit = _asInt(args['limit'], 50).clamp(1, 200);
+
+      // Scan DEX files
+      for (final dex in _filterEntries(apk, '.dex')) {
+        if (dex.content == null) continue;
+        final text = _extractTextFromBytes(dex.content!, maxLength: 65536);
+        final matches = <String>[];
+        for (final p in patterns) {
+          final regex = RegExp(p.pattern);
+          for (final match in regex.allMatches(text)) {
+            final matched = match.group(0) ?? '';
+            if (matched.length > 4) {
+              matches.add('  [${p.label}] $matched');
+            }
+          }
+        }
+        if (matches.isNotEmpty) {
+          sb.writeln('--- ${dex.name} (${matches.length} finding(s)) ---');
+          for (final m in matches.take(limit)) {
+            sb.writeln(m);
+            totalFindings++;
+          }
+          if (matches.length > limit) sb.writeln('  ... and ${matches.length - limit} more');
+          sb.writeln('');
+        }
+      }
+
+      // Scan SO files for secret patterns
+      for (final so in _filterEntries(apk, '.so')) {
+        if (so.content == null) continue;
+        final text = _extractTextFromBytes(so.content!, maxLength: 32768);
+        final matches = <String>[];
+        for (final p in patterns) {
+          final regex = RegExp(p.pattern);
+          for (final match in regex.allMatches(text)) {
+            final matched = match.group(0) ?? '';
+            if (matched.length > 4) {
+              matches.add('  [${p.label}] $matched');
+            }
+          }
+        }
+        // Also scan for base64-encoded blobs that look like keys (> 40 chars)
+        final b64Regex = RegExp(r'["\']([A-Za-z0-9+/=]{40,})["\']');
+        for (final match in b64Regex.allMatches(text)) {
+          final b64 = match.group(1) ?? '';
+          if (b64.length >= 40 && !b64.contains(' ')) {
+            matches.add('  [Base64 blob (${b64.length} chars)] $b64');
+          }
+        }
+        if (matches.isNotEmpty) {
+          sb.writeln('--- ${so.name} (${matches.length} finding(s)) ---');
+          for (final m in matches.take(limit)) {
+            sb.writeln(m);
+            totalFindings++;
+          }
+          if (matches.length > limit) sb.writeln('  ... and ${matches.length - limit} more');
+          sb.writeln('');
+        }
+      }
+
+      // Scan manifest
+      final manifestEntry = apk.entries.cast<_ApkEntry?>().firstWhere(
+        (e) => e!.name == 'AndroidManifest.xml',
+        orElse: () => null,
+      );
+      if (manifestEntry?.content != null) {
+        final text = _extractTextFromBytes(manifestEntry!.content!, maxLength: 16384);
+        final matches = <String>[];
+        for (final p in patterns) {
+          final regex = RegExp(p.pattern);
+          for (final match in regex.allMatches(text)) {
+            final matched = match.group(0) ?? '';
+            if (matched.length > 4) {
+              matches.add('  [${p.label}] $matched');
+            }
+          }
+        }
+        if (matches.isNotEmpty) {
+          sb.writeln('--- AndroidManifest.xml (${matches.length} finding(s)) ---');
+          for (final m in matches.take(limit)) {
+            sb.writeln(m);
+            totalFindings++;
+          }
+          if (matches.length > limit) sb.writeln('  ... and ${matches.length - limit} more');
+          sb.writeln('');
+        }
+      }
+
+      if (totalFindings == 0) {
+        sb.writeln('No hardcoded secrets detected with current patterns.');
+        sb.writeln('(Heuristic scan — false negatives possible.)');
+      } else {
+        sb.writeln('Total: $totalFindings potential secret(s) found across all targets.');
+      }
+
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  // ---- reverse_component_audit ----
+  /// 审计 AndroidManifest 中导出的组件及其安全隐患。
+  static Map<String, dynamic> componentAudit(KelivoReverseRequestPayload p) {
+    try {
+      final apk = _readApk(p.apkBytes);
+      final manifestEntry = apk.entries.cast<_ApkEntry?>().firstWhere(
+        (e) => e!.name == 'AndroidManifest.xml',
+        orElse: () => null,
+      );
+      if (manifestEntry?.content == null) {
+        return _ok('(no manifest content found)');
+      }
+
+      final text = _extractTextFromBytes(manifestEntry!.content!, maxLength: 32768);
+      final sb = StringBuffer()
+        ..writeln('=== Exported Component Audit ===\n');
+
+      // 1. Parse package name
+      String? packageName;
+      for (final line in text.split('\n')) {
+        final t = line.trim();
+        if (t.contains('package=')) {
+          final idx = t.indexOf('package=');
+          final rest = t.substring(idx + 8);
+          final end = rest.indexOf('"', 1);
+          if (end > 1) {
+            packageName = rest.substring(1, end);
+          }
+        }
+      }
+
+      sb.writeln('Package: ${packageName ?? '(unknown)'}\n');
+
+      // 2. Collect exported components
+      final components = <String>[];
+      final currentComponent = StringBuffer();
+      bool inComponent = false;
+      for (final line in text.split('\n')) {
+        final t = line.trim();
+        if (t.contains('<activity') || t.contains('<service') ||
+            t.contains('<receiver') || t.contains('<provider')) {
+          inComponent = true;
+          currentComponent.clear();
+          currentComponent.writeln(t);
+        } else if (inComponent) {
+          currentComponent.writeln(t);
+          if (t.contains('</activity') || t.contains('</service') ||
+              t.contains('</receiver') || t.contains('</provider') ||
+              t.contains('/>')) {
+            components.add(currentComponent.toString().trim());
+            inComponent = false;
+          }
+        }
+      }
+
+      // 3. Analyze each component
+      int exportedCount = 0;
+      int vulnerableCount = 0;
+      for (final comp in components) {
+        final lines = comp.split('\n');
+        final firstLine = lines.first.trim();
+        final isExported = firstLine.contains('android:exported="true"') ||
+            (!firstLine.contains('android:exported') && !firstLine.contains('<provider'));
+        final hasIntentFilter = comp.contains('<intent-filter>');
+        final isProvider = firstLine.contains('<provider');
+        final isActivity = firstLine.contains('<activity');
+        final isService = firstLine.contains('<service');
+        final isReceiver = firstLine.contains('<receiver');
+
+        // Extract class name
+        String? compClass;
+        if (firstLine.contains('android:name=')) {
+          final idx = firstLine.indexOf('android:name=');
+          final rest = firstLine.substring(idx + 13);
+          final end = rest.indexOf('"', 1);
+          if (end > 1) {
+            compClass = rest.substring(1, end);
+            if (compClass.startsWith('.')) {
+              compClass = '${packageName ?? ""}$compClass';
+            }
+          }
+        }
+
+        // Determine if access needs protection
+        bool needsProtection = false;
+        String reason = '';
+        if (isExported || hasIntentFilter) {
+          exportedCount++;
+          if (isProvider && firstLine.contains('android:grantUriPermissions="true"')) {
+            needsProtection = true;
+            reason = 'grantUriPermissions=true — potential unsafe data exposure';
+          }
+          if (isActivity && hasIntentFilter) {
+            // Check for implicit intent vulnerability
+            if (!comp.contains('android:permission=')) {
+              needsProtection = true;
+              reason = 'exported activity with intent-filter but no permission guard';
+            }
+          }
+          if (isService && !comp.contains('android:permission=')) {
+            needsProtection = true;
+            reason = 'exported service without permission — potential private API access';
+          }
+          if (isReceiver && !comp.contains('android:permission=')) {
+            needsProtection = true;
+            reason = 'exported receiver without permission — potential unauthorized broadcast injection';
+          }
+          if (needsProtection) vulnerableCount++;
+        }
+
+        final label = isExported || hasIntentFilter
+            ? (needsProtection ? '⚠️ EXPOSED (vulnerable)' : '📡 EXPOSED')
+            : '🔒 Not exported';
+        sb.writeln('$label  ${compClass ?? firstLine}');
+        if (reason.isNotEmpty) sb.writeln('       ↳ $reason');
+      }
+
+      sb.writeln('');
+      sb.writeln('Summary:');
+      sb.writeln('  Total components analyzed: ${components.length}');
+      sb.writeln('  Exported: $exportedCount');
+      sb.writeln('  Potentially vulnerable: $vulnerableCount');
+      sb.writeln('');
+      sb.writeln('Recommendations:');
+      if (vulnerableCount > 0) {
+        sb.writeln('  - Add explicit android:permission to all exported components');
+        sb.writeln('  - Set android:exported="false" for components that don\'t need external access');
+        sb.writeln('  - For content providers, avoid grantUriPermissions unless necessary');
+        sb.writeln('  - Consider using custom permissions for sensitive services/receivers');
+      } else {
+        sb.writeln('  - No obvious component-level vulnerabilities detected.');
+        sb.writeln('  - Still verify each exported component\'s business logic manually.');
+      }
+
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
   // ---- helpers ----
   static Map<String, dynamic> _ok(String text) => {
         'content': [
@@ -844,6 +1388,14 @@ class KelivoReverseMcpServerEngine implements KelivoInMemoryMcpServerEngine {
               return _ok(id, result: KelivoReverseAnalyzer.report(payload, arguments));
             case 'reverse_quick_triage':
               return _ok(id, result: KelivoReverseAnalyzer.quickTriage(payload, arguments));
+            case 'reverse_signature_audit':
+              return _ok(id, result: KelivoReverseAnalyzer.signatureAudit(payload));
+            case 'reverse_packer_detect':
+              return _ok(id, result: KelivoReverseAnalyzer.packerDetect(payload));
+            case 'reverse_secret_scan':
+              return _ok(id, result: KelivoReverseAnalyzer.secretScan(payload, arguments));
+            case 'reverse_component_audit':
+              return _ok(id, result: KelivoReverseAnalyzer.componentAudit(payload));
             default:
               return _error(id, code: -32101, message: 'Tool not found: $name');
           }
@@ -986,6 +1538,33 @@ class KelivoReverseMcpServerEngine implements KelivoInMemoryMcpServerEngine {
       {
         'name': 'reverse_quick_triage',
         'description': '一键快速初筛：返回入口信息、ABI、Native 库、DEX、JNI 线索、可疑关键词和推荐操作。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_signature_audit',
+        'description': 'APK 签名审计：检测签名方案（v1/v2/v3），提取 META-INF 证书文件，解析证书 DN 字段（CN/O/OU），列出 .SF 摘要条目。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_packer_detect',
+        'description': '加固/加壳检测：基于已知 Packer 指纹（360/Baidu/Tencent/Ali/Bangcle/NetEase/Legu/Ijiami/UPX）和可疑特征（Stub DEX、异常 ELF 结构、反调试库、自定义Section名）进行检测。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_secret_scan',
+        'description': '硬编码秘钥扫描：扫描 DEX/SO/Manifest 中的 API Key、Secret、Token、Password、JWT、AWS Key、Firebase Key、Stripe Key、数据库连接串等 16 种模式。支持 limit 参数控制返回上限。',
+        'inputSchema': {
+          'type': 'object',
+          'properties': {
+            'path': {'type': 'string', 'description': '本地 APK 文件路径。'},
+            'base64': {'type': 'string', 'description': '可选：Base64 编码的 APK 文件。'},
+            'limit': {'type': 'integer', 'description': '每种文件类型返回的匹配条目上限，默认 50。'},
+          },
+        },
+      },
+      {
+        'name': 'reverse_component_audit',
+        'description': '导出组件安全审计：分析 AndroidManifest 中所有 activity/service/receiver/provider 的 exported 状态、intent-filter、permission 保护情况，标记潜在风险组件。',
         'inputSchema': baseSchema(),
       },
     ];
