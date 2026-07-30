@@ -11,6 +11,7 @@ import '../services/mcp/kelivo_images/kelivo_images_server.dart';
 import '../services/mcp/kelivo_context/kelivo_context_server.dart';
 import '../services/mcp/kelivo_so/kelivo_so_server.dart';
 import '../services/mcp/kelivo_dex/kelivo_dex_server.dart';
+import '../services/mcp/kelivo_reverse/kelivo_reverse_server.dart';
 import '../services/mcp/stdio_command_resolver.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
@@ -336,6 +337,8 @@ class McpProvider extends ChangeNotifier {
   static const String _builtinSoName = '@kelivo/so';
   static const String _builtinDexId = 'kelivo_dex';
   static const String _builtinDexName = '@kelivo/dex';
+  static const String _builtinReverseId = 'kelivo_reverse';
+  static const String _builtinReverseName = '@kelivo/reverse';
   static const Set<String> _builtinFileWriteToolNames = {
     'kelivo_create_directory',
     'kelivo_create_text_file',
@@ -515,6 +518,11 @@ class McpProvider extends ChangeNotifier {
         _builtinServer(_builtinDexId, _builtinDexName, enabled: false),
       );
     }
+    if (!_hasBuiltinServer(_builtinReverseId, _builtinReverseName)) {
+      next.add(
+        _builtinServer(_builtinReverseId, _builtinReverseName, enabled: false),
+      );
+    }
     _servers = next;
   }
 
@@ -569,6 +577,11 @@ class McpProvider extends ChangeNotifier {
         (server.id == _builtinDexId || server.name == _builtinDexName);
   }
 
+  bool _isBuiltinReverseServer(McpServerConfig server) {
+    return server.transport == McpTransportType.inmemory &&
+        (server.id == _builtinReverseId || server.name == _builtinReverseName);
+  }
+
   bool _isBuiltinGithubServer(McpServerConfig server) {
     return server.transport == McpTransportType.inmemory &&
         (server.id == _builtinGithubId || server.name == _builtinGithubName);
@@ -581,7 +594,8 @@ class McpProvider extends ChangeNotifier {
         _isBuiltinImagesServer(server) ||
         _isBuiltinContextServer(server) ||
         _isBuiltinSoServer(server) ||
-        _isBuiltinDexServer(server);
+        _isBuiltinDexServer(server) ||
+        _isBuiltinReverseServer(server);
   }
 
   bool isBuiltinGithubServer(McpServerConfig server) {
@@ -622,6 +636,9 @@ class McpProvider extends ChangeNotifier {
     }
     if (_isBuiltinDexServer(server)) {
       return KelivoDexMcpServerEngine();
+    }
+    if (_isBuiltinReverseServer(server)) {
+      return KelivoReverseMcpServerEngine();
     }
     return KelivoFetchMcpServerEngine();
   }

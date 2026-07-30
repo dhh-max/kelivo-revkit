@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import '../../utils/sandbox_path_resolver.dart';
@@ -161,6 +162,21 @@ class AssistantProvider extends ChangeNotifier {
         ),
         temperature: 0.6,
         topP: null,
+      ),
+    );
+    // 3) 逆向分析师 — 绑定 @kelivo/reverse 聚合逆向 MCP
+    _assistants.add(
+      Assistant(
+        id: const Uuid().v4(),
+        name: (Localizations.localeOf(context).languageCode == 'zh')
+            ? '逆向分析师'
+            : 'Reverse Analyst',
+        systemPrompt: (Localizations.localeOf(context).languageCode == 'zh')
+            ? '你是一名专业的 Android 逆向分析工程师。你擅长：APK 结构分析、DEX/ODEX 字节码反编译、SO/ELF 原生库逆向、Manifest 权限与组件审计、JNI 接口分析、反混淆与加壳识别。请使用内置的 @kelivo/reverse 工具集进行系统化分析，并在回复中引用工具输出作为证据。'
+            : 'You are a professional Android reverse engineering analyst. You excel at: APK structure analysis, DEX/ODEX bytecode decompilation, SO/ELF native library reverse engineering, Manifest permission and component auditing, JNI interface analysis, deobfuscation and packer identification. Use the built-in @kelivo/reverse toolset for systematic analysis and cite tool outputs as evidence in your responses.',
+        temperature: 0.3,
+        topP: null,
+        mcpServerIds: const ['kelivo_reverse'],
       ),
     );
     await _persist();
