@@ -294,7 +294,20 @@ flutter test
 - Mechanisms over hand-picked magic constants. If a threshold must be hardcoded, explain why and state its boundaries.
 - When small-step verification is possible, do not make large irreversible changes.
 
-## 8. Historical Pitfall Log
+## 8. APK Build Toolchain (Runtime Dependencies)
+The APK modification pipeline requires the following tools at runtime (not bundled in the repo):
+
+| Tool | Purpose | Install |
+| --- | --- | --- |
+| `apktool` | Decode/rebuild APK (smali + resources) | `apt-get install -y apktool` |
+| `zipalign` | APK alignment | Android SDK build-tools (pre-installed) |
+| `apksigner` | APK signing (v2/v3) | Android SDK build-tools (pre-installed) |
+| `keytool` | Generate debug keystore | JDK (pre-installed) |
+| `java` | Runtime for apktool | JRE/JDK (pre-installed) |
+
+Run `scripts/setup_build_tools.sh` to verify and auto-install all dependencies in one step.
+
+## 9. Historical Pitfall Log
 
 > Record significant pitfalls encountered during development here.
 
