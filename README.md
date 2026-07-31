@@ -53,6 +53,7 @@ Create a world book from this setting document and use character and location na
 - `@kelivo/images`: image-oriented helper tools.
 - `@kelivo/github`: GitHub repository, file, issue, PR, release, Actions, secrets, and variables operations.
 - `@kelivo/so`: pure-Dart ELF/.so reverse engineering toolkit (20 tools). No native dependencies required.
+- `@kelivo/reverse`: APK-oriented static analysis and triage tools for Android reverse engineering.
 
 ### SO/ELF Reverse Engineering Tools
 
@@ -67,6 +68,26 @@ Create a world book from this setting document and use character and location na
 | Symbol query | `so_symbol_lookup` |
 | Address conversion | `so_addr_to_offset`, `so_offset_to_addr` |
 | Compare & notes | `so_compare_headers`, `so_list_notes` |
+
+### APK Reverse Engineering Tools
+
+`@kelivo/reverse` provides APK-oriented static analysis and triage tools for Android reverse engineering:
+
+| Category | Tools |
+| --- | --- |
+| Overview | `reverse_meta_info`, `reverse_quick_triage` |
+| APK structure | `reverse_open_apk`, `reverse_manifest_audit`, `reverse_component_audit`, `reverse_diff_apk` |
+| Security analysis | `reverse_signature_audit`, `reverse_packer_detect`, `reverse_secret_scan` |
+| Binary analysis | `reverse_dex_summary`, `reverse_so_summary`, `reverse_strings_index` |
+| Reporting | `reverse_report` |
+
+Recommended workflow:
+
+1. Open the APK with `reverse_open_apk`.
+2. Run `reverse_quick_triage` for a fast overview.
+3. Use `reverse_signature_audit`, `reverse_packer_detect`, and `reverse_secret_scan` for security checks.
+4. Use `reverse_component_audit` and `reverse_diff_apk` for deeper APK comparison and exported-component inspection.
+5. Finish with `reverse_report` to generate a structured summary.
 
 All tools accept either a local file `path` or `base64`-encoded bytes. No external native libraries (Rizin, LIEF, etc.) are needed — the parser is implemented in pure Dart and runs entirely in-process.
 

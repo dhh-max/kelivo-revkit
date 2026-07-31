@@ -44,7 +44,6 @@ Kelivo Plus 是基于 [Chevey339/kelivo](https://github.com/Chevey339/kelivo) �
 - 支持 Markdown、JSON、YAML、DOCX、ZIP 等格式导入。
 - 技能可绑定到指定助手，也可以通过触发词自动注入。
 - 适合沉淀可复用工作流，例如代码审查、写作润色、商业分析、翻译风格、角色设定等。
-
 ### 内置 MCP 工具
 
 - `@kelivo/fetch`：网页抓取和内容提取。
@@ -52,6 +51,7 @@ Kelivo Plus 是基于 [Chevey339/kelivo](https://github.com/Chevey339/kelivo) �
 - `@kelivo/images`：图片理解、图片任务辅助能力。
 - `@kelivo/github`：GitHub 仓库、文件、Issue、PR、Release、Actions、Secrets、Variables 等能力。
 - `@kelivo/so`：纯 Dart 实现的 ELF/.so 逆向分析工具集（共 20 个工具），无需额外原生依赖。
+- `@kelivo/reverse`：面向 APK 的静态分析与快速排查工具。
 - 内置 MCP 运行在 App 内部，不需要用户额外启动 Node/Python 服务。
 
 ### SO/ELF 逆向分析工具
@@ -67,6 +67,26 @@ Kelivo Plus 是基于 [Chevey339/kelivo](https://github.com/Chevey339/kelivo) �
 | 符号查询 | `so_symbol_lookup` |
 | 地址转换 | `so_addr_to_offset`、`so_offset_to_addr` |
 | 对比与注释 | `so_compare_headers`、`so_list_notes` |
+
+### APK 逆向分析工具
+
+`@kelivo/reverse` 提供面向 APK 的静态分析与快速排查工具：
+
+| 类别 | 工具 |
+| --- | --- |
+| 总览 | `reverse_meta_info`、`reverse_quick_triage` |
+| APK 结构 | `reverse_open_apk`、`reverse_manifest_audit`、`reverse_component_audit`、`reverse_diff_apk` |
+| 安全分析 | `reverse_signature_audit`、`reverse_packer_detect`、`reverse_secret_scan` |
+| 二进制分析 | `reverse_dex_summary`、`reverse_so_summary`、`reverse_strings_index` |
+| 报告 | `reverse_report` |
+
+推荐流程：
+
+1. 使用 `reverse_open_apk` 打开 APK。
+2. 先跑 `reverse_quick_triage` 获取快速概览。
+3. 再用 `reverse_signature_audit`、`reverse_packer_detect`、`reverse_secret_scan` 做安全检查。
+4. 结合 `reverse_component_audit` 和 `reverse_diff_apk` 做组件与版本对比分析。
+5. 最后用 `reverse_report` 生成结构化报告。
 
 所有工具支持传入本地文件 `path` 或 `base64` 编码的字节数据。解析器为纯 Dart 实现，完全在进程内运行，不依赖 Rizin、LIEF 等外部原生库。
 

@@ -50,7 +50,6 @@ Kelivo Plus 的目标不是重写 Kelivo，而是在原版优秀的跨平台 LLM
 - 技能是可复用的工作流，不是一次性聊天上下文。
 - 显式绑定优先于关键词触发。
 - 禁用技能不会被注入。
-
 ## 3. 内置 MCP 服务
 
 在原有 MCP 能力基础上新增 App 内 MCP 服务，降低普通用户配置外部工具的成本。
@@ -61,6 +60,8 @@ Kelivo Plus 的目标不是重写 Kelivo，而是在原版优秀的跨平台 LLM
 - `@kelivo/files`：本地文件读取、写入、追加、目录浏览等。
 - `@kelivo/images`：图片相关辅助能力。
 - `@kelivo/github`：GitHub 仓库、文件、Issue、PR、Release、Actions、Secrets、Variables 等。
+- `@kelivo/so`：纯 Dart 实现的 ELF/.so 逆向分析工具集（共 20 个工具）。
+- `@kelivo/reverse`：面向 APK 的静态分析与快速排查工具。
 
 ### 体验优化
 
@@ -68,6 +69,8 @@ Kelivo Plus 的目标不是重写 Kelivo，而是在原版优秀的跨平台 LLM
 - MCP 编辑页支持 GitHub Token 配置入口。
 - 工具展示说明中文化。
 - 写入型工具按业务场景分组，减少工具数量膨胀。
+- 逆向分析工具补齐 APK 签名审计、加壳检测、秘钥扫描、导出组件审计和 APK 对比分析。
+
 
 ## 4. GitHub 写入工具升级
 
