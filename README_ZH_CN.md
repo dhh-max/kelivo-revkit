@@ -129,6 +129,22 @@
 4. 结合 `reverse_component_audit` 和 `reverse_diff_apk` 做组件与版本对比分析。
 5. 最后用 `reverse_report` 生成结构化报告。
 
+
+### APK 逆向工具包
+`apk_reverse` 是基于内置 `dex-jar` 运行时的 APK 逆向工具包，可在进程内直接完成解包、检索、重打包与签名等操作，无需额外网络依赖。
+
+| 工具 | 说明 |
+| --- | --- |
+| `usage_advice` | 返回当前 APK 逆向工具包的使用建议。 |
+| `apk_reverse_inspect` | 检查 APK 基本信息、组件、权限、签名与基础元数据。 |
+| `apk_reverse_decode` | 使用 apktool 将 APK 解码为可编辑目录。 |
+| `apk_reverse_jadx` | 通过内置 JADX `dex-jar` 运行时反编译 DEX。 |
+| `apk_reverse_search_text` | 在解包目录、JADX 输出目录或目标文件中检索文本。 |
+| `apk_reverse_search_address` | 检索资源、smali、JADX 输出与 native 库地址。 |
+| `apk_reverse_build` | 对解包目录执行 apktool build，重建 APK。 |
+
+这些工具面向底层逆向任务。若需更高层工作流，优先使用上方的 `reverse_*` 系列工具。
+
 ### APK 修改流水线（实验性功能）
 `@kelivo/reverse` 还提供 APK 修改能力。配合构建工具链（`apktool`、`zipalign`、`apksigner`、`keytool`），可实现完整的修改-重打包-签名流程：
 

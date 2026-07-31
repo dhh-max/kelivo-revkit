@@ -129,6 +129,22 @@ Recommended workflow:
 4. Use `reverse_component_audit` and `reverse_diff_apk` for deeper APK comparison and exported-component inspection.
 5. Finish with `reverse_report` to generate a structured summary.
 
+
+### APK Reverse Toolkit
+The `apk_reverse` package bundles an in-process APK reverse engineering toolkit based on the built-in `dex-jar` runtime. It exposes low-level tools for decoding, searching, building, and signing APKs directly without network dependencies.
+
+| Tool | Description |
+| --- | --- |
+| `usage_advice` | Returns usage advice for the APK reverse toolkit. |
+| `apk_reverse_inspect` | Inspect APK basics: components, permissions, signatures, and general metadata. |
+| `apk_reverse_decode` | Decode an APK with apktool into an editable directory. |
+| `apk_reverse_jadx` | Decompile DEX with the bundled JADX `dex-jar` runtime. |
+| `apk_reverse_search_text` | Search text inside the decoded directory, JADX output, or target files. |
+| `apk_reverse_search_address` | Search resources, smali, JADX output, and native library addresses. |
+| `apk_reverse_build` | Execute apktool build from a decoded directory to rebuild an APK. |
+
+These tools are intended for low-level reverse tasks. For higher-level workflows, prefer the `reverse_*` tools listed above.
+
 ### APK Modification Pipeline (Experimental)
 `@kelivo/reverse` also provides in-process APK modification capabilities. Combined with the build toolchain (`apktool`, `zipalign`, `apksigner`, `keytool`), a full modify-resign workflow is available:
 
