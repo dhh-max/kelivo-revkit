@@ -13,12 +13,16 @@ import '../in_memory_mcp_server.dart';
 /// `base64` bytes. Supports the standard DEX container (magic `dex\n0xx\0`).
 ///
 /// Tools:
-/// - dex_parse_header  → DEX header (version, checksum, counts, endian tag)
-/// - dex_list_strings  → string_ids pool (MUTF-8 decoded)
-/// - dex_list_types    → type_ids (resolved to descriptor strings)
-/// - dex_list_classes  → class_defs (class descriptor, superclass, access)
-/// - dex_list_methods  → method_ids (class.name + proto shorty)
-/// - dex_list_fields   → field_ids (class.name : type)
+/// - dex_parse_header     → DEX header (version, checksum, counts, endian tag)
+/// - dex_list_strings     → string_ids pool (MUTF-8 decoded)
+/// - dex_list_types       → type_ids (resolved to descriptor strings)
+/// - dex_list_classes     → class_defs (class descriptor, superclass, access)
+/// - dex_list_methods     → method_ids (class.name + proto shorty)
+/// - dex_list_fields      → field_ids (class.name : type)
+/// - dex_list_annotations → class-level annotation types (deobfuscation hints)
+/// - dex_disassemble_method → disassemble a single method's Dalvik bytecode
+/// - dex_xref_method      → find all callers of a method (method-level xref)
+/// - dex_search_strings   → regex/substring search over the DEX string pool
 
 class KelivoDexRequestPayload {
   final Uint8List bytes;
@@ -216,6 +220,78 @@ class _Cursor {
   _Cursor(this.pos);
 }
 
+// ---------------------------------------------------------------------------
+// Extended DEX structures for deep analysis
+// ---------------------------------------------------------------------------
+
+/// Represents a single encoded method inside class_data_item.
+class _EncodedMethod {
+  final int methodIdx;
+  final int accessFlags;
+  final int codeOff;
+  _EncodedMethod(this.methodIdx, this.accessFlags, this.codeOff);
+}
+
+/// Reads all direct+virtual methods from class_data_item at [off].
+List<_EncodedMethod> _readClassDataMethods(DexImage dex, int off) {
+  if (off == 0 || off >= dex.length) return [];
+  final c = _Cursor(off);
+  final staticFieldsSize = dex._readUleb128(c);
+  final instanceFieldsSize = dex._readUleb128(c);
+  final directMethodsSize = dex._readUleb128(c);
+  final virtualMethodsSize = dex._readUleb128(c);
+  // Skip fields
+  for (var i = 0; i < staticFieldsSize + instanceFieldsSize; i++) {
+    dex._readUleb128(c); // field_idx_diff
+    dex._readUleb128(c); // access_flags
+  }
+  final methods = <_EncodedMethod>[];
+  var methodIdx = 0;
+  for (var i = 0; i < directMethodsSize + virtualMethodsSize; i++) {
+    final diff = dex._readUleb128(c);
+    methodIdx += diff;
+    final flags = dex._readUleb128(c);
+    final codeOff = dex._readUleb128(c);
+    methods.add(_EncodedMethod(methodIdx, flags, codeOff));
+  }
+  return methods;
+}
+
+/// Dalvik opcode names (subset covering most common opcodes).
+const _kDalvikOpcodes = <int, String>{
+  0x00: 'nop', 0x01: 'move', 0x02: 'move/from16', 0x03: 'move/16',
+  0x04: 'move-wide', 0x07: 'move-object', 0x0a: 'move-result',
+  0x0b: 'move-result-wide', 0x0c: 'move-result-object', 0x0d: 'move-exception',
+  0x0e: 'return-void', 0x0f: 'return', 0x10: 'return-wide', 0x11: 'return-object',
+  0x12: 'const/4', 0x13: 'const/16', 0x14: 'const', 0x15: 'const/high16',
+  0x16: 'const-wide/16', 0x17: 'const-wide/32', 0x18: 'const-wide',
+  0x19: 'const-wide/high16', 0x1a: 'const-string', 0x1b: 'const-string/jumbo',
+  0x1c: 'const-class', 0x1d: 'monitor-enter', 0x1e: 'monitor-exit',
+  0x1f: 'check-cast', 0x20: 'instance-of', 0x21: 'array-length',
+  0x22: 'new-instance', 0x23: 'new-array', 0x24: 'filled-new-array',
+  0x26: 'fill-array-data', 0x27: 'throw', 0x28: 'goto', 0x29: 'goto/16',
+  0x2a: 'goto/32', 0x2b: 'packed-switch', 0x2c: 'sparse-switch',
+  0x2d: 'cmpl-float', 0x2e: 'cmpg-float', 0x2f: 'cmpl-double',
+  0x30: 'cmpg-double', 0x31: 'cmp-long',
+  0x32: 'if-eq', 0x33: 'if-ne', 0x34: 'if-lt', 0x35: 'if-ge',
+  0x36: 'if-gt', 0x37: 'if-le', 0x38: 'if-eqz', 0x39: 'if-nez',
+  0x3a: 'if-ltz', 0x3b: 'if-gez', 0x3c: 'if-gtz', 0x3d: 'if-lez',
+  0x44: 'aget', 0x45: 'aget-wide', 0x46: 'aget-object',
+  0x4b: 'aput', 0x4c: 'aput-wide', 0x4d: 'aput-object',
+  0x52: 'iget', 0x53: 'iget-wide', 0x54: 'iget-object',
+  0x59: 'iput', 0x5a: 'iput-wide', 0x5b: 'iput-object',
+  0x60: 'sget', 0x61: 'sget-wide', 0x62: 'sget-object',
+  0x67: 'sput', 0x68: 'sput-wide', 0x69: 'sput-object',
+  0x6e: 'invoke-virtual', 0x6f: 'invoke-super', 0x70: 'invoke-direct',
+  0x71: 'invoke-static', 0x72: 'invoke-interface',
+  0x74: 'invoke-virtual/range', 0x75: 'invoke-super/range',
+  0x76: 'invoke-direct/range', 0x77: 'invoke-static/range',
+  0x78: 'invoke-interface/range',
+  0x90: 'add-int', 0x91: 'sub-int', 0x92: 'mul-int', 0x93: 'div-int',
+  0xb0: 'add-int/2addr', 0xb1: 'sub-int/2addr',
+  0xd8: 'add-int/lit8', 0xd9: 'rsub-int/lit8',
+};
+
 class KelivoDexAnalyzer {
   static DexImage _open(KelivoDexRequestPayload p) => DexImage.parse(p.bytes);
 
@@ -357,6 +433,357 @@ class KelivoDexAnalyzer {
     }
   }
 
+  static Map<String, dynamic> annotations(KelivoDexRequestPayload p) {
+    try {
+      final dex = _open(p);
+      final sb = StringBuffer()..writeln('Annotations (class-level):');
+      final total = dex.classDefsSize;
+      final count = total < p.limit ? total : p.limit;
+      for (var i = 0; i < count; i++) {
+        final base = dex.classDefsOff + i * 32;
+        if (base + 32 > dex.length) break;
+        final classIdx = dex.data.getUint32(base, Endian.little);
+        final annotationsOff = dex.data.getUint32(base + 20, Endian.little);
+        if (annotationsOff == 0) continue;
+        final className = dex.typeAt(classIdx);
+        final anns = _readClassAnnotations(dex, annotationsOff);
+        if (anns.isEmpty) continue;
+        sb.writeln('$className:');
+        for (final a in anns) {
+          sb.writeln('  @${a}');
+        }
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  /// Reads annotation visibility + type from an annotations_directory_item.
+  ///
+  /// DEX layout (all uint32, NOT uleb128):
+  ///   class_annotations_off | fields_size | methods_size | parameters_size
+  /// then fields_size field_annotation + methods_size method_annotation +
+  /// parameters_size parameter_annotation entries, each 8 bytes:
+  ///   { uint idx; uint annotations_off; }
+  static List<String> _readClassAnnotations(DexImage dex, int off) {
+    final out = <String>[];
+    if (off == 0 || off + 16 > dex.length) return out;
+    const e = Endian.little;
+    final classAnnoOff = dex.data.getUint32(off, e);
+    final fieldsSize = dex.data.getUint32(off + 4, e);
+    final methodsSize = dex.data.getUint32(off + 8, e);
+    final paramsSize = dex.data.getUint32(off + 12, e);
+    // Guard against corrupt sizes that would overflow past the file.
+    final totalEntries = fieldsSize + methodsSize + paramsSize;
+    if (totalEntries > 0xffff ||
+        off + 16 + totalEntries * 8 > dex.length) {
+      return out;
+    }
+    if (classAnnoOff == 0) return out;
+    final items = _readAnnotationSetItems(dex, classAnnoOff);
+    for (final t in items) {
+      out.add(t);
+    }
+    return out;
+  }
+
+  /// Reads annotation_item type_idx values from an annotation_set_item.
+  static List<String> _readAnnotationSetItems(DexImage dex, int off) {
+    final out = <String>[];
+    if (off == 0 || off + 4 > dex.length) return out;
+    final size = dex.data.getUint32(off, Endian.little);
+    if (size > 256) return out;
+    for (var i = 0; i < size; i++) {
+      final itemOff = off + 4 + i * 4;
+      if (itemOff + 4 > dex.length) break;
+      final annotationOff = dex.data.getUint32(itemOff, Endian.little);
+      if (annotationOff == 0 || annotationOff + 4 > dex.length) continue;
+      // annotation_item: visibility(1) + encoded_annotation
+      // encoded_annotation: type_idx(uleb128) + size(uleb128) + elements
+      final ac = _Cursor(annotationOff + 1); // skip visibility
+      final typeIdx = dex._readUleb128(ac);
+      out.add(dex.typeAt(typeIdx));
+    }
+    return out;
+  }
+
+  static Map<String, dynamic> disassembleMethod(KelivoDexRequestPayload p, String methodSig) {
+    try {
+      final dex = _open(p);
+      final target = methodSig.trim();
+      if (target.isEmpty) {
+        return _err('Missing "method" (e.g. Lcom/example/Main;->onCreate(Landroid/os/Bundle;)V)');
+      }
+      final total = dex.classDefsSize;
+      for (var i = 0; i < total; i++) {
+        final base = dex.classDefsOff + i * 32;
+        if (base + 32 > dex.length) break;
+        final classDataOff = dex.data.getUint32(base + 24, Endian.little);
+        if (classDataOff == 0) continue;
+        final methods = _readClassDataMethods(dex, classDataOff);
+        for (final m in methods) {
+          final sig = _methodSig(dex, m.methodIdx);
+          if (sig != target) continue;
+          if (m.codeOff == 0) {
+            return _ok('$sig\n  (abstract/native, no code)');
+          }
+          final asm = _disassembleCodeItem(dex, m.codeOff, sig);
+          return _ok(asm);
+        }
+      }
+      return _err('Method not found: $target');
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  static Map<String, dynamic> xrefMethod(KelivoDexRequestPayload p, String methodSig) {
+    try {
+      final dex = _open(p);
+      final target = methodSig.trim();
+      if (target.isEmpty) {
+        return _err('Missing "method"');
+      }
+      final callers = <String>[];
+      final total = dex.classDefsSize;
+      for (var i = 0; i < total; i++) {
+        final base = dex.classDefsOff + i * 32;
+        if (base + 32 > dex.length) break;
+        final classIdx = dex.data.getUint32(base, Endian.little);
+        final className = dex.typeAt(classIdx);
+        final classDataOff = dex.data.getUint32(base + 24, Endian.little);
+        if (classDataOff == 0) continue;
+        final methods = _readClassDataMethods(dex, classDataOff);
+        for (final m in methods) {
+          if (m.codeOff == 0) continue;
+          final callerSig = _methodSig(dex, m.methodIdx);
+          final refs = _collectInvokes(dex, m.codeOff);
+          if (refs.contains(target)) {
+            callers.add(callerSig);
+          }
+        }
+      }
+      final sb = StringBuffer()
+        ..writeln('XREF to: $target')
+        ..writeln('Callers (${callers.length}):');
+      for (final c in callers) {
+        sb.writeln('  $c');
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  static Map<String, dynamic> searchStrings(KelivoDexRequestPayload p, String pattern) {
+    try {
+      final dex = _open(p);
+      final pat = pattern.trim();
+      if (pat.isEmpty) {
+        return _err('Missing "pattern" (regex or plain substring)');
+      }
+      final sb = StringBuffer()..writeln('String search: /$pat/');
+      var hits = 0;
+      for (var i = 0; i < dex.stringIdsSize; i++) {
+        final s = dex.stringAt(i);
+        if (s.isEmpty) continue;
+        final matched = _matchesPattern(s, pat);
+        if (matched) {
+          sb.writeln('[$i] $s');
+          hits++;
+          if (hits >= p.limit) break;
+        }
+      }
+      sb.writeln('---');
+      sb.writeln('Hits: $hits (limit ${p.limit})');
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  static bool _matchesPattern(String s, String pat) {
+    try {
+      return RegExp(pat, caseSensitive: false).hasMatch(s);
+    } catch (_) {
+      return s.contains(pat);
+    }
+  }
+
+  static String _methodSig(DexImage dex, int methodIdx) {
+    if (methodIdx < 0 || methodIdx >= dex.methodIdsSize) return '';
+    final base = dex.methodIdsOff + methodIdx * 8;
+    if (base + 8 > dex.length) return '';
+    final classIdx = dex.data.getUint16(base, Endian.little);
+    final protoIdx = dex.data.getUint16(base + 2, Endian.little);
+    final nameIdx = dex.data.getUint32(base + 4, Endian.little);
+    final className = dex.typeAt(classIdx);
+    final methodName = dex.stringAt(nameIdx);
+    final proto = _protoSig(dex, protoIdx);
+    return '$className->$methodName$proto';
+  }
+
+  /// Returns the standard Dalvik method prototype descriptor, e.g.
+  /// `(Landroid/os/Bundle;)V`. This is the canonical form users pass to
+  /// `dex_disassemble_method` / `dex_xref_method`, so matching is exact.
+  static String _protoSig(DexImage dex, int protoIdx) {
+    if (protoIdx < 0 || protoIdx >= dex.protoIdsSize) return '()V';
+    // proto_id_item: shorty_idx(u32) return_type_idx(u32) parameters_off(u32)
+    final off = dex.protoIdsOff + protoIdx * 12;
+    if (off + 12 > dex.length) return '()V';
+    final returnTypeIdx = dex.data.getUint32(off + 4, Endian.little);
+    final paramsOff = dex.data.getUint32(off + 8, Endian.little);
+    final ret = dex.typeAt(returnTypeIdx);
+    final params = <String>[];
+    if (paramsOff != 0) {
+      final c = _Cursor(paramsOff);
+      final size = dex._readUleb128(c);
+      for (var i = 0; i < size; i++) {
+        final typeIdx = dex._readUleb128(c);
+        params.add(dex.typeAt(typeIdx));
+      }
+    }
+    return '(${params.join('')})$ret';
+  }
+
+  /// Returns the instruction size in 16-bit code units for a Dalvik opcode.
+  /// Covers common format families; unknown opcodes default to 2 units
+  /// (the most frequent size) so the disassembler stays roughly in sync.
+  static int _insnUnits(int op) {
+    if (op == 0x18) return 5; // const-wide (51l)
+    const oneUnit = <int>{
+      0x00, 0x01, 0x04, 0x07, 0x0a, 0x0b, 0x0c, 0x0d, // 10x/11x/12x
+      0x0e, 0x0f, 0x10, 0x11, 0x12, // return*, const/4 (11n)
+      0x1d, 0x1e, // monitor-enter/exit (11x)
+      0x21, // array-length (12x)
+      0x27, // throw (11x)
+      0x28, // goto (10t)
+    };
+    if (oneUnit.contains(op)) return 1;
+    if (op >= 0xb0 && op <= 0xcf) return 1; // *-2addr (12x)
+    const threeUnit = <int>{
+      0x03, 0x06, 0x09, // move/16, move-wide/16, move-object/16 (32x)
+      0x14, 0x17, // const, const-wide/32 (31i)
+      0x1b, // const-string/jumbo (31c)
+      0x24, 0x25, // filled-new-array (35c/3rc)
+      0x26, 0x2b, 0x2c, // fill-array-data, packed/sparse-switch (31t)
+      0x2a, // goto/32 (30t)
+    };
+    if (threeUnit.contains(op)) return 3;
+    if (op >= 0x6e && op <= 0x72) return 3; // invoke-kind (35c)
+    if (op >= 0x74 && op <= 0x78) return 3; // invoke-kind/range (3rc)
+    return 2; // default: 22x/21s/21h/21c/22b/22c/22s/22t/23x/20t/21t...
+  }
+
+  /// Resolves a field signature `Lclass;->name:type` by field_ids index.
+  static String _fieldSig(DexImage dex, int fieldIdx) {
+    if (fieldIdx < 0 || fieldIdx >= dex.fieldIdsSize) return '';
+    final base = dex.fieldIdsOff + fieldIdx * 8;
+    if (base + 8 > dex.length) return '';
+    final classIdx = dex.data.getUint16(base, Endian.little);
+    final typeIdx = dex.data.getUint16(base + 2, Endian.little);
+    final nameIdx = dex.data.getUint32(base + 4, Endian.little);
+    return '${dex.typeAt(classIdx)}->${dex.stringAt(nameIdx)}:${dex.typeAt(typeIdx)}';
+  }
+
+  /// Disassembles a code_item into text. Handles common instruction formats.
+  static String _disassembleCodeItem(DexImage dex, int codeOff, String sig) {
+    final sb = StringBuffer()..writeln('// $sig');
+    if (codeOff + 16 > dex.length) return sb.toString().trimRight();
+    final registersSize = dex.data.getUint16(codeOff, Endian.little);
+    final insSize = dex.data.getUint16(codeOff + 2, Endian.little);
+    final outsSize = dex.data.getUint16(codeOff + 4, Endian.little);
+    final triesSize = dex.data.getUint16(codeOff + 6, Endian.little);
+    final debugInfoOff = dex.data.getUint32(codeOff + 8, Endian.little);
+    final insnsSize = dex.data.getUint32(codeOff + 12, Endian.little);
+    sb.writeln('// registers: $registersSize, ins: $insSize, outs: $outsSize, insns: $insnsSize');
+    var pc = codeOff + 16;
+    var index = 0;
+    final maxInsns = insnsSize < 2000 ? insnsSize : 2000;
+    while (index < maxInsns && pc + 2 <= dex.length) {
+      final word = dex.data.getUint16(pc, Endian.little);
+      final op = word & 0xff;
+      final opName = _kDalvikOpcodes[op] ?? 'unknown_0x${op.toRadixString(16)}';
+      final units = _insnUnits(op);
+      final line = StringBuffer('  $index: $opName');
+      // Decode operands by format family
+      if (op == 0x1a || op == 0x1b) {
+        // const-string / const-string/jumbo: 21c / 31c
+        final idx = dex.data.getUint16(pc + 2, Endian.little);
+        final s = dex.stringAt(idx);
+        line.write(' "$s"');
+      } else if ((op >= 0x6e && op <= 0x72) || (op >= 0x74 && op <= 0x78)) {
+        // invoke-* (35c) / invoke-*/range (3rc)
+        final ref = dex.data.getUint16(pc + 2, Endian.little);
+        line.write(' ${_methodSig(dex, ref)}');
+      } else if (op >= 0x32 && op <= 0x3d) {
+        // if-*: 22t / 21t
+        final target = dex.data.getUint16(pc + 2, Endian.little);
+        line.write(' +$target');
+      } else if (op == 0x28) {
+        // goto: 10t, signed 8-bit offset in high byte of first unit
+        line.write(' +${(word >> 8).toSigned(8)}');
+      } else if (op == 0x29) {
+        // goto/16: 20t
+        line.write(' +${dex.data.getInt16(pc + 2, Endian.little)}');
+      } else if (op == 0x2a) {
+        // goto/32: 30t
+        line.write(' +${dex.data.getInt32(pc + 2, Endian.little)}');
+      } else if (op == 0x12) {
+        // const/4: 11n
+        line.write(' #${word >> 12}');
+      } else if (op == 0x13 || op == 0x15 || op == 0x16 || op == 0x19) {
+        // const/16, const/high16, const-wide/16, const-wide/high16: 21s/21h
+        line.write(' #${dex.data.getUint16(pc + 2, Endian.little)}');
+      } else if (op == 0x14 || op == 0x17) {
+        // const, const-wide/32: 31i
+        line.write(' #${dex.data.getUint32(pc + 2, Endian.little)}');
+      } else if (op == 0x18) {
+        // const-wide: 51l
+        line.write(' #${dex.data.getUint64(pc + 2, Endian.little)}');
+      } else if (op == 0x1c || op == 0x22) {
+        // const-class, new-instance: 21c (type ref)
+        final idx = dex.data.getUint16(pc + 2, Endian.little);
+        line.write(' ${dex.typeAt(idx)}');
+      } else if (op == 0x1f || op == 0x20 || op == 0x23) {
+        // check-cast, instance-of, new-array: 21c/22c (type ref)
+        final idx = dex.data.getUint16(pc + 2, Endian.little);
+        line.write(' ${dex.typeAt(idx)}');
+      } else if ((op >= 0x52 && op <= 0x5f) || (op >= 0x60 && op <= 0x6d)) {
+        // iget/iput (22c), sget/sput (21c): field ref
+        final ref = dex.data.getUint16(pc + 2, Endian.little);
+        line.write(' ${_fieldSig(dex, ref)}');
+      }
+      pc += units * 2;
+      sb.writeln(line.toString());
+      index++;
+    }
+    return sb.toString().trimRight();
+  }
+
+  /// Collects all invoke targets (method signatures) inside a code_item.
+  static List<String> _collectInvokes(DexImage dex, int codeOff) {
+    final out = <String>[];
+    if (codeOff + 16 > dex.length) return out;
+    final insnsSize = dex.data.getUint32(codeOff + 12, Endian.little);
+    var pc = codeOff + 16;
+    var index = 0;
+    final maxInsns = insnsSize < 5000 ? insnsSize : 5000;
+    while (index < maxInsns && pc + 2 <= dex.length) {
+      final word = dex.data.getUint16(pc, Endian.little);
+      final op = word & 0xff;
+      if ((op >= 0x6e && op <= 0x72) || (op >= 0x74 && op <= 0x78)) {
+        final ref = dex.data.getUint16(pc + 2, Endian.little);
+        final sig = _methodSig(dex, ref);
+        if (sig.isNotEmpty) out.add(sig);
+      }
+      pc += _insnUnits(op) * 2;
+      index++;
+    }
+    return out;
+  }
+
   static String _accessLabel(int flags) {
     final parts = <String>[];
     if (flags & 0x0001 != 0) parts.add('public');
@@ -460,6 +887,20 @@ class KelivoDexMcpServerEngine implements KelivoInMemoryMcpServerEngine {
               return _ok(id, result: KelivoDexAnalyzer.methods(payload));
             case 'dex_list_fields':
               return _ok(id, result: KelivoDexAnalyzer.fields(payload));
+            case 'dex_list_annotations':
+              return _ok(id, result: KelivoDexAnalyzer.annotations(payload));
+            case 'dex_disassemble_method': {
+              final method = (arguments['method'] ?? '').toString();
+              return _ok(id, result: KelivoDexAnalyzer.disassembleMethod(payload, method));
+            }
+            case 'dex_xref_method': {
+              final method = (arguments['method'] ?? '').toString();
+              return _ok(id, result: KelivoDexAnalyzer.xrefMethod(payload, method));
+            }
+            case 'dex_search_strings': {
+              final pattern = (arguments['pattern'] ?? '').toString();
+              return _ok(id, result: KelivoDexAnalyzer.searchStrings(payload, pattern));
+            }
             default:
               return _error(id, code: -32101, message: 'Tool not found: $name');
           }
@@ -541,6 +982,48 @@ class KelivoDexMcpServerEngine implements KelivoInMemoryMcpServerEngine {
         'name': 'dex_list_fields',
         'description': '列出 DEX 字段（类名->字段名 : 类型）。',
         'inputSchema': baseSchema(withLimit: true),
+      },
+      {
+        'name': 'dex_list_annotations',
+        'description': '列出 DEX 类的注解（annotations_directory_item -> annotation_set_item，反混淆线索）。',
+        'inputSchema': baseSchema(withLimit: true),
+      },
+      {
+        'name': 'dex_disassemble_method',
+        'description': '反汇编指定方法的 Dalvik 字节码。参数 method 形如 Lcom/example/Main;->onCreate(Landroid/os/Bundle;)V。',
+        'inputSchema': {
+          'type': 'object',
+          'properties': {
+            'path': {'type': 'string', 'description': '本地 .dex 文件的绝对路径。'},
+            'base64': {'type': 'string', 'description': '可选：直接提供 Base64 编码的文件字节（优先于 path）。'},
+            'method': {'type': 'string', 'description': '目标方法签名，例如 Lcom/example/Main;->onCreate(Landroid/os/Bundle;)V。'},
+          },
+        },
+      },
+      {
+        'name': 'dex_xref_method',
+        'description': '查找调用指定方法的所有调用者（方法级交叉引用/调用图）。参数 method 为目标方法签名。',
+        'inputSchema': {
+          'type': 'object',
+          'properties': {
+            'path': {'type': 'string', 'description': '本地 .dex 文件的绝对路径。'},
+            'base64': {'type': 'string', 'description': '可选：直接提供 Base64 编码的文件字节（优先于 path）。'},
+            'method': {'type': 'string', 'description': '目标方法签名，例如 Lcom/example/Main;->onCreate(Landroid/os/Bundle;)V。'},
+          },
+        },
+      },
+      {
+        'name': 'dex_search_strings',
+        'description': '在 DEX 字符串池中按正则或子串搜索（如 API key、URL、加密特征等）。参数 pattern 为正则或普通子串。',
+        'inputSchema': {
+          'type': 'object',
+          'properties': {
+            'path': {'type': 'string', 'description': '本地 .dex 文件的绝对路径。'},
+            'base64': {'type': 'string', 'description': '可选：直接提供 Base64 编码的文件字节（优先于 path）。'},
+            'pattern': {'type': 'string', 'description': '正则表达式或普通子串，例如 "api[_-]?key" 或 "https://"。'},
+            'limit': {'type': 'integer', 'description': '返回条目上限，默认 1000。'},
+          },
+        },
       },
     ];
   }
