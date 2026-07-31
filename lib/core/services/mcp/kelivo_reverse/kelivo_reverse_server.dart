@@ -1589,7 +1589,7 @@ class KelivoReverseAnalyzer {
 
   // ---- reverse_diff_apk ----
   /// 比较两个 APK 的组件/权限/签名/文件结构差异，支持版本演进审计。
-  static Map<String, dynamic> diffApk(KelivoReverseRequestPayload p, Map<String, dynamic> args) {
+  static Future<Map<String, dynamic>> diffApk(KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
       final sb = StringBuffer()
@@ -1975,7 +1975,7 @@ class KelivoReverseMcpServerEngine implements KelivoInMemoryMcpServerEngine {
             case 'reverse_component_audit':
               return _ok(id, result: KelivoReverseAnalyzer.componentAudit(payload));
             case 'reverse_diff_apk':
-              return _ok(id, result: KelivoReverseAnalyzer.diffApk(payload, arguments));
+              return _ok(id, result: await KelivoReverseAnalyzer.diffApk(payload, arguments));
             case 'reverse_kill_signature':
               return _ok(id, result: await KelivoReverseAnalyzer.killSignature(payload, arguments));
             case 'reverse_resign_apk':
