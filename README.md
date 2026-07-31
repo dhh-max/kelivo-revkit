@@ -57,7 +57,7 @@ Create a world book from this setting document and use character and location na
 - `@kelivo/so`: pure-Dart ELF/.so reverse engineering toolkit (24 tools). No native dependencies required.
 - `@kelivo/dex`: pure-Dart DEX/ODEX bytecode parsing toolkit (10 tools). No native dependencies required.
 - `@kelivo/context`: conversation context management toolkit (6 tools) — stats, summary, search, export, and boundary management.
-- `@kelivo/reverse`: APK-oriented static analysis and triage toolkit (deepened to 17 tools) for Android reverse engineering.
+- `@kelivo/reverse`: APK-oriented static analysis and triage toolkit (deepened to 18 tools, incl. signature bypass) for Android reverse engineering.
 
 ### SO/ELF Reverse Engineering Tools
 
