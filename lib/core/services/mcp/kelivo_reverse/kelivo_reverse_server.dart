@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
+import 'package:crypto/crypto.dart';
 import 'package:mcp_client/mcp_client.dart' as mcp;
 
 import '../in_memory_mcp_server.dart';
@@ -1068,6 +1069,114 @@ class KelivoReverseAnalyzer {
 ''';
   }
 
+  // ---- reverse_resign_apk ----
+  /// Strips existing signatures and re-signs with a minimal v1 JAR manifest.
+  /// The output APK has a valid MANIFEST.MF with SHA-256 digests but no
+  /// cryptographic signature — use `apksigner` or device-side tools for final
+  /// signing. This is sufficient for the kill-signature workflow where the
+  /// hook handles runtime verification.
+  static Future<Map<String, dynamic>> resignApk(
+      KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
+    try {
+      final outputPath = (args['output'] ?? '').toString().trim();
+      if (outputPath.isEmpty) return _err('Missing "output" path.');
+
+      final srcArchive = ZipDecoder().decodeBytes(p.apkBytes);
+      final cleanArchive = Archive();
+
+      // Strip old signatures
+      for (final f in srcArchive) {
+        if (!f.isFile) continue;
+        final nameUpper = f.name.toUpperCase();
+        if (nameUpper.startsWith('META-INF/') &&
+            (nameUpper.endsWith('.RSA') || nameUpper.endsWith('.DSA') ||
+             nameUpper.endsWith('.EC') || nameUpper.endsWith('.SF') ||
+             nameUpper.endsWith('.MF'))) {
+          continue;
+        }
+        cleanArchive.addFile(f);
+      }
+
+      // Generate MANIFEST.MF with SHA-256 digests
+      final manifestMf = StringBuffer()
+        ..writeln('Manifest-Version: 1.0')
+        ..writeln('Created-By: Kelivo RevKit')
+        ..writeln('');
+      for (final f in cleanArchive) {
+        if (!f.isFile || f.content == null) continue;
+        final digest = sha256.convert(f.content as List<int>);
+        manifestMf.writeln('Name: ${f.name}');
+        manifestMf.writeln('SHA-256-Digest: ${base64Encode(digest.bytes)}');
+        manifestMf.writeln('');
+      }
+      final manifestBytes = utf8.encode(manifestMf.toString());
+      cleanArchive.addFile(ArchiveFile(
+        'META-INF/MANIFEST.MF', manifestBytes.length, manifestBytes));
+
+      final patchedBytes = ZipEncoder().encode(cleanArchive);
+      if (patchedBytes == null) return _err('Failed to encode APK.');
+      await File(outputPath).writeAsBytes(patchedBytes);
+
+      final sb = StringBuffer()
+        ..writeln('APK re-packaged with fresh MANIFEST.MF (SHA-256 digests).')
+        ..writeln('Output: $outputPath')
+        ..writeln('')
+        ..writeln('To complete signing, run:')
+        ..writeln('  apksigner sign --ks debug.keystore --ks-pass pass:android $outputPath')
+        ..writeln('Or use:')
+        ..writeln('  jarsigner -keystore debug.keystore -storepass android $outputPath androiddebugkey');
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  // ---- reverse_inject_dex ----
+  /// Injects an external DEX file into an APK as classesN.dex.
+  static Future<Map<String, dynamic>> injectDex(
+      KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
+    try {
+      final outputPath = (args['output'] ?? '').toString().trim();
+      final dexPath = (args['dex_path'] ?? '').toString().trim();
+      if (outputPath.isEmpty) return _err('Missing "output" path.');
+      if (dexPath.isEmpty) return _err('Missing "dex_path" parameter.');
+
+      final dexFile = File(dexPath);
+      if (!await dexFile.exists()) return _err('DEX file not found: $dexPath');
+      final dexBytes = await dexFile.readAsBytes();
+
+      if (dexBytes.length < 8 || dexBytes[0] != 0x64 ||
+          dexBytes[1] != 0x65 || dexBytes[2] != 0x78) {
+        return _err('File is not a valid DEX (bad magic).');
+      }
+
+      final srcArchive = ZipDecoder().decodeBytes(p.apkBytes);
+      final archive = Archive();
+      var maxDexIdx = 1;
+      for (final f in srcArchive) {
+        if (f.isFile) {
+          archive.addFile(f);
+          final m = RegExp(r'classes(\d+)\.dex', caseSensitive: false).firstMatch(f.name);
+          if (m != null) {
+            final idx = int.tryParse(m.group(1)!) ?? 0;
+            if (idx > maxDexIdx) maxDexIdx = idx;
+          }
+        }
+      }
+
+      final newDexName = 'classes${maxDexIdx + 1}.dex';
+      archive.addFile(ArchiveFile(newDexName, dexBytes.length, dexBytes));
+
+      final patchedBytes = ZipEncoder().encode(archive);
+      if (patchedBytes == null) return _err('Failed to encode APK.');
+      await File(outputPath).writeAsBytes(patchedBytes);
+
+      return _ok('DEX injected as $newDexName.\nOutput: $outputPath');
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
   // ---- reverse_packer_detect ----
   /// 检测 APK 是否被加固/加壳（基于已知 Packer 指纹和可疑特征）。
   static Map<String, dynamic> packerDetect(KelivoReverseRequestPayload p) {
@@ -1861,6 +1970,10 @@ class KelivoReverseMcpServerEngine implements KelivoInMemoryMcpServerEngine {
               return _ok(id, result: KelivoReverseAnalyzer.diffApk(payload, arguments));
             case 'reverse_kill_signature':
               return _ok(id, result: await KelivoReverseAnalyzer.killSignature(payload, arguments));
+            case 'reverse_resign_apk':
+              return _ok(id, result: await KelivoReverseAnalyzer.resignApk(payload, arguments));
+            case 'reverse_inject_dex':
+              return _ok(id, result: await KelivoReverseAnalyzer.injectDex(payload, arguments));
             default:
               return _error(id, code: -32101, message: 'Tool not found: $name');
           }
@@ -2056,6 +2169,33 @@ class KelivoReverseMcpServerEngine implements KelivoInMemoryMcpServerEngine {
             'output': {'type': 'string', 'description': '输出处理后 APK 的保存路径（必填）。'},
           },
           'required': ['output'],
+        },
+      },
+      {
+        'name': 'reverse_resign_apk',
+        'description': '清除旧签名并重新生成 MANIFEST.MF（SHA-256 摘要）。输出 APK 需配合 apksigner 或 jarsigner 完成最终签名。',
+        'inputSchema': {
+          'type': 'object',
+          'properties': {
+            'path': {'type': 'string', 'description': '输入 APK 文件路径。'},
+            'base64': {'type': 'string', 'description': '可选：Base64 编码的 APK。'},
+            'output': {'type': 'string', 'description': '输出 APK 的保存路径（必填）。'},
+          },
+          'required': ['output'],
+        },
+      },
+      {
+        'name': 'reverse_inject_dex',
+        'description': '将外部 DEX 文件注入 APK 作为 classesN.dex（自动确定 N 编号）。',
+        'inputSchema': {
+          'type': 'object',
+          'properties': {
+            'path': {'type': 'string', 'description': '输入 APK 文件路径。'},
+            'base64': {'type': 'string', 'description': '可选：Base64 编码的 APK。'},
+            'dex_path': {'type': 'string', 'description': '要注入的 DEX 文件路径（必填）。'},
+            'output': {'type': 'string', 'description': '输出 APK 的保存路径（必填）。'},
+          },
+          'required': ['dex_path', 'output'],
         },
       },
     ];
