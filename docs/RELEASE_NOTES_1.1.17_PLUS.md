@@ -1,8 +1,8 @@
-# Kelivo Plus 1.1.17+4073 Release Notes
+# Kelivo RevKit 1.1.17+4073 Release Notes
 
 发布日期：2026-07-26
 
-本版本是基于 [Chevey339/kelivo](https://github.com/Chevey339/kelivo) 的二次开发公开版本，重点整合神经权能网关、Skills、内置 MCP、GitHub 写入工具、本地混合搜索和 Android 移动端导入增强。
+本仓库（`dhh-max/kelivo-revkit`）是基于 [Kelivo Plus](https://github.com/MuMu-0604/kelivo) 的再二次开发公开版本。Kelivo Plus 是基于 [Chevey339/kelivo](https://github.com/Chevey339/kelivo) 的二次开发版，本仓库完整继承其神经权能网关、Skills、内置 MCP、GitHub 写入工具、本地混合搜索和 Android 移动端导入增强，并进一步聚焦 Android 安全与逆向工程（新增 `@kelivo/dex`、`@kelivo/context`，`@kelivo/reverse` 扩展至 17 个工具）。
 
 ## 下载
 
@@ -43,12 +43,12 @@ B3258E39ED6CBC2546AA7FB916A5F72D2911522C67916F3F84C3538610990640
 
 ## 升级提示
 
-- 本 Release APK 的包名是 `com.psyche.kelivo`，与原版 Kelivo 相同。
-- 不能直接覆盖安装原版 Kelivo：原版和二改版通常签名不同，Android 会报签名冲突。
-- 不能与原版 Kelivo 直接共存：同一包名在同一设备上只能安装一个应用。
-- 推荐先备份/导出原版数据，卸载原版，再安装 Kelivo Plus。
-- 如需共存，请自行构建独立包名版本，例如把 Android `applicationId` 改为 `com.psyche.kelivo.plus`，并用自己的签名打包；共存版拥有独立应用数据，需要通过备份/导入迁移。
-- 覆盖安装旧 Kelivo Plus 二改版要求 APK 签名与已安装版本一致。
+- 本 Release APK 的包名是 `com.psyche.kelivo`，与原版 Kelivo / Kelivo Plus 相同。
+- 不能直接覆盖安装原版 Kelivo 或 Kelivo Plus：原版和二改版通常签名不同，Android 会报签名冲突。
+- 不能与原版 Kelivo / Kelivo Plus 直接共存：同一包名在同一设备上只能安装一个应用。
+- 推荐先备份/导出原版数据，卸载原版，再安装 Kelivo RevKit。
+- 如需共存，请自行构建独立包名版本，例如把 Android `applicationId` 改为 `com.psyche.kelivo.revkit`，并用自己的签名打包；共存版拥有独立应用数据，需要通过备份/导入迁移。
+- 覆盖安装旧 Kelivo RevKit（或同签名 Kelivo Plus 二改版）要求 APK 签名与已安装版本一致。
 - 如果 Android 提示“无法降级”，请确认当前已安装版本号是否高于 `1.1.17+4073`。
 - GitHub Token 不会随应用内置，需要在 MCP 编辑页自行配置。
 - 神经权能网关是高权限能力，仅建议对可信助手开启。

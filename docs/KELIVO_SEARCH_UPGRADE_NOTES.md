@@ -1,10 +1,10 @@
-# Kelivo Search Upgrade Notes
+# Kelivo RevKit Search Upgrade Notes
 
-This document summarizes the Local Hybrid Search upgrade included in Kelivo Plus.
+This document summarizes the Local Hybrid Search upgrade inherited by Kelivo RevKit (from Kelivo Plus).
 
 ## Goal
 
-Kelivo Plus adds a practical API-key-free search mode for users who want online discovery without configuring commercial search providers. The implementation aggregates several local HTML-based search sources, then cleans and ranks results before sending them back to the model.
+Kelivo RevKit inherits the practical API-key-free search mode from Kelivo Plus for users who want online discovery without configuring commercial search providers. The implementation aggregates several local HTML-based search sources, then cleans and ranks results before sending them back to the model.
 
 ## Delivered Changes
 
