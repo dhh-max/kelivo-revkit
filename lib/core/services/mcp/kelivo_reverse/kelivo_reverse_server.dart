@@ -88,7 +88,7 @@ class KelivoReverseRequestPayload {
     if (b64.isNotEmpty) {
       final bytes = base64Decode(b64);
       return KelivoReverseRequestPayload(
-        bytes: bytes, limit: limit, minLength: minLength,
+        apkBytes: bytes, limit: limit, minLength: minLength,
       );
     }
 
@@ -102,7 +102,7 @@ class KelivoReverseRequestPayload {
     }
     final bytes = await file.readAsBytes();
     return KelivoReverseRequestPayload(
-      bytes: bytes, apkPath: path, limit: limit, minLength: minLength,
+      apkBytes: bytes, apkPath: path, limit: limit, minLength: minLength,
     );
   }
 
@@ -127,7 +127,7 @@ _ApkInfo _readApk(Uint8List bytes) {
       try {
         content = f.content as Uint8List?;
       } catch (_) {}
-      entries.add(_ApkEntry(f.name, f.size, f.compressedSize, content));
+      entries.add(_ApkEntry(f.name, f.size, f.size, content));
     }
   }
   return _ApkInfo(entries);
@@ -271,8 +271,8 @@ class KelivoReverseAnalyzer {
         final abi = dirs.length > 2 ? dirs[dirs.length - 2] : '?';
         sb.writeln('  $abi  ${dirs.last}  (${e.size} bytes)');
       }
-      sb.writeln('')
-        ..writeln('--- DEX Files ---');
+      sb.writeln('');
+      sb.writeln('--- DEX Files ---');
       for (final e in dexEntries) {
         sb.writeln('  ${e.name}  (${e.size} bytes)');
       }
@@ -398,10 +398,10 @@ class KelivoReverseAnalyzer {
 
       // Aggregate analysis
       final headerResult = KelivoSoAnalyzer.header(soPayload);
-      final importsResult = KelivoSoAnalyzer.listImports(soPayload);
-      final exportsResult = KelivoSoAnalyzer.listExports(soPayload);
-      final depsResult = KelivoSoAnalyzer.listDependencies(soPayload);
-      final stringsResult = KelivoSoAnalyzer.listStrings(soPayload);
+      final importsResult = KelivoSoAnalyzer.imports(soPayload);
+      final exportsResult = KelivoSoAnalyzer.exports(soPayload);
+      final depsResult = KelivoSoAnalyzer.dependencies(soPayload);
+      final stringsResult = KelivoSoAnalyzer.strings(soPayload);
       final segmentsResult = KelivoSoAnalyzer.segments(soPayload);
 
       String extractText(Map<String, dynamic> result) {
@@ -1319,27 +1319,34 @@ class KelivoReverseAnalyzer {
         ..writeln('=== Hardcoded Secret Scan ===\n');
 
       // Regex-style patterns (heuristic)
+      final dq = '"'; // double quote
+      final sq = "'"; // single quote
+      final qc = '[$dq$sq]'; // char class matching quote
+      final nqc8 = '[^$dq$sq]{8,}'; // non-quote 8+
+      final nqc4 = '[^$dq$sq]{4,}'; // non-quote 4+
+      final nqc10 = '[^$dq$sq]{10,}'; // non-quote 10+
+      final assign = r'\s*[:=]\s*';
       final patterns = <_SecretPattern>[
-        _SecretPattern(r'(?i)(api[_-]?key|apikey)\s*[:=]\s*["\']([^"\']{8,})["\']', 'API Key'),
-        _SecretPattern(r'(?i)(secret|secret[_-]?key)\s*[:=]\s*["\']([^"\']{8,})["\']', 'Secret Key'),
-        _SecretPattern(r'(?i)(token|access[_-]?token|auth[_-]?token)\s*[:=]\s*["\']([^"\']{8,})["\']', 'Token'),
-        _SecretPattern(r'(?i)(password|pwd|passwd)\s*[:=]\s*["\']([^"\']{4,})["\']', 'Password'),
-        _SecretPattern(r'["\'](?:sk-[a-zA-Z0-9]{20,})["\']', 'OpenAI API Key (sk-...)'),
-        _SecretPattern(r'["\'](?:AKIA[0-9A-Z]{16})["\']', 'AWS Access Key ID'),
+        _SecretPattern('(?i)(api[_-]?key|apikey)$assign$qc($nqc8)$qc', 'API Key'),
+        _SecretPattern('(?i)(secret|secret[_-]?key)$assign$qc($nqc8)$qc', 'Secret Key'),
+        _SecretPattern('(?i)(token|access[_-]?token|auth[_-]?token)$assign$qc($nqc8)$qc', 'Token'),
+        _SecretPattern('(?i)(password|pwd|passwd)$assign$qc($nqc4)$qc', 'Password'),
+        _SecretPattern('${qc}(?:sk-[a-zA-Z0-9]{20,})$qc', 'OpenAI API Key (sk-...)'),
+        _SecretPattern('${qc}(?:AKIA[0-9A-Z]{16})$qc', 'AWS Access Key ID'),
         _SecretPattern(r'(?i)(jwt|bearer)\s+([a-zA-Z0-9_\-]+\.[a-zA-Z0-9_\-]+\.[a-zA-Z0-9_\-]+)', 'JWT / Bearer Token'),
-        _SecretPattern(r'(?i)(private[_-]?key|rsa[_-]?private)\s*[:=]\s*["\']([^"\']{10,})["\']', 'Private Key'),
+        _SecretPattern('(?i)(private[_-]?key|rsa[_-]?private)$assign$qc($nqc10)$qc', 'Private Key'),
         _SecretPattern(r'-----BEGIN\s+(RSA\s+)?PRIVATE\s+KEY-----', 'PEM Private Key'),
-        _SecretPattern(r'(?i)(aws[_-]?secret|aws_secret)\s*[:=]\s*["\']([^"\']{10,})["\']', 'AWS Secret Key'),
-        _SecretPattern(r'(?i)(firebase|fcm|gcm)[_-]?(key|sender|server)\s*[:=]\s*["\']([^"\']{8,})["\']', 'Firebase/FCM/GCM Key'),
-        _SecretPattern(r'(?i)(google[_-]?maps[_-]?api[_-]?key)\s*[:=]\s*["\']([^"\']{8,})["\']', 'Google Maps API Key'),
-        _SecretPattern(r'(?i)(stripe[_-]?(live|test|publishable|secret)[_-]?key)\s*[:=]\s*["\']([^"\']{8,})["\']', 'Stripe Key'),
-        _SecretPattern(r'(?i)(twilio|sendgrid|mailgun)[_-]?(api[_-]?key|sid|token)\s*[:=]\s*["\']([^"\']{8,})["\']', 'Twilio/SendGrid/Mailgun Key'),
-        _SecretPattern(r'(?i)(mongodb|postgres|mysql|jdbc|redis):\/\/[^\s"\'<>]{8,}', 'Database Connection String'),
-        _SecretPattern(r'(?i)(git[_-]?token|github[_-]?token|gitlab[_-]?token)\s*[:=]\s*["\']([^"\']{8,})["\']', 'Git Token'),
+        _SecretPattern('(?i)(aws[_-]?secret|aws_secret)$assign$qc($nqc10)$qc', 'AWS Secret Key'),
+        _SecretPattern('(?i)(firebase|fcm|gcm)[_-]?(key|sender|server)$assign$qc($nqc8)$qc', 'Firebase/FCM/GCM Key'),
+        _SecretPattern('(?i)(google[_-]?maps[_-]?api[_-]?key)$assign$qc($nqc8)$qc', 'Google Maps API Key'),
+        _SecretPattern('(?i)(stripe[_-]?(live|test|publishable|secret)[_-]?key)$assign$qc($nqc8)$qc', 'Stripe Key'),
+        _SecretPattern('(?i)(twilio|sendgrid|mailgun)[_-]?(api[_-]?key|sid|token)$assign$qc($nqc8)$qc', 'Twilio/SendGrid/Mailgun Key'),
+        _SecretPattern('(?i)(mongodb|postgres|mysql|jdbc|redis):\/\/[^\\s$dq$sq<>]{8,}', 'Database Connection String'),
+        _SecretPattern('(?i)(git[_-]?token|github[_-]?token|gitlab[_-]?token)$assign$qc($nqc8)$qc', 'Git Token'),
       ];
 
       int totalFindings = 0;
-      final limit = _asInt(args['limit'], 50).clamp(1, 200);
+      final limit = KelivoReverseRequestPayload._asInt(args['limit'], 50).clamp(1, 200);
 
       // Scan DEX files
       for (final dex in _filterEntries(apk, '.dex')) {
@@ -1381,7 +1388,7 @@ class KelivoReverseAnalyzer {
           }
         }
         // Also scan for base64-encoded blobs that look like keys (> 40 chars)
-        final b64Regex = RegExp(r'["\']([A-Za-z0-9+/=]{40,})["\']');
+        final b64Regex = RegExp('$qc([A-Za-z0-9+/=]{40,})$qc');
         for (final match in b64Regex.allMatches(text)) {
           final b64 = match.group(1) ?? '';
           if (b64.length >= 40 && !b64.contains(' ')) {
@@ -1855,6 +1862,7 @@ class KelivoReverseAnalyzer {
   }
 
   // ---- helpers ----
+  static Map<String, dynamic> _ok(String text) => {
         'content': [
           {'type': 'text', 'text': text},
         ],
