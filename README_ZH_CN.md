@@ -1,22 +1,23 @@
-# Kelivo Plus
+# Kelivo RevKit
 
-Kelivo Plus 是基于 [Chevey339/kelivo](https://github.com/Chevey339/kelivo) 的二次开发版本。原版 Kelivo 是一个跨平台 Flutter LLM 聊天客户端，本版本在保留原有模型接入、聊天、多模态、MCP、搜索和桌面/移动端体验的基础上，重点增强了移动端 AI 自主配置、内置工具、技能系统、本地混合搜索和 GitHub 写入型 MCP 工具。
+本仓库（`dhh-max/kelivo-revkit`）是 [Kelivo Plus](https://github.com/MuMu-0604/kelivo) 的再二次开发版本。Kelivo Plus 是基于 [Chevey339/kelivo](https://github.com/Chevey339/kelivo) 的二次开发版；本仓库在完整继承 Kelivo Plus 全部能力的基础上，进一步聚焦 **Android 安全与逆向工程**（RevKit = Reverse Engineering Kit）。
 
-> 二次开发声明：本仓库不是原作者官方仓库，代码基于原项目进行扩展与改造。原项目版权、协议与鸣谢请见原仓库和本仓库保留的 `LICENSE`。本项目继续遵循 AGPL-3.0 协议开源。
+> 二次开发声明：本仓库不是原作者官方仓库，代码基于 Kelivo Plus 与原版 Kelivo 扩展与改造。原项目版权、协议与鸣谢请见原仓库和本仓库保留的 `LICENSE`。本项目继续遵循 AGPL-3.0 协议开源。
 
-## 与原版的主要差异
+## Kelivo Plus 与本仓库（kelivo-revkit）的主要差异
 
-| 模块 | 原版 Kelivo | Kelivo Plus 二改版 |
+| 模块 | Kelivo Plus | 本仓库（kelivo-revkit） |
 | --- | --- | --- |
-| 助手配置 | 主要依靠用户手动进入设置页编辑 | 新增神经权能网关，允许获得授权的助手在对话中执行配置导入、修改与撤销 |
-| 助手权限 | 普通助手设置 | 新增“允许该助手启用神经权能网关”的权限开关，默认关闭 |
-| 技能系统 | 无独立 Skills 工作流 | 新增技能模型、导入器、技能页、助手技能绑定和触发注入 |
-| MCP 工具 | 原有 MCP 接入与内置 Fetch | 新增内置 Files、Images、GitHub、SO/ELF 逆向分析等 MCP 服务，并优化工具折叠与中文说明 |
-| GitHub 工具 | 偏只读/基础能力 | 新增分组式写入工具，覆盖仓库、分支、文件、Issue、PR、Release、Actions、Secrets、Variables 等能力 |
-| 搜索 | 多 API 搜索服务 | 新增本地混合搜索，聚合 Bing Local、DuckDuckGo、百度、搜狗、360，带过滤、去重和排序 |
-| 移动端导入 | 手动导入为主 | 支持对话中从文本、上一条生成内容、分享文件等来源导入到目标配置 |
-| 工具体验 | 工具列表较分散 | 工具可见介绍中文化，部分工具分组封装，降低上下文噪声 |
-| 深度逆向 | 基础 MCP | 本仓（kelivo-revkit）新增 `@kelivo/dex`、`@kelivo/context`，并将 `@kelivo/reverse` 深度扩展至 17 个工具，预置“逆向分析师”助手 |
+| 定位 | 移动端 AI 自主配置 + 通用增强 | 完整继承 Plus，并聚焦 Android 安全与逆向工程 |
+| 内置 MCP | fetch / files / images / github / so / reverse（基础） | 全部继承，新增 `@kelivo/dex`（DEX 字节码解析）、`@kelivo/context`（对话上下文管理） |
+| APK 逆向 | 基础静态分析与快速排查 | `@kelivo/reverse` 深度扩展至 17 个工具：新增 manifest 深度解析、SO/DEX 聚合分析、JNI 桥定位、跨目标字符串检索、加壳检测等 |
+| 预置助手 | 通用助手 | 新增“逆向分析师 / Reverse Analyst”，默认绑定 `@kelivo/reverse` |
+| 神经权能网关 | 有 | 完全继承 |
+| Skills 技能系统 | 有 | 完全继承 |
+| GitHub 写入工具 | 有 | 完全继承 |
+| 本地混合搜索 | 有 | 完全继承 |
+| 移动端导入 | 有 | 完全继承 |
+| 工具体验 | 中文化 + 分组 | 完全继承 |
 
 ## 核心功能
 
@@ -52,7 +53,9 @@ Kelivo Plus 是基于 [Chevey339/kelivo](https://github.com/Chevey339/kelivo) �
 - `@kelivo/images`：图片理解、图片任务辅助能力。
 - `@kelivo/github`：GitHub 仓库、文件、Issue、PR、Release、Actions、Secrets、Variables 等能力。
 - `@kelivo/so`：纯 Dart 实现的 ELF/.so 逆向分析工具集（共 20 个工具），无需额外原生依赖。
-- `@kelivo/reverse`：面向 APK 的静态分析与快速排查工具。
+- `@kelivo/dex`：纯 Dart 实现的 DEX/ODEX 字节码解析工具集（共 6 个工具），无需额外原生依赖。
+- `@kelivo/context`：对话上下文管理工具集（共 6 个工具），支持上下文统计、摘要、搜索、导出与边界管理。
+- `@kelivo/reverse`：面向 APK 的静态分析与快速排查工具（深度扩展，共 17 个工具）。
 - 内置 MCP 运行在 App 内部，不需要用户额外启动 Node/Python 服务。
 
 ### SO/ELF 逆向分析工具
@@ -69,16 +72,42 @@ Kelivo Plus 是基于 [Chevey339/kelivo](https://github.com/Chevey339/kelivo) �
 | 地址转换 | `so_addr_to_offset`、`so_offset_to_addr` |
 | 对比与注释 | `so_compare_headers`、`so_list_notes` |
 
+### DEX 字节码解析工具
+
+`@kelivo/dex` 提供纯 Dart 实现的 DEX/ODEX 字节码级解析能力：
+
+| 类别 | 工具 |
+| --- | --- |
+| 头部 | `dex_parse_header` |
+| 字符串 | `dex_list_strings` |
+| 类型 | `dex_list_types` |
+| 类 | `dex_list_classes` |
+| 方法 | `dex_list_methods` |
+| 字段 | `dex_list_fields` |
+
+### 对话上下文管理工具
+
+`@kelivo/context` 帮助模型感知并管理自身对话上下文：
+
+| 类别 | 工具 |
+| --- | --- |
+| 统计 | `context_get_stats` |
+| 摘要 | `context_get_summary` |
+| 搜索 | `context_search` |
+| 导出 | `context_export` |
+| 边界 | `context_set_boundary` |
+| 消息 | `context_get_messages` |
+
 ### APK 逆向分析工具
 
-`@kelivo/reverse` 提供面向 APK 的静态分析与快速排查工具：
+`@kelivo/reverse` 提供面向 APK 的静态分析与快速排查工具（深度扩展，共 17 个工具）：
 
 | 类别 | 工具 |
 | --- | --- |
 | 总览 | `reverse_meta_info`、`reverse_quick_triage` |
-| APK 结构 | `reverse_open_apk`、`reverse_manifest_audit`、`reverse_component_audit`、`reverse_diff_apk` |
+| APK 结构 | `reverse_open_apk`、`reverse_list_targets`、`reverse_manifest_summary`、`reverse_list_native_libs`、`reverse_list_dex_files`、`reverse_component_audit`、`reverse_diff_apk` |
+| 深度分析 | `reverse_analyze_so`、`reverse_analyze_dex`、`reverse_find_jni_bridges`、`reverse_search_strings` |
 | 安全分析 | `reverse_signature_audit`、`reverse_packer_detect`、`reverse_secret_scan` |
-| 二进制分析 | `reverse_dex_summary`、`reverse_so_summary`、`reverse_strings_index` |
 | 报告 | `reverse_report` |
 
 推荐流程：
@@ -117,34 +146,33 @@ GitHub 工具按使用场景分组封装，不再把每个 API 端点都暴露�
 
 下载地址：
 
-- 最新 Release 页面：[Kelivo Plus 1.1.17+4073](https://github.com/MuMu-0604/kelivo/releases/tag/v1.1.17-plus.4073)
-- Android 通用 APK 直链：[Kelivo_android_1.1.17+4073_gateway-report-fixes_fixedsign_universal.apk](https://github.com/MuMu-0604/kelivo/releases/download/v1.1.17-plus.4073/Kelivo_android_1.1.17%2B4073_gateway-report-fixes_fixedsign_universal.apk)
+- 最新 Release 页面：[Kelivo RevKit Releases](https://github.com/dhh-max/kelivo-revkit/releases)
 
-本公开 APK 的 Android 包名仍为 `com.psyche.kelivo`，与原版 Kelivo 相同，因此需要注意：
+本公开 APK 的 Android 包名仍为 `com.psyche.kelivo`，与 Kelivo Plus / 原版 Kelivo 相同，因此需要注意：
 
-- 不能直接覆盖安装原版 Kelivo：原版和本二改版通常使用不同签名，Android 会拒绝安装。
-- 不能与原版 Kelivo 直接共存：同一台设备上同一个包名只能安装一个应用。
-- 可以覆盖安装旧的 Kelivo Plus 二改版：前提是旧二改版使用同一签名，并且当前版本号不低于已安装版本。
+- 不能直接覆盖安装原版 Kelivo 或 Kelivo Plus：签名通常不同，Android 会拒绝安装。
+- 不能与原版 Kelivo / Kelivo Plus 直接共存：同一台设备上同一个包名只能安装一个应用。
+- 可以覆盖安装旧的 Kelivo RevKit 版本：前提是旧版本使用同一签名，并且当前版本号不低于已安装版本。
 
 推荐安装方式：
 
-1. 如需保留原版数据，先在原版 Kelivo 内完成备份或导出。
-2. 卸载原版 Kelivo。
-3. 安装 Release 中的 Kelivo Plus APK。
+1. 如需保留数据，先在原版 Kelivo 或 Kelivo Plus 内完成备份或导出。
+2. 卸载原版 Kelivo 或 Kelivo Plus。
+3. 安装本仓库 Release 中的 Kelivo RevKit APK。
 4. 重新导入配置、聊天记录或手动完成必要设置。
 
-如需与原版共存，需要构建独立包名版本：
+如需与 Kelivo Plus / 原版共存，需要构建独立包名版本：
 
-1. 将 Android `applicationId` 改为例如 `com.psyche.kelivo.plus`。
-2. 建议同步修改应用名称为 `Kelivo Plus`，避免桌面图标混淆。
+1. 将 Android `applicationId` 改为例如 `com.psyche.kelivo.revkit`。
+2. 建议同步修改应用名称为 `Kelivo RevKit`，避免桌面图标混淆。
 3. 使用自己的签名重新构建 APK。
-4. 该共存版会拥有独立应用数据，不能直接读取原版 Kelivo 的私有数据；需要通过备份/导入迁移。
+4. 该共存版会拥有独立应用数据，不能直接读取 Kelivo Plus / 原版 Kelivo 的私有数据；需要通过备份/导入迁移。
 
 当前 Release 附带的是同包名升级包，不是共存包。
 
 ### 配置模型
 
-1. 打开 Kelivo Plus。
+1. 打开 Kelivo RevKit。
 2. 进入模型或服务商设置。
 3. 添加 OpenAI、Gemini、Anthropic 或其他兼容服务商。
 4. 回到聊天页选择模型并开始对话。

@@ -1,10 +1,12 @@
-# Kelivo Plus 二改功能说明
+# Kelivo RevKit 变更说明
 
-本文档记录 Kelivo Plus 相对 [Chevey339/kelivo](https://github.com/Chevey339/kelivo) 的主要二次开发内容，便于使用者、贡献者和后续 Codex 会话理解当前版本边界。
+本文档记录本仓库（`dhh-max/kelivo-revkit`）相对 [Kelivo Plus](https://github.com/MuMu-0604/kelivo) 的主要差异，便于使用者、贡献者和后续 Codex 会话理解当前版本边界。Kelivo Plus 是基于 [Chevey339/kelivo](https://github.com/Chevey339/kelivo) 的二次开发版，本仓库在其基础上继续扩展。
 
 ## 二次开发定位
 
-Kelivo Plus 的目标不是重写 Kelivo，而是在原版优秀的跨平台 LLM 聊天客户端基础上，把“助手可以在授权后替用户配置 App”作为核心能力继续扩展。当前版本重点面向 Android 移动端体验，同时保留 Flutter 多端工程结构。
+Kelivo RevKit 完整继承 Kelivo Plus 的全部能力（神经权能网关、Skills、内置 MCP、GitHub 写入工具、本地混合搜索、移动端导入等），并进一步聚焦 **Android 安全与逆向工程**（RevKit = Reverse Engineering Kit），新增 `@kelivo/dex`、`@kelivo/context` 并把 `@kelivo/reverse` 深度扩展至 17 个工具。
+
+以下第 1–7 节为本仓库从 Kelivo Plus 继承的能力概览，第 8 节为本仓库相对 Kelivo Plus 的新增增强。
 
 ## 1. 神经权能网关
 

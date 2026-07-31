@@ -1,24 +1,25 @@
-# Kelivo Plus
+# Kelivo RevKit
 
 [简体中文](README_ZH_CN.md) | English
 
-Kelivo Plus is a modified open-source build based on [Chevey339/kelivo](https://github.com/Chevey339/kelivo). The original Kelivo is a cross-platform Flutter LLM chat client. This fork keeps the original chat, model provider, multimodal, MCP, search, and mobile/desktop foundations, then adds stronger mobile agent control, built-in tools, Skills, local hybrid search, and writable GitHub MCP tooling.
+This repository (`dhh-max/kelivo-revkit`) is a second-level fork of [Kelivo Plus](https://github.com/MuMu-0604/kelivo), which is itself a fork of [Chevey339/kelivo](https://github.com/Chevey339/kelivo). It fully inherits every Kelivo Plus capability and adds a deeper focus on **Android security and reverse engineering** (RevKit = Reverse Engineering Kit).
 
-> Fork notice: this repository is not the official upstream repository. It is a secondary development build based on the original Kelivo project. Original copyright, acknowledgements, and license terms are preserved. This project remains licensed under AGPL-3.0.
+> Fork notice: this repository is not the official upstream repository. It is a secondary development build based on Kelivo Plus and the original Kelivo project. Original copyright, acknowledgements, and license terms are preserved. This project remains licensed under AGPL-3.0.
 
-## What Changed From Upstream
+## What Changed From Kelivo Plus
 
-| Area | Upstream Kelivo | Kelivo Plus |
+| Area | Kelivo Plus | kelivo-revkit (this repo) |
 | --- | --- | --- |
-| Assistant configuration | Mostly manual settings pages | 神经权能网关 can import and edit configuration from chat after explicit assistant authorization |
-| Assistant permissions | Standard assistant settings | Adds an opt-in 神经权能网关 permission switch for app configuration control |
-| Skills | No standalone reusable Skills workflow | Adds Skill model, importer, Skills page, assistant binding, and trigger-based injection |
-| Built-in MCP | MCP integration with built-in Fetch | Adds built-in Files, Images, GitHub, SO/ELF reverse-engineering, and in-memory MCP services |
-| GitHub tools | Read-oriented or basic tooling | Adds grouped write-capable tools for repos, files, issues, PRs, releases, actions, secrets, and variables |
-| Search | Multiple API-backed providers | Adds API-key-free local hybrid search using Bing Local, DuckDuckGo, Baidu, Sogou, and 360 with filtering/ranking |
-| Mobile import flow | Mostly manual import | Supports chat-driven import from text, previous generated content, shared files, and user instructions |
-| Tool UX | Tool list can be noisy | Adds Chinese visible tool descriptions and grouped tool surfaces |
-| Deep reverse engineering | Basic MCP coverage | This repo (kelivo-revkit) adds `@kelivo/dex` and `@kelivo/context`, deepens `@kelivo/reverse` to 17 tools, and ships a built-in “Reverse Analyst” assistant |
+| Positioning | Mobile AI self-configuration + general enhancements | Fully inherits Plus; focused on Android security & reverse engineering |
+| Built-in MCP | fetch / files / images / github / so / reverse (basic) | All inherited + new `@kelivo/dex` (DEX bytecode parsing) and `@kelivo/context` (conversation context management) |
+| APK reverse engineering | Basic static analysis and triage | `@kelivo/reverse` deepened to 17 tools: manifest deep parsing, SO/DEX aggregate analysis, JNI bridge discovery, cross-target string search, packer detection, etc. |
+| Preset assistants | General-purpose assistants | Adds a “Reverse Analyst” preset bound to `@kelivo/reverse` by default |
+| 神经权能网关 | Included | Fully inherited |
+| Skills | Included | Fully inherited |
+| GitHub write tools | Included | Fully inherited |
+| Local hybrid search | Included | Fully inherited |
+| Mobile import flow | Included | Fully inherited |
+| Tool UX | Chinese tool descriptions + grouped tools | Fully inherited |
 
 ## Highlights
 
@@ -54,7 +55,9 @@ Create a world book from this setting document and use character and location na
 - `@kelivo/images`: image-oriented helper tools.
 - `@kelivo/github`: GitHub repository, file, issue, PR, release, Actions, secrets, and variables operations.
 - `@kelivo/so`: pure-Dart ELF/.so reverse engineering toolkit (20 tools). No native dependencies required.
-- `@kelivo/reverse`: APK-oriented static analysis and triage tools for Android reverse engineering.
+- `@kelivo/dex`: pure-Dart DEX/ODEX bytecode parsing toolkit (6 tools). No native dependencies required.
+- `@kelivo/context`: conversation context management toolkit (6 tools) — stats, summary, search, export, and boundary management.
+- `@kelivo/reverse`: APK-oriented static analysis and triage toolkit (deepened to 17 tools) for Android reverse engineering.
 
 ### SO/ELF Reverse Engineering Tools
 
@@ -70,16 +73,42 @@ Create a world book from this setting document and use character and location na
 | Address conversion | `so_addr_to_offset`, `so_offset_to_addr` |
 | Compare & notes | `so_compare_headers`, `so_list_notes` |
 
+### DEX Bytecode Parsing Tools
+
+`@kelivo/dex` provides pure-Dart DEX/ODEX bytecode-level parsing:
+
+| Category | Tools |
+| --- | --- |
+| Header | `dex_parse_header` |
+| Strings | `dex_list_strings` |
+| Types | `dex_list_types` |
+| Classes | `dex_list_classes` |
+| Methods | `dex_list_methods` |
+| Fields | `dex_list_fields` |
+
+### Conversation Context Management Tools
+
+`@kelivo/context` helps models perceive and manage their own conversation context:
+
+| Category | Tools |
+| --- | --- |
+| Stats | `context_get_stats` |
+| Summary | `context_get_summary` |
+| Search | `context_search` |
+| Export | `context_export` |
+| Boundary | `context_set_boundary` |
+| Messages | `context_get_messages` |
+
 ### APK Reverse Engineering Tools
 
-`@kelivo/reverse` provides APK-oriented static analysis and triage tools for Android reverse engineering:
+`@kelivo/reverse` provides APK-oriented static analysis and triage tools (deepened to 17 tools) for Android reverse engineering:
 
 | Category | Tools |
 | --- | --- |
 | Overview | `reverse_meta_info`, `reverse_quick_triage` |
-| APK structure | `reverse_open_apk`, `reverse_manifest_audit`, `reverse_component_audit`, `reverse_diff_apk` |
+| APK structure | `reverse_open_apk`, `reverse_list_targets`, `reverse_manifest_summary`, `reverse_list_native_libs`, `reverse_list_dex_files`, `reverse_component_audit`, `reverse_diff_apk` |
+| Deep analysis | `reverse_analyze_so`, `reverse_analyze_dex`, `reverse_find_jni_bridges`, `reverse_search_strings` |
 | Security analysis | `reverse_signature_audit`, `reverse_packer_detect`, `reverse_secret_scan` |
-| Binary analysis | `reverse_dex_summary`, `reverse_so_summary`, `reverse_strings_index` |
 | Reporting | `reverse_report` |
 
 Recommended workflow:
@@ -118,26 +147,25 @@ The wrapper layer also follows GitHub API constraints more strictly: empty repos
 
 Download links:
 
-- Latest Release page: [Kelivo Plus 1.1.17+4073](https://github.com/MuMu-0604/kelivo/releases/tag/v1.1.17-plus.4073)
-- Direct Android universal APK: [Kelivo_android_1.1.17+4073_gateway-report-fixes_fixedsign_universal.apk](https://github.com/MuMu-0604/kelivo/releases/download/v1.1.17-plus.4073/Kelivo_android_1.1.17%2B4073_gateway-report-fixes_fixedsign_universal.apk)
+- Latest Release page: [Kelivo RevKit Releases](https://github.com/dhh-max/kelivo-revkit/releases)
 
-The public APK keeps the Android package name `com.psyche.kelivo`, the same as upstream Kelivo, so Android treats it as the same app:
+The public APK keeps the Android package name `com.psyche.kelivo`, the same as Kelivo Plus / upstream Kelivo, so Android treats it as the same app:
 
-- It cannot be installed over the official upstream Kelivo app unless the signing certificate matches, which it normally does not.
-- It cannot coexist with upstream Kelivo because Android only allows one installed app per package name.
-- It can update an older Kelivo Plus build only when the signing certificate is the same and the version code is not lower.
+- It cannot be installed over the official upstream Kelivo or Kelivo Plus app unless the signing certificate matches, which it normally does not.
+- It cannot coexist with upstream Kelivo or Kelivo Plus because Android only allows one installed app per package name.
+- It can update an older Kelivo RevKit build only when the signing certificate is the same and the version code is not lower.
 
 Recommended installation path:
 
-1. Back up or export data from upstream Kelivo if needed.
-2. Uninstall upstream Kelivo.
-3. Install the Kelivo Plus APK from Releases.
+1. Back up or export data from upstream Kelivo / Kelivo Plus if needed.
+2. Uninstall upstream Kelivo / Kelivo Plus.
+3. Install the Kelivo RevKit APK from this repo's Releases.
 4. Import backups or reconfigure providers, assistants, MCP, and GitHub Token.
 
-To coexist with upstream Kelivo, build a separate package-name variant:
+To coexist with Kelivo Plus / upstream, build a separate package-name variant:
 
-1. Change Android `applicationId`, for example to `com.psyche.kelivo.plus`.
-2. Optionally change the app label to `Kelivo Plus` to avoid launcher confusion.
+1. Change Android `applicationId`, for example to `com.psyche.kelivo.revkit`.
+2. Optionally change the app label to `Kelivo RevKit` to avoid launcher confusion.
 3. Sign the APK with your own key.
 4. Treat it as a separate app with separate app data; migrate data through backup/import rather than direct private-data sharing.
 
@@ -145,7 +173,7 @@ The current Release APK is a same-package build, not a coexistence build.
 
 ### Configure Models
 
-1. Open Kelivo Plus.
+1. Open Kelivo RevKit.
 2. Add a model provider such as OpenAI, Gemini, Anthropic, or another compatible endpoint.
 3. Select the model in chat and start using it.
 
@@ -197,7 +225,7 @@ The repository does not include signing secrets. Configure your own `android/key
 ## Documentation
 
 - [Chinese README](README_ZH_CN.md)
-- [Kelivo Plus change notes](docs/KELIVO_PLUS_CHANGES_ZH.md)
+- [Kelivo RevKit change notes (vs Kelivo Plus)](docs/KELIVO_PLUS_CHANGES_ZH.md)
 - [Android installation and coexistence guide](docs/ANDROID_INSTALLATION_ZH.md)
 - [Release notes](docs/RELEASE_NOTES_1.1.17_PLUS.md)
 - [Search upgrade notes](docs/KELIVO_SEARCH_UPGRADE_NOTES.md)
@@ -209,4 +237,4 @@ The repository does not include signing secrets. Configure your own `android/key
 
 ## License
 
-Kelivo Plus is licensed under AGPL-3.0. See [LICENSE](LICENSE) for details.
+Kelivo RevKit is licensed under AGPL-3.0. See [LICENSE](LICENSE) for details.
