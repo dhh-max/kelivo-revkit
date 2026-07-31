@@ -12,7 +12,7 @@ This repository (`dhh-max/kelivo-revkit`) is a second-level fork of [Kelivo Plus
 | --- | --- | --- |
 | Positioning | Mobile AI self-configuration + general enhancements | Fully inherits Plus; focused on Android security & reverse engineering |
 | Built-in MCP | fetch / files / images / github / so / reverse (basic) | All inherited + new `@kelivo/dex` (DEX bytecode parsing) and `@kelivo/context` (conversation context management) |
-| APK reverse engineering | Basic static analysis and triage | `@kelivo/reverse` deepened to 17 tools: manifest deep parsing, SO/DEX aggregate analysis, JNI bridge discovery, cross-target string search, packer detection, etc. |
+| APK reverse engineering | Basic static analysis and triage | `@kelivo/reverse` deepened to 20 tools: manifest deep parsing, SO/DEX aggregate analysis, JNI bridge discovery, cross-target string search, packer detection, signature bypass, APK resign & DEX injection, etc. |
 | Preset assistants | General-purpose assistants | Adds a “Reverse Analyst” preset bound to `@kelivo/reverse` by default |
 | 神经权能网关 | Included | Fully inherited |
 | Skills | Included | Fully inherited |
@@ -54,10 +54,10 @@ Create a world book from this setting document and use character and location na
 - `@kelivo/files`: local file read/write and directory operations.
 - `@kelivo/images`: image-oriented helper tools.
 - `@kelivo/github`: GitHub repository, file, issue, PR, release, Actions, secrets, and variables operations.
-- `@kelivo/so`: pure-Dart ELF/.so reverse engineering toolkit (24 tools). No native dependencies required.
+- `@kelivo/so`: pure-Dart ELF/.so reverse engineering toolkit (26 tools). No native dependencies required.
 - `@kelivo/dex`: pure-Dart DEX/ODEX bytecode parsing toolkit (10 tools). No native dependencies required.
 - `@kelivo/context`: conversation context management toolkit (6 tools) — stats, summary, search, export, and boundary management.
-- `@kelivo/reverse`: APK-oriented static analysis and triage toolkit (deepened to 18 tools, incl. signature bypass) for Android reverse engineering.
+- `@kelivo/reverse`: APK-oriented static analysis and triage toolkit (20 tools, incl. signature bypass, APK resign & DEX injection) for Android reverse engineering.
 
 ### SO/ELF Reverse Engineering Tools
 
@@ -75,6 +75,8 @@ Create a world book from this setting document and use character and location na
 | Init analysis | `so_list_init_array` (.init_array/.fini_array pointers + symbol names) |
 | Cross-reference | `so_xref_symbol` (all relocations referencing a symbol) |
 | Packer detection | `so_detect_packer` (UPX/Bangcle/Ijiami/360/Nagain/Legu/Baidu/DexGuard/Alibaba etc.) |
+| Anti-debug | `so_find_anti_debug` (detect ptrace/inotify/frida/TracerPid anti-debug patterns) |
+| GOT/PLT | `so_got_plt_analysis` (GOT/PLT table analysis for hook point discovery) |
 | Disassembly | `so_disassemble` (ARM64 AArch64 instruction disassembler, by symbol or offset) |
 
 ### DEX Bytecode Parsing Tools
@@ -109,14 +111,14 @@ Create a world book from this setting document and use character and location na
 
 ### APK Reverse Engineering Tools
 
-`@kelivo/reverse` provides APK-oriented static analysis and triage tools (deepened to 17 tools) for Android reverse engineering:
-
+`@kelivo/reverse` provides APK-oriented static analysis, modification, and triage tools (20 tools) for Android reverse engineering:
 | Category | Tools |
 | --- | --- |
 | Overview | `reverse_meta_info`, `reverse_quick_triage` |
 | APK structure | `reverse_open_apk`, `reverse_list_targets`, `reverse_manifest_summary`, `reverse_list_native_libs`, `reverse_list_dex_files`, `reverse_component_audit`, `reverse_diff_apk` |
 | Deep analysis | `reverse_analyze_so`, `reverse_analyze_dex`, `reverse_find_jni_bridges`, `reverse_search_strings` |
 | Security analysis | `reverse_signature_audit`, `reverse_packer_detect`, `reverse_secret_scan` |
+| Modification | `reverse_kill_signature` (strip signature verification), `reverse_resign_apk` (repackage & sign), `reverse_inject_dex` (inject DEX payload into APK) |
 | Reporting | `reverse_report` |
 
 Recommended workflow:
@@ -126,6 +128,32 @@ Recommended workflow:
 3. Use `reverse_signature_audit`, `reverse_packer_detect`, and `reverse_secret_scan` for security checks.
 4. Use `reverse_component_audit` and `reverse_diff_apk` for deeper APK comparison and exported-component inspection.
 5. Finish with `reverse_report` to generate a structured summary.
+
+### APK Modification Pipeline (Experimental)
+`@kelivo/reverse` also provides in-process APK modification capabilities. Combined with the build toolchain (`apktool`, `zipalign`, `apksigner`, `keytool`), a full modify-resign workflow is available:
+
+| Step | Tool / Command | Description |
+| --- | --- | --- |
+| Unpack | `apktool d app.apk -o out/` | Decode APK to editable form (smali + resources + manifest) |
+| Modify | Direct file edits | Patch smali / resources / manifest / DEX / SO |
+| Repack | `apktool b out/ -o new.apk` | Rebuild APK from decoded directory |
+| Align | `zipalign -p 4 new.apk aligned.apk` | Align APK for optimal memory mapping |
+| Sign | `apksigner sign --ks debug.jks aligned.apk` | Sign with debug/release key |
+
+Alternatively, the built-in tools provide a streamlined path:
+1. `reverse_kill_signature` — strip native signature verification (libjiagu.so, etc.)
+2. `reverse_inject_dex` — inject a DEX payload (e.g., hook.dex) into the APK's `classes.dex` chain
+3. `reverse_resign_apk` — re-package and sign the APK in one step (generates debug keystore if needed)
+
+**Example: Bypass signature verification and resign:**
+```text
+1. reverse_open_apk → load target.apk
+2. reverse_kill_signature → remove libjiagu.so checks
+3. reverse_inject_dex → add hook payload (optional)
+4. reverse_resign_apk → output signed, ready-to-install APK
+```
+
+> ⚠️ **Disclaimer:** Modifying third-party APKs may violate terms of service or laws. Use only on APKs you own or have explicit permission to modify.
 
 All tools accept either a local file `path` or `base64`-encoded bytes. No external native libraries (Rizin, LIEF, etc.) are needed — the parser is implemented in pure Dart and runs entirely in-process.
 

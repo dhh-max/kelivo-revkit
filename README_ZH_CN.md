@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | 定位 | 移动端 AI 自主配置 + 通用增强 | 完整继承 Plus，并聚焦 Android 安全与逆向工程 |
 | 内置 MCP | fetch / files / images / github / so / reverse（基础） | 全部继承，新增 `@kelivo/dex`（DEX 字节码解析）、`@kelivo/context`（对话上下文管理） |
-| APK 逆向 | 基础静态分析与快速排查 | `@kelivo/reverse` 深度扩展至 17 个工具：新增 manifest 深度解析、SO/DEX 聚合分析、JNI 桥定位、跨目标字符串检索、加壳检测等 |
+| APK 逆向 | 基础静态分析与快速排查 | `@kelivo/reverse` 深度扩展至 20 个工具：新增 manifest 深度解析、SO/DEX 聚合分析、JNI 桥定位、跨目标字符串检索、加壳检测、过签、重打包与 DEX 注入等 |
 | 预置助手 | 通用助手 | 新增“逆向分析师 / Reverse Analyst”，默认绑定 `@kelivo/reverse` |
 | 神经权能网关 | 有 | 完全继承 |
 | Skills 技能系统 | 有 | 完全继承 |
@@ -52,10 +52,10 @@
 - `@kelivo/files`：本地文件读取、写入、目录浏览等文件能力。
 - `@kelivo/images`：图片理解、图片任务辅助能力。
 - `@kelivo/github`：GitHub 仓库、文件、Issue、PR、Release、Actions、Secrets、Variables 等能力。
-- `@kelivo/so`：纯 Dart 实现的 ELF/.so 逆向分析工具集（共 24 个工具），无需额外原生依赖。
+|- `@kelivo/so`：纯 Dart 实现的 ELF/.so 逆向分析工具集（共 26 个工具），无需额外原生依赖。
 - `@kelivo/dex`：纯 Dart 实现的 DEX/ODEX 字节码解析工具集（共 10 个工具），无需额外原生依赖。
 - `@kelivo/context`：对话上下文管理工具集（共 6 个工具），支持上下文统计、摘要、搜索、导出与边界管理。
-- `@kelivo/reverse`：面向 APK 的静态分析与快速排查工具（深度扩展，共 18 个工具，含过签能力）。
+- `@kelivo/reverse`：面向 APK 的静态分析、修改与快速排查工具（共 20 个工具，含过签、重打包与 DEX 注入能力）。
 - 内置 MCP 运行在 App 内部，不需要用户额外启动 Node/Python 服务。
 
 ### SO/ELF 逆向分析工具
@@ -74,6 +74,8 @@
 | 初始化分析 | `so_list_init_array`（.init_array/.fini_array 函数指针 + 符号名） |
 | 交叉引用 | `so_xref_symbol`（重定位表中引用某符号的所有位置） |
 | 加固检测 | `so_detect_packer`（UPX/梆梆/爱加密/360/娜迦/乐固/百度/DexGuard/阿里等） |
+| 反调试检测 | `so_find_anti_debug`（检测 ptrace/inotify/frida/TracerPid 等反调试特征） |
+| GOT/PLT 分析 | `so_got_plt_analysis`（GOT/PLT 表分析，定位 Hook 点） |
 | 反汇编 | `so_disassemble`（ARM64 AArch64 指令反汇编，按符号或偏移） |
 
 ### DEX 字节码解析工具
@@ -108,7 +110,7 @@
 
 ### APK 逆向分析工具
 
-`@kelivo/reverse` 提供面向 APK 的静态分析与快速排查工具（深度扩展，共 17 个工具）：
+`@kelivo/reverse` 提供面向 APK 的静态分析、修改与快速排查工具（共 20 个工具）：
 
 | 类别 | 工具 |
 | --- | --- |
@@ -116,6 +118,7 @@
 | APK 结构 | `reverse_open_apk`、`reverse_list_targets`、`reverse_manifest_summary`、`reverse_list_native_libs`、`reverse_list_dex_files`、`reverse_component_audit`、`reverse_diff_apk` |
 | 深度分析 | `reverse_analyze_so`、`reverse_analyze_dex`、`reverse_find_jni_bridges`、`reverse_search_strings` |
 | 安全分析 | `reverse_signature_audit`、`reverse_packer_detect`、`reverse_secret_scan` |
+| 修改工具 | `reverse_kill_signature`（去除签名校验）、`reverse_resign_apk`（重打包并签名）、`reverse_inject_dex`（向 APK 注入 DEX 载荷） |
 | 报告 | `reverse_report` |
 
 推荐流程：
@@ -125,6 +128,32 @@
 3. 再用 `reverse_signature_audit`、`reverse_packer_detect`、`reverse_secret_scan` 做安全检查。
 4. 结合 `reverse_component_audit` 和 `reverse_diff_apk` 做组件与版本对比分析。
 5. 最后用 `reverse_report` 生成结构化报告。
+
+### APK 修改流水线（实验性功能）
+`@kelivo/reverse` 还提供 APK 修改能力。配合构建工具链（`apktool`、`zipalign`、`apksigner`、`keytool`），可实现完整的修改-重打包-签名流程：
+
+| 步骤 | 工具 / 命令 | 说明 |
+| --- | --- | --- |
+| 解包 | `apktool d app.apk -o out/` | 将 APK 解码为可编辑形式（smali + 资源 + manifest） |
+| 修改 | 直接编辑文件 | 修改 smali / 资源 / manifest / DEX / SO |
+| 重打包 | `apktool b out/ -o new.apk` | 从解码目录重建 APK |
+| 对齐 | `zipalign -p 4 new.apk aligned.apk` | 对齐 APK 以优化内存映射 |
+| 签名 | `apksigner sign --ks debug.jks aligned.apk` | 使用调试/发布密钥签名 |
+
+此外，内置工具提供了一条简化路径：
+1. `reverse_kill_signature` — 去除原生签名校验（如 libjiagu.so 检测）
+2. `reverse_inject_dex` — 向 APK 注入 DEX 载荷（如 hook.dex）
+3. `reverse_resign_apk` — 一步完成重打包与签名（自动生成调试密钥）
+
+**示例：绕过签名校验并重新签名：**
+```text
+1. reverse_open_apk → 加载目标 APK
+2. reverse_kill_signature → 去除 libjiagu.so 校验
+3. reverse_inject_dex → 注入 hook 载荷（可选）
+4. reverse_resign_apk → 输出已签名、可直接安装的 APK
+```
+
+> ⚠️ **免责声明：** 修改第三方 APK 可能违反服务条款或法律。请仅在您拥有或获得明确授权的 APK 上使用此功能。
 
 所有工具支持传入本地文件 `path` 或 `base64` 编码的字节数据。解析器为纯 Dart 实现，完全在进程内运行，不依赖 Rizin、LIEF 等外部原生库。
 
