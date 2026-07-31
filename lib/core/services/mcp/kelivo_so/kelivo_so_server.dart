@@ -1349,6 +1349,121 @@ class KelivoSoAnalyzer {
     }
   }
 
+  // ---- so_got_plt_analysis ----
+  /// Analyzes GOT/PLT entries for hook-point identification.
+  static Map<String, dynamic> gotPltAnalysis(KelivoSoRequestPayload p) {
+    try {
+      final elf = _open(p);
+      final sb = StringBuffer()..writeln('=== GOT/PLT Analysis ===');
+      // Find .got, .got.plt, .plt sections
+      for (final name in ['.got', '.got.plt', '.plt', '.plt.got']) {
+        final sec = elf.sectionByName(name);
+        if (sec == null || sec.size == 0) continue;
+        sb.writeln('\n$name (addr=0x${sec.addr.toRadixString(16)}, '
+            'offset=0x${sec.offset.toRadixString(16)}, size=${sec.size}):');
+        final ptrSize = elf.is64 ? 8 : 4;
+        final count = sec.size ~/ ptrSize;
+        final shown = count > p.limit ? p.limit : count;
+        for (var i = 0; i < shown; i++) {
+          final off = sec.offset + i * ptrSize;
+          if (off + ptrSize > elf.length) break;
+          final addr = elf.is64
+              ? elf.data.getUint64(off, elf.endian)
+              : elf.data.getUint32(off, elf.endian);
+          final sym = elf.symbolAtAddr(sec.addr + i * ptrSize);
+          final target = elf.symbolAtAddr(addr);
+          final label = sym.isNotEmpty ? sym : (target.isNotEmpty ? '→ $target' : '');
+          sb.writeln('  [$i] 0x${(sec.addr + i * ptrSize).toRadixString(16)}: '
+              '0x${addr.toRadixString(16)}${label.isNotEmpty ? '  ; $label' : ''}');
+        }
+        if (count > shown) sb.writeln('  ... ($count total)');
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  // ---- so_find_anti_debug ----
+  /// Detects common anti-debugging techniques in the ELF binary.
+  static Map<String, dynamic> findAntiDebug(KelivoSoRequestPayload p) {
+    try {
+      final elf = _open(p);
+      final sb = StringBuffer()..writeln('=== Anti-Debug Detection ===');
+      final findings = <String>[];
+
+      // Check imported symbols
+      final dynsym = elf.sectionByName('.dynsym');
+      final dynstr = elf.sectionByName('.dynstr');
+      final syms = <String>[];
+      if (dynsym != null && dynstr != null) {
+        for (final s in elf.readSymbols(dynsym, dynstr)) {
+          syms.add(s.name);
+        }
+      }
+
+      // ptrace
+      if (syms.any((s) => s == 'ptrace')) {
+        findings.add('⚠ Imports ptrace() — common anti-debug (self-attach)');
+      }
+      // inotify (file monitoring)
+      if (syms.any((s) => s.startsWith('inotify_'))) {
+        findings.add('⚠ Imports inotify — may monitor /proc/self for debugger');
+      }
+      // fork + waitpid (anti-ptrace child process)
+      if (syms.contains('fork') && syms.contains('waitpid')) {
+        findings.add('⚠ Imports fork+waitpid — possible anti-ptrace child watchdog');
+      }
+      // kill/raise (self-kill on debug detect)
+      if (syms.contains('kill') || syms.contains('raise')) {
+        findings.add('⚡ Imports kill/raise — may self-terminate on debug detection');
+      }
+
+      // String-based detection
+      final strChecks = <String, String>{
+        '/proc/self/status': 'Reads /proc/self/status (TracerPid check)',
+        '/proc/self/maps': 'Reads /proc/self/maps (memory mapping check)',
+        '/proc/self/cmdline': 'Reads /proc/self/cmdline',
+        'TracerPid': 'Searches for TracerPid string',
+        'frida': 'References Frida (anti-Frida)',
+        'xposed': 'References Xposed (anti-Xposed)',
+        'substrate': 'References Cydia Substrate (anti-hook)',
+        'magisk': 'References Magisk (anti-root)',
+        'su': '',
+        'SIGTRAP': 'References SIGTRAP (breakpoint detection)',
+      };
+
+      for (final entry in strChecks.entries) {
+        if (_bytesContain(p.bytes, entry.key)) {
+          final desc = entry.value.isNotEmpty ? entry.value : 'References "${entry.key}"';
+          findings.add('⚠ $desc');
+        }
+      }
+
+      // Check .init_array size (anti-debug init chain)
+      final initSec = elf.sectionByName('.init_array');
+      if (initSec != null && initSec.size > 0) {
+        final ptrSize = elf.is64 ? 8 : 4;
+        final count = initSec.size ~/ ptrSize;
+        if (count > 10) {
+          findings.add('⚠ Large .init_array ($count entries) — possible anti-debug init chain');
+        }
+      }
+
+      if (findings.isEmpty) {
+        sb.writeln('  No obvious anti-debug patterns detected.');
+      } else {
+        sb.writeln('  Findings (${findings.length}):');
+        for (final f in findings) {
+          sb.writeln('  $f');
+        }
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
   /// Checks whether [data] contains the ASCII bytes of [needle].
   static bool _bytesContain(Uint8List data, String needle) {
     final encoded = utf8.encode(needle);
@@ -1619,6 +1734,10 @@ class KelivoSoMcpServerEngine implements KelivoInMemoryMcpServerEngine {
               return _ok(id, result: KelivoSoAnalyzer.detectPacker(payload));
             case 'so_disassemble':
               return _ok(id, result: KelivoSoAnalyzer.disassemble(payload, arguments));
+            case 'so_got_plt_analysis':
+              return _ok(id, result: KelivoSoAnalyzer.gotPltAnalysis(payload));
+            case 'so_find_anti_debug':
+              return _ok(id, result: KelivoSoAnalyzer.findAntiDebug(payload));
             default:
               return _error(id, code: -32101, message: 'Tool not found: $name');
           }
@@ -1886,6 +2005,16 @@ class KelivoSoMcpServerEngine implements KelivoInMemoryMcpServerEngine {
             'count': {'type': 'integer', 'description': '反汇编指令条数，默认 32。'},
           },
         },
+      },
+      {
+        'name': 'so_got_plt_analysis',
+        'description': '分析 GOT/PLT 表条目（hook 点定位），列出每个 GOT 条目指向的地址和关联符号。',
+        'inputSchema': baseSchema(withLimit: true),
+      },
+      {
+        'name': 'so_find_anti_debug',
+        'description': '检测反调试特征：ptrace 自附加、/proc/self 读取、fork+waitpid 看门狗、Frida/Xposed/Magisk 检测字符串等。',
+        'inputSchema': baseSchema(),
       },
     ];
   }
