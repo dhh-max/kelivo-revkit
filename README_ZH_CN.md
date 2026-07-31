@@ -52,8 +52,8 @@
 - `@kelivo/files`：本地文件读取、写入、目录浏览等文件能力。
 - `@kelivo/images`：图片理解、图片任务辅助能力。
 - `@kelivo/github`：GitHub 仓库、文件、Issue、PR、Release、Actions、Secrets、Variables 等能力。
-- `@kelivo/so`：纯 Dart 实现的 ELF/.so 逆向分析工具集（共 20 个工具），无需额外原生依赖。
-- `@kelivo/dex`：纯 Dart 实现的 DEX/ODEX 字节码解析工具集（共 6 个工具），无需额外原生依赖。
+- `@kelivo/so`：纯 Dart 实现的 ELF/.so 逆向分析工具集（共 24 个工具），无需额外原生依赖。
+- `@kelivo/dex`：纯 Dart 实现的 DEX/ODEX 字节码解析工具集（共 10 个工具），无需额外原生依赖。
 - `@kelivo/context`：对话上下文管理工具集（共 6 个工具），支持上下文统计、摘要、搜索、导出与边界管理。
 - `@kelivo/reverse`：面向 APK 的静态分析与快速排查工具（深度扩展，共 17 个工具）。
 - 内置 MCP 运行在 App 内部，不需要用户额外启动 Node/Python 服务。
@@ -71,6 +71,10 @@
 | 符号查询 | `so_symbol_lookup` |
 | 地址转换 | `so_addr_to_offset`、`so_offset_to_addr` |
 | 对比与注释 | `so_compare_headers`、`so_list_notes` |
+| 初始化分析 | `so_list_init_array`（.init_array/.fini_array 函数指针 + 符号名） |
+| 交叉引用 | `so_xref_symbol`（重定位表中引用某符号的所有位置） |
+| 加固检测 | `so_detect_packer`（UPX/梆梆/爱加密/360/娜迦/乐固/百度/DexGuard/阿里等） |
+| 反汇编 | `so_disassemble`（ARM64 AArch64 指令反汇编，按符号或偏移） |
 
 ### DEX 字节码解析工具
 
@@ -84,6 +88,10 @@
 | 类 | `dex_list_classes` |
 | 方法 | `dex_list_methods` |
 | 字段 | `dex_list_fields` |
+| 注解 | `dex_list_annotations`（类级注解提取，反混淆线索） |
+| 反汇编 | `dex_disassemble_method`（单方法 Dalvik 字节码反汇编） |
+| 交叉引用 | `dex_xref_method`（方法级调用图——查找所有调用者） |
+| 字符串搜索 | `dex_search_strings`（正则/子串搜索 DEX 字符串池） |
 
 ### 对话上下文管理工具
 

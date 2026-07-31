@@ -54,8 +54,8 @@ Create a world book from this setting document and use character and location na
 - `@kelivo/files`: local file read/write and directory operations.
 - `@kelivo/images`: image-oriented helper tools.
 - `@kelivo/github`: GitHub repository, file, issue, PR, release, Actions, secrets, and variables operations.
-- `@kelivo/so`: pure-Dart ELF/.so reverse engineering toolkit (20 tools). No native dependencies required.
-- `@kelivo/dex`: pure-Dart DEX/ODEX bytecode parsing toolkit (6 tools). No native dependencies required.
+- `@kelivo/so`: pure-Dart ELF/.so reverse engineering toolkit (24 tools). No native dependencies required.
+- `@kelivo/dex`: pure-Dart DEX/ODEX bytecode parsing toolkit (10 tools). No native dependencies required.
 - `@kelivo/context`: conversation context management toolkit (6 tools) — stats, summary, search, export, and boundary management.
 - `@kelivo/reverse`: APK-oriented static analysis and triage toolkit (deepened to 17 tools) for Android reverse engineering.
 
@@ -72,6 +72,10 @@ Create a world book from this setting document and use character and location na
 | Symbol query | `so_symbol_lookup` |
 | Address conversion | `so_addr_to_offset`, `so_offset_to_addr` |
 | Compare & notes | `so_compare_headers`, `so_list_notes` |
+| Init analysis | `so_list_init_array` (.init_array/.fini_array pointers + symbol names) |
+| Cross-reference | `so_xref_symbol` (all relocations referencing a symbol) |
+| Packer detection | `so_detect_packer` (UPX/Bangcle/Ijiami/360/Nagain/Legu/Baidu/DexGuard/Alibaba etc.) |
+| Disassembly | `so_disassemble` (ARM64 AArch64 instruction disassembler, by symbol or offset) |
 
 ### DEX Bytecode Parsing Tools
 
@@ -85,6 +89,10 @@ Create a world book from this setting document and use character and location na
 | Classes | `dex_list_classes` |
 | Methods | `dex_list_methods` |
 | Fields | `dex_list_fields` |
+| Annotations | `dex_list_annotations` (class-level annotation extraction, deobfuscation hints) |
+| Disassembly | `dex_disassemble_method` (per-method Dalvik bytecode disassembly) |
+| Cross-reference | `dex_xref_method` (method-level call graph — find all callers) |
+| String search | `dex_search_strings` (regex/substring search over DEX string pool) |
 
 ### Conversation Context Management Tools
 
