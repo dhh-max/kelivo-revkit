@@ -16,6 +16,7 @@ Kelivo Plus 是基于 [Chevey339/kelivo](https://github.com/Chevey339/kelivo) �
 | 搜索 | 多 API 搜索服务 | 新增本地混合搜索，聚合 Bing Local、DuckDuckGo、百度、搜狗、360，带过滤、去重和排序 |
 | 移动端导入 | 手动导入为主 | 支持对话中从文本、上一条生成内容、分享文件等来源导入到目标配置 |
 | 工具体验 | 工具列表较分散 | 工具可见介绍中文化，部分工具分组封装，降低上下文噪声 |
+| 深度逆向 | 基础 MCP | 本仓（kelivo-revkit）新增 `@kelivo/dex`、`@kelivo/context`，并将 `@kelivo/reverse` 深度扩展至 17 个工具，预置“逆向分析师”助手 |
 
 ## 核心功能
 

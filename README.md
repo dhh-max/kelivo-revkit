@@ -18,6 +18,7 @@ Kelivo Plus is a modified open-source build based on [Chevey339/kelivo](https://
 | Search | Multiple API-backed providers | Adds API-key-free local hybrid search using Bing Local, DuckDuckGo, Baidu, Sogou, and 360 with filtering/ranking |
 | Mobile import flow | Mostly manual import | Supports chat-driven import from text, previous generated content, shared files, and user instructions |
 | Tool UX | Tool list can be noisy | Adds Chinese visible tool descriptions and grouped tool surfaces |
+| Deep reverse engineering | Basic MCP coverage | This repo (kelivo-revkit) adds `@kelivo/dex` and `@kelivo/context`, deepens `@kelivo/reverse` to 17 tools, and ships a built-in “Reverse Analyst” assistant |
 
 ## Highlights
 

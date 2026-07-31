@@ -61,7 +61,9 @@ Kelivo Plus 的目标不是重写 Kelivo，而是在原版优秀的跨平台 LLM
 - `@kelivo/images`：图片相关辅助能力。
 - `@kelivo/github`：GitHub 仓库、文件、Issue、PR、Release、Actions、Secrets、Variables 等。
 - `@kelivo/so`：纯 Dart 实现的 ELF/.so 逆向分析工具集（共 20 个工具）。
-- `@kelivo/reverse`：面向 APK 的静态分析与快速排查工具。
+- `@kelivo/dex`：纯 Dart 实现的 DEX/ODEX 字节码解析工具集（共 6 个工具）。
+- `@kelivo/context`：对话上下文管理工具集（共 6 个工具），支持上下文统计、摘要、搜索、导出与边界管理。
+- `@kelivo/reverse`：面向 APK 的静态分析与快速排查工具（深度扩展，共 17 个工具）。
 
 ### 体验优化
 
@@ -128,7 +130,58 @@ GitHub 工具从基础/只读能力升级为更完整的仓库自动化能力。
 - 新增/更新中文、英文、繁体中文本地化字符串。
 - 新增百度、搜狗、360 图标资源。
 
-## 8. 开源发布边界
+## 8. 本仓库（kelivo-revkit）相对 Kelivo Plus 的深度逆向增强
+
+本仓库（`dhh-max/kelivo-revkit`）在 Kelivo Plus 的二次开发基础上，进一步聚焦 **Android 安全与逆向工程** 方向，新增/扩展了以下能力，构成与实际发布版本的差异点。
+
+### 8.1 新增 `@kelivo/dex`（DEX/ODEX 字节码解析）
+
+纯 Dart 实现的字节码级解析服务，无需外部反编译工具，共 6 个工具：
+
+| 工具 | 说明 |
+| --- | --- |
+| `dex_parse_header` | DEX header（版本、校验、计数、endian 标记） |
+| `dex_list_strings` | string_ids 字面量池（MUTF-8 解码） |
+| `dex_list_types` | type_ids（解析为 descriptor） |
+| `dex_list_classes` | class_defs（类描述、父类、访问标志） |
+| `dex_list_methods` | method_ids（类名 + proto shorty） |
+| `dex_list_fields` | field_ids（类名 : 类型） |
+
+### 8.2 新增 `@kelivo/context`（对话上下文自我管理）
+
+帮助模型感知并管理自身对话上下文，共 6 个工具：
+
+`context_get_stats`、`context_get_summary`、`context_search`、`context_export`、`context_set_boundary`、`context_get_messages`。
+
+### 8.3 `@kelivo/reverse` 深度扩展（至 17 个工具）
+
+在 Kelivo Plus 版 `reverse` 工具基础上，新增面向深度 APK 分析的能力：
+
+| 工具 | 说明 |
+| --- | --- |
+| `reverse_list_targets` | 枚举 APK 内全部分析目标 |
+| `reverse_manifest_summary` | 解析 AndroidManifest.xml（包名、组件、权限） |
+| `reverse_list_native_libs` | 列出 APK 内所有 .so 文件 |
+| `reverse_list_dex_files` | 列出所有 classes*.dex 文件 |
+| `reverse_analyze_so` | 对单个 .so 做 header/import/export/dep/string 聚合分析 |
+| `reverse_analyze_dex` | 对单个 .dex 做 header/class/method/string 聚合分析 |
+| `reverse_find_jni_bridges` | 定位 JNI 注册线索（JNI_OnLoad、Java_* 等） |
+| `reverse_search_strings` | APK 元数据 + so 字符串 + dex 字符串跨目标检索 |
+| `reverse_report` | 结构化逆向报告 |
+| `reverse_quick_triage` | 一键快速排查：入口、权限、so、dex、JNI 线索、可疑字符串 |
+| `reverse_signature_audit` | 签名方案与证书分析 |
+| `reverse_packer_detect` | 加壳/加固检测（360/百度/腾讯/UPX 等） |
+| `reverse_secret_scan` | 硬编码密钥扫描 |
+| `reverse_component_audit` | 导出组件安全审计 |
+| `reverse_diff_apk` | APK 版本差异分析（组件/权限/签名/文件） |
+
+### 8.4 预置“逆向分析师 / Reverse Analyst”助手
+
+- 新增预置助手，本地化名称随系统语言切换（中文“逆向分析师” / 英文“Reverse Analyst”）。
+- 默认绑定 `@kelivo/reverse` 聚合逆向 MCP。
+- 系统提示词内置 APK 结构分析、DEX/SO 逆向、Manifest 审计、JNI 分析、反混淆与加壳识别等专业引导。
+
+## 9. 开源发布边界
 
 公开仓库包含源码、文档、测试和必要资源；不包含以下内容：
 
