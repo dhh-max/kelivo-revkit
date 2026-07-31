@@ -33,6 +33,10 @@ import '../in_memory_mcp_server.dart';
 /// - so_offset_to_addr     → convert file offset to virtual address
 /// - so_compare_headers    → compare ELF headers between two files
 /// - so_list_notes         → list ELF notes (NT_*)
+/// - so_list_init_array    → .init_array/.fini_array/.preinit_array pointers
+/// - so_xref_symbol        → relocation cross-reference for a symbol
+/// - so_detect_packer      → detect common Android packers/protectors
+/// - so_disassemble        → AArch64 disassembly at symbol/offset
 
 class KelivoSoRequestPayload {
   final Uint8List bytes;
@@ -210,6 +214,60 @@ class ElfImage {
   ElfSection? sectionByName(String name) {
     for (final s in sections) {
       if (s.name == name) return s;
+    }
+    return null;
+  }
+
+  /// Looks up a symbol whose value (VA) matches [addr]; returns its name
+  /// or an empty string. Checks both .dynsym and .symtab.
+  String symbolAtAddr(int addr) {
+    void check(ElfSection? symsec, ElfSection? strsec, List<ElfSymbol> out) {
+      if (symsec == null || strsec == null) return;
+      for (final s in readSymbols(symsec, strsec)) {
+        if (s.value == addr && s.name.isNotEmpty) out.add(s);
+      }
+    }
+    final matches = <ElfSymbol>[];
+    check(sectionByName('.dynsym'), sectionByName('.dynstr'), matches);
+    check(sectionByName('.symtab'), sectionByName('.strtab'), matches);
+    return matches.isNotEmpty ? matches.first.name : '';
+  }
+
+  /// Finds the file offset of a symbol by name; returns null if missing.
+  int? addrOfSymbol(String name) {
+    void check(ElfSection? symsec, ElfSection? strsec, List<ElfSymbol> out) {
+      if (symsec == null || strsec == null) return;
+      for (final s in readSymbols(symsec, strsec)) {
+        if (s.name == name) out.add(s);
+      }
+    }
+    final matches = <ElfSymbol>[];
+    check(sectionByName('.dynsym'), sectionByName('.dynstr'), matches);
+    check(sectionByName('.symtab'), sectionByName('.strtab'), matches);
+    return matches.isNotEmpty ? matches.first.value : null;
+  }
+
+  /// Converts a virtual address to a file offset via program headers;
+  /// returns null if no segment maps that address.
+  int? addrToFileOffset(int addr) {
+    final d = data;
+    final e = endian;
+    final is64 = this.is64;
+    final ePhoff = is64 ? d.getUint64(32, e) : d.getUint32(28, e);
+    final ePhentsize = is64 ? d.getUint16(54, e) : d.getUint16(42, e);
+    final ePhnum = is64 ? d.getUint16(56, e) : d.getUint16(44, e);
+    if (ePhoff == 0 || ePhnum == 0) return null;
+    for (var i = 0; i < ePhnum; i++) {
+      final base = ePhoff + i * ePhentsize;
+      if (base + ePhentsize > length) break;
+      final pType = d.getUint32(base, e);
+      if (pType != 1) continue; // PT_LOAD
+      final pOffset = is64 ? d.getUint64(base + 8, e) : d.getUint32(base + 4, e);
+      final pVaddr = is64 ? d.getUint64(base + 16, e) : d.getUint32(base + 8, e);
+      final pFilesz = is64 ? d.getUint64(base + 32, e) : d.getUint32(base + 16, e);
+      if (addr >= pVaddr && addr < pVaddr + pFilesz) {
+        return (pOffset + (addr - pVaddr)).toInt();
+      }
     }
     return null;
   }
@@ -1083,6 +1141,327 @@ class KelivoSoAnalyzer {
     }
   }
 
+  // =========================================================================
+  // Deep-analysis tools (RevKit additions)
+  // =========================================================================
+
+  /// Lists function pointers in .init_array / .fini_array / .preinit_array.
+  static Map<String, dynamic> listInitArray(KelivoSoRequestPayload p) {
+    try {
+      final elf = _open(p);
+      final sb = StringBuffer();
+      var any = false;
+      for (final arrName in ['.init_array', '.fini_array', '.preinit_array']) {
+        final sec = elf.sectionByName(arrName);
+        if (sec == null || sec.size == 0) continue;
+        any = true;
+        final ptrSize = elf.is64 ? 8 : 4;
+        final count = sec.size ~/ ptrSize;
+        sb.writeln('$arrName (offset=0x${sec.offset.toRadixString(16)}, '
+            'count=$count):');
+        final shown = count > p.limit ? p.limit : count;
+        for (var i = 0; i < shown; i++) {
+          final off = sec.offset + i * ptrSize;
+          if (off + ptrSize > elf.length) break;
+          final addr = elf.is64
+              ? elf.data.getUint64(off, elf.endian)
+              : elf.data.getUint32(off, elf.endian);
+          final sym = elf.symbolAtAddr(addr);
+          final label = sym.isNotEmpty ? '  ; $sym' : '';
+          sb.writeln('  [$i] 0x${addr.toRadixString(16)}$label');
+        }
+        if (count > shown) sb.writeln('  ... and ${count - shown} more');
+      }
+      if (!any) return _ok('No .init_array/.fini_array/.preinit_array found.');
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  /// Finds all relocations referencing a symbol (cross-reference).
+  static Map<String, dynamic> xrefSymbol(
+      KelivoSoRequestPayload p, Map<String, dynamic> args) {
+    try {
+      final elf = _open(p);
+      final target = (args['symbol'] ?? '').toString().trim();
+      if (target.isEmpty) return _err('Missing "symbol" parameter.');
+      final int limit = _asInt(args['limit'], 100).clamp(1, 1000) as int;
+      final sb = StringBuffer()..writeln('XREF to symbol: $target');
+      var hits = 0;
+      for (final secName in ['.rela.plt', '.rel.plt', '.rela.dyn', '.rel.dyn']) {
+        final sec = elf.sectionByName(secName);
+        if (sec == null || sec.size == 0) continue;
+        final isRela = secName.startsWith('.rela');
+        final entSize = elf.is64 ? (isRela ? 24 : 16) : (isRela ? 12 : 8);
+        final count = sec.size ~/ entSize;
+        final strtab = elf.sectionByName('.dynstr');
+        for (var i = 0; i < count; i++) {
+          final base = sec.offset + i * entSize;
+          if (base + entSize > elf.length) break;
+          final d = elf.data;
+          final e = elf.endian;
+          final rOffset = elf.is64
+              ? d.getUint64(base, e)
+              : d.getUint32(base, e);
+          final info = elf.is64
+              ? d.getUint64(base + 8, e)
+              : d.getUint32(base + 4, e);
+          final symIdx = elf.is64 ? info >> 32 : info >> 8;
+          if (symIdx == 0) continue;
+          final symName =
+              (strtab != null) ? _readSymbolName(elf, strtab, symIdx) : '';
+          if (symName.isEmpty || !symName.contains(target)) continue;
+          sb.writeln('  [${sec.name}] 0x${rOffset.toRadixString(16)} -> $symName');
+          hits++;
+          if (hits >= limit) break;
+        }
+        if (hits >= limit) break;
+      }
+      sb.writeln('---');
+      sb.writeln('Hits: $hits (limit $limit)');
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  /// Detects common Android packers / protectors by signature.
+  static Map<String, dynamic> detectPacker(KelivoSoRequestPayload p) {
+    try {
+      final elf = _open(p);
+      final sb = StringBuffer()..writeln('Packer / Protector Detection:');
+      final detections = <String>[];
+      final secNames = elf.sections.map((s) => s.name).toSet();
+
+      if (secNames.contains('UPX0') || secNames.contains('UPX1') ||
+          secNames.contains('.upx')) {
+        detections.add('UPX (UPX0/UPX1 sections)');
+      }
+      if (secNames.any((n) => n.contains('bangcle')) ||
+          _bytesContain(p.bytes, 'libsecexe.so') ||
+          _bytesContain(p.bytes, 'libsecmain.so')) {
+        detections.add('Bangcle (梆梆加固)');
+      }
+      if (_bytesContain(p.bytes, 'ijiami') ||
+          _bytesContain(p.bytes, 'libexec.so') ||
+          secNames.any((n) => n.contains('ijiami'))) {
+        detections.add('Ijiami (爱加密)');
+      }
+      if (_bytesContain(p.bytes, 'libprotectClass.so') ||
+          _bytesContain(p.bytes, 'libjiagu') ||
+          _bytesContain(p.bytes, '360jiagu')) {
+        detections.add('360 Jiagu (360加固)');
+      }
+      if (_bytesContain(p.bytes, 'libchaosvmp') ||
+          _bytesContain(p.bytes, 'nagain')) {
+        detections.add('Nagain (娜迦加固)');
+      }
+      if (_bytesContain(p.bytes, 'libshell') ||
+          _bytesContain(p.bytes, 'legu') ||
+          _bytesContain(p.bytes, 'libBugly')) {
+        detections.add('Tencent Legu (乐固)');
+      }
+      if (_bytesContain(p.bytes, 'libbaiduprotect') ||
+          _bytesContain(p.bytes, 'baiduprotect')) {
+        detections.add('Baidu Protect (百度加固)');
+      }
+      if (_bytesContain(p.bytes, 'dexprotector') ||
+          _bytesContain(p.bytes, 'dexguard')) {
+        detections.add('DexProtector/DexGuard');
+      }
+      if (_bytesContain(p.bytes, 'aliprotect') ||
+          _bytesContain(p.bytes, 'libmobisec')) {
+        detections.add('Alibaba (阿里聚安全)');
+      }
+      if (secNames.any((n) => n.startsWith('.qihoo'))) {
+        detections.add('Qihoo custom linker');
+      }
+      if (elf.sections.length <= 1) {
+        detections.add('Stripped section headers (possible anti-analysis)');
+      }
+      final initSec = elf.sectionByName('.init_array');
+      if (initSec != null && initSec.size > 0) {
+        final ptrSize = elf.is64 ? 8 : 4;
+        final initCount = initSec.size ~/ ptrSize;
+        if (initCount > 20) {
+          detections.add('Large .init_array ($initCount entries — possible anti-debug)');
+        }
+      }
+
+      if (detections.isEmpty) {
+        sb.writeln('  No known packer signatures detected.');
+      } else {
+        for (final d in detections) {
+          sb.writeln('  ⚠ $d');
+        }
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  /// Simple AArch64 disassembler at a symbol or file offset.
+  static Map<String, dynamic> disassemble(
+      KelivoSoRequestPayload p, Map<String, dynamic> args) {
+    try {
+      final elf = _open(p);
+      final count = _asInt(args['count'], 32).clamp(1, 500) as int;
+
+      int fileOff;
+      final symArg = (args['symbol'] ?? '').toString().trim();
+      final offArg = (args['offset'] ?? '').toString().trim();
+      if (symArg.isNotEmpty) {
+        final va = elf.addrOfSymbol(symArg);
+        if (va == null) return _err('Symbol not found: $symArg');
+        final fOff = elf.addrToFileOffset(va);
+        if (fOff == null) {
+          return _err('Cannot map symbol VA 0x${va.toRadixString(16)} to file offset');
+        }
+        fileOff = fOff;
+      } else if (offArg.isNotEmpty) {
+        fileOff = int.tryParse(offArg.startsWith('0x') ? offArg : '0x$offArg') ?? -1;
+        if (fileOff < 0) return _err('Invalid offset: $offArg');
+      } else {
+        return _err('Provide "symbol" or "offset" parameter.');
+      }
+
+      if (!elf.is64) {
+        return _err('Disassembler currently supports AArch64 (64-bit) only.');
+      }
+
+      final sb = StringBuffer()
+        ..writeln('Disassembly at file offset 0x${fileOff.toRadixString(16)}:');
+      var pc = fileOff;
+      for (var i = 0; i < count; i++) {
+        if (pc + 4 > elf.length) break;
+        // AArch64 instructions are always little-endian.
+        final insn = elf.data.getUint32(pc, Endian.little);
+        final hex = insn.toRadixString(16).padLeft(8, '0');
+        final mnemonic = _decodeA64(insn);
+        sb.writeln('  0x${pc.toRadixString(16)}: $hex  $mnemonic');
+        pc += 4;
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  /// Checks whether [data] contains the ASCII bytes of [needle].
+  static bool _bytesContain(Uint8List data, String needle) {
+    final encoded = utf8.encode(needle);
+    if (encoded.length > data.length) return false;
+    for (var i = 0; i <= data.length - encoded.length; i++) {
+      var match = true;
+      for (var j = 0; j < encoded.length; j++) {
+        if (data[i + j] != encoded[j]) {
+          match = false;
+          break;
+        }
+      }
+      if (match) return true;
+    }
+    return false;
+  }
+
+  /// Minimal AArch64 instruction decoder covering common opcodes.
+  static String _decodeA64(int insn) {
+    if (insn == 0xD503201F) return 'nop';
+    if (insn == 0xD65F03C0) return 'ret';
+    if ((insn & 0xFFE0001F) == 0xD4200000) {
+      return 'brk #${(insn >> 5) & 0xFFFF}';
+    }
+    if ((insn & 0xFFE0001F) == 0xD4000001) {
+      return 'svc #${(insn >> 5) & 0xFFFF}';
+    }
+    if ((insn & 0xFC000000) == 0x14000000) {
+      final imm26 = insn & 0x03FFFFFF;
+      final off = (imm26 << 2).toSigned(28);
+      return 'b ${off >= 0 ? '+' : ''}$off';
+    }
+    if ((insn & 0xFC000000) == 0x94000000) {
+      final imm26 = insn & 0x03FFFFFF;
+      final off = (imm26 << 2).toSigned(28);
+      return 'bl ${off >= 0 ? '+' : ''}$off';
+    }
+    if ((insn & 0x7F000000) == 0x54000000) {
+      // B.cond: 0x54 | cond
+      final cond = insn & 0xF;
+      const conds = <String>[
+        'eq', 'ne', 'hs', 'lo', 'mi', 'pl', 'vs', 'vc',
+        'hi', 'ls', 'ge', 'lt', 'gt', 'le', 'al', 'nv',
+      ];
+      final imm19 = (insn >> 5) & 0x7FFFF;
+      final off = (imm19 << 2).toSigned(21);
+      return 'b.${conds[cond]} $off';
+    }
+    if ((insn & 0xFF000000) == 0x91000000) {
+      // ADD immediate (64-bit): 0x91
+      final rd = insn & 0x1F;
+      final rn = (insn >> 5) & 0x1F;
+      final imm12 = (insn >> 10) & 0xFFF;
+      return 'add x$rd, x$rn, #$imm12';
+    }
+    if ((insn & 0xFF000000) == 0xD1000000) {
+      // SUB immediate (64-bit): 0xD1
+      final rd = insn & 0x1F;
+      final rn = (insn >> 5) & 0x1F;
+      final imm12 = (insn >> 10) & 0xFFF;
+      return 'sub x$rd, x$rn, #$imm12';
+    }
+    if ((insn & 0xFF000000) == 0xF9400000) {
+      // LDR (unsigned immediate, 64-bit): 0xF940
+      final rt = insn & 0x1F;
+      final rn = (insn >> 5) & 0x1F;
+      final imm12 = ((insn >> 10) & 0xFFF) * 8;
+      return 'ldr x$rt, [x$rn, #$imm12]';
+    }
+    if ((insn & 0xFF000000) == 0xF9000000) {
+      // STR (unsigned immediate, 64-bit): 0xF900
+      final rt = insn & 0x1F;
+      final rn = (insn >> 5) & 0x1F;
+      final imm12 = ((insn >> 10) & 0xFFF) * 8;
+      return 'str x$rt, [x$rn, #$imm12]';
+    }
+    if ((insn & 0xFFE0FFE0) == 0xAA0003E0) {
+      // MOV (alias of ORR): mov xD, xM
+      final rd = insn & 0x1F;
+      final rm = (insn >> 16) & 0x1F;
+      return 'mov x$rd, x$rm';
+    }
+    // STP / LDP pair
+    if ((insn & 0xFFC00000) == 0xA9000000) {
+      final rt = insn & 0x1F;
+      final rt2 = (insn >> 10) & 0x1F;
+      final rn = (insn >> 5) & 0x1F;
+      final imm7 = ((insn >> 15) & 0x7F) * 8;
+      return 'stp x$rt, x$rt2, [x$rn, #$imm7]';
+    }
+    if ((insn & 0xFFC00000) == 0xA9400000) {
+      final rt = insn & 0x1F;
+      final rt2 = (insn >> 10) & 0x1F;
+      final rn = (insn >> 5) & 0x1F;
+      final imm7 = ((insn >> 15) & 0x7F) * 8;
+      return 'ldp x$rt, x$rt2, [x$rn, #$imm7]';
+    }
+    // CBZ / CBNZ
+    if ((insn & 0x7F000000) == 0x34000000) {
+      final rt = insn & 0x1F;
+      final imm19 = (insn >> 5) & 0x7FFFF;
+      final off = (imm19 << 2).toSigned(21);
+      return 'cbz x$rt, $off';
+    }
+    if ((insn & 0x7F000000) == 0x35000000) {
+      final rt = insn & 0x1F;
+      final imm19 = (insn >> 5) & 0x7FFFF;
+      final off = (imm19 << 2).toSigned(21);
+      return 'cbnz x$rt, $off';
+    }
+    return 'dc64 0x${insn.toRadixString(16).padLeft(8, '0')}';
+  }
+
   /// Internal helper: read program headers and return a list of segment descriptors.
   static List<_PhdrEntry> _readProgramHeaders(ElfImage elf) {
     final out = <_PhdrEntry>[];
@@ -1232,6 +1611,14 @@ class KelivoSoMcpServerEngine implements KelivoInMemoryMcpServerEngine {
               return _ok(id, result: await KelivoSoAnalyzer.compareHeaders(arguments));
             case 'so_list_notes':
               return _ok(id, result: KelivoSoAnalyzer.listNotes(payload));
+            case 'so_list_init_array':
+              return _ok(id, result: KelivoSoAnalyzer.listInitArray(payload));
+            case 'so_xref_symbol':
+              return _ok(id, result: KelivoSoAnalyzer.xrefSymbol(payload, arguments));
+            case 'so_detect_packer':
+              return _ok(id, result: KelivoSoAnalyzer.detectPacker(payload));
+            case 'so_disassemble':
+              return _ok(id, result: KelivoSoAnalyzer.disassemble(payload, arguments));
             default:
               return _error(id, code: -32101, message: 'Tool not found: $name');
           }
@@ -1461,6 +1848,44 @@ class KelivoSoMcpServerEngine implements KelivoInMemoryMcpServerEngine {
         'name': 'so_list_notes',
         'description': '列出 ELF 的 NOTE 段条目（NT_* 类型）。',
         'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'so_list_init_array',
+        'description': '列出 .init_array / .fini_array / .preinit_array 中的函数指针（含符号名解析）。',
+        'inputSchema': baseSchema(withLimit: true),
+      },
+      {
+        'name': 'so_xref_symbol',
+        'description': '查找引用指定符号的所有重定位（交叉引用）。参数 symbol 为符号名关键字。',
+        'inputSchema': {
+          'type': 'object',
+          'properties': {
+            'path': {'type': 'string', 'description': '本地 ELF/.so 文件的绝对路径。'},
+            'base64': {'type': 'string', 'description': '可选：直接提供 Base64 编码的文件字节（优先于 path）。'},
+            'symbol': {'type': 'string', 'description': '符号名关键字（模糊匹配），如 "JNI_OnLoad"。'},
+            'limit': {'type': 'integer', 'description': '最大返回匹配数，默认 100。'},
+          },
+          'required': ['symbol'],
+        },
+      },
+      {
+        'name': 'so_detect_packer',
+        'description': '检测常见 Android 加固/壳特征（UPX、梆梆、爱加密、360、娜迦、乐固、百度等）。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'so_disassemble',
+        'description': '按符号名或文件偏移反汇编 ARM64 (AArch64) 指令。',
+        'inputSchema': {
+          'type': 'object',
+          'properties': {
+            'path': {'type': 'string', 'description': '本地 ELF/.so 文件的绝对路径。'},
+            'base64': {'type': 'string', 'description': '可选：直接提供 Base64 编码的文件字节（优先于 path）。'},
+            'symbol': {'type': 'string', 'description': '符号名，如 "JNI_OnLoad"（与 offset 二选一）。'},
+            'offset': {'type': 'string', 'description': '文件偏移（十六进制字符串，如 "0x1234"，与 symbol 二选一）。'},
+            'count': {'type': 'integer', 'description': '反汇编指令条数，默认 32。'},
+          },
+        },
       },
     ];
   }
