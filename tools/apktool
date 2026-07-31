@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Wrapper for bundled apktool.jar
+DIR="$(cd "$(dirname "$0")" && pwd)"
+exec java -jar "$DIR/apktool.jar" "$@"

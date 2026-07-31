@@ -299,7 +299,7 @@ The APK modification pipeline requires the following tools at runtime (not bundl
 
 | Tool | Purpose | Install |
 | --- | --- | --- |
-| `apktool` | Decode/rebuild APK (smali + resources) | `apt-get install -y apktool` |
+| `apktool` | Decode/rebuild APK (smali + resources) | **Bundled** in `tools/apktool.jar` (v2.9.3) |
 | `zipalign` | APK alignment | Android SDK build-tools (pre-installed) |
 | `apksigner` | APK signing (v2/v3) | Android SDK build-tools (pre-installed) |
 | `keytool` | Generate debug keystore | JDK (pre-installed) |

@@ -6,24 +6,26 @@ set -u
 echo '=== Kelivo RevKit Build Tools Setup ==='
 
 # ---------- apktool ----------
-if command -v apktool &>/dev/null; then
-  echo "[✓] apktool $(apktool --version 2>&1 | head -1)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+BUNDLED_APKTOOL="$REPO_ROOT/tools/apktool"
+
+if [ -x "$BUNDLED_APKTOOL" ]; then
+  echo "[✓] apktool (bundled) $($BUNDLED_APKTOOL --version 2>&1 | head -1)"
+  # Add to PATH if not already
+  if ! echo "$PATH" | grep -q "$REPO_ROOT/tools"; then
+    export PATH="$REPO_ROOT/tools:$PATH"
+    echo "    Added $REPO_ROOT/tools to PATH"
+  fi
+elif command -v apktool &>/dev/null; then
+  echo "[✓] apktool (system) $(apktool --version 2>&1 | head -1)"
 else
-  echo '[*] Installing apktool...'
+  echo '[*] Installing apktool via apt...'
   if apt-cache show apktool &>/dev/null 2>&1; then
     apt-get install -y apktool
   else
-    echo '[!] apktool not available via apt. Attempting manual install...'
-    APKTOOL_VERSION="2.9.3"
-    curl -sL -o /usr/local/lib/apktool.jar \
-      "https://github.com/iBotPeaches/Apktool/releases/download/v${APKTOOL_VERSION}/apktool_${APKTOOL_VERSION}.jar" || {
-      echo '[✗] Failed to download apktool jar'; exit 1
-    }
-    cat > /usr/local/bin/apktool <<'WRAPPER'
-#!/usr/bin/env bash
-java -jar /usr/local/lib/apktool.jar "$@"
-WRAPPER
-    chmod +x /usr/local/bin/apktool
+    echo '[✗] apktool not available. Please place apktool.jar in tools/ directory.'
+    exit 1
   fi
   echo "[✓] apktool installed: $(apktool --version 2>&1 | head -1)"
 fi
