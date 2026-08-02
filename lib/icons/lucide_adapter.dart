@@ -193,7 +193,6 @@ class Lucide {
   static const IconData Wallet = lucide.LucideIcons.walletMinimal;
   static const IconData Coins = lucide.LucideIcons.coins;
   static const IconData BellRing = lucide.LucideIcons.bellRing;
-  static const IconData FolderOpen = lucide.LucideIcons.folderOpen;
   static const IconData FolderTree = lucide.LucideIcons.folderTree;
   static const IconData Star = lucide.LucideIcons.star;
   static const IconData Bell = lucide.LucideIcons.bell;
