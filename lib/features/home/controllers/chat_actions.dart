@@ -1406,9 +1406,9 @@ class ChatActions {
         try {
           final settings = contextProvider.read<SettingsProvider>();
           if (settings.chatRealtimeNotificationEnabled) {
-            final preview = state.content.length > 80
-                ? state.content.substring(0, 80)
-                : state.content;
+            final preview = state.fullContentRaw.length > 80
+                ? state.fullContentRaw.substring(0, 80)
+                : state.fullContentRaw;
             NotificationService.showChatStatus(
               status: ChatNotificationStatus.completed,
               preview: preview,

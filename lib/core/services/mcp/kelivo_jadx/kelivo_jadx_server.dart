@@ -889,7 +889,7 @@ class KelivoJadxAnalyzer {
         return _err('No DEX found in input');
       }
       final urlRe = RegExp(
-        r'https?://[^\s"\'<>\\]+',
+        r"""https?://[^\s"'<>\\]+""",
         caseSensitive: false,
       );
       final ipRe = RegExp(
@@ -936,17 +936,20 @@ class KelivoJadxAnalyzer {
       for (final u in urls.take(limit)) {
         sb.writeln('  $u');
       }
-      sb.writeln('')
+      sb
+        ..writeln('')
         ..writeln('IPs (${ips.length}):');
       for (final ip in ips.take(limit)) {
         sb.writeln('  $ip');
       }
-      sb.writeln('')
+      sb
+        ..writeln('')
         ..writeln('API Endpoints (${apis.length}):');
       for (final a in apis.take(limit)) {
         sb.writeln('  $a');
       }
-      sb.writeln('---')
+      sb
+        ..writeln('---')
         ..writeln('Summary: ${urls.length} URLs, ${ips.length} IPs, ${apis.length} API endpoints');
       return _ok(sb.toString().trimRight());
     } catch (e) {
@@ -1167,7 +1170,7 @@ class KelivoJadxAnalyzer {
       }
       final secretPatterns = <String, RegExp>{
         'AWS Access Key': RegExp(r'AKIA[0-9A-Z]{16}'),
-        'AWS Secret': RegExp(r'aws_secret_access_key["\']?\s*[:=]\s*["\']?([A-Za-z0-9/+=]{40})'),
+        'AWS Secret': RegExp(r"""aws_secret_access_key["']?\s*[:=]\s*["']?([A-Za-z0-9/+=]{40})"""),
         'Google API Key': RegExp(r'AIza[0-9A-Za-z\-_]{35}'),
         'Google OAuth': RegExp(r'ya29\.[0-9A-Za-z\-_]+'),
         'JWT': RegExp(r'eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.?[A-Za-z0-9_-]*'),
@@ -1176,7 +1179,7 @@ class KelivoJadxAnalyzer {
         'GitHub Token': RegExp(r'gh[pousr]_[A-Za-z0-9]{36}'),
         'Stripe Key': RegExp(r'sk_live_[0-9A-Za-z]{24,}'),
         'Generic API Key': RegExp(
-          r'(?:api[_-]?key|api[_-]?secret|access[_-]?token|secret[_-]?key)["\']?\s*[:=]\s*["\']([A-Za-z0-9\-_]{16,})',
+          r"""(?:api[_-]?key|api[_-]?secret|access[_-]?token|secret[_-]?key)["']?\s*[:=]\s*["']([A-Za-z0-9\-_]{16,})""",
           caseSensitive: false,
         ),
         'Private Key': RegExp(r'-----BEGIN (?:RSA |EC |DSA )?PRIVATE KEY-----'),
@@ -1227,23 +1230,23 @@ class KelivoJadxAnalyzer {
     if (dexList.isEmpty) {
       // Maybe the APK has a single classes.dex-like entry; fallback to any .dex
       final allDex = entries.where((f) => f.name.toLowerCase().endsWith('.dex')).toList();
-      return [
-        for (final f in allDex)
-          try {
-            Uint8List.fromList(f.content as List<int>)
-          } catch (_) {
-            Uint8List(0)
-          }
-      ].where((b) => b.isNotEmpty).toList();
-    }
-    return [
-      for (final f in dexList)
+      final result = <Uint8List>[];
+      for (final f in allDex) {
         try {
-          Uint8List.fromList(f.content as List<int>)
-        } catch (_) {
-          Uint8List(0)
-        }
-    ].where((b) => b.isNotEmpty).toList();
+          final bytes = Uint8List.fromList(f.content as List<int>);
+          if (bytes.isNotEmpty) result.add(bytes);
+        } catch (_) {}
+      }
+      return result;
+    }
+    final result = <Uint8List>[];
+    for (final f in dexList) {
+      try {
+        final bytes = Uint8List.fromList(f.content as List<int>);
+        if (bytes.isNotEmpty) result.add(bytes);
+      } catch (_) {}
+    }
+    return result;
   }
 
   static String _normalizeClass(String s) {
@@ -1361,9 +1364,9 @@ class KelivoJadxMcpServerEngine implements KelivoInMemoryMcpServerEngine {
               ? (params['arguments'] as Map).cast<String, dynamic>()
               : <String, dynamic>{};
           return _callTool(name, arguments, id);
-        case mcp.McpProtocol.methodPing:
+        case 'ping':
           return _ok(id, result: {});
-        case mcp.McpProtocol.methodNotificationsInitialized:
+        case 'notifications/initialized':
           return _noop();
         default:
           return _error(
