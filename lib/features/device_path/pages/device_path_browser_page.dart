@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path/path.dart' as p;
 import '../../../core/services/device_path_service.dart';
 import '../../../icons/lucide_adapter.dart';
 
@@ -89,6 +90,19 @@ class _DevicePathBrowserPageState extends State<DevicePathBrowserPage> {
 
   Future<void> _previewFile(DevicePathEntry entry) async {
     final info = await DevicePathService.previewFile(entry.path);
+
+    // If it's an image, also get dimensions
+    Map<String, int?>? imgDims;
+    if (DevicePathService.isImageFile(entry.path)) {
+      imgDims = await DevicePathService.getImageDimensions(entry.path);
+    }
+
+    // If it's an APK, get package info
+    Map<String, String?>? apkInfo;
+    if (entry.name.toLowerCase().endsWith('.apk')) {
+      apkInfo = await DevicePathService.getApkInfo(entry.path);
+    }
+
     if (!mounted) return;
     showDialog(
       context: context,
@@ -109,8 +123,45 @@ class _DevicePathBrowserPageState extends State<DevicePathBrowserPage> {
                 const SizedBox(height: 4),
                 Text('Type: ${info['type'] ?? 'unknown'}',
                     style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                // Image dimensions
+                if (imgDims != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    'Dimensions: ${imgDims['width']}x${imgDims['height']}',
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ],
+                // APK info
+                if (apkInfo != null && apkInfo.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  if (apkInfo['appName'] != null)
+                    Text('App: ${apkInfo['appName']}',
+                        style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                  if (apkInfo['package'] != null)
+                    Text('Package: ${apkInfo['package']}',
+                        style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                  if (apkInfo['versionName'] != null)
+                    Text('Version: ${apkInfo['versionName']}',
+                        style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                ],
                 const Divider(height: 16),
-                if (info['type'] == 'text')
+                // Image thumbnail
+                if (DevicePathService.isImageFile(entry.path))
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.file(
+                      File(entry.path),
+                      width: double.maxFinite,
+                      height: 200,
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) => Container(
+                        height: 100,
+                        alignment: Alignment.center,
+                        child: const Text('Failed to load image'),
+                      ),
+                    ),
+                  )
+                else if (info['type'] == 'text')
                   Container(
                     constraints: const BoxConstraints(maxHeight: 300),
                     child: SingleChildScrollView(
@@ -144,6 +195,14 @@ class _DevicePathBrowserPageState extends State<DevicePathBrowserPage> {
             },
             child: const Text('Copy Path'),
           ),
+          // Send to chat action
+          TextButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              Navigator.of(context).pop(entry.path);
+            },
+            child: const Text('Send to Chat'),
+          ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
             child: const Text('Close'),
@@ -151,6 +210,170 @@ class _DevicePathBrowserPageState extends State<DevicePathBrowserPage> {
         ],
       ),
     );
+  }
+
+  void _showFileActions(DevicePathEntry entry) {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) {
+        final cs = Theme.of(ctx).colorScheme;
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                margin: const EdgeInsets.only(top: 8),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: cs.outline.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Lucide.Send),
+                title: const Text('Send to Chat'),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  Navigator.of(context).pop(entry.path);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Lucide.Copy),
+                title: const Text('Copy'),
+                onTap: () async {
+                  Navigator.of(ctx).pop();
+                  await _copyEntry(entry);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Lucide.FolderInput),
+                title: const Text('Move'),
+                onTap: () async {
+                  Navigator.of(ctx).pop();
+                  await _moveEntry(entry);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Lucide.Pencil),
+                title: const Text('Rename'),
+                onTap: () async {
+                  Navigator.of(ctx).pop();
+                  await _renameEntry(entry);
+                },
+              ),
+              ListTile(
+                leading: Icon(Lucide.Trash2, color: cs.error),
+                title: Text('Delete', style: TextStyle(color: cs.error)),
+                onTap: () async {
+                  Navigator.of(ctx).pop();
+                  await _deleteEntry(entry);
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _copyEntry(DevicePathEntry entry) async {
+    // For now, copy to current directory with a suffix
+    final destDir = _currentPath;
+    final success = await DevicePathService.copyFile(entry.path, destDir);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(success ? 'Copied to $destDir' : 'Copy failed')),
+      );
+      if (success) _loadDirectory();
+    }
+  }
+
+  Future<void> _moveEntry(DevicePathEntry entry) async {
+    // Simple: move to current dir (useful when browsing from search results)
+    // In a full implementation, this would show a folder picker
+    final destDir = _currentPath;
+    if (p.dirname(entry.path) == destDir) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Already in this directory')),
+        );
+      }
+      return;
+    }
+    final success = await DevicePathService.moveEntry(entry.path, destDir);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(success ? 'Moved to $destDir' : 'Move failed')),
+      );
+      if (success) _loadDirectory();
+    }
+  }
+
+  Future<void> _renameEntry(DevicePathEntry entry) async {
+    final ctrl = TextEditingController(text: entry.name);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rename'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'New name',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(null),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()),
+            child: const Text('Rename'),
+          ),
+        ],
+      ),
+    );
+    if (result == null || result.isEmpty || result == entry.name) return;
+    final success = await DevicePathService.renameEntry(entry.path, result);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(success ? 'Renamed to $result' : 'Rename failed')),
+      );
+      if (success) _loadDirectory();
+    }
+  }
+
+  Future<void> _deleteEntry(DevicePathEntry entry) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete'),
+        content: Text('Delete "${entry.name}"? This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(ctx).colorScheme.error),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    final success = await DevicePathService.deleteEntry(entry.path);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(success ? 'Deleted' : 'Delete failed')),
+      );
+      if (success) _loadDirectory();
+    }
   }
 
   String _formatBytes(int bytes) {
@@ -336,13 +559,7 @@ class _DevicePathBrowserPageState extends State<DevicePathBrowserPage> {
                                     _previewFile(e);
                                   }
                                 },
-                                onLongPress: () {
-                                  Clipboard.setData(
-                                      ClipboardData(text: e.path));
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text('Copied: ${e.path}')),
-                                  );
-                                },
+                                onLongPress: () => _showFileActions(e),
                               );
                             },
                           ),

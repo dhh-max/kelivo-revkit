@@ -7,6 +7,8 @@ import '../../../core/providers/mcp_provider.dart';
 import '../widgets/mcp_server_edit_sheet.dart';
 import '../widgets/mcp_json_edit_sheet.dart';
 import '../widgets/mcp_timeout_sheet.dart';
+import '../widgets/mcp_tool_history_sheet.dart';
+import '../widgets/mcp_auto_approval_sheet.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/snackbar.dart';
 import '../../../core/services/haptics.dart';
@@ -260,6 +262,30 @@ class McpPage extends StatelessWidget {
       );
     }
 
+    void _showToolSearchSheet(BuildContext ctx) {
+      showModalBottomSheet<void>(
+        context: ctx,
+        isScrollControlled: true,
+        backgroundColor: Theme.of(ctx).colorScheme.surface,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+        ),
+        builder: (_) => const _McpToolSearchSheet(),
+      );
+    }
+
+    void _showToolStatsSheet(BuildContext ctx) {
+      showModalBottomSheet<void>(
+        context: ctx,
+        isScrollControlled: true,
+        backgroundColor: Theme.of(ctx).colorScheme.surface,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+        ),
+        builder: (_) => const _McpToolStatsSheet(),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         leading: Tooltip(
@@ -273,6 +299,42 @@ class McpPage extends StatelessWidget {
         ),
         title: Text(l10n.mcpAssistantSheetTitle),
         actions: [
+          // Tool search
+          Tooltip(
+            message: '搜索工具',
+            child: _TactileIconButton(
+              icon: Lucide.Search,
+              color: cs.onSurface,
+              size: 22,
+              onTap: () => _showToolSearchSheet(context),
+            ),
+          ),
+          const SizedBox(width: 8),
+          // Tool stats
+          Tooltip(
+            message: '执行统计',
+            child: _TactileIconButton(
+              icon: Lucide.BarChart3,
+              color: cs.onSurface,
+              size: 22,
+              onTap: () => _showToolStatsSheet(context),
+            ),
+          ),
+          const SizedBox(width: 8),
+          // Auto-reconnect
+          Tooltip(
+            message: '重连失败服务器',
+            child: _TactileIconButton(
+              icon: Lucide.RefreshCcw,
+              color: cs.onSurface,
+              size: 22,
+              onTap: () {
+                mcp.autoReconnectErrorServers();
+                showAppSnackBar(context, '正在重连失败的服务器...');
+              },
+            ),
+          ),
+          const SizedBox(width: 8),
           Tooltip(
             message: 'MCP 调用日志',
             child: _TactileIconButton(
@@ -282,7 +344,27 @@ class McpPage extends StatelessWidget {
               onTap: showCallLogs,
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 8),
+          Tooltip(
+            message: '自动审批规则',
+            child: _TactileIconButton(
+              icon: Lucide.ShieldCheck,
+              color: cs.onSurface,
+              size: 22,
+              onTap: () {
+                showModalBottomSheet<void>(
+                  context: context,
+                  isScrollControlled: true,
+                  backgroundColor: Theme.of(context).colorScheme.surface,
+                  shape: const RoundedRectangleBorder(
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+                  ),
+                  builder: (_) => const McpAutoApprovalSheet(),
+                );
+              },
+            ),
+          ),
+          const SizedBox(width: 8),
           Tooltip(
             message: l10n.mcpTimeoutSettingsTooltip,
             child: _TactileIconButton(
@@ -975,6 +1057,283 @@ class _AnimatedPressColor extends StatelessWidget {
       duration: const Duration(milliseconds: 220),
       curve: Curves.easeOutCubic,
       builder: (context, color, _) => builder(color ?? base),
+    );
+  }
+}
+
+// ============================================================================
+// MCP Tool Search Sheet
+// ============================================================================
+
+class _McpToolSearchSheet extends StatefulWidget {
+  const _McpToolSearchSheet();
+
+  @override
+  State<_McpToolSearchSheet> createState() => _McpToolSearchSheetState();
+}
+
+class _McpToolSearchSheetState extends State<_McpToolSearchSheet> {
+  String _query = '';
+  final _controller = TextEditingController();
+  final _focusNode = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _focusNode.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final mcp = context.watch<McpProvider>();
+    final results = _query.isEmpty ? <({String serverId, String serverName, McpToolConfig tool})>[] : mcp.searchTools(_query);
+
+    return SafeArea(
+      top: false,
+      child: DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.7,
+        minChildSize: 0.4,
+        maxChildSize: 0.92,
+        builder: (context, scrollController) {
+          return Column(
+            children: [
+              const SizedBox(height: 8),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: cs.onSurface.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                child: TextField(
+                  controller: _controller,
+                  focusNode: _focusNode,
+                  onChanged: (v) => setState(() => _query = v.trim()),
+                  decoration: InputDecoration(
+                    hintText: '搜索工具名称或描述...',
+                    prefixIcon: Icon(Lucide.Search, size: 18, color: cs.onSurface.withValues(alpha: 0.5)),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: cs.outlineVariant),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    isDense: true,
+                  ),
+                ),
+              ),
+              Expanded(
+                child: results.isEmpty
+                    ? Center(
+                        child: Text(
+                          _query.isEmpty ? '输入关键字搜索工具' : '未找到匹配的工具',
+                          style: TextStyle(color: cs.onSurface.withValues(alpha: 0.5)),
+                        ),
+                      )
+                    : ListView.separated(
+                        controller: scrollController,
+                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
+                        itemCount: results.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
+                        itemBuilder: (context, index) {
+                          final r = results[index];
+                          return ListTile(
+                            dense: true,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            tileColor: cs.surfaceContainerHighest.withValues(alpha: 0.4),
+                            leading: Icon(
+                              Lucide.Wrench,
+                              size: 18,
+                              color: r.tool.enabled ? cs.primary : cs.onSurface.withValues(alpha: 0.4),
+                            ),
+                            title: Text(r.tool.name, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (r.tool.description != null && r.tool.description!.isNotEmpty)
+                                  Text(r.tool.description!, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
+                                Text('来自: ${r.serverName}', style: TextStyle(fontSize: 11, color: cs.onSurface.withValues(alpha: 0.5))),
+                              ],
+                            ),
+                            trailing: Switch(
+                              value: r.tool.enabled,
+                              onChanged: (v) {
+                                mcp.batchSetToolsEnabled(r.serverId, [r.tool.name], v);
+                              },
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// MCP Tool Stats Sheet
+// ============================================================================
+
+class _McpToolStatsSheet extends StatelessWidget {
+  const _McpToolStatsSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final mcp = context.watch<McpProvider>();
+    final stats = mcp.getToolStats();
+    final sorted = stats.values.toList()
+      ..sort((a, b) => b.totalCalls.compareTo(a.totalCalls));
+
+    return SafeArea(
+      top: false,
+      child: DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.65,
+        minChildSize: 0.35,
+        maxChildSize: 0.9,
+        builder: (context, scrollController) {
+          return Column(
+            children: [
+              const SizedBox(height: 8),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: cs.onSurface.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '工具执行统计',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: AppFontWeights.emphasis,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Lucide.X, size: 20),
+                      onPressed: () => Navigator.of(context).maybePop(),
+                    ),
+                  ],
+                ),
+              ),
+              if (sorted.isEmpty)
+                Expanded(
+                  child: Center(
+                    child: Text(
+                      '暂无调用统计数据',
+                      style: TextStyle(color: cs.onSurface.withValues(alpha: 0.5)),
+                    ),
+                  ),
+                )
+              else
+                Expanded(
+                  child: ListView.separated(
+                    controller: scrollController,
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+                    itemCount: sorted.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    itemBuilder: (context, index) {
+                      final s = sorted[index];
+                      final successPct = (s.successRate * 100).toStringAsFixed(0);
+                      return Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: cs.surfaceContainerHighest.withValues(alpha: 0.4),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    s.toolName,
+                                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: cs.primary.withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                  child: Text(
+                                    '${s.totalCalls} 次',
+                                    style: TextStyle(fontSize: 11, color: cs.primary, fontWeight: FontWeight.w600),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Row(
+                              children: [
+                                _StatChip(label: '成功率', value: '$successPct%', color: Colors.green),
+                                const SizedBox(width: 8),
+                                _StatChip(label: '成功', value: '${s.successCount}', color: Colors.green),
+                                const SizedBox(width: 8),
+                                _StatChip(label: '失败', value: '${s.errorCount}', color: Colors.red),
+                                const SizedBox(width: 8),
+                                _StatChip(label: '平均耗时', value: '${s.avgDuration.inMilliseconds}ms', color: cs.primary),
+                              ],
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _StatChip extends StatelessWidget {
+  const _StatChip({required this.label, required this.value, required this.color});
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        '$label: $value',
+        style: TextStyle(fontSize: 10, color: color, fontWeight: FontWeight.w500),
+      ),
     );
   }
 }

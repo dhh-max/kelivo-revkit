@@ -7,6 +7,7 @@ class CustomPromptProvider with ChangeNotifier {
   List<CustomPrompt> _prompts = [];
   bool _initialized = false;
   String _searchQuery = '';
+  String? _activeFolder;
 
   List<CustomPrompt> get prompts => List.unmodifiable(_prompts);
 
@@ -14,12 +15,28 @@ class CustomPromptProvider with ChangeNotifier {
       _prompts.where((p) => p.isFavorite).toList();
 
   String get searchQuery => _searchQuery;
+  String? get activeFolder => _activeFolder;
 
-  /// Get prompts filtered by current search query.
+  /// Get all unique folders.
+  List<String> get allFolders {
+    final folders = <String>{};
+    for (final p in _prompts) {
+      if (p.folder != null && p.folder!.isNotEmpty) {
+        folders.add(p.folder!);
+      }
+    }
+    return folders.toList()..sort();
+  }
+
+  /// Get prompts filtered by current search query and active folder.
   List<CustomPrompt> get filteredPrompts {
-    if (_searchQuery.isEmpty) return prompts;
+    var list = _prompts.toList();
+    if (_activeFolder != null) {
+      list = list.where((p) => p.folder == _activeFolder).toList();
+    }
+    if (_searchQuery.isEmpty) return list;
     final q = _searchQuery.toLowerCase();
-    return _prompts.where((p) {
+    return list.where((p) {
       return p.title.toLowerCase().contains(q) ||
           p.content.toLowerCase().contains(q) ||
           (p.description?.toLowerCase().contains(q) ?? false) ||
@@ -38,6 +55,11 @@ class CustomPromptProvider with ChangeNotifier {
       tags.addAll(p.tags);
     }
     return tags.toList()..sort();
+  }
+
+  void setActiveFolder(String? folder) {
+    _activeFolder = folder;
+    notifyListeners();
   }
 
   Future<void> initialize() async {
@@ -96,6 +118,18 @@ class CustomPromptProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> moveToFolder(String id, String? folder) async {
+    final idx = _prompts.indexWhere((p) => p.id == id);
+    if (idx < 0) return;
+    final updated = _prompts[idx].copyWith(
+      folder: folder,
+      updatedAt: DateTime.now(),
+    );
+    await CustomPromptStore.update(updated);
+    _prompts[idx] = updated;
+    notifyListeners();
+  }
+
   Future<void> reorder(int oldIndex, int newIndex) async {
     if (oldIndex == newIndex) return;
     final item = _prompts.removeAt(oldIndex);
@@ -117,7 +151,6 @@ class CustomPromptProvider with ChangeNotifier {
       if (item is Map<String, dynamic>) {
         try {
           final prompt = CustomPrompt.fromJson(item);
-          // Skip duplicates by ID
           if (!_prompts.any((p) => p.id == prompt.id)) {
             _prompts.add(prompt);
             imported++;
@@ -135,4 +168,16 @@ class CustomPromptProvider with ChangeNotifier {
   /// Export all prompts as JSON-encodable list.
   List<Map<String, dynamic>> exportAsJson() =>
       _prompts.map((p) => p.toJson()).toList();
+
+  /// Search prompts matching a prefix (for quick-insert / command).
+  List<CustomPrompt> searchByPrefix(String prefix) {
+    if (prefix.isEmpty) return _prompts.take(10).toList();
+    final q = prefix.toLowerCase();
+    return _prompts
+        .where((p) =>
+            p.title.toLowerCase().contains(q) ||
+            p.tags.any((t) => t.toLowerCase().startsWith(q)))
+        .take(10)
+        .toList();
+  }
 }

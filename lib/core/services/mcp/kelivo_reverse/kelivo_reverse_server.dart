@@ -1982,6 +1982,16 @@ class KelivoReverseMcpServerEngine implements KelivoInMemoryMcpServerEngine {
               return _ok(id, result: await KelivoReverseAnalyzer.resignApk(payload, arguments));
             case 'reverse_inject_dex':
               return _ok(id, result: await KelivoReverseAnalyzer.injectDex(payload, arguments));
+            case 'reverse_smali_decompile':
+              return _ok(id, result: KelivoReverseAnalyzer.smaliDecompile(payload, arguments));
+            case 'reverse_obfuscator_detect':
+              return _ok(id, result: KelivoReverseAnalyzer.obfuscatorDetect(payload));
+            case 'reverse_resource_extract':
+              return _ok(id, result: KelivoReverseAnalyzer.resourceExtract(payload, arguments));
+            case 'reverse_string_decrypt':
+              return _ok(id, result: KelivoReverseAnalyzer.stringDecrypt(payload, arguments));
+            case 'reverse_jni_method_map':
+              return _ok(id, result: KelivoReverseAnalyzer.jniMethodMap(payload));
             default:
               return _error(id, code: -32101, message: 'Tool not found: $name');
           }
@@ -2205,6 +2215,86 @@ class KelivoReverseMcpServerEngine implements KelivoInMemoryMcpServerEngine {
           },
           'required': ['dex_path', 'output'],
         },
+      },
+      {
+        'name': 'reverse_smali_decompile',
+        'description': '反编译指定DEX为Smali代码，支持类名过滤。',
+        'inputSchema': {
+          'type': 'object',
+          'properties': {
+            'path': {'type': 'string', 'description': 'APK路径'},
+            'base64': {'type': 'string', 'description': 'APK Base64'},
+            'dex_path': {'type': 'string', 'description': '目标DEX路径'},
+            'class_filter': {'type': 'string', 'description': '类名正则过滤'},
+          },
+          'required': ['dex_path'],
+        },
+      },
+      {
+        'name': 'reverse_obfuscator_detect',
+        'description': '检测混淆/加固方案，支持主流360/梆梆/爱加密等。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_resource_extract',
+        'description': '提取APK内匹配的资源文件到指定目录，支持文件名正则。',
+        'inputSchema': {
+          'type': 'object',
+          'properties': {
+            'path': {'type': 'string', 'description': 'APK路径'},
+            'base64': {'type': 'string', 'description': 'APK Base64'},
+            'pattern': {'type': 'string', 'description': '文件名匹配正则'},
+            'output_dir': {'type': 'string', 'description': '输出目录'},
+          },
+          'required': ['output_dir'],
+        },
+      },
+      {
+        'name': 'reverse_string_decrypt',
+        'description': '自动解密DEX/SO中常见加密方案的字符串常量。',
+        'inputSchema': {
+          'type': 'object',
+          'properties': {
+            'path': {'type': 'string', 'description': 'APK路径'},
+            'base64': {'type': 'string', 'description': 'APK Base64'},
+            'target': {'type': 'string', 'description': 'dex|so|all，默认all'},
+          },
+        },
+      },
+      {
+        'name': 'reverse_jni_method_map',
+        'description': '构建JNI方法映射表，匹配Java native方法与Native函数。',
+        'inputSchema': baseSchema(),
+      },
+    ];
+  }
+}
+          'properties': {
+            'path': {'type': 'string', 'description': 'APK路径'},
+            'base64': {'type': 'string', 'description': 'APK Base64'},
+            'pattern': {'type': 'string', 'description': '文件名正则匹配规则，默认提取全部资源'},
+            'output_dir': {'type': 'string', 'description': '资源保存输出目录（必填）'},
+          },
+          'required': ['output_dir'],
+        },
+      },
+      {
+        'name': 'reverse_string_decrypt',
+        'description': '自动解密DEX/SO中常见加密字符串，支持AES/XOR/Base64/RC4等。',
+        'inputSchema': {
+          'type': 'object',
+          'properties': {
+            'path': {'type': 'string', 'description': 'APK路径'},
+            'base64': {'type': 'string', 'description': 'APK Base64'},
+            'target': {'type': 'string', 'description': '分析目标：dex|so|all，默认all'},
+            'target_path': {'type': 'string', 'description': '可选：指定目标文件路径，如classes.dex'},
+          },
+        },
+      },
+      {
+        'name': 'reverse_jni_method_map',
+        'description': '构建JNI方法映射表，匹配Java层native方法与Native层函数对应关系。',
+        'inputSchema': baseSchema(),
       },
     ];
   }

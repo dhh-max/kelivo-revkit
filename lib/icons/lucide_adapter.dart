@@ -199,4 +199,16 @@ class Lucide {
   static const IconData BellOff = lucide.LucideIcons.bellOff;
   static const IconData FolderSearch = lucide.LucideIcons.folderSearch;
   static const IconData FileSearch = lucide.LucideIcons.fileSearch;
+  static const IconData Braces = lucide.LucideIcons.braces;
+  static const IconData Command = lucide.LucideIcons.command;
+  static const IconData Clock = lucide.LucideIcons.clock;
+  static const IconData PackageOpen = lucide.LucideIcons.packageOpen;
+  static const IconData ShieldOff = lucide.LucideIcons.shieldOff;
+  static const IconData ShieldX = lucide.LucideIcons.shieldX;
+  static const IconData FolderInput = lucide.LucideIcons.folderInput;
+  static const IconData Send = lucide.LucideIcons.send;
+  static const IconData MoreVertical = lucide.LucideIcons.moreVertical;
+  static const IconData List = lucide.LucideIcons.list;
+  static const IconData BarChart3 = lucide.LucideIcons.barChart3;
+  static const IconData RefreshCcw = lucide.LucideIcons.refreshCcw;
 }

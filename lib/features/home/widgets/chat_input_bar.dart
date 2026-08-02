@@ -28,6 +28,8 @@ import '../../../utils/app_directories.dart';
 import 'package:super_clipboard/super_clipboard.dart';
 import '../../../desktop/desktop_context_menu.dart';
 import 'package:Kelivo/theme/app_font_weights.dart';
+import 'quick_prompt_overlay.dart';
+import '../../../core/providers/custom_prompt_provider.dart';
 
 class ChatInputBarController {
   _ChatInputBarState? _state;
@@ -182,6 +184,9 @@ class _ChatInputBarState extends State<ChatInputBar>
   // Suppress context menu briefly after app resume to avoid flickering
   bool _suppressContextMenu = false;
   bool _isSubmitting = false;
+  // Quick prompt overlay (/ trigger)
+  QuickPromptOverlay? _quickPromptOverlay;
+  final LayerLink _promptLayerLink = LayerLink();
   String? _imageModeModelKey;
   String? _lastImageModeModelKey;
   String? _dismissedImageModeModelKey;
@@ -254,7 +259,50 @@ class _ChatInputBarState extends State<ChatInputBar>
   bool get _hasDraftMedia => _images.isNotEmpty || _docs.isNotEmpty;
 
   // Instance method for onChanged to avoid recreating the callback on every build
-  void _onTextChanged(String _) => setState(() {});
+  void _onTextChanged(String value) {
+    setState(() {});
+    _maybeShowQuickPrompt(value);
+  }
+
+  void _maybeShowQuickPrompt(String text) {
+    // Detect "/" prefix at start of a line (or standalone)
+    final trimmed = text.trimRight();
+    if (trimmed.startsWith('/') && trimmed.length > 1) {
+      final query = trimmed.substring(1); // remove leading /
+      // Remove existing overlay before showing a new one
+      _quickPromptOverlay?.remove();
+      _quickPromptOverlay = QuickPromptOverlay.show(
+        context: context,
+        layerLink: _promptLayerLink,
+        query: query,
+        onInsert: (promptContent) {
+          // Replace the "/query" text with the prompt content
+          final currentText = _controller.text;
+          final slashIndex = currentText.indexOf('/');
+          if (slashIndex >= 0) {
+            final before = currentText.substring(0, slashIndex);
+            _controller.text = '$before$promptContent';
+            _controller.selection = TextSelection.collapsed(
+              offset: _controller.text.length,
+            );
+          } else {
+            _controller.text = promptContent;
+            _controller.selection = TextSelection.collapsed(
+              offset: _controller.text.length,
+            );
+          }
+          setState(() {});
+        },
+        onDismiss: () {
+          _quickPromptOverlay = null;
+        },
+      );
+    } else {
+      // Not a / command, remove overlay if present
+      _quickPromptOverlay?.remove();
+      _quickPromptOverlay = null;
+    }
+  }
 
   void _addImages(List<String> paths) {
     if (paths.isEmpty) return;
@@ -342,6 +390,7 @@ class _ChatInputBarState extends State<ChatInputBar>
 
   @override
   void dispose() {
+    _quickPromptOverlay?.remove();
     WidgetsBinding.instance.removeObserver(this);
     for (final timer in _repeatTimers.values) {
       try {
@@ -1872,56 +1921,59 @@ class _ChatInputBarState extends State<ChatInputBar>
                                           // onSecondaryTapDown: (details) {
                                           //   // _showDesktopContextMenu(details.globalPosition);
                                           // },
-                                          child: TextField(
-                                            controller: _controller,
-                                            focusNode: widget.focusNode,
-                                            onChanged: _onTextChanged,
-                                            readOnly: _composerLocked,
-                                            minLines: 1,
-                                            maxLines: _isExpanded ? 25 : 5,
-                                            // On mobile, optionally show "Send" on the return key and submit on tap.
-                                            // Still keep multiline so pasted text preserves line breaks.
-                                            keyboardType:
-                                                TextInputType.multiline,
-                                            textInputAction: enterToSend
-                                                ? TextInputAction.send
-                                                : TextInputAction.newline,
-                                            onSubmitted: enterToSend
-                                                ? (_) =>
-                                                      unawaited(_handleSend())
-                                                : null,
-                                            // Custom context menu: use instance method to avoid flickering
-                                            // caused by recreating the callback on every build.
-                                            // See: https://github.com/flutter/flutter/issues/150551
-                                            contextMenuBuilder:
-                                                _buildContextMenu,
-                                            autofocus: false,
-                                            decoration: InputDecoration(
-                                              hintText: _hint(context),
-                                              hintStyle: TextStyle(
-                                                color: theme
-                                                    .colorScheme
-                                                    .onSurface
-                                                    .withValues(alpha: 0.45),
+                                          child: CompositedTransformTarget(
+                                            link: _promptLayerLink,
+                                            child: TextField(
+                                              controller: _controller,
+                                              focusNode: widget.focusNode,
+                                              onChanged: _onTextChanged,
+                                              readOnly: _composerLocked,
+                                              minLines: 1,
+                                              maxLines: _isExpanded ? 25 : 5,
+                                              // On mobile, optionally show "Send" on the return key and submit on tap.
+                                              // Still keep multiline so pasted text preserves line breaks.
+                                              keyboardType:
+                                                  TextInputType.multiline,
+                                              textInputAction: enterToSend
+                                                  ? TextInputAction.send
+                                                  : TextInputAction.newline,
+                                              onSubmitted: enterToSend
+                                                  ? (_) =>
+                                                        unawaited(_handleSend())
+                                                  : null,
+                                              // Custom context menu: use instance method to avoid flickering
+                                              // caused by recreating the callback on every build.
+                                              // See: https://github.com/flutter/flutter/issues/150551
+                                              contextMenuBuilder:
+                                                  _buildContextMenu,
+                                              autofocus: false,
+                                              decoration: InputDecoration(
+                                                hintText: _hint(context),
+                                                hintStyle: TextStyle(
+                                                  color: theme
+                                                      .colorScheme
+                                                      .onSurface
+                                                      .withValues(alpha: 0.45),
+                                                ),
+                                                border: InputBorder.none,
+                                                contentPadding:
+                                                    const EdgeInsets.symmetric(
+                                                      vertical: 2,
+                                                    ),
                                               ),
-                                              border: InputBorder.none,
-                                              contentPadding:
-                                                  const EdgeInsets.symmetric(
-                                                    vertical: 2,
-                                                  ),
+                                              style: TextStyle(
+                                                color:
+                                                    theme.colorScheme.onSurface,
+                                                fontSize:
+                                                    (Platform.isWindows ||
+                                                        Platform.isLinux ||
+                                                        Platform.isMacOS)
+                                                    ? 14
+                                                    : 15,
+                                              ),
+                                              cursorColor:
+                                                  theme.colorScheme.primary,
                                             ),
-                                            style: TextStyle(
-                                              color:
-                                                  theme.colorScheme.onSurface,
-                                              fontSize:
-                                                  (Platform.isWindows ||
-                                                      Platform.isLinux ||
-                                                      Platform.isMacOS)
-                                                  ? 14
-                                                  : 15,
-                                            ),
-                                            cursorColor:
-                                                theme.colorScheme.primary,
                                           ),
                                         );
                                       },

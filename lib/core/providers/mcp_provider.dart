@@ -105,6 +105,31 @@ class McpParamSpec {
   );
 }
 
+/// Statistics for a single tool's execution history.
+class McpToolStats {
+  final String toolName;
+  final int totalCalls;
+  final int successCount;
+  final int errorCount;
+  final Duration totalDuration;
+
+  const McpToolStats({
+    required this.toolName,
+    required this.totalCalls,
+    required this.successCount,
+    required this.errorCount,
+    required this.totalDuration,
+  });
+
+  double get successRate =>
+      totalCalls > 0 ? successCount / totalCalls : 0.0;
+
+  Duration get avgDuration =>
+      totalCalls > 0
+          ? Duration(microseconds: totalDuration.inMicroseconds ~/ totalCalls)
+          : Duration.zero;
+}
+
 class McpToolConfig {
   final bool enabled;
   final String name;
@@ -115,6 +140,8 @@ class McpToolConfig {
 
   /// Whether this tool requires user approval before execution.
   final bool needsApproval;
+  /// Whether this tool is marked as favorite.
+  final bool isFavorite;
 
   McpToolConfig({
     required this.enabled,
@@ -123,6 +150,7 @@ class McpToolConfig {
     this.params = const [],
     this.schema,
     this.needsApproval = false,
+    this.isFavorite = false,
   });
 
   McpToolConfig copyWith({
@@ -132,6 +160,7 @@ class McpToolConfig {
     List<McpParamSpec>? params,
     Map<String, dynamic>? schema,
     bool? needsApproval,
+    bool? isFavorite,
   }) => McpToolConfig(
     enabled: enabled ?? this.enabled,
     name: name ?? this.name,
@@ -139,6 +168,7 @@ class McpToolConfig {
     params: params ?? this.params,
     schema: schema ?? this.schema,
     needsApproval: needsApproval ?? this.needsApproval,
+    isFavorite: isFavorite ?? this.isFavorite,
   );
 
   Map<String, dynamic> toJson() => {
@@ -148,6 +178,7 @@ class McpToolConfig {
     'params': params.map((e) => e.toJson()).toList(),
     if (schema != null) 'schema': schema,
     if (needsApproval) 'needsApproval': true,
+    if (isFavorite) 'isFavorite': true,
   };
 
   factory McpToolConfig.fromJson(Map<String, dynamic> json) => McpToolConfig(
@@ -165,6 +196,7 @@ class McpToolConfig {
         ? (json['schema'] as Map).cast<String, dynamic>()
         : null,
     needsApproval: json['needsApproval'] as bool? ?? false,
+    isFavorite: json['isFavorite'] as bool? ?? false,
   );
 }
 
@@ -1480,6 +1512,101 @@ class McpProvider extends ChangeNotifier {
       }
     }
     return false;
+  }
+
+  /// Find the server ID that owns a given tool name.
+  /// Returns null if no connected server has this tool.
+  String? serverIdForTool(String toolName) {
+    for (final s in _servers) {
+      if (statusFor(s.id) != McpStatus.connected) continue;
+      if (!s.enabled) continue;
+      for (final t in s.tools) {
+        if (t.name == toolName && t.enabled) return s.id;
+      }
+    }
+    return null;
+  }
+
+  /// Search tools across all servers by keyword.
+  /// Matches tool name or description (case-insensitive).
+  List<({String serverId, String serverName, McpToolConfig tool})> searchTools(
+    String keyword,
+  ) {
+    if (keyword.trim().isEmpty) return [];
+    final lower = keyword.toLowerCase();
+    final results = <({String serverId, String serverName, McpToolConfig tool})>[];
+    for (final s in _servers) {
+      if (!s.enabled) continue;
+      for (final t in s.tools) {
+        if (t.name.toLowerCase().contains(lower) ||
+            (t.description ?? '').toLowerCase().contains(lower)) {
+          results.add((serverId: s.id, serverName: s.name, tool: t));
+        }
+      }
+    }
+    return results;
+  }
+
+  /// Batch enable or disable tools for a given server.
+  Future<void> batchSetToolsEnabled(
+    String serverId,
+    List<String> toolNames,
+    bool enabled,
+  ) async {
+    final idx = _servers.indexWhere((e) => e.id == serverId);
+    if (idx == -1) return;
+    final server = _servers[idx];
+    final updatedTools = server.tools.map((t) {
+      if (toolNames.contains(t.name)) {
+        return t.copyWith(enabled: enabled);
+      }
+      return t;
+    }).toList();
+    _servers[idx] = server.copyWith(tools: updatedTools);
+    notifyListeners();
+    await _persist();
+  }
+
+  /// Get execution statistics for all tools.
+  Map<String, McpToolStats> getToolStats() {
+    final stats = <String, McpToolStats>{};
+    for (final log in _callLogs) {
+      final existing = stats[log.toolName];
+      final duration = log.finishedAt != null
+          ? log.finishedAt!.difference(log.startedAt)
+          : null;
+      if (existing == null) {
+        stats[log.toolName] = McpToolStats(
+          toolName: log.toolName,
+          totalCalls: 1,
+          successCount: log.status == McpCallLogStatus.success ? 1 : 0,
+          errorCount: log.status == McpCallLogStatus.error ? 1 : 0,
+          totalDuration: duration ?? Duration.zero,
+        );
+      } else {
+        stats[log.toolName] = McpToolStats(
+          toolName: log.toolName,
+          totalCalls: existing.totalCalls + 1,
+          successCount: existing.successCount +
+              (log.status == McpCallLogStatus.success ? 1 : 0),
+          errorCount: existing.errorCount +
+              (log.status == McpCallLogStatus.error ? 1 : 0),
+          totalDuration: existing.totalDuration + (duration ?? Duration.zero),
+        );
+      }
+    }
+    return stats;
+  }
+
+  /// Auto-reconnect all servers that are in error state.
+  Future<void> autoReconnectErrorServers() async {
+    for (final s in _servers) {
+      if (!s.enabled) continue;
+      final status = statusFor(s.id);
+      if (status == McpStatus.error || status == McpStatus.idle) {
+        unawaited(connect(s.id));
+      }
+    }
   }
 
   void clearCallLogs() {

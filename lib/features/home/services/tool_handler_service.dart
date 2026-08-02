@@ -8,6 +8,7 @@ import '../../../core/providers/assistant_provider.dart';
 import '../../../core/providers/mcp_provider.dart';
 import '../../../core/providers/memory_provider.dart';
 import '../../../core/providers/settings_provider.dart';
+import '../../../core/providers/tool_history_provider.dart';
 import '../../../core/providers/tts_provider.dart';
 import '../../../core/services/api/chat_api_service.dart';
 import '../../../core/services/app_control/app_control_service.dart';
@@ -484,10 +485,29 @@ class ToolHandlerService {
           final approvalToolCallId = toolCallId?.trim().isNotEmpty == true
               ? toolCallId!.trim()
               : '${name}_${DateTime.now().microsecondsSinceEpoch}';
+          // Resolve serverId for this tool
+          final resolvedServerId = mcp.serverIdForTool(name);
+          // Check auto-approval rules from ToolHistoryProvider
+          ToolHistoryProvider? histProvider;
+          try {
+            histProvider = contextProvider.read<ToolHistoryProvider>();
+          } catch (_) {}
           final result = await approvalService.requestApproval(
             toolCallId: approvalToolCallId,
             toolName: name,
+            serverId: resolvedServerId,
             arguments: args,
+            autoApprovalCheck: histProvider != null
+                ? (serverId, toolName) {
+                    final rules = histProvider!.rules;
+                    for (final rule in rules) {
+                      if (rule.matches(serverId, toolName)) {
+                        return rule.approve;
+                      }
+                    }
+                    return false;
+                  }
+                : null,
           );
           if (!result.approved) {
             return _toolError(
@@ -498,15 +518,39 @@ class ToolHandlerService {
           }
         }
 
-        // MCP tools
-        final text = await toolSvc.callToolTextForAssistant(
-          mcp,
-          assistantProvider,
-          assistantId: assistant?.id,
-          toolName: name,
-          arguments: args,
-        );
-        return text;
+        // MCP tools — record in ToolHistoryProvider
+        final resolvedSid = mcp.serverIdForTool(name) ?? '';
+        String? histRecordId;
+        ToolHistoryProvider? histProv;
+        try {
+          histProv = contextProvider.read<ToolHistoryProvider>();
+          histRecordId = histProv.recordStart(
+            toolName: name,
+            serverId: resolvedSid,
+            arguments: args,
+            conversationId: toolCallId ?? '',
+            messageId: toolCallId ?? '',
+          );
+        } catch (_) {}
+
+        try {
+          final text = await toolSvc.callToolTextForAssistant(
+            mcp,
+            assistantProvider,
+            assistantId: assistant?.id,
+            toolName: name,
+            arguments: args,
+          );
+          if (histRecordId != null) {
+            histProv?.recordComplete(histRecordId, result: text);
+          }
+          return text;
+        } catch (e) {
+          if (histRecordId != null) {
+            histProv?.recordComplete(histRecordId, error: e.toString());
+          }
+          rethrow;
+        }
       } catch (e) {
         // Catch unexpected exceptions and return error JSON to LLM
         // This prevents tool failures from terminating the chat flow
