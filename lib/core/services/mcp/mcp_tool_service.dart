@@ -64,16 +64,16 @@ class McpToolService extends ChangeNotifier {
     required String toolName,
     Map<String, dynamic> arguments = const {},
   }) async {
-    // Attempt call via selected server
     final selected = chat.getConversationMcpServers(conversationId).toSet();
+    if (selected.isEmpty) return '';
+
     final connected = mcpProvider.connectedServers
         .where((s) => selected.contains(s.id))
         .toList();
-    mcp.CallToolResult? res;
     McpServerConfig? usedServer;
+    mcp.CallToolResult? res;
     for (final s in connected) {
-      final has = s.tools.any((t) => t.enabled && t.name == toolName);
-      if (!has) continue;
+      if (!s.tools.any((t) => t.enabled && t.name == toolName)) continue;
       usedServer = s;
       res = await mcpProvider.callTool(s.id, toolName, arguments);
       break;
@@ -94,11 +94,48 @@ class McpToolService extends ChangeNotifier {
       }
       return '';
     }
+    return _flattenCallToolResult(res);
+  }
+
+  Future<String> callToolTextForAssistant(
+    McpProvider mcpProvider,
+    AssistantProvider assistants, {
+    required String? assistantId,
+    required String toolName,
+    Map<String, dynamic> arguments = const {},
+  }) async {
+    final a = (assistantId != null)
+        ? assistants.getById(assistantId)
+        : assistants.currentAssistant;
+    final selected = (a?.mcpServerIds ?? const <String>[]).toSet();
+    if (selected.isEmpty) return '';
+    for (final s in mcpProvider.connectedServers.where(
+      (s) => selected.contains(s.id),
+    )) {
+      if (!s.tools.any((t) => t.enabled && t.name == toolName)) continue;
+      final res = await mcpProvider.callTool(s.id, toolName, arguments);
+      if (res == null) {
+        final errMsg = mcpProvider.errorFor(s.id) ?? 'Unknown error';
+        final schema = s.tools.firstWhere((t) => t.name == toolName).schema;
+        return _renderToolErrorForModel(
+          serverName: s.name,
+          toolName: toolName,
+          arguments: arguments,
+          errorMessage: errMsg,
+          schema: schema,
+        );
+      }
+      return _flattenCallToolResult(res);
+    }
+    return '';
+  }
+
+  /// Flatten [mcp.CallToolResult] content list to a plain text string.
+  /// Handles TextContent, ResourceContent, ImageContent and dynamic fallbacks.
+  static Future<String> _flattenCallToolResult(mcp.CallToolResult res) async {
     final buf = StringBuffer();
-    // Be liberal in what we accept: many servers return different content variants.
     for (final c in res.content) {
       try {
-        // Known types from mcp_client
         if (c is mcp.TextContent) {
           if ((c.text).trim().isNotEmpty) buf.writeln(c.text);
           continue;
@@ -161,105 +198,6 @@ class McpToolService extends ChangeNotifier {
       }
     }
     return buf.toString().trim();
-  }
-
-  Future<String> callToolTextForAssistant(
-    McpProvider mcpProvider,
-    AssistantProvider assistants, {
-    required String? assistantId,
-    required String toolName,
-    Map<String, dynamic> arguments = const {},
-  }) async {
-    // try servers selected for the assistant
-    final a = (assistantId != null)
-        ? assistants.getById(assistantId)
-        : assistants.currentAssistant;
-    final selected = (a?.mcpServerIds ?? const <String>[]).toSet();
-    // debugPrint('[MCP/Call/Select] assistant=${assistantId ?? a?.id ?? '(current)'} tool=$toolName selectedServers=${selected.join(',')}');
-    if (selected.isEmpty) return '';
-    for (final s in mcpProvider.connectedServers.where(
-      (s) => selected.contains(s.id),
-    )) {
-      final has = s.tools.any((t) => t.enabled && t.name == toolName);
-      if (has) {
-        // debugPrint('[MCP/Call/Select] using server=${s.id} name=${s.name} transport=${s.transport.name}');
-        final res = await mcpProvider.callTool(s.id, toolName, arguments);
-        if (res == null) {
-          final errMsg = mcpProvider.errorFor(s.id) ?? 'Unknown error';
-          final schema = s.tools.firstWhere((t) => t.name == toolName).schema;
-          return _renderToolErrorForModel(
-            serverName: s.name,
-            toolName: toolName,
-            arguments: arguments,
-            errorMessage: errMsg,
-            schema: schema,
-          );
-        }
-        final buf = StringBuffer();
-        for (final c in res.content) {
-          try {
-            if (c is mcp.TextContent) {
-              if ((c.text).trim().isNotEmpty) buf.writeln(c.text);
-              continue;
-            }
-            if (c is mcp.ResourceContent) {
-              final t = (c.text ?? '').toString();
-              if (t.trim().isNotEmpty) {
-                buf.writeln(t);
-              } else {
-                final uri = (c.uri).toString();
-                if (uri.isNotEmpty) buf.writeln('resource: $uri');
-              }
-              continue;
-            }
-            if (c is mcp.ImageContent) {
-              final data = c.data.toString();
-              final mime = c.mimeType.toString();
-              if (data.isNotEmpty) {
-                final savedPath = await AppDirectories.saveBase64Image(
-                  mime,
-                  data,
-                  prefix: 'mcp_img',
-                );
-                if (savedPath != null) {
-                  buf.writeln('[image:$savedPath]');
-                }
-              } else {
-                final url = (c.url ?? '').toString();
-                if (url.isNotEmpty) buf.writeln('[image:$url]');
-              }
-              continue;
-            }
-            final dyn = c as dynamic;
-            try {
-              final txt = (dyn.text as String?);
-              if (txt != null && txt.trim().isNotEmpty) {
-                buf.writeln(txt);
-                continue;
-              }
-            } catch (_) {}
-            try {
-              final uri = (dyn.uri as String?);
-              if (uri != null && uri.isNotEmpty) {
-                buf.writeln('resource: $uri');
-                continue;
-              }
-            } catch (_) {}
-            try {
-              final json = (dyn.toJson as dynamic).call();
-              buf.writeln(const JsonEncoder.withIndent('  ').convert(json));
-              continue;
-            } catch (_) {}
-            final s = c.toString();
-            if (!s.startsWith('Instance of')) buf.writeln(s);
-          } catch (_) {
-            // ignore single content parse errors and continue
-          }
-        }
-        return buf.toString().trim();
-      }
-    }
-    return '';
   }
 
   String _renderToolErrorForModel({

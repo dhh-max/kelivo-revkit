@@ -12,6 +12,7 @@ import '../services/mcp/kelivo_context/kelivo_context_server.dart';
 import '../services/mcp/kelivo_so/kelivo_so_server.dart';
 import '../services/mcp/kelivo_dex/kelivo_dex_server.dart';
 import '../services/mcp/kelivo_reverse/kelivo_reverse_server.dart';
+import '../services/mcp/kelivo_jadx/kelivo_jadx_server.dart';
 import '../services/mcp/stdio_command_resolver.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
@@ -181,6 +182,14 @@ class McpServerConfig {
   final List<String> args;
   final Map<String, String> env;
   final String? workingDirectory;
+  // --- Enhanced configuration fields ---
+  final String description; // user notes / description
+  final List<String> tags; // grouping tags
+  final bool autoReconnect; // auto-reconnect on disconnect
+  final int maxReconnectAttempts; // max retry count (default 3)
+  final int reconnectIntervalMs; // base reconnect delay in ms (default 600)
+  final int heartbeatIntervalSeconds; // heartbeat ping interval (default 30)
+  final int connectionTimeoutSeconds; // per-server connection timeout (default 30)
 
   McpServerConfig({
     required this.id,
@@ -194,6 +203,13 @@ class McpServerConfig {
     this.args = const [],
     this.env = const {},
     this.workingDirectory,
+    this.description = '',
+    this.tags = const [],
+    this.autoReconnect = true,
+    this.maxReconnectAttempts = 3,
+    this.reconnectIntervalMs = 600,
+    this.heartbeatIntervalSeconds = 30,
+    this.connectionTimeoutSeconds = 30,
   });
 
   McpServerConfig copyWith({
@@ -209,6 +225,13 @@ class McpServerConfig {
     Map<String, String>? env,
     String? workingDirectory,
     bool clearWorkingDirectory = false,
+    String? description,
+    List<String>? tags,
+    bool? autoReconnect,
+    int? maxReconnectAttempts,
+    int? reconnectIntervalMs,
+    int? heartbeatIntervalSeconds,
+    int? connectionTimeoutSeconds,
   }) => McpServerConfig(
     id: id ?? this.id,
     enabled: enabled ?? this.enabled,
@@ -223,6 +246,13 @@ class McpServerConfig {
     workingDirectory: clearWorkingDirectory
         ? null
         : (workingDirectory ?? this.workingDirectory),
+    description: description ?? this.description,
+    tags: tags ?? this.tags,
+    autoReconnect: autoReconnect ?? this.autoReconnect,
+    maxReconnectAttempts: maxReconnectAttempts ?? this.maxReconnectAttempts,
+    reconnectIntervalMs: reconnectIntervalMs ?? this.reconnectIntervalMs,
+    heartbeatIntervalSeconds: heartbeatIntervalSeconds ?? this.heartbeatIntervalSeconds,
+    connectionTimeoutSeconds: connectionTimeoutSeconds ?? this.connectionTimeoutSeconds,
   );
 
   Map<String, dynamic> toJson() => {
@@ -242,6 +272,14 @@ class McpServerConfig {
     if (transport == McpTransportType.stdio) 'env': env,
     if (transport == McpTransportType.stdio && workingDirectory != null)
       'workingDirectory': workingDirectory,
+    // Enhanced fields
+    if (description.isNotEmpty) 'description': description,
+    if (tags.isNotEmpty) 'tags': tags,
+    if (!autoReconnect) 'autoReconnect': false,
+    if (maxReconnectAttempts != 3) 'maxReconnectAttempts': maxReconnectAttempts,
+    if (reconnectIntervalMs != 600) 'reconnectIntervalMs': reconnectIntervalMs,
+    if (heartbeatIntervalSeconds != 30) 'heartbeatIntervalSeconds': heartbeatIntervalSeconds,
+    if (connectionTimeoutSeconds != 30) 'connectionTimeoutSeconds': connectionTimeoutSeconds,
   };
 
   static bool enabledFromJson(Map<String, dynamic> json) {
@@ -273,6 +311,18 @@ class McpServerConfig {
             )
             .toList() ??
         const <McpToolConfig>[];
+    // Parse enhanced fields (common to all transport types)
+    final description = (json['description'] as String?) ?? '';
+    final tagsRaw = json['tags'];
+    final tags = tagsRaw is List
+        ? tagsRaw.map((e) => e.toString()).toList()
+        : const <String>[];
+    final autoReconnect = json['autoReconnect'] as bool? ?? true;
+    final maxReconnectAttempts = json['maxReconnectAttempts'] as int? ?? 3;
+    final reconnectIntervalMs = json['reconnectIntervalMs'] as int? ?? 600;
+    final heartbeatIntervalSeconds = json['heartbeatIntervalSeconds'] as int? ?? 30;
+    final connectionTimeoutSeconds = json['connectionTimeoutSeconds'] as int? ?? 30;
+
     if (t == McpTransportType.stdio) {
       final argsAny = json['args'];
       final envAny = json['env'];
@@ -290,6 +340,13 @@ class McpServerConfig {
             ? envAny.map((k, v) => MapEntry(k.toString(), v.toString()))
             : const <String, String>{},
         workingDirectory: (json['workingDirectory'] as String?)?.trim(),
+        description: description,
+        tags: tags,
+        autoReconnect: autoReconnect,
+        maxReconnectAttempts: maxReconnectAttempts,
+        reconnectIntervalMs: reconnectIntervalMs,
+        heartbeatIntervalSeconds: heartbeatIntervalSeconds,
+        connectionTimeoutSeconds: connectionTimeoutSeconds,
       );
     } else if (t == McpTransportType.inmemory) {
       return McpServerConfig(
@@ -298,6 +355,13 @@ class McpServerConfig {
         name: json['name'] as String? ?? '',
         transport: McpTransportType.inmemory,
         tools: tools,
+        description: description,
+        tags: tags,
+        autoReconnect: autoReconnect,
+        maxReconnectAttempts: maxReconnectAttempts,
+        reconnectIntervalMs: reconnectIntervalMs,
+        heartbeatIntervalSeconds: heartbeatIntervalSeconds,
+        connectionTimeoutSeconds: connectionTimeoutSeconds,
       );
     } else {
       return McpServerConfig(
@@ -312,6 +376,13 @@ class McpServerConfig {
               (k, v) => MapEntry(k.toString(), v.toString()),
             )) ??
             const {},
+        description: description,
+        tags: tags,
+        autoReconnect: autoReconnect,
+        maxReconnectAttempts: maxReconnectAttempts,
+        reconnectIntervalMs: reconnectIntervalMs,
+        heartbeatIntervalSeconds: heartbeatIntervalSeconds,
+        connectionTimeoutSeconds: connectionTimeoutSeconds,
       );
     }
   }
@@ -339,6 +410,8 @@ class McpProvider extends ChangeNotifier {
   static const String _builtinDexName = '@kelivo/dex';
   static const String _builtinReverseId = 'kelivo_reverse';
   static const String _builtinReverseName = '@kelivo/reverse';
+  static const String _builtinJadxId = 'kelivo_jadx';
+  static const String _builtinJadxName = '@kelivo/jadx';
   static const Set<String> _builtinFileWriteToolNames = {
     'kelivo_create_directory',
     'kelivo_create_text_file',
@@ -392,6 +465,9 @@ class McpProvider extends ChangeNotifier {
   final Map<String, McpStatus> _status = {}; // id -> status
   final Map<String, String> _errors = {}; // id -> last error
   List<McpServerConfig> _servers = [];
+  // Cached list of connected servers; invalidated on status changes.
+  List<McpServerConfig> _connectedServersCache = const [];
+  bool _connectedServersDirty = true;
   // Reconnect bookkeeping to avoid duplicate concurrent retries
   final Set<String> _reconnecting = <String>{};
   // Heartbeat timers for live-connection health checks
@@ -415,9 +491,15 @@ class McpProvider extends ChangeNotifier {
   bool get hasAnyEnabled => _servers.any((s) => s.enabled);
   bool isConnected(String id) =>
       _clients.containsKey(id) && statusFor(id) == McpStatus.connected;
-  List<McpServerConfig> get connectedServers => _servers
-      .where((s) => statusFor(s.id) == McpStatus.connected)
-      .toList(growable: false);
+  List<McpServerConfig> get connectedServers {
+    if (_connectedServersDirty) {
+      _connectedServersCache = _servers
+          .where((s) => statusFor(s.id) == McpStatus.connected)
+          .toList(growable: false);
+      _connectedServersDirty = false;
+    }
+    return _connectedServersCache;
+  }
   Duration get requestTimeout => _requestTimeout;
   int get requestTimeoutSeconds => _requestTimeout.inSeconds;
   List<McpCallLogEntry> get callLogs => List.unmodifiable(_callLogs);
@@ -463,7 +545,7 @@ class McpProvider extends ChangeNotifier {
     _ensureBuiltinServersPresent();
     // initialize statuses
     for (final s in _servers) {
-      _status[s.id] = McpStatus.idle;
+      _status[s.id] = McpStatus.idle; _connectedServersDirty = true;
       _errors.remove(s.id);
     }
     notifyListeners();
@@ -523,6 +605,11 @@ class McpProvider extends ChangeNotifier {
         _builtinServer(_builtinReverseId, _builtinReverseName, enabled: false),
       );
     }
+    if (!_hasBuiltinServer(_builtinJadxId, _builtinJadxName)) {
+      next.add(
+        _builtinServer(_builtinJadxId, _builtinJadxName, enabled: false),
+      );
+    }
     _servers = next;
   }
 
@@ -550,6 +637,24 @@ class McpProvider extends ChangeNotifier {
       transport: McpTransportType.inmemory,
       tools: const <McpToolConfig>[],
     );
+  }
+
+  // O(1) builtin server identification via Set lookup
+  static final Set<String> _builtinServerIds = {
+    _builtinFetchId, _builtinFilesId, _builtinGithubId, _builtinImagesId,
+    _builtinContextId, _builtinSoId, _builtinDexId, _builtinReverseId,
+    _builtinJadxId,
+  };
+  static final Set<String> _builtinServerNames = {
+    _builtinFetchName, _builtinFilesName, _builtinGithubName, _builtinImagesName,
+    _builtinContextName, _builtinSoName, _builtinDexName, _builtinReverseName,
+    _builtinJadxName,
+  };
+
+  bool _isInmemoryBuiltin(McpServerConfig server) {
+    return server.transport == McpTransportType.inmemory &&
+        (_builtinServerIds.contains(server.id) ||
+            _builtinServerNames.contains(server.name));
   }
 
   bool _isBuiltinFilesServer(McpServerConfig server) {
@@ -581,22 +686,16 @@ class McpProvider extends ChangeNotifier {
     return server.transport == McpTransportType.inmemory &&
         (server.id == _builtinReverseId || server.name == _builtinReverseName);
   }
-
+  bool _isBuiltinJadxServer(McpServerConfig server) {
+    return server.transport == McpTransportType.inmemory &&
+        (server.id == _builtinJadxId || server.name == _builtinJadxName);
+  }
   bool _isBuiltinGithubServer(McpServerConfig server) {
     return server.transport == McpTransportType.inmemory &&
         (server.id == _builtinGithubId || server.name == _builtinGithubName);
   }
 
-  bool isBuiltinServer(McpServerConfig server) {
-    return _isBuiltinFetchServer(server) ||
-        _isBuiltinFilesServer(server) ||
-        _isBuiltinGithubServer(server) ||
-        _isBuiltinImagesServer(server) ||
-        _isBuiltinContextServer(server) ||
-        _isBuiltinSoServer(server) ||
-        _isBuiltinDexServer(server) ||
-        _isBuiltinReverseServer(server);
-  }
+  bool isBuiltinServer(McpServerConfig server) => _isInmemoryBuiltin(server);
 
   bool isBuiltinGithubServer(McpServerConfig server) {
     return _isBuiltinGithubServer(server);
@@ -616,40 +715,68 @@ class McpProvider extends ChangeNotifier {
   }
 
   KelivoInMemoryMcpServerEngine _createBuiltinEngine(McpServerConfig server) {
-    if (_isBuiltinFilesServer(server)) return KelivoFilesMcpServerEngine();
-    if (_isBuiltinImagesServer(server)) {
-      return KelivoImagesMcpServerEngine(
-        apiBaseUrlProvider: () => _imagesApiBaseUrl,
-        apiKeyProvider: () => _imagesApiKey,
-      );
+    // Use server.id for a single switch dispatch instead of 9 chained ifs
+    if (server.transport != McpTransportType.inmemory) {
+      return KelivoFetchMcpServerEngine();
     }
-    if (_isBuiltinGithubServer(server)) {
-      return KelivoGithubMcpServerEngine(
-        client: GitHubApiClient(accessTokenProvider: () async => _githubToken),
-      );
+    switch (server.id) {
+      case _builtinFilesId:
+        return KelivoFilesMcpServerEngine();
+      case _builtinImagesId:
+        return KelivoImagesMcpServerEngine(
+          apiBaseUrlProvider: () => _imagesApiBaseUrl,
+          apiKeyProvider: () => _imagesApiKey,
+        );
+      case _builtinGithubId:
+        return KelivoGithubMcpServerEngine(
+          client: GitHubApiClient(accessTokenProvider: () async => _githubToken),
+        );
+      case _builtinContextId:
+        return KelivoContextMcpServerEngine();
+      case _builtinSoId:
+        return KelivoSoMcpServerEngine();
+      case _builtinDexId:
+        return KelivoDexMcpServerEngine();
+      case _builtinReverseId:
+        return KelivoReverseMcpServerEngine();
+      case _builtinJadxId:
+        return KelivoJadxMcpServerEngine();
+      default:
+        return KelivoFetchMcpServerEngine();
     }
-    if (_isBuiltinContextServer(server)) {
-      return KelivoContextMcpServerEngine();
-    }
-    if (_isBuiltinSoServer(server)) {
-      return KelivoSoMcpServerEngine();
-    }
-    if (_isBuiltinDexServer(server)) {
-      return KelivoDexMcpServerEngine();
-    }
-    if (_isBuiltinReverseServer(server)) {
-      return KelivoReverseMcpServerEngine();
-    }
-    return KelivoFetchMcpServerEngine();
   }
 
+  // Debounce for _persist — coalesce rapid writes into a single SharedPreferences commit.
+  Completer<void>? _persistLock;
+  bool _persistPending = false;
+
   Future<void> _persist() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      _prefsKey,
-      jsonEncode(_servers.map((e) => e.toJson()).toList()),
-    );
-    await prefs.setInt(_prefsTimeoutKey, _requestTimeout.inMilliseconds);
+    // If a persist is already in-flight, mark pending and wait for it to finish,
+    // then do one more write to capture the latest state.
+    if (_persistLock != null) {
+      _persistPending = true;
+      await _persistLock!.future;
+      if (!_persistPending) return; // another concurrent caller already flushed
+    }
+    _persistPending = false;
+    final completer = Completer<void>();
+    _persistLock = completer;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _prefsKey,
+        jsonEncode(_servers.map((e) => e.toJson()).toList()),
+      );
+      await prefs.setInt(_prefsTimeoutKey, _requestTimeout.inMilliseconds);
+      // If another persist was requested while we were writing, loop once more.
+      if (_persistPending) {
+        _persistLock = null;
+        return _persist(); // recursive, but at most one extra iteration
+      }
+    } finally {
+      _persistLock = null;
+      if (!completer.isCompleted) completer.complete();
+    }
   }
 
   Future<void> _persistTimeout() async {
@@ -734,7 +861,7 @@ class McpProvider extends ChangeNotifier {
                 'type': 'streamableHttp',
               if (s.transport == McpTransportType.sse) 'type': 'sse',
               if (s.transport == McpTransportType.inmemory) 'type': 'inmemory',
-              'description': '',
+              'description': s.description,
               'isActive': s.enabled,
               if (s.transport != McpTransportType.stdio &&
                   s.transport != McpTransportType.inmemory)
@@ -765,10 +892,150 @@ class McpProvider extends ChangeNotifier {
               if (s.transport == McpTransportType.stdio &&
                   (s.workingDirectory ?? '').isNotEmpty)
                 'workingDirectory': s.workingDirectory,
+              // Enhanced fields
+              if (s.tags.isNotEmpty) 'tags': s.tags,
+              if (!s.autoReconnect) 'autoReconnect': false,
+              if (s.maxReconnectAttempts != 3) 'maxReconnectAttempts': s.maxReconnectAttempts,
+              if (s.reconnectIntervalMs != 600) 'reconnectIntervalMs': s.reconnectIntervalMs,
+              if (s.heartbeatIntervalSeconds != 30) 'heartbeatIntervalSeconds': s.heartbeatIntervalSeconds,
+              if (s.connectionTimeoutSeconds != 30) 'connectionTimeoutSeconds': s.connectionTimeoutSeconds,
             },
       },
     };
     return const JsonEncoder.withIndent('  ').convert(map);
+  }
+
+  /// Get all unique tags across all servers.
+  Set<String> get allTags {
+    final result = <String>{};
+    for (final s in _servers) {
+      result.addAll(s.tags);
+    }
+    return result;
+  }
+
+  /// Get servers grouped by tag. Servers with no tags are under key ''.
+  Map<String, List<McpServerConfig>> get serversByTag {
+    final result = <String, List<McpServerConfig>>{};
+    for (final s in _servers) {
+      if (s.tags.isEmpty) {
+        result.putIfAbsent('', () => []).add(s);
+      } else {
+        for (final tag in s.tags) {
+          result.putIfAbsent(tag, () => []).add(s);
+        }
+      }
+    }
+    return result;
+  }
+
+  /// Get servers filtered by tag.
+  List<McpServerConfig> serversByTagFilter(String tag) {
+    if (tag.isEmpty) return _servers.where((s) => s.tags.isEmpty).toList();
+    return _servers.where((s) => s.tags.contains(tag)).toList();
+  }
+
+  /// Batch enable/disable servers by IDs.
+  Future<void> batchSetEnabled(List<String> ids, bool enabled) async {
+    bool changed = false;
+    for (final id in ids) {
+      final idx = _servers.indexWhere((s) => s.id == id);
+      if (idx < 0) continue;
+      if (_servers[idx].enabled == enabled) continue;
+      _servers[idx] = _servers[idx].copyWith(enabled: enabled);
+      changed = true;
+    }
+    if (changed) {
+      _connectedServersDirty = true;
+      await _persist();
+      notifyListeners();
+    }
+  }
+
+  /// Batch connect servers by IDs.
+  Future<void> batchConnect(List<String> ids) async {
+    for (final id in ids) {
+      if (!isConnected(id)) {
+        await connect(id);
+      }
+    }
+  }
+
+  /// Batch disconnect servers by IDs.
+  Future<void> batchDisconnect(List<String> ids) async {
+    for (final id in ids) {
+      if (isConnected(id)) {
+        await disconnect(id);
+      }
+    }
+  }
+
+  /// Update server tags.
+  Future<void> updateServerTags(String id, List<String> tags) async {
+    final idx = _servers.indexWhere((s) => s.id == id);
+    if (idx < 0) return;
+    _servers[idx] = _servers[idx].copyWith(tags: tags);
+    await _persist();
+    notifyListeners();
+  }
+
+  /// Update server description.
+  Future<void> updateServerDescription(String id, String description) async {
+    final idx = _servers.indexWhere((s) => s.id == id);
+    if (idx < 0) return;
+    _servers[idx] = _servers[idx].copyWith(description: description);
+    await _persist();
+    notifyListeners();
+  }
+
+  /// Update server connection settings (reconnect, heartbeat, timeout).
+  Future<void> updateServerConnectionSettings(
+    String id, {
+    bool? autoReconnect,
+    int? maxReconnectAttempts,
+    int? reconnectIntervalMs,
+    int? heartbeatIntervalSeconds,
+    int? connectionTimeoutSeconds,
+  }) async {
+    final idx = _servers.indexWhere((s) => s.id == id);
+    if (idx < 0) return;
+    _servers[idx] = _servers[idx].copyWith(
+      autoReconnect: autoReconnect,
+      maxReconnectAttempts: maxReconnectAttempts,
+      reconnectIntervalMs: reconnectIntervalMs,
+      heartbeatIntervalSeconds: heartbeatIntervalSeconds,
+      connectionTimeoutSeconds: connectionTimeoutSeconds,
+    );
+    await _persist();
+    // Restart heartbeat with new interval if connected
+    if (isConnected(id)) {
+      _startHeartbeat(id);
+    }
+    notifyListeners();
+  }
+
+  /// Export a single server config as JSON string.
+  String exportSingleServer(String id) {
+    final idx = _servers.indexWhere((s) => s.id == id);
+    if (idx < 0) return '{}';
+    return const JsonEncoder.withIndent('  ').convert(_servers[idx].toJson());
+  }
+
+  /// Import a single server from JSON and add it.
+  Future<void> importSingleServer(String rawJson) async {
+    final data = jsonDecode(rawJson);
+    if (data is! Map) throw FormatException('Expected JSON object');
+    final config = McpServerConfig.fromJson(data.cast<String, dynamic>());
+    // Avoid duplicate IDs
+    final existingIdx = _servers.indexWhere((s) => s.id == config.id);
+    if (existingIdx >= 0) {
+      _servers[existingIdx] = config;
+    } else {
+      _servers.add(config);
+    }
+    _connectedServersDirty = true;
+    await _persist();
+    notifyListeners();
   }
 
   /// Replace all MCP servers from a JSON string.
@@ -819,6 +1086,8 @@ class McpProvider extends ChangeNotifier {
               builtinEnabledById[_builtinDexId] = enabled;
             } else if (id == _builtinFetchId || name == _builtinFetchName) {
               builtinEnabledById[_builtinFetchId] = enabled;
+            } else if (id == _builtinJadxId || name == _builtinJadxName) {
+              builtinEnabledById[_builtinJadxId] = enabled;
             } else {
               legacyBuiltinSeen = true;
               legacyBuiltinEnabled = enabled;
@@ -867,6 +1136,13 @@ class McpProvider extends ChangeNotifier {
                     : const <String>[],
                 env: env,
                 workingDirectory: (wd != null && wd.isNotEmpty) ? wd : null,
+                description: (cfg['description'] as String?) ?? '',
+                tags: (cfg['tags'] is List) ? (cfg['tags'] as List).map((e) => e.toString()).toList() : const [],
+                autoReconnect: cfg['autoReconnect'] as bool? ?? true,
+                maxReconnectAttempts: cfg['maxReconnectAttempts'] as int? ?? 3,
+                reconnectIntervalMs: cfg['reconnectIntervalMs'] as int? ?? 600,
+                heartbeatIntervalSeconds: cfg['heartbeatIntervalSeconds'] as int? ?? 30,
+                connectionTimeoutSeconds: cfg['connectionTimeoutSeconds'] as int? ?? 30,
               ),
             );
             return;
@@ -899,6 +1175,13 @@ class McpProvider extends ChangeNotifier {
               transport: transport,
               url: url!,
               headers: headers,
+              description: (cfg['description'] as String?) ?? '',
+              tags: (cfg['tags'] is List) ? (cfg['tags'] as List).map((e) => e.toString()).toList() : const [],
+              autoReconnect: cfg['autoReconnect'] as bool? ?? true,
+              maxReconnectAttempts: cfg['maxReconnectAttempts'] as int? ?? 3,
+              reconnectIntervalMs: cfg['reconnectIntervalMs'] as int? ?? 600,
+              heartbeatIntervalSeconds: cfg['heartbeatIntervalSeconds'] as int? ?? 30,
+              connectionTimeoutSeconds: cfg['connectionTimeoutSeconds'] as int? ?? 30,
             ),
           );
         });
@@ -950,6 +1233,13 @@ class McpProvider extends ChangeNotifier {
               _builtinDexName,
               enabled: false,
             ).copyWith(enabled: builtinEnabledById[_builtinDexId] ?? false),
+          );
+          next.add(
+            _builtinServer(
+              _builtinJadxId,
+              _builtinJadxName,
+              enabled: false,
+            ).copyWith(enabled: builtinEnabledById[_builtinJadxId] ?? false),
           );
         }
       } else if (data is List) {
@@ -1029,7 +1319,7 @@ class McpProvider extends ChangeNotifier {
     _status.clear();
     _errors.clear();
     for (final s in _servers) {
-      _status[s.id] = McpStatus.idle;
+      _status[s.id] = McpStatus.idle; _connectedServersDirty = true;
     }
 
     await _persist();
@@ -1076,7 +1366,7 @@ class McpProvider extends ChangeNotifier {
           : null,
     );
     _servers = [..._servers, cfg];
-    _status[id] = McpStatus.idle;
+    _status[id] = McpStatus.idle; _connectedServersDirty = true;
     await _persist();
     notifyListeners();
     if (enabled) {
@@ -1099,7 +1389,7 @@ class McpProvider extends ChangeNotifier {
           !(config.workingDirectory?.trim().isNotEmpty ?? false),
     );
     _servers = [..._servers, cfg];
-    _status[id] = McpStatus.idle;
+    _status[id] = McpStatus.idle; _connectedServersDirty = true;
     await _persist();
     notifyListeners();
     if (cfg.enabled) {
@@ -1311,12 +1601,12 @@ class McpProvider extends ChangeNotifier {
     // If already connected, try a ping by listing tools quickly; else return
     if (_clients.containsKey(id)) {
       // Already connected; update status just in case
-      _status[id] = McpStatus.connected;
+      _status[id] = McpStatus.connected; _connectedServersDirty = true;
       _errors.remove(id);
       notifyListeners();
       return;
     }
-    _status[id] = McpStatus.connecting;
+    _status[id] = McpStatus.connecting; _connectedServersDirty = true;
     _errors.remove(id);
     notifyListeners();
 
@@ -1355,7 +1645,7 @@ class McpProvider extends ChangeNotifier {
           return;
         }
         _clients[id] = client;
-        _status[id] = McpStatus.connected;
+        _status[id] = McpStatus.connected; _connectedServersDirty = true;
         _errors.remove(id);
         notifyListeners();
         await refreshTools(id);
@@ -1420,7 +1710,7 @@ class McpProvider extends ChangeNotifier {
         return;
       }
       _clients[id] = client;
-      _status[id] = McpStatus.connected;
+      _status[id] = McpStatus.connected; _connectedServersDirty = true;
       _errors.remove(id);
       // debugPrint('[MCP/Connected] id=$id (${server.name})');
       notifyListeners();
@@ -1436,7 +1726,7 @@ class McpProvider extends ChangeNotifier {
       if (_disposed) return;
       // debugPrint('[MCP/Error] connect failed for id=$id (${server.name})');
       // _logMcpException('connect', serverId: id, error: e, stack: st);
-      _status[id] = McpStatus.error;
+      _status[id] = McpStatus.error; _connectedServersDirty = true;
       _errors[id] = e.toString();
       notifyListeners();
     }
@@ -1470,7 +1760,7 @@ class McpProvider extends ChangeNotifier {
       // debugPrint('[MCP/Error] disconnect failed for id=$id');
       // _logMcpException('disconnect', serverId: id, error: e, stack: st);
     }
-    _status[id] = McpStatus.idle;
+    _status[id] = McpStatus.idle; _connectedServersDirty = true;
     _errors.remove(id);
     _stopHeartbeat(id);
     notifyListeners();
@@ -1481,15 +1771,22 @@ class McpProvider extends ChangeNotifier {
     await connect(id);
   }
 
-  Future<void> _reconnectWithBackoff(String id, {int maxAttempts = 3}) async {
+  Future<void> _reconnectWithBackoff(String id, {int? maxAttempts, int? baseIntervalMs}) async {
     if (_reconnecting.contains(id)) return;
+    // Resolve per-server config
+    final server = _servers.cast<McpServerConfig?>().firstWhere(
+      (s) => s!.id == id, orElse: () => null,
+    );
+    if (server != null && !server.autoReconnect) return; // auto-reconnect disabled
+    final attempts = maxAttempts ?? server?.maxReconnectAttempts ?? 3;
+    final baseMs = baseIntervalMs ?? server?.reconnectIntervalMs ?? 600;
     _reconnecting.add(id);
     try {
-      for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+      for (int attempt = 1; attempt <= attempts; attempt++) {
         await reconnect(id);
         if (isConnected(id)) return;
-        // progressive backoff: 600ms, 1200ms, 2400ms
-        final delayMs = 600 * (1 << (attempt - 1));
+        // Progressive backoff: baseMs * 2^(attempt-1)
+        final delayMs = baseMs * (1 << (attempt - 1));
         await Future.delayed(Duration(milliseconds: delayMs));
       }
     } finally {
@@ -1497,33 +1794,28 @@ class McpProvider extends ChangeNotifier {
     }
   }
 
-  void _startHeartbeat(
-    String id, {
-    Duration interval = const Duration(seconds: 12),
-  }) {
+  void _startHeartbeat(String id) {
     _stopHeartbeat(id);
+    // In-memory servers live in-process; they never go down independently.
+    final server = _servers.cast<McpServerConfig?>().firstWhere(
+      (s) => s!.id == id, orElse: () => null,
+    );
+    if (server == null) return;
+    if (server.transport == McpTransportType.inmemory) return;
+    final interval = Duration(seconds: server.heartbeatIntervalSeconds);
     _heartbeats[id] = Timer.periodic(interval, (t) async {
-      // Heartbeat only when we think we're connected
       if (!isConnected(id)) return;
       final client = _clients[id];
       if (client == null) return;
       try {
-        // A lightweight call to verify liveness
-        // listTools is relatively cheap and available
-        final fut = client.listTools();
-        // Add a soft timeout to avoid piling up
-        await fut.timeout(const Duration(seconds: 6));
+        await client.listTools().timeout(
+          Duration(seconds: server.connectionTimeoutSeconds.clamp(5, 120)),
+        );
       } catch (e) {
-        // debugPrint('[MCP/Heartbeat] liveness check failed id=$id');
-        // Consider connection lost; mark error and try auto-reconnect
-        _status[id] = McpStatus.error;
+        _status[id] = McpStatus.error; _connectedServersDirty = true;
         _errors[id] = e.toString();
         notifyListeners();
-        await _reconnectWithBackoff(id, maxAttempts: 3);
-        // If reconnected, restart heartbeat (connect() also starts it)
-        if (!isConnected(id)) {
-          // keep error state; next heartbeat tick will be a no-op
-        }
+        await _reconnectWithBackoff(id);
       }
     });
   }
@@ -1551,8 +1843,11 @@ class McpProvider extends ChangeNotifier {
       final cfg = _toolConfig(serverId, toolName);
       final schema = cfg?.schema;
       if (schema == null || schema.isEmpty) return args;
-      final cloned = jsonDecode(jsonEncode(args)) as Map<String, dynamic>;
-      var normalized = _normalizeBySchema(cloned, schema, propertyName: null);
+      // Shallow copy instead of jsonDecode(jsonEncode(args)) deep clone.
+      // _normalizeBySchema already creates new maps/arrays when traversing,
+      // so the original args map is never mutated.
+      final input = Map<String, dynamic>.from(args);
+      var normalized = _normalizeBySchema(input, schema, propertyName: null);
       if (normalized is! Map<String, dynamic>) return args;
       normalized = _normalizeSpecialCases(toolName, normalized);
       return normalized;
@@ -1887,9 +2182,22 @@ class McpProvider extends ChangeNotifier {
         );
       }
 
+      // Only persist + notify if the tool list actually changed
+      final oldTools = _servers[idx].tools;
+      final changed = oldTools.length != merged.length ||
+          !oldTools.every((t) {
+            final m = merged.firstWhere(
+              (m2) => m2.name == t.name,
+              orElse: () => t,
+            );
+            return m.enabled == t.enabled &&
+                m.needsApproval == t.needsApproval;
+          });
       _servers[idx] = _servers[idx].copyWith(tools: merged);
-      await _persist();
-      notifyListeners();
+      if (changed) {
+        await _persist();
+        notifyListeners();
+      }
     } catch (e) {
       // debugPrint('[MCP/Tools] listTools() failed for id=$id');
       // ignore tool refresh errors; status stays connected
@@ -1959,7 +2267,7 @@ class McpProvider extends ChangeNotifier {
         }
       } catch (_) {}
 
-      _status[serverId] = McpStatus.error;
+      _status[serverId] = McpStatus.error; _connectedServersDirty = true;
       _errors[serverId] = e.toString();
       notifyListeners();
       // Auto-reconnect a few times and try once more
@@ -1989,7 +2297,7 @@ class McpProvider extends ChangeNotifier {
         final result = await client.callTool(toolName, normalized);
         // Detailed retry logging disabled
         // Mark healthy again
-        _status[serverId] = McpStatus.connected;
+        _status[serverId] = McpStatus.connected; _connectedServersDirty = true;
         _errors.remove(serverId);
         notifyListeners();
         _finishCallLog(
@@ -2014,10 +2322,12 @@ class McpProvider extends ChangeNotifier {
   }
 
   List<McpToolConfig> getEnabledToolsForServers(Set<String> serverIds) {
-    // Only expose tools for servers that are both selected AND currently connected
+    // Only expose tools for servers that are both selected AND currently connected.
+    // Use the cached connectedServers list instead of scanning all servers.
     final tools = <McpToolConfig>[];
-    for (final s in _servers.where((s) => serverIds.contains(s.id))) {
-      if (statusFor(s.id) != McpStatus.connected) continue;
+    for (final s in connectedServers) {
+      if (!serverIds.contains(s.id)) continue;
+      // connectedServers already guarantees status == connected
       if (!s.enabled) continue;
       tools.addAll(s.tools.where((t) => t.enabled));
     }

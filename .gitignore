@@ -79,3 +79,6 @@ internationalization.md
 /.agent/
 /.agents/
 /skills-lock.json
+
+# Build tools and binaries
+tools/

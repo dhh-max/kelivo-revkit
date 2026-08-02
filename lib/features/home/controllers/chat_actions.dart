@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
 import '../../../core/models/chat_input_data.dart';
+import '../../../core/services/notification_service.dart';
+import '../../../core/services/android_background.dart';
 import '../../../core/models/chat_message.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/models/token_usage.dart';
@@ -1010,6 +1013,24 @@ class ChatActions {
     // Mark this message as actively streaming to suppress UI rebuilds
     streamController.markStreamingStarted(state.messageId);
 
+    // Real-time notification: show in-progress status
+    if (Platform.isAndroid) {
+      try {
+        final settings = contextProvider.read<SettingsProvider>();
+        if (settings.chatRealtimeNotificationEnabled) {
+          NotificationService.showChatStatus(
+            status: ChatNotificationStatus.inProgress,
+          );
+        }
+        // Start background task if background mode is enabled
+        if (settings.androidBackgroundChatMode != AndroidBackgroundChatMode.off) {
+          AndroidBackgroundManager.startTask(
+            title: 'Generating response...',
+          );
+        }
+      } catch (_) {}
+    }
+
     try {
       await _startIosBackgroundGeneration(ctx);
       final stream = ChatApiService.sendMessageStream(
@@ -1380,6 +1401,27 @@ class ChatActions {
 
     // Notify for background notification if needed
     if (!state.finishHandled) {
+      // Real-time chat notification: show completion status
+      if (Platform.isAndroid) {
+        try {
+          final settings = contextProvider.read<SettingsProvider>();
+          if (settings.chatRealtimeNotificationEnabled) {
+            final preview = state.content.length > 80
+                ? state.content.substring(0, 80)
+                : state.content;
+            NotificationService.showChatStatus(
+              status: ChatNotificationStatus.completed,
+              preview: preview,
+            );
+          }
+          // End background task if active
+          if (AndroidBackgroundManager.isTaskActive) {
+            AndroidBackgroundManager.endTask(
+              result: BackgroundTaskResult.completed,
+            );
+          }
+        } catch (_) {}
+      }
       onStreamFinished?.call();
     }
 
@@ -1603,6 +1645,26 @@ class ChatActions {
     );
 
     await _conversationStreams.remove(conversationId)?.cancel();
+
+    // Real-time notification: show failure status
+    if (Platform.isAndroid) {
+      try {
+        final settings = contextProvider.read<SettingsProvider>();
+        if (settings.chatRealtimeNotificationEnabled) {
+          NotificationService.showChatStatus(
+            status: ChatNotificationStatus.failed,
+            body: errorText.length > 100 ? errorText.substring(0, 100) : errorText,
+          );
+        }
+        if (AndroidBackgroundManager.isTaskActive) {
+          AndroidBackgroundManager.endTask(
+            result: BackgroundTaskResult.failed,
+            body: 'Error: $errorText',
+          );
+        }
+      } catch (_) {}
+    }
+
     onStreamError?.call(errorText);
     onStreamFinished?.call();
     await _finishIosBackgroundGeneration(success: false, detail: errorText);

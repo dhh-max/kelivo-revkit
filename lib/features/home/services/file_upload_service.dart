@@ -268,6 +268,33 @@ class FileUploadService {
           'mdx',
           'yml',
           'yaml',
+          // archives
+          'zip',
+          'tar',
+          'gz',
+          'bz2',
+          '7z',
+          'rar',
+          'xz',
+          // APK / binaries
+          'apk',
+          'xapk',
+          'aab',
+          'dex',
+          'so',
+          'bin',
+          'elf',
+          // other analysis formats
+          'log',
+          'csv',
+          'toml',
+          'ini',
+          'cfg',
+          'conf',
+          'properties',
+          'sql',
+          'proto',
+          'smali',
         ],
       );
       if (res == null || res.files.isEmpty) return;

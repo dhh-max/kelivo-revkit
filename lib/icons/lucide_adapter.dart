@@ -192,4 +192,12 @@ class Lucide {
   static const IconData clock = lucide.LucideIcons.clock;
   static const IconData Wallet = lucide.LucideIcons.walletMinimal;
   static const IconData Coins = lucide.LucideIcons.coins;
+  static const IconData BellRing = lucide.LucideIcons.bellRing;
+  static const IconData FolderOpen = lucide.LucideIcons.folderOpen;
+  static const IconData FolderTree = lucide.LucideIcons.folderTree;
+  static const IconData Star = lucide.LucideIcons.star;
+  static const IconData Bell = lucide.LucideIcons.bell;
+  static const IconData BellOff = lucide.LucideIcons.bellOff;
+  static const IconData FolderSearch = lucide.LucideIcons.folderSearch;
+  static const IconData FileSearch = lucide.LucideIcons.fileSearch;
 }

@@ -1131,6 +1131,10 @@ class SettingsProvider extends ChangeNotifier {
       await prefs.setString(_appLocaleKey, 'system');
     }
 
+    // Chat real-time notification
+    _chatRealtimeNotificationEnabled =
+        prefs.getBool(_chatRealtimeNotificationKey) ?? true;
+
     // Android background chat mode (Android only; default ON on first run)
     try {
       final rawBg = prefs.getString(_androidBackgroundChatModeKey);
@@ -2360,6 +2364,18 @@ class SettingsProvider extends ChangeNotifier {
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_mobileAssistantDetailOutlineEnabledKey, enabled);
+  }
+
+  // ===== Chat real-time notification settings =====
+  static const String _chatRealtimeNotificationKey = 'chat_realtime_notification_v1';
+  bool _chatRealtimeNotificationEnabled = true;
+  bool get chatRealtimeNotificationEnabled => _chatRealtimeNotificationEnabled;
+  Future<void> setChatRealtimeNotificationEnabled(bool v) async {
+    if (_chatRealtimeNotificationEnabled == v) return;
+    _chatRealtimeNotificationEnabled = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_chatRealtimeNotificationKey, v);
   }
 
   // ===== Android background chat generation =====

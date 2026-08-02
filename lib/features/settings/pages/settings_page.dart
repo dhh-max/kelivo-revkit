@@ -14,6 +14,8 @@ import 'log_viewer_page.dart';
 import '../../search/pages/search_services_page.dart';
 import '../../backup/pages/backup_page.dart';
 import '../../quick_phrase/pages/quick_phrases_page.dart';
+import '../../custom_prompt/pages/custom_prompts_page.dart';
+import '../../device_path/pages/device_path_browser_page.dart';
 import '../../instruction_injection/pages/instruction_injection_page.dart';
 import '../../world_book/pages/world_book_page.dart';
 import 'network_proxy_page.dart';
@@ -272,6 +274,17 @@ class SettingsPage extends StatelessWidget {
               _iosDivider(context),
               _iosNavRow(
                 context,
+                icon: Lucide.BookOpen,
+                label: 'Prompts',
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const CustomPromptsPage()),
+                  );
+                },
+              ),
+              _iosDivider(context),
+              _iosNavRow(
+                context,
                 icon: Lucide.Layers,
                 label: l10n.settingsPageInstructionInjection,
                 onTap: () {
@@ -319,6 +332,19 @@ class SettingsPage extends StatelessWidget {
                 onTap: () {
                   Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const StorageSpacePage()),
+                  );
+                },
+              ),
+              _iosDivider(context),
+              _iosNavRow(
+                context,
+                icon: Lucide.FolderTree,
+                label: 'Device Paths',
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const DevicePathBrowserPage(),
+                    ),
                   );
                 },
               ),

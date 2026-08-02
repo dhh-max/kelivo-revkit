@@ -193,6 +193,27 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
                   onTap: () => _showAndroidBackgroundChatSheet(context),
                 ),
               if (Platform.isAndroid) _iosDivider(context),
+              if (Platform.isAndroid)
+                _iosNavRow(
+                  context,
+                  icon: Lucide.BellRing,
+                  label: 'Real-time Chat Notification',
+                  detailBuilder: (ctx) {
+                    final sp = ctx.watch<SettingsProvider>();
+                    return Switch(
+                      value: sp.chatRealtimeNotificationEnabled,
+                      onChanged: (v) =>
+                          sp.setChatRealtimeNotificationEnabled(v),
+                    );
+                  },
+                  onTap: () {
+                    final sp = context.read<SettingsProvider>();
+                    sp.setChatRealtimeNotificationEnabled(
+                      !sp.chatRealtimeNotificationEnabled,
+                    );
+                  },
+                ),
+              if (Platform.isAndroid) _iosDivider(context),
               if (Platform.isIOS)
                 _iosNavRow(
                   context,

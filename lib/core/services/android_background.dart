@@ -1,10 +1,23 @@
 import 'dart:io' show Platform;
 import 'package:flutter_background/flutter_background.dart';
+import 'notification_service.dart';
 
-/// Simple manager for enabling/disabling background execution on Android.
-/// All calls are no-ops on non-Android platforms.
+/// Callback signature for background task completion.
+typedef BackgroundTaskCallback = void Function(BackgroundTaskResult result);
+
+/// Result of a background task execution.
+enum BackgroundTaskResult { completed, failed, interrupted }
+
+/// Manager for enabling/disabling background execution on Android.
+///
+/// Enhanced with:
+/// - Task lifecycle management (start/end with notification)
+/// - Vibration on completion when screen is off
+/// - Automatic background disable after task ends
 class AndroidBackgroundManager {
   static bool _initialized = false;
+  static bool _taskActive = false;
+  static BackgroundTaskCallback? _onTaskComplete;
 
   /// Initialize the plugin once and request needed permissions.
   static Future<bool> ensureInitialized({
@@ -70,5 +83,74 @@ class AndroidBackgroundManager {
     } catch (_) {
       return false;
     }
+  }
+
+  /// Whether a background task is currently active.
+  static bool get isTaskActive => _taskActive;
+
+  /// Start a background task with lock-screen persistence.
+  ///
+  /// Enables background execution and shows an ongoing notification.
+  /// Call [endTask] when the operation completes.
+  static Future<void> startTask({
+    String? title,
+    BackgroundTaskCallback? onComplete,
+  }) async {
+    if (!Platform.isAndroid) return;
+    _onTaskComplete = onComplete;
+    _taskActive = true;
+
+    await setEnabled(true);
+
+    // Show ongoing notification
+    await NotificationService.showChatStatus(
+      status: ChatNotificationStatus.inProgress,
+      title: title ?? 'Processing in background',
+    );
+  }
+
+  /// End the current background task.
+  ///
+  /// Vibrates the device, shows a result notification,
+  /// and disables background execution.
+  static Future<void> endTask({
+    BackgroundTaskResult result = BackgroundTaskResult.completed,
+    String? title,
+    String? body,
+  }) async {
+    if (!Platform.isAndroid) return;
+    if (!_taskActive) return;
+    _taskActive = false;
+
+    // Map result to notification status
+    ChatNotificationStatus notifStatus;
+    switch (result) {
+      case BackgroundTaskResult.completed:
+        notifStatus = ChatNotificationStatus.completed;
+        break;
+      case BackgroundTaskResult.failed:
+        notifStatus = ChatNotificationStatus.failed;
+        break;
+      case BackgroundTaskResult.interrupted:
+        notifStatus = ChatNotificationStatus.interrupted;
+        break;
+    }
+
+    // Show result notification (also vibrates for completed/failed)
+    await NotificationService.showChatStatus(
+      status: notifStatus,
+      title: title,
+      body: body,
+    );
+
+    // Invoke callback
+    _onTaskComplete?.call(result);
+    _onTaskComplete = null;
+
+    // Disable background execution after a short delay
+    // to allow notification to be fully delivered.
+    Future.delayed(const Duration(seconds: 2), () {
+      setEnabled(false);
+    });
   }
 }
