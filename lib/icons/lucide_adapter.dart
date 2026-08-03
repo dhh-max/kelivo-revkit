@@ -203,8 +203,10 @@ class Lucide {
   static const IconData Command = lucide.LucideIcons.command;
   static const IconData Clock = lucide.LucideIcons.clock;
   static const IconData PackageOpen = lucide.LucideIcons.packageOpen;
+  static const IconData ShieldX = lucide.LucideIcons.shieldX;
   static const IconData FolderInput = lucide.LucideIcons.folderInput;
   static const IconData Send = lucide.LucideIcons.send;
   static const IconData List = lucide.LucideIcons.list;
+  static const IconData BarChart3 = lucide.LucideIcons.barChart3;
   static const IconData RefreshCcw = lucide.LucideIcons.refreshCcw;
 }
