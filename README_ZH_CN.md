@@ -340,6 +340,7 @@ flutter build apk --release --target-platform android-arm64
 - [Android 安装与共存说明](docs/ANDROID_INSTALLATION_ZH.md)
 - [Release 说明](docs/RELEASE_NOTES_1.1.17_PLUS.md)
 - [搜索升级记录](docs/KELIVO_SEARCH_UPGRADE_NOTES.md)
+- [APK 分析防崩溃与性能优化方案](docs/APK_ANALYSIS_ANTI_CRASH_ZH.md)
 
 ## 致谢
 

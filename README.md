@@ -193,6 +193,46 @@ The wrapper layer also follows GitHub API constraints more strictly: empty repos
 - Aggregates Bing Local, DuckDuckGo, Baidu, Sogou, and 360.
 - Isolates provider failures, deduplicates URLs, removes low-value results, and ranks by provider/source quality.
 
+### MCP Enhancements
+
+- ✅ **Global Tool Search**: Search across all MCP servers' tools by name/description with fuzzy matching
+- ✅ **Call Statistics Dashboard**: Visualize per-server call volume, success rate, average latency, and error distribution
+- ✅ **One-Tap Reconnect**: Batch reconnect all unhealthy MCP servers
+- ✅ **Background Health Check**: Periodic connectivity monitoring with auto-reconnect
+- ✅ **Auto-Approval Rules**: Configure rules by tool name/parameters to skip manual confirmation
+- ✅ **Tool Call History**: Automatic logging of all invocations (params, results, latency, status) with query/filter/export
+- ✅ **Batch Tool Management**: Enable/disable all tools for a server in one action
+- ✅ **Reverse MCP Extensions**: Built-in `@kelivo/reverse` with 28+ tools, including:
+  - DEX string batch replace: regex matching, class-scope filter, replace preview
+  - APK batch resign: custom keystore, v1/v2 scheme selection, auto-clear old signatures
+  - One-tap unpacking wizard: auto-detect 12+ packers, output tailored unpack steps
+- ✅ **Tool Favorites & Grouping**: Custom tool collections by use-case scenario, quick-filter and one-tap invoke
+- ✅ **Parameter Template Presets**: Save reusable parameter configs for any tool, auto-fill on next call, exportable
+- ✅ **Server Tag Grouping**: Tag MCP servers, batch reconnect/enable/disable/export by group
+- ✅ **Auto-Retry on Failure**: Per-tool retry rules (count, interval, trigger condition), no manual intervention
+- ✅ **Built-in Template Marketplace**: 20+ pre-configured MCP tool templates (batch web scraping, multi-format conversion, structured data analysis, etc.)
+- ✅ **One-Tap APK Unpacking**: No-root unpacking of installed apps/local APKs, auto-merge Split APKs, extract resources/DEX/Manifest, decompile binary XML/ARSC
+  - 🔧 Auto packer detection: 18+ packers (Bangcle/360/Tencent Legu etc.), suggest tailored unpack strategy
+  - 📂 Smart output classification: DEX/resources/native libs/Manifest/signatures auto-sorted, filter by type
+  - ⚡ Batch unpacking: Multi-select APKs/apps, async background execution
+  - 🔍 Resource obfuscation auto-restore: Detect & restore AndResGuard-style obfuscated filenames
+  - 🔗 MCP tool chaining: Directly invoke DEX replace/batch resign after unpacking, no re-upload
+  - 📤 Multi-format export: ZIP archive or filtered file type export (DEX/resources/.so), share to other apps
+  - 📸 Unpacking snapshots: Auto-save unpack records (APK info, timestamp, output path), review history anytime
+  - ⚙️ Custom unpack rules: Configure filters (skip .so, decompile Manifest/resources only, skip large files)
+  - ✅ Integrity verification: Auto MD5/SHA1 hash check against source APK blocks
+  - 📊 One-tap analysis report: Security analysis — permission risks, exposed components, SDK identification, packer status
+  - 🧠 Large APK analysis optimization: 100MB+/multi-DEX auto chunked incremental analysis, dynamic memory control, prevent OOM
+  - ⏱️ Analysis timeout fallback: Configurable timeout, auto-degrade to lightweight mode (core info only)
+  - 📶 Offline background analysis: Large APKs queued as background tasks, progress query, pause/resume, push notification on completion
+  - 💡 Lightweight analysis mode: Extract basic info/permissions/components/SDK list in 10s, no full decompilation
+  - 🔁 Checkpoint resume: Resume from interruption point after process kill/device reboot
+  - 🎯 Obfuscation smart-tagging: Auto-detect obfuscated classes/methods, link mapping files for symbol restore
+  - 🛡️ Malicious code pre-scan: Built-in threat signatures (mining/fraud/privacy theft/adware)
+  - 📱 Full APK category support: Regular apps, system apps, automotive/wearable/IoT APKs, Split APKs
+  - 🤝 Ecosystem integration: Generate Frida Hook templates, export to JADX-GUI/APKToolBox, generate Xposed module scaffolding
+  - 📈 Progress visualization: Real-time progress, current step, ETA, memory usage at a glance
+
 ## Usage
 
 ### Install Android APK
@@ -281,6 +321,7 @@ The repository does not include signing secrets. Configure your own `android/key
 - [Android installation and coexistence guide](docs/ANDROID_INSTALLATION_ZH.md)
 - [Release notes](docs/RELEASE_NOTES_1.1.17_PLUS.md)
 - [Search upgrade notes](docs/KELIVO_SEARCH_UPGRADE_NOTES.md)
+- [APK analysis anti-crash & performance optimization](docs/APK_ANALYSIS_ANTI_CRASH_ZH.md)
 
 ## Acknowledgements
 

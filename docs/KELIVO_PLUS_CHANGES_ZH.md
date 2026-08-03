@@ -62,10 +62,11 @@ Kelivo RevKit 完整继承 Kelivo Plus 的全部能力（神经权能网关、Sk
 - `@kelivo/files`：本地文件读取、写入、追加、目录浏览等。
 - `@kelivo/images`：图片相关辅助能力。
 - `@kelivo/github`：GitHub 仓库、文件、Issue、PR、Release、Actions、Secrets、Variables 等。
-- `@kelivo/so`：纯 Dart 实现的 ELF/.so 逆向分析工具集（共 20 个工具）。
-- `@kelivo/dex`：纯 Dart 实现的 DEX/ODEX 字节码解析工具集（共 6 个工具）。
+- `@kelivo/so`：纯 Dart 实现的 ELF/.so 逆向分析工具集（共 26 个工具），无需额外原生依赖。
+- `@kelivo/dex`：纯 Dart 实现的 DEX/ODEX 字节码解析工具集（共 10 个工具），无需额外原生依赖。
 - `@kelivo/context`：对话上下文管理工具集（共 6 个工具），支持上下文统计、摘要、搜索、导出与边界管理。
-- `@kelivo/reverse`：面向 APK 的静态分析与快速排查工具（深度扩展，共 17 个工具）。
+- `@kelivo/reverse`：面向 APK 的静态分析、修改与快速排查工具（共 20 个工具，含过签、重打包与 DEX 注入能力）。
+- `@kelivo/reverse_extensions`：逆向扩展工具集（共 3 个工具），包含 DEX 字符串批量替换、APK 权限批量修改、第三方 SDK 识别。
 
 ### 体验优化
 
@@ -138,7 +139,7 @@ GitHub 工具从基础/只读能力升级为更完整的仓库自动化能力。
 
 ### 8.1 新增 `@kelivo/dex`（DEX/ODEX 字节码解析）
 
-纯 Dart 实现的字节码级解析服务，无需外部反编译工具，共 6 个工具：
+纯 Dart 实现的字节码级解析服务，无需外部反编译工具，共 10 个工具：
 
 | 工具 | 说明 |
 | --- | --- |
@@ -148,6 +149,10 @@ GitHub 工具从基础/只读能力升级为更完整的仓库自动化能力。
 | `dex_list_classes` | class_defs（类描述、父类、访问标志） |
 | `dex_list_methods` | method_ids（类名 + proto shorty） |
 | `dex_list_fields` | field_ids（类名 : 类型） |
+| `dex_list_annotations` | 类级注解提取（反混淆线索） |
+| `dex_disassemble_method` | 单方法 Dalvik 字节码反汇编 |
+| `dex_xref_method` | 方法级调用图——查找所有调用者 |
+| `dex_search_strings` | 正则/子串搜索 DEX 字符串池 |
 
 ### 8.2 新增 `@kelivo/context`（对话上下文自我管理）
 
@@ -155,7 +160,7 @@ GitHub 工具从基础/只读能力升级为更完整的仓库自动化能力。
 
 `context_get_stats`、`context_get_summary`、`context_search`、`context_export`、`context_set_boundary`、`context_get_messages`。
 
-### 8.3 `@kelivo/reverse` 深度扩展（至 17 个工具）
+### 8.3 `@kelivo/reverse` 深度扩展（至 20 个工具）
 
 在 Kelivo Plus 版 `reverse` 工具基础上，新增面向深度 APK 分析的能力：
 
@@ -176,12 +181,45 @@ GitHub 工具从基础/只读能力升级为更完整的仓库自动化能力。
 | `reverse_secret_scan` | 硬编码密钥扫描 |
 | `reverse_component_audit` | 导出组件安全审计 |
 | `reverse_diff_apk` | APK 版本差异分析（组件/权限/签名/文件） |
+| `reverse_kill_signature` | 去除原生签名校验（如 libjiagu.so 检测） |
+| `reverse_resign_apk` | 重打包并签名（自动生成调试密钥） |
+| `reverse_inject_dex` | 向 APK 注入 DEX 载荷 |
+| `reverse_meta_info` | APK 元信息总览 |
+| `reverse_open_apk` | 打开/加载 APK 文件 |
 
-### 8.4 预置“逆向分析师 / Reverse Analyst”助手
+### 8.4 新增 `@kelivo/reverse_extensions`（逆向扩展工具集）
+
+在 `@kelivo/reverse` 基础上新增 3 个高级逆向工具，总工具数达 28 个：
+
+| 工具名 | 功能 |
+|--------|------|
+| `reverse_string_replace` | DEX/APK 字符串批量替换（支持正则、类名过滤、预览） |
+| `reverse_batch_resign` | APK 批量重签名（自定义 keystore、v1/v2 方案） |
+| `reverse_unpack_guide` | 一键脱壳向导（自动识别 12+ 加固方案） |
+
+同时扩展 `manifest.json` 配置，新增 `reverse_generate_module` 模块脚手架生成工具。
+
+### 8.5 预置“逆向分析师 / Reverse Analyst”助手
 
 - 新增预置助手，本地化名称随系统语言切换（中文“逆向分析师” / 英文“Reverse Analyst”）。
 - 默认绑定 `@kelivo/reverse` 聚合逆向 MCP。
 - 系统提示词内置 APK 结构分析、DEX/SO 逆向、Manifest 审计、JNI 分析、反混淆与加壳识别等专业引导。
+
+### 8.6 APK 分析防崩溃与性能优化
+
+针对大体积 APK / 多 DEX APK 分析时模型 OOM 崩溃、超时无响应等问题，新增完整防崩溃方案：
+
+- **分片增量分析**：按 DEX/类/字符串/SO 多维度分片，逐片分析释放内存
+- **超时降级机制**：深度→标准→轻量三级降级路径，确保始终有结果返回
+- **离线后台分析**：大型 APK 自动转入后台队列，支持进度查询/暂停/继续/完成通知
+- **断点续传**：任务中断后自动从断点恢复，无需重新开始
+- **混淆代码智能标记**：自动识别 ProGuard/R8 混淆特征，支持 mapping.txt 符号恢复
+- **恶意代码预检测**：内置 6 类恶意特征库（挖矿/扣费/隐私窃取/广告弹窗/Root利用/动态加载）
+- **全品类 APK 适配**：常规应用/系统应用/车载/穿戴/IoT/Split APK 分包
+- **周边工具生态联动**：Frida Hook 模板生成、JADX-GUI 导出、Xposed 模块脚手架
+- **分析进度可视化**：实时进度/当前步骤/预估剩余时间/内存占用
+
+详见 [APK 分析防崩溃与性能优化方案](APK_ANALYSIS_ANTI_CRASH_ZH.md)。
 
 ## 9. 开源发布边界
 
