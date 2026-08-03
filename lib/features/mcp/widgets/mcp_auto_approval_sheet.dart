@@ -107,8 +107,12 @@ class McpAutoApprovalSheet extends StatelessWidget {
                           return _RuleTile(
                             rule: rule,
                             index: i + 1,
+                            canMoveUp: i > 0,
+                            canMoveDown: i < provider.rules.length - 1,
                             onToggle: () => provider.toggleRule(rule.id),
                             onDelete: () => provider.removeRule(rule.id),
+                            onMoveUp: () => provider.moveRule(rule.id, true),
+                            onMoveDown: () => provider.moveRule(rule.id, false),
                           );
                         },
                       ),
@@ -198,14 +202,22 @@ class McpAutoApprovalSheet extends StatelessWidget {
 class _RuleTile extends StatelessWidget {
   final ToolAutoApprovalRule rule;
   final int index;
+  final bool canMoveUp;
+  final bool canMoveDown;
   final VoidCallback onToggle;
   final VoidCallback onDelete;
+  final VoidCallback onMoveUp;
+  final VoidCallback onMoveDown;
 
   const _RuleTile({
     required this.rule,
     required this.index,
+    required this.canMoveUp,
+    required this.canMoveDown,
     required this.onToggle,
     required this.onDelete,
+    required this.onMoveUp,
+    required this.onMoveDown,
   });
 
   @override
@@ -247,6 +259,26 @@ class _RuleTile extends StatelessWidget {
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // Priority reorder buttons
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: Icon(Lucide.ChevronUp, size: 14),
+                  constraints: const BoxConstraints(minWidth: 24, minHeight: 20),
+                  padding: EdgeInsets.zero,
+                  onPressed: canMoveUp ? onMoveUp : null,
+                  color: cs.outline,
+                ),
+                IconButton(
+                  icon: Icon(Lucide.ChevronDown, size: 14),
+                  constraints: const BoxConstraints(minWidth: 24, minHeight: 20),
+                  padding: EdgeInsets.zero,
+                  onPressed: canMoveDown ? onMoveDown : null,
+                  color: cs.outline,
+                ),
+              ],
+            ),
             Switch(value: rule.enabled, onChanged: (_) => onToggle()),
             IconButton(
               icon: Icon(Lucide.Trash2, size: 16, color: cs.error),

@@ -171,4 +171,73 @@ class ToolHistoryProvider with ChangeNotifier {
   /// Approve all pending requests in batch.
   List<String> get pendingIds =>
       _history.where((r) => r.isPending).map((r) => r.id).toList();
+
+  /// Search history by tool name, server ID, or result text.
+  List<ToolCallRecord> search(String query) {
+    if (query.isEmpty) return List.unmodifiable(_history);
+    final q = query.toLowerCase();
+    return _history.where((r) {
+      return r.toolName.toLowerCase().contains(q) ||
+          r.serverId.toLowerCase().contains(q) ||
+          (r.result?.toLowerCase().contains(q) ?? false) ||
+          (r.error?.toLowerCase().contains(q) ?? false);
+    }).toList();
+  }
+
+  /// Filter history by status type.
+  List<ToolCallRecord> filterByStatus(String status) {
+    switch (status) {
+      case 'success':
+        return _history.where((r) => r.isSuccess).toList();
+      case 'error':
+        return _history.where((r) => r.isError).toList();
+      case 'pending':
+        return _history.where((r) => r.isPending).toList();
+      default:
+        return List.unmodifiable(_history);
+    }
+  }
+
+  /// Export history as JSON string.
+  String exportJson() {
+    final list = _history.map((r) => {
+      'id': r.id,
+      'toolName': r.toolName,
+      'serverId': r.serverId,
+      'arguments': r.arguments,
+      'result': r.result,
+      'error': r.error,
+      'startedAt': r.startedAt.toIso8601String(),
+      'completedAt': r.completedAt?.toIso8601String(),
+      'durationMs': r.duration?.inMilliseconds,
+      'conversationId': r.conversationId,
+    }).toList();
+    return jsonEncode(list);
+  }
+
+  /// Get unique tool names that have been called.
+  List<String> get calledToolNames =>
+      _history.map((r) => r.toolName).toSet().toList()..sort();
+
+  /// Get call count per tool name.
+  Map<String, int> get toolCallCounts {
+    final counts = <String, int>{};
+    for (final r in _history) {
+      counts[r.toolName] = (counts[r.toolName] ?? 0) + 1;
+    }
+    return counts;
+  }
+
+  /// Reorder a rule (move up or down in priority).
+  Future<void> moveRule(String id, bool up) async {
+    final idx = _rules.indexWhere((r) => r.id == id);
+    if (idx < 0) return;
+    final target = up ? idx - 1 : idx + 1;
+    if (target < 0 || target >= _rules.length) return;
+    final tmp = _rules[idx];
+    _rules[idx] = _rules[target];
+    _rules[target] = tmp;
+    await _persistRules();
+    notifyListeners();
+  }
 }

@@ -19,8 +19,19 @@ class QuickPromptOverlay {
     VoidCallback? onDismiss,
   }) {
     final provider = context.read<CustomPromptProvider>();
-    final matches = provider.searchByPrefix(query);
+    var matches = provider.searchByPrefix(query);
     if (matches.isEmpty) return null;
+
+    // Show favorites first, then by title
+    matches.sort((a, b) {
+      if (a.isFavorite && !b.isFavorite) return -1;
+      if (!a.isFavorite && b.isFavorite) return 1;
+      return a.title.compareTo(b.title);
+    });
+
+    // Limit display to top 12 for performance
+    const maxDisplay = 12;
+    final truncated = matches.length > maxDisplay;
 
     late OverlayEntry entry;
     late QuickPromptOverlay overlay;
@@ -28,7 +39,9 @@ class QuickPromptOverlay {
     entry = OverlayEntry(
       builder: (ctx) => _QuickPromptList(
         layerLink: layerLink,
-        prompts: matches,
+        prompts: matches.take(maxDisplay).toList(),
+        totalCount: matches.length,
+        truncated: truncated,
         onInsert: (prompt) {
           onInsert(prompt.content);
           entry.remove();
@@ -56,12 +69,16 @@ class QuickPromptOverlay {
 class _QuickPromptList extends StatefulWidget {
   final LayerLink layerLink;
   final List<CustomPrompt> prompts;
+  final int totalCount;
+  final bool truncated;
   final ValueChanged<CustomPrompt> onInsert;
   final VoidCallback onDismiss;
 
   const _QuickPromptList({
     required this.layerLink,
     required this.prompts,
+    required this.totalCount,
+    required this.truncated,
     required this.onInsert,
     required this.onDismiss,
   });
@@ -159,7 +176,9 @@ class _QuickPromptListState extends State<_QuickPromptList> {
                           ),
                           const Spacer(),
                           Text(
-                            '↑↓ 选择  ⏎ 确认  Esc 关闭',
+                            widget.truncated
+                                ? '${widget.prompts.length}/${widget.totalCount}  ↑↓ ⏎ Esc'
+                                : '↑↓ 选择  ⏎ 确认  Esc 关闭',
                             style: TextStyle(
                               fontSize: 9,
                               color: cs.onSurface.withValues(alpha: 0.4),

@@ -16,7 +16,7 @@ import '../kelivo_dex/kelivo_dex_server.dart';
 /// Serves as the entry-point for APK static analysis. Uses @kelivo/so and
 /// @kelivo/dex under the hood for deep analysis of specific targets.
 ///
-/// Tools (16):
+/// Tools (23):
 //   reverse_meta_info          → tool self-description & recommended workflows
 //   reverse_open_apk           → open APK, list manifest summary, dex & native libs
 //   reverse_list_targets       → enumerate all analysis targets in the APK
@@ -35,6 +35,11 @@ import '../kelivo_dex/kelivo_dex_server.dart';
 //   reverse_component_audit    → exported component security audit
 //   reverse_diff_apk          → APK diff analysis (components/permissions/signatures/files)
 //   reverse_kill_signature    → signature bypass (过签): strip v1 sig, inject hook smali
+//   reverse_smali_decompile   → decompile DEX to smali, with class name filter
+//   reverse_obfuscator_detect → detect ProGuard/R8/DexGuard/360/Bangcle/Ijiami/Legu/etc.
+//   reverse_resource_extract  → batch extract APK resources to disk, with regex filter
+//   reverse_string_decrypt    → heuristic string decryption (Base64/XOR/AES-ECB pattern)
+//   reverse_jni_method_map    → build JNI method mapping (Java native ↔ SO symbols)
 
 // ---------------------------------------------------------------------------
 // Internal APK model
@@ -1853,6 +1858,420 @@ class KelivoReverseAnalyzer {
     }
     sb.writeln('  UNCHANGED: ${kept.length}');
     sb.writeln('');
+  }
+
+  // ---- reverse_smali_decompile ----
+  static Map<String, dynamic> smaliDecompile(
+      KelivoReverseRequestPayload p, Map<String, dynamic> args) {
+    try {
+      final dexPath = (args['dex_path'] ?? '').toString().trim();
+      if (dexPath.isEmpty) return _err('dex_path is required');
+      final classFilter = (args['class_filter'] ?? '').toString().trim();
+      final filterRegex = classFilter.isNotEmpty ? RegExp(classFilter) : null;
+
+      final apk = _readApk(p.apkBytes);
+      final match = apk.entries.cast<_ApkEntry?>().firstWhere(
+        (e) => e!.name == dexPath,
+        orElse: () => null,
+      );
+      if (match == null) return _err('DEX not found: $dexPath');
+      if (match.content == null || match.content!.isEmpty) {
+        return _err('DEX content is empty');
+      }
+
+      final dexBytes = match.content!;
+      final dexPayload = KelivoDexRequestPayload(bytes: dexBytes, limit: 99999);
+
+      final classesResult = KelivoDexAnalyzer.classes(dexPayload);
+      final classesText = _extractResultText(classesResult);
+
+      final sb = StringBuffer()
+        ..writeln('=== Smali Decompile: $dexPath ===\n');
+
+      if (filterRegex != null) {
+        final filtered = classesText
+            .split('\n')
+            .where((l) => filterRegex.hasMatch(l))
+            .toList();
+        sb.writeln('Filter: $classFilter');
+        sb.writeln('Matched classes: ${filtered.length}\n');
+        for (final line in filtered.take(200)) {
+          sb.writeln(line);
+        }
+        if (filtered.length > 200) {
+          sb.writeln('\n... and ${filtered.length - 200} more');
+        }
+      } else {
+        sb.writeln('Total classes listed (smali-level class descriptors):\n');
+        sb.writeln(classesText);
+      }
+
+      sb.writeln('\n--- Note ---');
+      sb.writeln('Full smali decompilation requires baksmali/dexlib.');
+      sb.writeln('This tool provides class-level enumeration via @kelivo/dex.');
+      sb.writeln('For method-level smali, use reverse_analyze_dex with specific dex_path.');
+
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  // ---- reverse_obfuscator_detect ----
+  static Map<String, dynamic> obfuscatorDetect(KelivoReverseRequestPayload p) {
+    try {
+      final apk = _readApk(p.apkBytes);
+      final sb = StringBuffer()
+        ..writeln('=== Obfuscator / Protector Detection ===\n');
+
+      final findings = <String>[];
+      final allNames = apk.entries.map((e) => e.name).toList();
+      final allNamesUpper = allNames.map((n) => n.toUpperCase()).toList();
+
+      // ProGuard / R8
+      bool hasProguard = false;
+      for (final dex in _filterEntries(apk, '.dex')) {
+        if (dex.content == null) continue;
+        final text = _extractTextFromBytes(dex.content!, maxLength: 8192);
+        if (text.contains('a/a/a/') || text.contains('a/b/b/') ||
+            RegExp(r'\ba/[a-z]/[a-z]\b').hasMatch(text)) {
+          hasProguard = true;
+          break;
+        }
+      }
+      if (hasProguard) {
+        findings.add('✓ ProGuard/R8 obfuscation detected (single-letter class names)');
+      }
+
+      // DexGuard
+      for (final dex in _filterEntries(apk, '.dex')) {
+        if (dex.content == null) continue;
+        final text = _extractTextFromBytes(dex.content!, maxLength: 16384);
+        if (text.contains('com/twofish') || text.contains('DexGuard') ||
+            text.contains('encryptString') || text.contains('Reflection')) {
+          findings.add('⚠️ DexGuard protection detected');
+          break;
+        }
+      }
+
+      // 360 Jiagu
+      if (allNamesUpper.any((n) => n.contains('LIBJIAGU') || n.contains('JIAGU'))) {
+        findings.add('⚠️ 360 Jiagu (libjiagu)');
+      }
+      // Bangcle
+      if (allNamesUpper.any((n) => n.contains('BANGCLE') || n.contains('LIBSEPNEO') || n.contains('SECNEO'))) {
+        findings.add('⚠️ Bangcle/SecNeo');
+      }
+      // Ijiami
+      if (allNamesUpper.any((n) => n.contains('IJIAMI'))) {
+        findings.add('⚠️ Ijiami');
+      }
+      // Tencent Legu
+      if (allNamesUpper.any((n) => n.contains('LEGU') || n.contains('LIBLEGU'))) {
+        findings.add('⚠️ Tencent Legu');
+      }
+      // Alibaba
+      if (allNamesUpper.any((n) => n.contains('ALIPROTECT') || n.contains('LIBAVMP') || n.contains('LIBAPSE'))) {
+        findings.add('⚠️ Alibaba (libavmp/libapse)');
+      }
+      // Baidu
+      if (allNamesUpper.any((n) => n.contains('BAIDUPROTECT') || n.contains('LIBBAIDU'))) {
+        findings.add('⚠️ Baidu Packer');
+      }
+      // NetEase
+      if (allNamesUpper.any((n) => n.contains('LIBMAA') || n.contains('NETEASE'))) {
+        findings.add('⚠️ NetEase');
+      }
+      // UPX
+      for (final so in _filterEntries(apk, '.so')) {
+        if (so.content == null) continue;
+        final text = _extractTextFromBytes(so.content!, maxLength: 2048);
+        if (text.contains('UPX!') || text.contains('UPX0') || text.contains('UPX1')) {
+          findings.add('⚠️ UPX compression: ${so.name.split('/').last}');
+        }
+      }
+      // VMP / Themida
+      for (final so in _filterEntries(apk, '.so')) {
+        if (so.content == null || so.content!.length < 64) continue;
+        try {
+          final elf = ElfImage.parse(so.content!);
+          for (final sec in elf.sections) {
+            if (sec.name.startsWith('.vmp') || sec.name.startsWith('.themida')) {
+              findings.add('⚠️ VMP/Themida section "${sec.name}" in ${so.name.split('/').last}');
+            }
+          }
+        } catch (_) {}
+      }
+
+      // Resource obfuscation
+      final resEntries = apk.entries.where((e) =>
+          e.name.startsWith('res/') && e.name.endsWith('.xml')).toList();
+      if (resEntries.isNotEmpty) {
+        final aaptNames = resEntries.map((e) => e.name).toList();
+        final hasObfuscated = aaptNames.any((n) =>
+            RegExp(r'^res/[a-z]{1,2}/[a-z]{1,2}\.xml$').hasMatch(n));
+        if (hasObfuscated) {
+          findings.add('✓ Resource name obfuscation detected (short res paths)');
+        }
+      }
+
+      if (findings.isEmpty) {
+        sb.writeln('No known obfuscation/protector detected.');
+        sb.writeln('(Note: heuristics may miss custom or new obfuscators.)');
+      } else {
+        sb.writeln('Detected (${findings.length}):\n');
+        for (final f in findings) {
+          sb.writeln('  $f');
+        }
+      }
+
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  // ---- reverse_resource_extract ----
+  static Map<String, dynamic> resourceExtract(
+      KelivoReverseRequestPayload p, Map<String, dynamic> args) {
+    try {
+      final outputDir = (args['output_dir'] ?? '').toString().trim();
+      if (outputDir.isEmpty) return _err('output_dir is required');
+      final pattern = (args['pattern'] ?? '').toString().trim();
+      final regex = pattern.isNotEmpty ? RegExp(pattern) : null;
+
+      final apk = _readApk(p.apkBytes);
+      final dir = Directory(outputDir);
+      if (!dir.existsSync()) dir.createSync(recursive: true);
+
+      int extracted = 0;
+      int skipped = 0;
+      for (final e in apk.entries) {
+        if (regex != null && !regex.hasMatch(e.name)) {
+          skipped++;
+          continue;
+        }
+        if (e.content == null) continue;
+        final outPath = '$outputDir/${e.name}';
+        final outFile = File(outPath);
+        outFile.parent.createSync(recursive: true);
+        outFile.writeAsBytesSync(e.content!);
+        extracted++;
+      }
+
+      final sb = StringBuffer()
+        ..writeln('=== Resource Extraction ===\n')
+        ..writeln('Output: $outputDir')
+        ..writeln('Extracted: $extracted file(s)');
+      if (skipped > 0) {
+        sb.writeln('Skipped (pattern mismatch): $skipped');
+      }
+      if (regex != null) {
+        sb.writeln('Pattern: $pattern');
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  // ---- reverse_string_decrypt ----
+  static Map<String, dynamic> stringDecrypt(
+      KelivoReverseRequestPayload p, Map<String, dynamic> args) {
+    try {
+      final target = (args['target'] ?? 'all').toString().trim().toLowerCase();
+      final apk = _readApk(p.apkBytes);
+      final sb = StringBuffer()
+        ..writeln('=== String Decryption (Heuristic) ===\n');
+
+      final candidates = <_ApkEntry>[];
+      if (target == 'dex' || target == 'all') {
+        candidates.addAll(_filterEntries(apk, '.dex'));
+      }
+      if (target == 'so' || target == 'all') {
+        candidates.addAll(_filterEntries(apk, '.so'));
+      }
+
+      int totalDecrypted = 0;
+
+      for (final entry in candidates) {
+        if (entry.content == null) continue;
+        final text = _extractTextFromBytes(entry.content!, maxLength: 65536);
+        final decrypted = <String>[];
+
+        // Base64-encoded strings
+        final b64Regex = RegExp(r'[A-Za-z0-9+/]{20,}={0,2}');
+        for (final match in b64Regex.allMatches(text)) {
+          final b64 = match.group(0)!;
+          if (b64.length < 20 || b64.length > 500) continue;
+          try {
+            final decoded = base64Decode(b64);
+            final decodedText = utf8.decode(decoded, allowMalformed: true);
+            if (decodedText.length >= 4 &&
+                decodedText.codeUnits.every((c) =>
+                    (c >= 0x20 && c < 0x7f) || c == 0x0a || c == 0x0d)) {
+              decrypted.add('  [Base64] $b64 → "$decodedText"');
+            }
+          } catch (_) {}
+        }
+
+        // XOR single-byte keys (0x01..0xFF)
+        final xorRegex = RegExp(r'[\x20-\x7e]{16,}');
+        for (final match in xorRegex.allMatches(text)) {
+          final raw = match.group(0)!;
+          if (raw.length < 16) continue;
+          for (var key = 1; key < 256; key++) {
+            final xored = String.fromCharCodes(
+                raw.codeUnits.map((c) => c ^ key));
+            // Check if result looks meaningful
+            if (xored.contains('http') || xored.contains('key') ||
+                xored.contains('pass') || xored.contains('token') ||
+                xored.contains('secret') || xored.contains('user')) {
+              decrypted.add('  [XOR 0x${key.toRadixString(16)}] → "$xored"');
+              break;
+            }
+          }
+        }
+
+        // AES-ECB pattern (hex strings divisible by 32, 48, 64)
+        final hexRegex = RegExp(r'[0-9a-fA-F]{32,}');
+        for (final match in hexRegex.allMatches(text)) {
+          final hex = match.group(0)!;
+          if (hex.length % 32 == 0 || hex.length % 48 == 0 || hex.length % 64 == 0) {
+            decrypted.add('  [Hex/AES-ECB?] $hex (len=${hex.length})');
+          }
+        }
+
+        if (decrypted.isNotEmpty) {
+          sb.writeln('--- ${entry.name} (${decrypted.length} candidate(s)) ---');
+          for (final d in decrypted.take(30)) {
+            sb.writeln(d);
+            totalDecrypted++;
+          }
+          if (decrypted.length > 30) {
+            sb.writeln('  ... and ${decrypted.length - 30} more');
+          }
+          sb.writeln('');
+        }
+      }
+
+      if (totalDecrypted == 0) {
+        sb.writeln('No decryptable strings found with current heuristics.');
+        sb.writeln('(Methods: Base64 decode, XOR single-byte, AES-ECB hex pattern)');
+      } else {
+        sb.writeln('Total candidates: $totalDecrypted');
+      }
+
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  // ---- reverse_jni_method_map ----
+  static Map<String, dynamic> jniMethodMap(KelivoReverseRequestPayload p) {
+    try {
+      final apk = _readApk(p.apkBytes);
+      final sb = StringBuffer()
+        ..writeln('=== JNI Method Mapping ===\n');
+
+      // 1. Collect Java native method declarations from DEX
+      final javaNatives = <String, List<String>>{};
+      for (final dex in _filterEntries(apk, '.dex')) {
+        if (dex.content == null) continue;
+        final dexPayload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
+        final methodsResult = KelivoDexAnalyzer.methods(dexPayload);
+        final methodsText = _extractResultText(methodsResult);
+        for (final line in methodsText.split('\n')) {
+          if (line.toLowerCase().contains('native')) {
+            javaNatives.putIfAbsent(dex.name, () => []).add(line.trim());
+          }
+        }
+      }
+
+      // 2. Collect JNI symbols from SO files
+      final soSymbols = <String, List<String>>{};
+      for (final so in _filterEntries(apk, '.so')) {
+        if (so.content == null) continue;
+        final text = _extractTextFromBytes(so.content!, maxLength: 65536);
+        final symbols = <String>[];
+        for (final line in text.split('\n')) {
+          if (line.contains('Java_') || line.contains('JNI_OnLoad')) {
+            symbols.add(line.trim());
+          }
+        }
+        if (symbols.isNotEmpty) {
+          soSymbols[so.name] = symbols;
+        }
+      }
+
+      // 3. Build mapping table
+      sb.writeln('## Java Native Methods\n');
+      if (javaNatives.isEmpty) {
+        sb.writeln('  (none found in DEX)');
+      } else {
+        for (final dexName in javaNatives.keys) {
+          sb.writeln('  $dexName:');
+          for (final m in javaNatives[dexName]!) {
+            sb.writeln('    $m');
+          }
+          sb.writeln('');
+        }
+      }
+
+      sb.writeln('## Native JNI Symbols\n');
+      if (soSymbols.isEmpty) {
+        sb.writeln('  (none found in SO files)');
+      } else {
+        for (final soName in soSymbols.keys) {
+          sb.writeln('  $soName:');
+          for (final s in soSymbols[soName]!) {
+            sb.writeln('    $s');
+          }
+          sb.writeln('');
+        }
+      }
+
+      // 4. Attempt auto-matching
+      sb.writeln('## Auto-Matched Pairs\n');
+      int matched = 0;
+      for (final soName in soSymbols.keys) {
+        for (final symbol in soSymbols[soName]!) {
+          // Extract class+method from Java_com_package_Class_method
+          if (symbol.contains('Java_')) {
+            final jniName = symbol.substring(symbol.indexOf('Java_'));
+            // Convert JNI name to Java class path
+            final javaPath = jniName
+                .substring(5) // remove "Java_"
+                .replaceAll('_', '.')
+                .replaceAll('/', '.');
+            sb.writeln('  $jniName → $javaPath  (in ${soName.split('/').last})');
+            matched++;
+          }
+        }
+      }
+      if (matched == 0) {
+        sb.writeln('  (no Java_* symbols found for auto-matching)');
+      }
+
+      sb.writeln('\n## Summary');
+      sb.writeln('  DEX with native methods: ${javaNatives.length}');
+      sb.writeln('  SO with JNI symbols: ${soSymbols.length}');
+      sb.writeln('  Auto-matched pairs: $matched');
+
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  static String _extractResultText(Map<String, dynamic> result) {
+    final content = result['content'];
+    if (content is List && content.isNotEmpty) {
+      final first = content[0];
+      if (first is Map) return (first['text'] ?? '').toString();
+    }
+    return '';
   }
 
   static String _formatSize(int bytes) {

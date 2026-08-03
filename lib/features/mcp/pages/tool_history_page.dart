@@ -6,8 +6,16 @@ import '../../../core/providers/tool_history_provider.dart';
 import '../../../icons/lucide_adapter.dart';
 
 /// Page showing MCP tool call history with stats and details.
-class ToolHistoryPage extends StatelessWidget {
+class ToolHistoryPage extends StatefulWidget {
   const ToolHistoryPage({super.key});
+
+  @override
+  State<ToolHistoryPage> createState() => _ToolHistoryPageState();
+}
+
+class _ToolHistoryPageState extends State<ToolHistoryPage> {
+  String _searchQuery = '';
+  String _statusFilter = 'all'; // all | success | error | pending
 
   @override
   Widget build(BuildContext context) {
@@ -21,6 +29,20 @@ class ToolHistoryPage extends StatelessWidget {
         title: const Text('Tool Call History'),
         actions: [
           IconButton(
+            icon: const Icon(Lucide.Download),
+            tooltip: 'Export JSON',
+            onPressed: () {
+              final json = context.read<ToolHistoryProvider>().exportJson();
+              Clipboard.setData(ClipboardData(text: json));
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('History exported to clipboard (${json.length} bytes)'),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            },
+          ),
+          IconButton(
             icon: const Icon(Lucide.Trash2),
             tooltip: 'Clear history',
             onPressed: () {
@@ -31,8 +53,24 @@ class ToolHistoryPage extends StatelessWidget {
       ),
       body: Consumer<ToolHistoryProvider>(
         builder: (ctx, provider, _) {
-          final history = provider.history;
+          final allHistory = provider.history;
           final stats = provider.stats;
+
+          // Apply search + filter
+          var history = allHistory;
+          if (_searchQuery.isNotEmpty) {
+            history = provider.search(_searchQuery);
+          }
+          if (_statusFilter != 'all') {
+            history = history.where((r) {
+              switch (_statusFilter) {
+                case 'success': return r.isSuccess;
+                case 'error': return r.isError;
+                case 'pending': return r.isPending;
+                default: return true;
+              }
+            }).toList();
+          }
 
           return Column(
             children: [
@@ -68,6 +106,66 @@ class ToolHistoryPage extends StatelessWidget {
                   ],
                 ),
               ),
+              // Search bar + filter chips
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        onChanged: (v) => setState(() => _searchQuery = v),
+                        decoration: InputDecoration(
+                          hintText: 'Search tool name, server, result...',
+                          prefixIcon: Icon(Lucide.Search, size: 16, color: cs.outline),
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: BorderSide.none,
+                          ),
+                          filled: true,
+                          fillColor: cs.surfaceContainerHighest.withValues(alpha: 0.5),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Filter chips
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: SizedBox(
+                  height: 36,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    children: [
+                      _FilterChip(
+                        label: 'All',
+                        active: _statusFilter == 'all',
+                        onTap: () => setState(() => _statusFilter = 'all'),
+                      ),
+                      _FilterChip(
+                        label: 'Success',
+                        active: _statusFilter == 'success',
+                        color: Colors.green,
+                        onTap: () => setState(() => _statusFilter = _statusFilter == 'success' ? 'all' : 'success'),
+                      ),
+                      _FilterChip(
+                        label: 'Error',
+                        active: _statusFilter == 'error',
+                        color: cs.error,
+                        onTap: () => setState(() => _statusFilter = _statusFilter == 'error' ? 'all' : 'error'),
+                      ),
+                      _FilterChip(
+                        label: 'Pending',
+                        active: _statusFilter == 'pending',
+                        color: cs.tertiary,
+                        onTap: () => setState(() => _statusFilter = _statusFilter == 'pending' ? 'all' : 'pending'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
               const Divider(height: 1),
               // History list
               Expanded(
@@ -78,8 +176,10 @@ class ToolHistoryPage extends StatelessWidget {
                           children: [
                             Icon(Lucide.History, size: 48, color: cs.outline),
                             const SizedBox(height: 12),
-                            Text('No tool calls yet',
-                                style: TextStyle(color: cs.outline)),
+                            Text(
+                              allHistory.isEmpty ? 'No tool calls yet' : 'No results match your filter',
+                              style: TextStyle(color: cs.outline),
+                            ),
                           ],
                         ),
                       )
@@ -299,6 +399,48 @@ class _SectionTitle extends StatelessWidget {
             tooltip: 'Copy',
           ),
       ],
+    );
+  }
+}
+
+class _FilterChip extends StatelessWidget {
+  final String label;
+  final bool active;
+  final Color? color;
+  final VoidCallback onTap;
+
+  const _FilterChip({
+    required this.label,
+    required this.active,
+    required this.onTap,
+    this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final c = color ?? cs.primary;
+    return Padding(
+      padding: const EdgeInsets.only(right: 6),
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: active ? c.withValues(alpha: 0.15) : cs.surfaceContainerHighest.withValues(alpha: 0.3),
+            borderRadius: BorderRadius.circular(16),
+            border: active ? Border.all(color: c.withValues(alpha: 0.4)) : null,
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+              color: active ? c : cs.outline,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
