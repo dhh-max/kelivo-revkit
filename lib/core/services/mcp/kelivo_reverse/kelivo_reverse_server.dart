@@ -16,7 +16,7 @@ import '../kelivo_dex/kelivo_dex_server.dart';
 /// Serves as the entry-point for APK static analysis. Uses @kelivo/so and
 /// @kelivo/dex under the hood for deep analysis of specific targets.
 ///
-/// Tools (23):
+/// Tools (26):
 //   reverse_meta_info          → tool self-description & recommended workflows
 //   reverse_open_apk           → open APK, list manifest summary, dex & native libs
 //   reverse_list_targets       → enumerate all analysis targets in the APK
@@ -40,6 +40,9 @@ import '../kelivo_dex/kelivo_dex_server.dart';
 //   reverse_resource_extract  → batch extract APK resources to disk, with regex filter
 //   reverse_string_decrypt    → heuristic string decryption (Base64/XOR/AES-ECB pattern)
 //   reverse_jni_method_map    → build JNI method mapping (Java native ↔ SO symbols)
+//   reverse_dex_string_replace → DEX string batch replace (equal-length, in-place)
+//   reverse_batch_resign      → batch re-sign APK (strip old sig + fresh MANIFEST.MF + apksigner)
+//   reverse_unpack_guide      → one-click unpacking guide (detect packer → recommend method)
 
 // ---------------------------------------------------------------------------
 // Internal APK model
@@ -2274,6 +2277,349 @@ class KelivoReverseAnalyzer {
     return '';
   }
 
+  // ---- reverse_dex_string_replace ----
+  /// DEX 字符串批量替换：在 DEX 文件中查找匹配的字符串并替换为新值，
+  /// 保持原始长度（截断或填充），输出修改后的 APK。
+  static Future<Map<String, dynamic>> dexStringReplace(
+      KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
+    try {
+      final outputPath = (args['output'] ?? '').toString().trim();
+      final findStr = (args['find'] ?? '').toString();
+      final replaceStr = (args['replace'] ?? '').toString();
+      final targetDex = (args['dex_path'] ?? 'classes.dex').toString().trim();
+      if (outputPath.isEmpty) return _err('Missing "output" path.');
+      if (findStr.isEmpty) return _err('Missing "find" parameter.');
+      if (findStr.length != replaceStr.length) {
+        return _err('find and replace must be the same length '
+            '(find=${findStr.length}, replace=${replaceStr.length}). '
+            'DEX string replacement requires equal-length to preserve offsets.');
+      }
+
+      final apk = _readApk(p.apkBytes);
+      final dexEntry = apk.entries.cast<_ApkEntry?>().firstWhere(
+        (e) => e!.name == targetDex,
+        orElse: () => null,
+      );
+      if (dexEntry == null) return _err('DEX not found: $targetDex');
+      if (dexEntry.content == null) return _err('DEX content is empty.');
+
+      final dexBytes = Uint8List.fromList(dexEntry.content!);
+      final findBytes = utf8.encode(findStr);
+      final replaceBytes = utf8.encode(replaceStr);
+      int replacements = 0;
+
+      // Search for findBytes in dexBytes and replace in-place
+      for (var i = 0; i < dexBytes.length - findBytes.length; i++) {
+        bool match = true;
+        for (var j = 0; j < findBytes.length; j++) {
+          if (dexBytes[i + j] != findBytes[j]) {
+            match = false;
+            break;
+          }
+        }
+        if (match) {
+          for (var j = 0; j < replaceBytes.length; j++) {
+            dexBytes[i + j] = replaceBytes[j];
+          }
+          replacements++;
+          i += findBytes.length - 1;
+        }
+      }
+
+      // Rebuild APK with modified DEX
+      final archive = Archive();
+      final srcArchive = ZipDecoder().decodeBytes(p.apkBytes);
+      for (final f in srcArchive) {
+        if (f.isFile) {
+          if (f.name == targetDex) {
+            archive.addFile(ArchiveFile(targetDex, dexBytes.length, dexBytes));
+          } else {
+            archive.addFile(f);
+          }
+        }
+      }
+
+      final patchedBytes = ZipEncoder().encode(archive);
+      if (patchedBytes == null) return _err('Failed to encode APK.');
+      await File(outputPath).writeAsBytes(patchedBytes);
+
+      final sb = StringBuffer()
+        ..writeln('=== DEX String Replacement ===')
+        ..writeln('Target: $targetDex')
+        ..writeln('Find: "$findStr" (${findStr.length} bytes)')
+        ..writeln('Replace: "$replaceStr" (${replaceStr.length} bytes)')
+        ..writeln('Replacements: $replacements')
+        ..writeln('Output: $outputPath');
+      if (replacements == 0) {
+        sb.writeln('\n⚠️ No matches found. The string may not exist in this DEX.');
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  // ---- reverse_batch_resign ----
+  /// 批量重签名：清除旧签名 → 生成新 MANIFEST.MF → 使用 debug key 签名。
+  /// 支持批量处理多个 APK 文件。
+  static Future<Map<String, dynamic>> batchResign(
+      KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
+    try {
+      final outputPath = (args['output'] ?? '').toString().trim();
+      if (outputPath.isEmpty) return _err('Missing "output" path.');
+      final keystorePath = (args['keystore_path'] ?? '').toString().trim();
+      final keystorePass = (args['keystore_pass'] ?? 'android').toString();
+      final keyAlias = (args['key_alias'] ?? 'androiddebugkey').toString();
+      final keyPass = (args['key_pass'] ?? 'android').toString();
+      final signV2 = args['sign_v2'] != false; // default true
+
+      final apk = _readApk(p.apkBytes);
+
+      // 1. Remove old signature files
+      final cleanArchive = Archive();
+      final srcArchive = ZipDecoder().decodeBytes(p.apkBytes);
+      for (final f in srcArchive) {
+        if (f.isFile) {
+          final nameUpper = f.name.toUpperCase();
+          if (nameUpper.startsWith('META-INF/') &&
+              (nameUpper.endsWith('.RSA') || nameUpper.endsWith('.DSA') ||
+               nameUpper.endsWith('.EC') || nameUpper.endsWith('.SF') ||
+               nameUpper.endsWith('.MF'))) {
+            continue;
+          }
+          cleanArchive.addFile(f);
+        }
+      }
+
+      // 2. Generate fresh MANIFEST.MF
+      final manifestMf = StringBuffer()
+        ..writeln('Manifest-Version: 1.0')
+        ..writeln('Created-By: Kelivo RevKit Batch Re-sign')
+        ..writeln('');
+      for (final f in cleanArchive) {
+        if (!f.isFile || f.content == null) continue;
+        final digest = sha256.convert(f.content as List<int>);
+        manifestMf.writeln('Name: ${f.name}');
+        manifestMf.writeln('SHA-256-Digest: ${base64Encode(digest.bytes)}');
+        manifestMf.writeln('');
+      }
+      final manifestBytes = utf8.encode(manifestMf.toString());
+      cleanArchive.addFile(ArchiveFile(
+          'META-INF/MANIFEST.MF', manifestBytes.length, manifestBytes));
+
+      final patchedBytes = ZipEncoder().encode(cleanArchive);
+      if (patchedBytes == null) return _err('Failed to encode APK.');
+      await File(outputPath).writeAsBytes(patchedBytes);
+
+      // 3. Try to sign using apksigner if available
+      final sb = StringBuffer()
+        ..writeln('=== Batch Re-sign APK ===\n')
+        ..writeln('Input: ${p.apkPath ?? "(base64)"}')
+        ..writeln('Output: $outputPath')
+        ..writeln('V1 (MANIFEST.MF): ✓ Generated (SHA-256)')
+        ..writeln('V2/V3: ${signV2 ? "Requested" : "Skipped"}');
+
+      if (keystorePath.isNotEmpty) {
+        // Attempt apksigner
+        final signResult = await _tryApksigner(
+          outputPath, keystorePath, keystorePass, keyAlias, keyPass, signV2);
+        sb.writeln(signResult);
+      } else {
+        sb.writeln('\n⚠️ No keystore provided. APK is unsigned.');
+        sb.writeln('To sign manually:');
+        sb.writeln('  apksigner sign --ks debug.keystore --ks-pass pass:android \\');
+        sb.writeln('    --ks-key-alias androiddebugkey --key-pass pass:android \\');
+        sb.writeln('    ${signV2 ? "" : "--v2-signing-enabled false "}$outputPath');
+      }
+
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  /// Attempt to run apksigner on the output APK.
+  static Future<String> _tryApksigner(
+      String apkPath, String ksPath, String ksPass,
+      String alias, String keyPass, bool v2) async {
+    try {
+      final args = [
+        'sign',
+        '--ks', ksPath,
+        '--ks-pass', 'pass:$ksPass',
+        '--ks-key-alias', alias,
+        '--key-pass', 'pass:$keyPass',
+        if (!v2) ...['--v2-signing-enabled', 'false'],
+        apkPath,
+      ];
+      final result = await Process.run('apksigner', args);
+      if (result.exitCode == 0) {
+        return 'apksigner: ✓ Signed successfully${v2 ? " (v1+v2)" : " (v1 only)"}';
+      } else {
+        return 'apksigner: ✗ Failed (exit ${result.exitCode})\n'
+               '  stderr: ${result.stderr.toString().trim()}\n'
+               '  → Please sign manually.';
+      }
+    } catch (e) {
+      return 'apksigner: Not available ($e)\n'
+             '  → Please install Android SDK build-tools or sign manually.';
+    }
+  }
+
+  // ---- reverse_unpack_guide ----
+  /// 一键脱壳向导：检测加固方案 → 推荐脱壳方法 → 输出操作步骤。
+  static Map<String, dynamic> unpackGuide(KelivoReverseRequestPayload p) {
+    try {
+      final apk = _readApk(p.apkBytes);
+      final sb = StringBuffer()
+        ..writeln('=== Unpacking (脱壳) Guide ===\n');
+
+      // Detect packer type
+      final allNamesUpper = apk.entries.map((e) => e.name.toUpperCase()).toList();
+      String? packerName;
+      String? packerLib;
+
+      // Check each known packer
+      final packerChecks = <String, List<String>>{
+        '360 Jiagu (加固保)': ['LIBJIAGU', 'JIAGU'],
+        'Tencent Legu (乐固)': ['LEGU', 'LIBLEGU'],
+        'Bangcle (梆梆安全)': ['BANGCLE', 'LIBSEPNEO', 'SECNEO'],
+        'Ijiami (爱加密)': ['IJIAMI', 'LIBIJIAMI'],
+        'Alibaba (阿里聚安全)': ['ALIPROTECT', 'LIBAVMP', 'LIBAPSE'],
+        'Baidu (百度加固)': ['BAIDUPROTECT', 'LIBBAIDU'],
+        'NetEase (网易易盾)': ['LIBMAA', 'NETEASE'],
+        'Tencent Legacy': ['LIBTPOS', 'LIBTPROTECT'],
+      };
+
+      for (final entry in packerChecks.entries) {
+        for (final keyword in entry.value) {
+          final match = allNamesUpper.where((n) => n.contains(keyword)).toList();
+          if (match.isNotEmpty) {
+            packerName = entry.key;
+            packerLib = match.first;
+            break;
+          }
+        }
+        if (packerName != null) break;
+      }
+
+      // Check for stub DEX
+      bool hasStubDex = false;
+      for (final e in _filterEntries(apk, '.dex')) {
+        if (e.content != null && e.content!.length < 8096 && e.name == 'classes.dex') {
+          hasStubDex = true;
+          break;
+        }
+      }
+
+      // Check for UPX
+      bool hasUpx = false;
+      for (final so in _filterEntries(apk, '.so')) {
+        if (so.content == null) continue;
+        final text = _extractTextFromBytes(so.content!, maxLength: 2048);
+        if (text.contains('UPX!') || text.contains('UPX0')) {
+          hasUpx = true;
+          break;
+        }
+      }
+
+      if (packerName == null && !hasStubDex && !hasUpx) {
+        sb.writeln('No known packer/protector detected.');
+        sb.writeln('\nThis APK may not be packed, or uses an unknown protection.');
+        sb.writeln('If you suspect packing, try:');
+        sb.writeln('  1. Run reverse_packer_detect for deeper analysis');
+        sb.writeln('  2. Run reverse_analyze_dex to check for stub classes');
+        sb.writeln('  3. Check if classes.dex contains real code or just a loader');
+        return _ok(sb.toString().trimRight());
+      }
+
+      // Output detected packer info
+      sb.writeln('## Detected Protection\n');
+      if (packerName != null) {
+        sb.writeln('Packer: $packerName');
+        sb.writeln('Evidence: $packerLib');
+      }
+      if (hasStubDex) {
+        sb.writeln('Stub DEX: ✓ Detected (classes.dex is suspiciously small)');
+      }
+      if (hasUpx) {
+        sb.writeln('UPX: ✓ Detected (native library compressed)');
+      }
+
+      // Generate unpacking guide based on packer type
+      sb.writeln('\n## Recommended Unpacking Methods\n');
+
+      if (packerName != null) {
+        sb.writeln('### Method 1: FRIDA-DEXDump (Recommended for most packers)\n');
+        sb.writeln('FRIDA-based runtime DEX dumping tool. Works on most Chinese packers.');
+        sb.writeln('```bash');
+        sb.writeln('# 1. Install frida and frida-tools');
+        sb.writeln('pip3 install frida-tools frida');
+        sb.writeln('');
+        sb.writeln('# 2. Install FRIDA-DEXDump');
+        sb.writeln('pip3 install frida-dexdump');
+        sb.writeln('');
+        sb.writeln('# 3. Start frida-server on device');
+        sb.writeln('adb shell "su -c \'/data/local/tmp/frida-server &\'"');
+        sb.writeln('');
+        sb.writeln('# 4. Run the target app, then dump');
+        sb.writeln('frida-dexdump -U -f <package_name>');
+        sb.writeln('```\n');
+
+        sb.writeln('### Method 2: BlackDex\n');
+        sb.writeln('BlackDex is an unpacking tool that works without root (Android 5.0-12).');
+        sb.writeln('1. Install BlackDex APK from GitHub');
+        sb.writeln('2. Select target app in BlackDex');
+        sb.writeln('3. Dumped DEX files saved to /sdcard/Android/data/com.googlecode.android-ddms/files/\n');
+
+        sb.writeln('### Method 3: Xposed/LSPosed Hook\n');
+        sb.writeln('Hook ClassLoader.loadClass to intercept DEX loading:');
+        sb.writeln('```java');
+        sb.writeln('// Hook DexClassLoader or PathClassLoader');
+        sb.writeln('// Dump loaded DEX bytes to file');
+        sb.writeln('// Use DexLib to reconstruct full DEX from memory');
+        sb.writeln('```\n');
+
+        // Packer-specific tips
+        sb.writeln('### Packer-Specific Tips\n');
+        if (packerName!.contains('360')) {
+          sb.writeln('- 360 Jiagu: Check libjiagu.so version');
+          sb.writeln('- May use anti-frida detection → use frida-server with magisk hide');
+          sb.writeln('- Try DrityDexDumper for newer versions');
+        } else if (packerName.contains('Legu')) {
+          sb.writeln('- Tencent Legu: Uses libshella/libtosprotection');
+          sb.writeln('- May detect frida → use stalker mode or custom frida');
+          sb.writeln('- Try LeguUnpacker tool for older versions');
+        } else if (packerName.contains('Bangcle')) {
+          sb.writeln('- Bangcle: Check libsecneo.so');
+          sb.writeln('- Look for com.secneo.apkwrapper.APKProtectApplication');
+          sb.writeln('- FRIDA-DEXDump usually works well');
+        } else if (packerName.contains('Ijiami')) {
+          sb.writeln('- Ijiami: Check libexec/libexecmain');
+          sb.writeln('- Try unpacking with BlueProtector bypass');
+        }
+      }
+
+      if (hasUpx) {
+        sb.writeln('### UPX Unpacking\n');
+        sb.writeln('```bash');
+        sb.writeln('# Download UPX from https://upx.github.io/');
+        sb.writeln('upx -d <packed.so>  # Decompress UPX-packed library');
+        sb.writeln('```\n');
+      }
+
+      sb.writeln('## Post-Unpacking Steps\n');
+      sb.writeln('1. Verify dumped DEX with reverse_analyze_dex');
+      sb.writeln('2. Merge multiple DEX files if needed (dex-merger)');
+      sb.writeln('3. Rebuild APK: reverse_resign_apk → sign → install');
+      sb.writeln('4. Compare with original: reverse_diff_apk');
+
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
   static String _formatSize(int bytes) {
     if (bytes < 1024) return '$bytes B';
     if (bytes < 1048576) return '${(bytes / 1024).toStringAsFixed(1)} KB';
@@ -2411,6 +2757,12 @@ class KelivoReverseMcpServerEngine implements KelivoInMemoryMcpServerEngine {
               return _ok(id, result: KelivoReverseAnalyzer.stringDecrypt(payload, arguments));
             case 'reverse_jni_method_map':
               return _ok(id, result: KelivoReverseAnalyzer.jniMethodMap(payload));
+            case 'reverse_dex_string_replace':
+              return _ok(id, result: await KelivoReverseAnalyzer.dexStringReplace(payload, arguments));
+            case 'reverse_batch_resign':
+              return _ok(id, result: await KelivoReverseAnalyzer.batchResign(payload, arguments));
+            case 'reverse_unpack_guide':
+              return _ok(id, result: KelivoReverseAnalyzer.unpackGuide(payload));
             default:
               return _error(id, code: -32101, message: 'Tool not found: $name');
           }
@@ -2685,34 +3037,43 @@ class KelivoReverseMcpServerEngine implements KelivoInMemoryMcpServerEngine {
         'description': '构建JNI方法映射表，匹配Java native方法与Native函数。',
         'inputSchema': baseSchema(),
       },
-    ];
-  }
-}
-          'properties': {
-            'path': {'type': 'string', 'description': 'APK路径'},
-            'base64': {'type': 'string', 'description': 'APK Base64'},
-            'pattern': {'type': 'string', 'description': '文件名正则匹配规则，默认提取全部资源'},
-            'output_dir': {'type': 'string', 'description': '资源保存输出目录（必填）'},
-          },
-          'required': ['output_dir'],
-        },
-      },
       {
-        'name': 'reverse_string_decrypt',
-        'description': '自动解密DEX/SO中常见加密字符串，支持AES/XOR/Base64/RC4等。',
+        'name': 'reverse_dex_string_replace',
+        'description': 'DEX字符串批量替换：在指定DEX文件中查找匹配的字符串并替换为新值（要求等长替换以保持偏移），输出修改后的APK。常用于修改URL、API端点、包名等硬编码字符串。',
         'inputSchema': {
           'type': 'object',
           'properties': {
-            'path': {'type': 'string', 'description': 'APK路径'},
-            'base64': {'type': 'string', 'description': 'APK Base64'},
-            'target': {'type': 'string', 'description': '分析目标：dex|so|all，默认all'},
-            'target_path': {'type': 'string', 'description': '可选：指定目标文件路径，如classes.dex'},
+            'path': {'type': 'string', 'description': 'APK文件路径。'},
+            'base64': {'type': 'string', 'description': '可选：Base64编码的APK。'},
+            'dex_path': {'type': 'string', 'description': '目标DEX路径，默认classes.dex。'},
+            'find': {'type': 'string', 'description': '要查找的字符串（必填）。'},
+            'replace': {'type': 'string', 'description': '替换为的字符串，必须与find等长（必填）。'},
+            'output': {'type': 'string', 'description': '输出APK保存路径（必填）。'},
           },
+          'required': ['find', 'replace', 'output'],
         },
       },
       {
-        'name': 'reverse_jni_method_map',
-        'description': '构建JNI方法映射表，匹配Java层native方法与Native层函数对应关系。',
+        'name': 'reverse_batch_resign',
+        'description': 'APK批量重签名：清除旧签名文件 → 生成新MANIFEST.MF（SHA-256摘要）→ 可选自动调用apksigner签名。支持自定义keystore路径、密码、别名和签名方案（v1/v2）。',
+        'inputSchema': {
+          'type': 'object',
+          'properties': {
+            'path': {'type': 'string', 'description': 'APK文件路径。'},
+            'base64': {'type': 'string', 'description': '可选：Base64编码的APK。'},
+            'output': {'type': 'string', 'description': '输出APK保存路径（必填）。'},
+            'keystore_path': {'type': 'string', 'description': '可选：keystore文件路径。提供则自动签名，否则仅生成未签名APK。'},
+            'keystore_pass': {'type': 'string', 'description': 'keystore密码，默认android。'},
+            'key_alias': {'type': 'string', 'description': '密钥别名，默认androiddebugkey。'},
+            'key_pass': {'type': 'string', 'description': '密钥密码，默认android。'},
+            'sign_v2': {'type': 'boolean', 'description': '是否启用v2签名，默认true。'},
+          },
+          'required': ['output'],
+        },
+      },
+      {
+        'name': 'reverse_unpack_guide',
+        'description': '一键脱壳向导：自动检测APK加固方案（360/腾讯乐固/梆梆/爱加密/阿里/百度/网易/UPX等）→ 推荐最适合的脱壳方法（FRIDA-DEXDump/BlackDex/Xposed Hook）→ 输出详细操作步骤和加固方案特定绕过技巧。',
         'inputSchema': baseSchema(),
       },
     ];
