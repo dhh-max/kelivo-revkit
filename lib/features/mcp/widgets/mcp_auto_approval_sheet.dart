@@ -67,7 +67,7 @@ class McpAutoApprovalSheet extends StatelessWidget {
                   ),
                   child: Row(
                     children: [
-                      Icon(Lucide.Info, size: 14, color: cs.primary),
+                      Icon(Lucide.info, size: 14, color: cs.primary),
                       const SizedBox(width: 6),
                       Expanded(
                         child: Text(

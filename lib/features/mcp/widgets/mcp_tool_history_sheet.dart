@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../../core/models/tool_call_history.dart';
 import '../../../core/providers/tool_history_provider.dart';
 import '../../../icons/lucide_adapter.dart';
 
@@ -299,7 +301,7 @@ class _HistoryTile extends StatelessWidget {
 
   String _formatJson(Map<String, dynamic> map) {
     try {
-      return const JsonEncoder.withIndent('  ').convert(map);
+      return JsonEncoder.withIndent('  ').convert(map);
     } catch (_) {
       return map.toString();
     }

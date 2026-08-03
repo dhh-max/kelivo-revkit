@@ -330,7 +330,7 @@ class McpPage extends StatelessWidget {
               size: 22,
               onTap: () {
                 mcp.autoReconnectErrorServers();
-                showAppSnackBar(context, '正在重连失败的服务器...');
+                showAppSnackBar(context, message: '正在重连失败的服务器...');
               },
             ),
           ),
