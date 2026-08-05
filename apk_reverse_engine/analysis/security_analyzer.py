@@ -88,7 +88,7 @@ class SecurityAnalyzer:
             max_score += 3
             issues.append({
                 'severity': 'INFO', 'type': '加固壳',
-                'desc': f'检测到加固: {', '.join(packers)}',
+                'desc': '检测到加固: ' + ', '.join(packers),
                 'cwe': 'N/A', 'cvss': 0
             })
 
@@ -163,7 +163,7 @@ class SecurityAnalyzer:
         if custom_perms:
             issues.append({
                 'severity': 'INFO', 'type': '自定义权限',
-                'desc': f'声明{custom_perms}个自定义权限，需评估安全性',
+                'desc': '声明自定义权限: ' + ', '.join(custom_perms[:5]) + (f' 等{len(custom_perms)}个' if len(custom_perms) > 5 else ''),
                 'cwe': 'N/A', 'cvss': 0
             })
 

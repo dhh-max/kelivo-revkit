@@ -76,12 +76,18 @@ def cmd_inspect(args):
     
     # 基本信息
     info = r.get("manifest", {})
+    pkg = info.get("package", "?")
+    sdk_info = info.get("sdk", {})
+    vn = sdk_info.get("versionName", "?")
+    vc = sdk_info.get("versionCode", "?")
+    minsdk = sdk_info.get("minSdk", "?")
+    targetsdk = sdk_info.get("targetSdk", "?")
     t = Table(box=box.SIMPLE, show_header=False)
     t.add_column("Key", style="cyan")
     t.add_column("Value")
-    t.add_row("包名", info.get("package_name", "?"))
-    t.add_row("版本", f"{info.get('version_name', '?')} (code={info.get('version_code', '?')})")
-    t.add_row("SDK", f"min={info.get('min_sdk', '?')}  target={info.get('target_sdk', '?')}")
+    t.add_row("包名", pkg)
+    t.add_row("版本", f"{vn} (code={vc})")
+    t.add_row("SDK", f"min={minsdk}  target={targetsdk}")
     t.add_row("文件大小", size)
     console.print(_make_panel(t, "📋 基本信息", "cyan"))
 
@@ -142,8 +148,9 @@ def cmd_analyze(args):
         t = Table(box=box.SIMPLE, show_header=False)
         t.add_column("属性", style="cyan")
         t.add_column("值")
-        t.add_row("包名", man.get("package_name", "?"))
-        t.add_row("SDK", f"min={man.get('min_sdk','?')} target={man.get('target_sdk','?')}")
+        t.add_row("包名", man.get("package", "?"))
+        sdk_info = man.get("sdk", {})
+        t.add_row("SDK", f"min={sdk_info.get('minSdk','?')} target={sdk_info.get('targetSdk','?')}")
         perms = man.get("permissions", [])
         t.add_row("权限", f"{len(perms)} 项")
         console.print(_make_panel(t, "📋 Manifest", "cyan"))
@@ -229,9 +236,10 @@ def cmd_manifest(args):
     t = Table(box=box.ROUNDED, border_style="cyan", show_header=False)
     t.add_column("属性", style="cyan bold")
     t.add_column("值")
-    t.add_row("📦 包名", info.get("package_name", "?"))
-    t.add_row("📌 版本", f"{info.get('version_name', '?')} (code={info.get('version_code', '?')})")
-    t.add_row("📱 SDK", f"min={info.get('min_sdk','?')}  target={info.get('target_sdk','?')}")
+    t.add_row("📦 包名", info.get("package", "?"))
+    sdk_info = info.get("sdk", {})
+    t.add_row("📌 版本", f"{sdk_info.get('versionName', '?')} (code={sdk_info.get('versionCode', '?')})")
+    t.add_row("📱 SDK", f"min={sdk_info.get('minSdk','?')}  target={sdk_info.get('targetSdk','?')}")
     t.add_row("📐 屏幕", f"small={info.get('small_screen','?')} normal={info.get('normal_screen','?')} large={info.get('large_screen','?')} xlarge={info.get('xlarge_screen','?')}")
     console.print(_make_panel(t, "📋 AndroidManifest 信息", "cyan"))
 
@@ -264,10 +272,12 @@ def cmd_dex(args):
     with console.status("📜 解析 DEX...", spinner="dots"):
         with open_apk(args.apk) as ctx:
             dex_files = ctx.get_dex_files()
+            dex_data = {}
+            for d in dex_files:
+                dex_data[d] = ctx.read_file(d)
 
-    for d in dex_files:
+    for d, data in dex_data.items():
         with console.status(f"📜 分析 {d}...", spinner="dots"):
-            data = ctx.read_file(d)
             h = dex_header(data)
             summary = dex_summary(data)
 
@@ -298,20 +308,23 @@ def cmd_classes(args):
     """列出 DEX 类名"""
     with console.status("📜 提取类名...", spinner="dots"):
         with open_apk(args.apk) as ctx:
+            dex_classes_data = {}
             for d in ctx.get_dex_files():
-                data = ctx.read_file(d)
-                names = dex_class_names(data)
-                total = len(names)
-                shown = names[:args.max]
+                dex_classes_data[d] = ctx.read_file(d)
 
-                t = Table(title=f"📜 {d} ({total} classes)", box=box.ROUNDED, border_style="green")
-                t.add_column("#", justify="right", style="dim", width=6)
-                t.add_column("类名", style="cyan")
-                for i, n in enumerate(shown, 1):
-                    t.add_row(str(i), n)
-                console.print(t)
-                if total > args.max:
-                    console.print(f"[dim]... 还有 {total - args.max} 个类未显示 (使用 --max 查看更多)[/]")
+    for d, data in dex_classes_data.items():
+        names = dex_class_names(data)
+        total = len(names)
+        shown = names[:args.max]
+
+        t = Table(title=f"📜 {d} ({total} classes)", box=box.ROUNDED, border_style="green")
+        t.add_column("#", justify="right", style="dim", width=6)
+        t.add_column("类名", style="cyan")
+        for i, n in enumerate(shown, 1):
+            t.add_row(str(i), n)
+        console.print(t)
+        if total > args.max:
+            console.print(f"[dim]... 还有 {total - args.max} 个类未显示 (使用 --max 查看更多)[/]")
 
     console.print()
 
@@ -320,10 +333,12 @@ def cmd_so(args):
     with console.status("🔧 分析 SO 文件...", spinner="dots"):
         with open_apk(args.apk) as ctx:
             so_files = ctx.get_so_files()
+            so_data = {}
+            for s in so_files:
+                so_data[s] = ctx.read_file(s)
 
-    for s in so_files:
+    for s, data in so_data.items():
         with console.status(f"🔧 分析 {s}...", spinner="dots"):
-            data = ctx.read_file(s)
             r = analyze_elf(data)
 
         if "error" in r:
