@@ -121,11 +121,12 @@ class AXMLParser:
                     vt = self._r32()   # value type
                     vd = self._r32()   # value data
                     an = self.strings[ani] if 0 <= ani < len(self.strings) else f"?{ani}"
+                    an_ns = self.strings[ai] if 0 <= ai < len(self.strings) else None
                     if vt >> 24 == 3:
                         val = self.strings[vsi] if 0 <= vsi < len(self.strings) else f"?{vsi}"
                     else:
                         val = str(vd)
-                    attrs.append({'name': an, 'value': val})
+                    attrs.append({'name': an, 'value': val, 'ns': an_ns})
                 tags.append({'type': 'start', 'name': name, 'attrs': attrs})
                 # 定位到块末尾
                 self.pos = chunk_start + cs

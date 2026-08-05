@@ -1086,6 +1086,46 @@ def cmd_clean(args):
 
     console.print()
 
+# ── AXML 解码/编码 ──────────────────────────────────────
+
+def cmd_axml(args):
+    """AXML 反编译/编译 (Android Binary XML ↔ 文本XML)"""
+    from apk_reverse_engine.utils.axml_converter import AXMLConverter as _AXMLC
+
+    if args.action == 'decode':
+        r = _AXMLC.decode_file(args.input, args.output)
+        if isinstance(r, dict) and 'error' in r:
+            console.print(f"[red]❌ 解码失败: {r['error']}[/]")
+        else:
+            console.print(f"[bold green]✅ 解码成功: {r['output']}[/]")
+            console.print(f"  大小: {_fmt_size(r['size'])} 字节")
+
+    elif args.action == 'encode':
+        r = _AXMLC.encode_file(args.input, args.output)
+        if isinstance(r, dict) and 'error' in r:
+            console.print(f"[red]❌ 编码失败: {r['error']}[/]")
+        else:
+            console.print(f"[bold green]✅ 编码成功: {r['output']}[/]")
+            console.print(f"  大小: {_fmt_size(r['size'])} 字节")
+
+    elif args.action == 'decode-apk':
+        r = _AXMLC.decode_apk_manifest(args.input, args.output)
+        if isinstance(r, dict) and 'error' in r:
+            console.print(f"[red]❌ 解码失败: {r['error']}[/]")
+        else:
+            console.print(f"[bold green]✅ APK Manifest 解码成功: {r['output']}[/]")
+            console.print(f"  大小: {_fmt_size(r['size'])} 字节")
+
+    elif args.action == 'encode-apk':
+        with open(args.xml_path, 'r', encoding='utf-8') as f:
+            xml_text = f.read()
+        r = _AXMLC.encode_apk_manifest(args.input, args.output, xml_text)
+        if isinstance(r, dict) and 'error' in r:
+            console.print(f"[red]❌ 编码替换失败: {r['error']}[/]")
+        else:
+            console.print(f"[bold green]✅ APK Manifest 编码替换成功: {r['output']}[/]")
+            console.print(f"  [yellow]⚠️ 注意: 替换后请重新签名APK[/]")
+
 # ── 主入口 ──────────────────────────────────────────────────
 
 def main():
@@ -1295,6 +1335,35 @@ def main():
     p.add_argument("--remove-meta", action="store_true", help="移除META-INF签名文件（重签名前）")
     p.add_argument("--dry-run", action="store_true", help="仅分析，不执行清理")
     p.set_defaults(func=cmd_clean)
+
+    # axml - AXML 反编译/编译
+    p = sub.add_parser("axml", help="📄 AXML 反编译/编译 (Android Binary XML ↔ 文本XML) - 纯Python实现")
+    axml_sub = p.add_subparsers(dest="action", metavar="<action>", required=True)
+
+    # axml decode
+    dp = axml_sub.add_parser("decode", help="将二进制AXML解码为文本XML")
+    dp.add_argument("input", help="输入AXML文件路径")
+    dp.add_argument("output", nargs="?", default=None, help="输出XML文件路径（默认: input.xml）")
+    dp.set_defaults(func=cmd_axml)
+
+    # axml encode
+    ep = axml_sub.add_parser("encode", help="将文本XML编译为二进制AXML")
+    ep.add_argument("input", help="输入XML文件路径")
+    ep.add_argument("output", help="输出AXML文件路径")
+    ep.set_defaults(func=cmd_axml)
+
+    # axml decode-apk
+    dap = axml_sub.add_parser("decode-apk", help="从APK中提取并解码AndroidManifest.xml")
+    dap.add_argument("input", help="APK文件路径")
+    dap.add_argument("output", nargs="?", default=None, help="输出XML文件路径")
+    dap.set_defaults(func=cmd_axml)
+
+    # axml encode-apk
+    eap = axml_sub.add_parser("encode-apk", help="替换APK中的AndroidManifest.xml（需重新签名）")
+    eap.add_argument("input", help="APK文件路径")
+    eap.add_argument("output", help="输出APK路径")
+    eap.add_argument("xml_path", help="编辑后的文本XML文件路径")
+    eap.set_defaults(func=cmd_axml)
 
     args = parser.parse_args()
     

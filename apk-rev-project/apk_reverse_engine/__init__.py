@@ -39,6 +39,8 @@ def apk_structure(apk_path):
 # --- Manifest解析 ---
 from .core.manifest_parser import ManifestParser as _ManifestParser
 from .utils.axml_parser import AXMLParser as _AXMLParser
+from .utils.axml_converter import AXMLConverter as _AXMLConverter
+AXMLConverter = _AXMLConverter  # 公开别名
 
 def parse_manifest(data):
     """解析AndroidManifest.xml二进制数据，返回完整标签树"""
@@ -690,5 +692,5 @@ __all__ = [
     'file_sha256', 'file_md5', 'safe_write', 'merge_files',
     'smali_parse_class', 'smali_find_methods', 'smali_find_strings',
     'smali_extract_method', 'smali_find_invokes', 'smali_analyze_method',
-    'cert_parse', 'cert_info', 'Logger',
+    'cert_parse', 'cert_info', 'Logger', 'AXMLConverter',
 ]
