@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """APK Reverse Engineering Engine v2 - CLI (Rich终端UI)"""
-import sys, os, json
+import sys, os, json, zipfile
 
 # 确保能找到 apk_reverse_engine 包
 # 无论脚本从哪个目录运行，都定位到包根目录
@@ -664,6 +664,70 @@ def cmd_clue(args):
 
     console.print()
 
+def cmd_merge(args):
+    """合并多个APK或合并DEX"""
+    if args.dex:
+        with console.status("🔄 合并 DEX 文件..."):
+            r = merge_dex(args.apk, args.output)
+        if r.get("success"):
+            console.print(f"[bold green]✅ DEX 合并成功: {args.output}[/]")
+            console.print(f"  [dim]{r.get('message', '')}[/]")
+        else:
+            console.print(f"[red]❌ DEX 合并失败: {r.get('error', '未知错误')}[/]")
+    else:
+        apks = args.apk.split(',')
+        with console.status(f"🔄 合并 {len(apks)} 个 APK..."):
+            r = merge_apks(apks, args.output)
+        if r.get("success"):
+            console.print(f"[bold green]✅ APK 合并成功: {args.output}[/]")
+            console.print(f"  合并 {r.get('files_merged', 0)} 个 APK")
+        else:
+            console.print(f"[red]❌ 合并失败: {r.get('error', '未知错误')}[/]")
+
+def cmd_rebuild(args):
+    """从目录重建APK (ZIP打包)"""
+    with console.status(f"📦 重建 APK 从 {args.input}..."):
+        r = zip_rebuild(args.input, args.output, args.store and zipfile.ZIP_STORED or zipfile.ZIP_DEFLATED)
+    if r.get("success"):
+        console.print(f"[bold green]✅ 重建成功: {args.output}[/]")
+        console.print(f"  大小: {_fmt_size(os.path.getsize(args.output))}")
+    else:
+        console.print(f"[red]❌ 重建失败: {r.get('error', '未知错误')}[/]")
+
+def cmd_zipalign(args):
+    """对齐APK"""
+    with console.status(f"📐 对齐 {args.apk}..."):
+        r = zipalign(args.apk, args.output)
+    if r.get("success"):
+        console.print(f"[bold green]✅ 对齐成功: {args.output}[/]")
+    else:
+        console.print(f"[red]❌ 对齐失败: {r.get('error', '未知错误')}[/]")
+
+def cmd_convert(args):
+    """格式转换 (DEX↔JAR / DEX↔Smali)"""
+    from apk_reverse_engine import dex2jar, jar2dex, dex2smali, smali2dex
+
+    if args.type == 'dex2jar':
+        with console.status(f"🔄 DEX → JAR..."):
+            r = dex2jar(args.input, args.output)
+    elif args.type == 'jar2dex':
+        with console.status(f"🔄 JAR → DEX..."):
+            r = jar2dex(args.input, args.output)
+    elif args.type == 'dex2smali':
+        with console.status(f"🔄 DEX → Smali..."):
+            r = dex2smali(args.input, args.output)
+    elif args.type == 'smali2dex':
+        with console.status(f"🔄 Smali → DEX..."):
+            r = smali2dex(args.input, args.output)
+    else:
+        console.print(f"[red]❌ 不支持的转换类型: {args.type}[/]")
+        return
+
+    if r.get("success"):
+        console.print(f"[bold green]✅ 转换成功: {args.output}[/]")
+    else:
+        console.print(f"[red]❌ 转换失败: {r.get('error', '未知错误')}[/]")
+
 def cmd_patch(args):
     """原生 SO 补丁"""
     with console.status(f"🔧 执行 {args.type} 补丁..."):
@@ -716,7 +780,16 @@ def main():
   reng unpack app.apk ./out -c dex,so  只提取 DEX 和 SO
   reng unpack app.apk ./out -f  扁平化输出
   reng decode app.apk ./out    Apktool 解包
+  reng build ./dir out.apk     Apktool 重打包
   reng sign app.apk signed.apk 签名 APK
+  reng jadx app.apk ./src      JADX 反编译
+  reng clue app.apk            线索串联分析
+  reng merge app1.apk,app2.apk out.apk 合并多个APK
+  reng merge classes.dex out.dex --dex  合并DEX
+  reng rebuild ./dir out.apk   从目录重建APK
+  reng zipalign in.apk out.apk 对齐APK
+  reng convert dex2jar classes.dex out.jar  DEX→JAR
+  reng convert dex2smali classes.dex ./smali  DEX→Smali
   reng patch app.apk out --type hex --old 9090 --new 9091  SO 补丁
         """
     )
@@ -830,6 +903,34 @@ def main():
     p.add_argument("--count", default="4", help="NOP 数量 (nop 模式)")
     p.add_argument("--arch", default="aarch64", help="架构 (ret 模式)")
     p.set_defaults(func=cmd_patch)
+
+    # merge
+    p = sub.add_parser("merge", help="🔄 合并多个APK或合并DEX")
+    p.add_argument("apk", help="APK文件路径（多个以逗号分隔）或DEX文件路径")
+    p.add_argument("output", help="输出APK/DEX路径")
+    p.add_argument("--dex", action="store_true", help="DEX合并模式")
+    p.set_defaults(func=cmd_merge)
+
+    # rebuild
+    p = sub.add_parser("rebuild", help="📦 从目录重建APK (ZIP打包)")
+    p.add_argument("input", help="输入目录")
+    p.add_argument("output", help="输出APK路径")
+    p.add_argument("--store", action="store_true", help="不压缩存储 (ZIP_STORED)")
+    p.set_defaults(func=cmd_rebuild)
+
+    # zipalign
+    p = sub.add_parser("zipalign", help="📐 对齐APK (4字节对齐)")
+    p.add_argument("apk", help="APK文件路径")
+    p.add_argument("output", help="输出APK路径")
+    p.set_defaults(func=cmd_zipalign)
+
+    # convert
+    p = sub.add_parser("convert", help="🔄 格式转换 (DEX↔JAR / DEX↔Smali)")
+    p.add_argument("type", choices=["dex2jar", "jar2dex", "dex2smali", "smali2dex"],
+                   help="转换类型: dex2jar / jar2dex / dex2smali / smali2dex")
+    p.add_argument("input", help="输入文件路径")
+    p.add_argument("output", help="输出文件路径")
+    p.set_defaults(func=cmd_convert)
 
     args = parser.parse_args()
     

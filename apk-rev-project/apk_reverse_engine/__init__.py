@@ -1,5 +1,5 @@
 """APK Reverse Engineering Engine v2 - 全模块基础功能API"""
-import os
+import os, zipfile
 
 __version__ = '2.0.0'
 
@@ -477,9 +477,9 @@ def apktool_build(decoded_dir, output_apk, force=False, aapt=None):
     """使用apktool重打包"""
     return _APKRepacker.apktool_build(decoded_dir, output_apk, force, aapt)
 
-def zip_rebuild(input_dir, output_apk):
+def zip_rebuild(input_dir, output_apk, compression=zipfile.ZIP_DEFLATED):
     """从目录重建APK/ZIP"""
-    return _APKRepacker.zip_rebuild(input_dir, output_apk)
+    return _APKRepacker.zip_rebuild(input_dir, output_apk, compression)
 
 def zip_update(apk_path, file_entries):
     """更新APK中的文件(file_entries: {arcname: data_bytes})"""
