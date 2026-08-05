@@ -2,7 +2,7 @@ import re
 
 class CodeAnalyzer:
     API_KEY_PATTERNS = [
-        (r'(?i)(?:api[_-]?key|apikey|secret|token|password|passwd|bearer|auth|access_key|private_key)\s*[:=]\s*[\"'\'']([^\"'\'']+)[\"'\'']', 'Credentials'),
+        (r"""(?i)(?:api[_-]?key|apikey|secret|token|password|passwd|bearer|auth|access_key|private_key)\s*[:=]\s*["']([^"']+)["']""", 'Credentials'),
         (r'(?i)AIza[0-9A-Za-z_-]{35}', 'Google API Key'),
         (r'(?i)sk-[0-9a-zA-Z]{32,}', 'OpenAI API Key'),
         (r'(?i)ghp_[0-9a-zA-Z]{36}', 'GitHub Token'),

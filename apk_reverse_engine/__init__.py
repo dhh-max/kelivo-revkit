@@ -1,4 +1,5 @@
 """APK Reverse Engineering Engine v2 - 全模块基础功能API"""
+import os
 
 __version__ = '2.0.0'
 
