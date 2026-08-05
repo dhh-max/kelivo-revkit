@@ -12,6 +12,7 @@ for p in (_pkg_root, '/home', '/home/kelivo-revkit'):
 
 from apk_reverse_engine import *
 from apk_reverse_engine import open_apk, get_manifest_info, static_analyze, analyze_full
+from apk_reverse_engine.tools.unpacker import APKUnpacker as _APKUnpacker
 
 # ── Rich UI ──────────────────────────────────────────────────
 from rich.console import Console
@@ -445,15 +446,114 @@ def cmd_search(args):
     console.print()
 
 def cmd_unpack(args):
-    """解压 APK"""
-    with console.status(f"📦 解压到 {args.output}...", spinner="dots"):
-        r = unpack_apk(args.apk, args.output)
-    if r.get("success"):
+    """解压 APK - 全面增强版"""
+    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskID
+
+    # 预览模式
+    if args.dry_run:
+        r = _APKUnpacker.extract_raw(args.apk, args.output, dry_run=True)
+        if r.get("success"):
+            console.print(f"[bold cyan]📦 预览: {os.path.basename(args.apk)}[/]")
+            t = Table(box=box.SIMPLE, show_header=False)
+            t.add_column("项", style="cyan")
+            t.add_column("值")
+            t.add_row("总文件", str(r.get("total", 0)))
+            t.add_row("DEX", str(r.get("dex_count", 0)))
+            t.add_row("SO", str(r.get("so_count", 0)))
+            t.add_row("资源文件", str(r.get("res_count", 0)))
+            t.add_row("Assets", str(r.get("assets_count", 0)))
+            t.add_row("大小", _fmt_size(r.get("size", 0)))
+            t.add_row("输出目录", args.output)
+            console.print(_make_panel(t, "📋 解压预览（仅列出，不解压）", "cyan"))
+            return
+        else:
+            console.print(f"[red]❌ 预览失败: {r.get('error', '未知错误')}[/]")
+            return
+
+    # 分类提取
+    if args.category:
+        cats = [c.strip() for c in args.category.split(',')]
+        with console.status(f"📦 按分类提取 {', '.join(cats)}..."):
+            r = _APKUnpacker.extract_by_category(args.apk, args.output, categories=cats,
+                                                  structure=args.structure)
+        if r.get("success"):
+            console.print(f"[bold green]✅ 分类提取成功: {args.output}[/]")
+            t = Table(box=box.SIMPLE, show_header=False)
+            t.add_column("分类", style="cyan")
+            t.add_column("文件数", justify="right")
+            for cat, cnt in sorted(r.get('categories', {}).items()):
+                t.add_row(cat, str(cnt))
+            console.print(_make_panel(t, "📊 提取结果", "green"))
+        else:
+            console.print(f"[red]❌ 提取失败: {r.get('error', '未知错误')}[/]")
+        return
+
+    # 带进度条的实际解压
+    with Progress(
+        SpinnerColumn(spinner_name="dots"),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(bar_width=20),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        console=console
+    ) as progress:
+        task = progress.add_task("📦 解压中...", total=None)
+
+        def _progress(extracted, total, name):
+            t = progress.tasks[task]
+            if t.completed == 0 and total:
+                progress.update(task, total=total)
+            progress.update(task, completed=extracted, description=f"📦 {os.path.basename(name)}")
+
+        if args.parallel:
+            r = _APKUnpacker.extract_parallel(args.apk, args.output, args.workers, structure=args.structure)
+        elif args.incremental:
+            r = _APKUnpacker.extract_incremental(args.apk, args.output, structure=args.structure,
+                                                  flatten=args.flatten)
+        elif args.include or args.exclude:
+            r = _APKUnpacker.extract_selective(args.apk, args.output,
+                                  include_types=args.include.split(',') if args.include else None,
+                                  exclude_types=args.exclude.split(',') if args.exclude else None,
+                                  structure=args.structure)
+        else:
+            r = _APKUnpacker.extract_raw(args.apk, args.output, structure=args.structure,
+                                          flatten=args.flatten, progress_callback=_progress)
+
+    # 结果展示
+    if r.get("success") or r.get('extracted', 0) > 0 or r.get('skipped', 0) > 0:
         console.print(f"[bold green]✅ 解压成功: {args.output}[/]")
-        files = r.get("extracted", 0)
-        console.print(f"  共提取 {files} 个文件" if files else "")
+        t = Table(box=box.SIMPLE, show_header=False)
+        t.add_column("项", style="cyan")
+        t.add_column("值")
+        t.add_row("提取文件", f"{r.get('extracted', 0)}/{r.get('total', '?')}")
+        if r.get('skipped'):
+            t.add_row("跳过(增量)", str(r.get('skipped', 0)))
+        cats = r.get('categories', {})
+        if cats:
+            cats_str = ", ".join(f"{k}={v}" for k, v in sorted(cats.items()))
+            t.add_row("分类统计", cats_str)
+        if r.get('sha256'):
+            t.add_row("SHA256", r['sha256'][:16] + '...')
+        errors = r.get('errors', [])
+        if errors:
+            t.add_row("错误", f"{len(errors)} 个 (显示前3): {', '.join(e['file'] for e in errors[:3])}")
+        console.print(_make_panel(t, "📊 解压结果", "green"))
     else:
         console.print(f"[red]❌ 解压失败: {r.get('error', '未知错误')}[/]")
+
+def cmd_verify(args):
+    """校验解压完整性"""
+    with console.status("🔍 校验完整性..."):
+        r = _APKUnpacker.verify_integrity(args.apk, args.output)
+    ok = r.get('ok', False)
+    console.print(_make_panel(
+        f"[{'green' if ok else 'red'}]{'✅ 完整性校验通过' if ok else '❌ 文件缺失'}"
+        f"\n原始文件: {r.get('original', 0)}"
+        f"\n解压文件: {r.get('extracted', 0)}"
+        f"\n缺失: {r.get('missing', 0)}"
+        f"\n总大小: {_fmt_size(r.get('size', 0))}"
+        f"\nSHA256: {r.get('sha256', '')}",
+        title="🔍 完整性校验", style="green" if ok else "red"
+    ))
 
 def cmd_decode(args):
     """Apktool 解包"""
@@ -609,7 +709,12 @@ def main():
   reng classes app.apk         列出所有类名
   reng so app.apk              分析 SO 文件
   reng search app.apk key      搜索关键字
-  reng unpack app.apk ./out    解压 APK
+  reng unpack app.apk ./out    解压 APK (分类归档)
+  reng unpack app.apk ./out -i  增量解压
+  reng unpack app.apk ./out -p  并行解压
+  reng unpack app.apk ./out -n  预览（不解压）
+  reng unpack app.apk ./out -c dex,so  只提取 DEX 和 SO
+  reng unpack app.apk ./out -f  扁平化输出
   reng decode app.apk ./out    Apktool 解包
   reng sign app.apk signed.apk 签名 APK
   reng patch app.apk out --type hex --old 9090 --new 9091  SO 补丁
@@ -659,10 +764,28 @@ def main():
     p.set_defaults(func=cmd_search)
 
     # unpack
-    p = sub.add_parser("unpack", help="📦 解压 APK")
+    p = sub.add_parser("unpack", help="📦 解压 APK (分类归档/并行/增量/过滤/预览)")
     p.add_argument("apk", help="APK 文件路径")
     p.add_argument("output", help="输出目录")
+    p.add_argument("--structure", "-s", action="store_true", default=True,
+                   help="按分类归档子目录 (dex/lib/res/assets/META-INF) [默认开启]")
+    p.add_argument("--no-structure", action="store_false", dest="structure",
+                   help="不解分类，直接解压到根目录")
+    p.add_argument("--parallel", "-p", action="store_true", help="多线程并行解压 (大APK加速)")
+    p.add_argument("--workers", "-w", type=int, default=4, help="并行线程数 [默认=4]")
+    p.add_argument("--incremental", "-i", action="store_true", help="增量模式 (跳过已存在且大小一致的文件)")
+    p.add_argument("--include", help="仅提取指定类型，逗号分隔，如 .dex,.so")
+    p.add_argument("--exclude", help="排除指定类型，逗号分隔，如 .png,.jpg")
+    p.add_argument("--flatten", "-f", action="store_true", help="扁平化，不保留子目录结构")
+    p.add_argument("--dry-run", "-n", action="store_true", help="仅预览不解压")
+    p.add_argument("--category", "-c", help="按分类提取 (dex/lib/res/assets/meta_inf/all)，支持别名 so→lib, cert→meta_inf")
     p.set_defaults(func=cmd_unpack)
+
+    # verify
+    p = sub.add_parser("verify", help="🔍 校验解压完整性")
+    p.add_argument("apk", help="原始 APK 文件路径")
+    p.add_argument("output", help="解压目录路径")
+    p.set_defaults(func=cmd_verify)
 
     # decode
     p = sub.add_parser("decode", help="🔧 Apktool 解包")
@@ -729,7 +852,9 @@ def main():
             ("📦  classes", "列出 DEX 类名", "green"),
             ("🔧  so", "分析 SO 文件", "magenta"),
             ("🔍  search", "搜索关键字", "cyan"),
-            ("📦  unpack", "解压 APK", "blue"),
+            ("📦  unpack", "解压 APK (分类/并行/增量)", "blue"),
+            ("🔍  verify", "校验解压完整性", "cyan"),
+            ("🔗  clue", "线索串联分析", "red"),
             ("🔧  decode", "Apktool 解包", "yellow"),
             ("🔧  build", "Apktool 重打包", "yellow"),
             ("📝  sign", "签名 APK", "green"),

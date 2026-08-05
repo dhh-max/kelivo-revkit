@@ -431,9 +431,31 @@ from .tools.decompiler import APKDecompiler as _APKDecompiler
 from .tools.converter import APKConverter as _APKConverter
 from .tools.merger import APKMerger as _APKMerger
 
-def unpack_apk(apk_path, output_dir):
-    """解压APK原始文件"""
-    return _APKUnpacker.extract_raw(apk_path, output_dir)
+def unpack_apk(apk_path, output_dir, structure=True):
+    """解压APK原始文件（支持分类归档）"""
+    return _APKUnpacker.extract_raw(apk_path, output_dir, structure=structure)
+
+def extract_selective(apk_path, output_dir, include_types=None, exclude_types=None,
+                      include_pattern=None, exclude_pattern=None, structure=True):
+    """选择性提取APK文件"""
+    return _APKUnpacker.extract_selective(apk_path, output_dir, include_types, exclude_types,
+                                          include_pattern, exclude_pattern, structure)
+
+def extract_parallel(apk_path, output_dir, max_workers=4, structure=True):
+    """多线程并行解压APK"""
+    return _APKUnpacker.extract_parallel(apk_path, output_dir, max_workers, structure)
+
+def extract_incremental(apk_path, output_dir, structure=True, flatten=False):
+    """增量解压APK（跳过已存在且大小一致的文件）"""
+    return _APKUnpacker.extract_incremental(apk_path, output_dir, structure, flatten)
+
+def extract_by_category(apk_path, output_dir, categories=None, structure=True):
+    """按分类提取APK文件（dex/lib/res/assets/meta_inf/all）"""
+    return _APKUnpacker.extract_by_category(apk_path, output_dir, categories, structure)
+
+def verify_unpack(apk_path, output_dir):
+    """校验解压完整性"""
+    return _APKUnpacker.verify_integrity(apk_path, output_dir)
 
 def extract_dex(apk_path, output_dir):
     """提取APK中所有DEX文件"""
@@ -615,6 +637,7 @@ __all__ = [
     'resource_patch_arsc', 'resource_patch_package_name',
     # Tools
     'unpack_apk', 'extract_dex', 'extract_so', 'extract_resources',
+'extract_selective', 'extract_parallel', 'extract_incremental', 'extract_by_category', 'verify_unpack',
     'apktool_decode', 'apktool_build', 'zip_rebuild', 'zip_update', 'zipalign',
     'sign_debug', 'sign_apk', 'search_apk',
     'jadx_decompile', 'androguard_analyze',
