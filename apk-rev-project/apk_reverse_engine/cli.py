@@ -491,6 +491,79 @@ def cmd_jadx(args):
     else:
         console.print(f"[red]❌ JADX 反编译失败: {r.get('error', '未知错误')}[/]")
 
+def cmd_clue(args):
+    """线索串联分析 - 自动发现跨模块可疑信号"""
+    with console.status("🔗 线索串联分析中...", spinner="dots"):
+        r = analyze_full(args.apk)
+        cc = r.get("clue_chain", {})
+
+    if "error" in cc:
+        console.print(f"[red]❌ 线索分析异常: {cc['error']}[/]")
+        return
+
+    # 风险评分大标题
+    score = cc.get("score", 0)
+    level = cc.get("level", "low")
+    level_color = {"high": "red", "medium": "yellow", "low": "green"}
+    level_icon = {"high": "⚠️", "medium": "⚡", "low": "✅"}
+    clr = level_color.get(level, "white")
+    icon = level_icon.get(level, "?")
+
+    console.print(Panel(
+        f"[bold {clr}]{icon} 综合风险评分: {score}/100 ({level.upper()})[/]",
+        title="🔗 线索串联分析", border_style=clr, box=box.DOUBLE
+    ))
+
+    # 总结
+    summary = cc.get("summary", {})
+    if summary:
+        t = Table(box=box.SIMPLE, show_header=False)
+        t.add_column("项", style="cyan")
+        t.add_column("值")
+        t.add_row("结论", f"[{clr}]{summary.get('conclusion', '?')}[/]")
+        t.add_row("风险标记", str(summary.get('risk_count', 0)))
+        t.add_row("线索统计", summary.get('clue_summary', '?'))
+        tags = summary.get('tags', [])
+        if tags:
+            t.add_row("特征标签", ", ".join(f"[bold]{t}[/]" for t in tags))
+        console.print(_make_panel(t, "📊 分析总结", clr))
+
+    # 逐个线索展示
+    clues = cc.get("clues", [])
+    if clues:
+        console.print(f"\n[bold]🔍 发现 {len(clues)} 条线索:[/]")
+        sev_color = {"high": "red", "medium": "yellow", "info": "blue", "low": "green"}
+        sev_icon = {"high": "🔴", "medium": "🟡", "info": "🔵", "low": "🟢"}
+
+        for i, clue in enumerate(clues, 1):
+            sev = clue.get("severity", "info")
+            sc = sev_color.get(sev, "white")
+            si = sev_icon.get(sev, "•")
+            title = clue.get("title", "?")
+            detail = clue.get("detail", "")
+            cross = clue.get("cross_ref", [])
+
+            text = Text()
+            text.append(f"  {si} ", style=sc)
+            text.append(f"[{i}] ", style="dim")
+            text.append(title, style=f"bold {sc}")
+            if detail:
+                text.append(f"\n     {detail}")
+            if cross:
+                refs = ", ".join(str(c) for c in cross[:5])
+                text.append(f"\n     [dim]关联: {refs}[/]")
+            console.print(text)
+            console.print()
+
+    # 风险标记
+    risks = cc.get("risks", [])
+    if risks:
+        console.print(f"\n[bold red]⚠️ 风险标记 ({len(risks)} 项):[/]")
+        for r in risks:
+            console.print(f"  • [red]{r}[/]")
+
+    console.print()
+
 def cmd_patch(args):
     """原生 SO 补丁"""
     with console.status(f"🔧 执行 {args.type} 补丁..."):
@@ -617,6 +690,11 @@ def main():
     p.add_argument("output", help="输出目录")
     p.add_argument("--no-deobf", action="store_true", help="禁用反混淆")
     p.set_defaults(func=cmd_jadx)
+
+    # clue
+    p = sub.add_parser("clue", help="🔗 线索串联分析 (跨模块自动关联)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.set_defaults(func=cmd_clue)
 
     # patch
     p = sub.add_parser("patch", help="🔧 原生 SO 补丁")

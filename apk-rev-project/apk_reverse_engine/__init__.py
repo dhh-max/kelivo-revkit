@@ -164,6 +164,8 @@ def parse_arsc(data):
 # 分析模块 - Analysis
 # ============================================================
 
+from .analysis.clue_chain import ClueChain as _ClueChain
+
 from .analysis.static_analyzer import StaticAnalyzer as _StaticAnalyzer
 from .analysis.permission_analyzer import PermissionAnalyzer as _PermissionAnalyzer
 from .analysis.obfuscation_detector import ObfuscationDetector as _ObfuscationDetector
@@ -281,7 +283,67 @@ def analyze_full(apk_path):
             packers,
         )
 
+        # 10. 线索串联分析 - 自动发现跨模块可疑信号
+        try:
+            # 收集 DEX 字符串
+            all_dex_strings = []
+            for d in dex_files:
+                try:
+                    data = ctx.read_file(d)
+                    dp = _DexParser(data)
+                    dp.parse_header()
+                    all_dex_strings.extend(dp.get_strings())
+                except:
+                    pass
+
+            # 获取 assets 文件列表
+            all_files = ctx.list_files() if hasattr(ctx, 'list_files') else []
+            assets_files = [f for f in all_files if f.startswith('assets/')]
+
+            result['clue_chain'] = _ClueChain.analyze(
+                manifest=result['manifest'],
+                class_names=class_names,
+                native_analysis=result.get('native_analysis'),
+                so_files=[s.split('/')[-1] for s in so_files] if so_files else [],
+                assets_files=assets_files,
+                permissions=perm_names,
+                packers=packers,
+                obfuscation_score=result['obfuscation'].get('score', 0),
+                signature=result['signature'],
+                dex_strings=all_dex_strings,
+            )
+        except Exception as e:
+            result['clue_chain'] = {'error': str(e), 'clues': [], 'score': 0, 'level': 'unknown'}
+
     return result
+
+def clue_chain_analyze(manifest=None, class_names=None, native_analysis=None,
+                       so_files=None, assets_files=None, permissions=None,
+                       packers=None, obfuscation_score=None, signature=None,
+                       apk_structure=None, dex_strings=None, dex_summary=None):
+    """线索串联分析 - 跨模块关联，自动发现可疑信号
+
+    将 Manifest / DEX / SO / Assets / 权限 等维度的分析结果交叉关联，
+    自动发现跨模块的可疑模式，生成综合风险评分和线索列表。
+
+    返回:
+        dict: {
+            'clues': [...],    # 所有关联线索
+            'risks': [...],    # 风险标记列表
+            'tags': [...],     # 特征标签
+            'score': 0-100,    # 综合风险评分
+            'level': 'low'|'medium'|'high',
+            'summary': {...},  # 总结
+        }
+    """
+    return _ClueChain.analyze(
+        manifest=manifest, class_names=class_names,
+        native_analysis=native_analysis, so_files=so_files,
+        assets_files=assets_files, permissions=permissions,
+        packers=packers, obfuscation_score=obfuscation_score,
+        signature=signature, apk_structure=apk_structure,
+        dex_strings=dex_strings, dex_summary=dex_summary,
+    )
 
 # ============================================================
 # 补丁模块 - Patching
@@ -543,6 +605,7 @@ __all__ = [
     'static_analyze', 'analyze_permissions', 'detect_obfuscation', 'detect_packer',
     'detect_anti_tamper', 'detect_reflection', 'detect_string_encryption',
     'security_analyze', 'analyze_code', 'analyze_network', 'analyze_full',
+    'clue_chain_analyze',
     # Patching
     'smali_patch_return', 'smali_patch_condition', 'smali_bypass_signature',
     'manifest_patch', 'manifest_set_debuggable', 'manifest_allow_backup',
