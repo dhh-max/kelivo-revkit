@@ -1,9 +1,17 @@
 #!/usr/bin/env python3
 """APK Reverse Engineering Engine v2 - CLI (Rich终端UI)"""
 import sys, os, json
-sys.path.insert(0, '/home')
+
+# 确保能找到 apk_reverse_engine 包
+# 无论脚本从哪个目录运行，都定位到包根目录
+_here = os.path.dirname(os.path.abspath(__file__))
+_pkg_root = os.path.dirname(_here)  # apk_reverse_engine 的上一级
+for p in (_pkg_root, '/home', '/home/kelivo-revkit'):
+    if p and p not in sys.path:
+        sys.path.insert(0, p)
 
 from apk_reverse_engine import *
+from apk_reverse_engine import open_apk, get_manifest_info, static_analyze, analyze_full
 
 # ── Rich UI ──────────────────────────────────────────────────
 from rich.console import Console
@@ -111,14 +119,16 @@ def cmd_inspect(args):
     # 签名
     sig = r.get("signature", {})
     if sig:
-        v1 = sig.get("v1", {}).get("valid", False)
-        v2 = sig.get("v2", {}).get("valid", False)
-        console.print(f"[bold]📝 签名:[/]  V1={_bool_icon(v1)}  V2={_bool_icon(v2)}")
+        # verify_all 返回的 v1/v2/v3 是 bool 值
+        v1 = bool(sig.get("v1", False))
+        v2 = bool(sig.get("v2", False))
+        console.print(f"[bold]📝 签名:[/]  V1={_bool_icon(v1)}  V2={_bool_icon(v2)}  V3={_bool_icon(bool(sig.get('v3')))}  "
+                      f"级别={sig.get('security_level','?')}")
 
     # DEX 摘要
     dex_s = r.get("dex_summary", [])
     for d in dex_s:
-        console.print(f"  [yellow]📜 {d.get('name','?')}[/]  classes={d.get('class_defs',0)}  methods={d.get('method_ids',0)}  strings={d.get('string_ids',0)}")
+        console.print(f"  [yellow]📜 {d.get('name','?')}[/]  classes={d.get('classes',0)}  methods={d.get('methods',0)}  strings={d.get('strings',0)}")
 
     console.print()
 
@@ -185,8 +195,8 @@ def cmd_analyze(args):
                 t.add_row(d["name"], "❌ error", "", "", "")
             else:
                 t.add_row(d["name"], _fmt_size(d.get("size", 0)),
-                          str(d.get("class_defs", 0)), str(d.get("method_ids", 0)),
-                          str(d.get("string_ids", 0)))
+                          str(d.get("classes", 0)), str(d.get("methods", 0)),
+                          str(d.get("strings", 0)))
         console.print(t)
 
     # 混淆检测
@@ -211,7 +221,7 @@ def cmd_analyze(args):
             if "error" in info:
                 console.print(f"  [red]❌ {name}: {info['error']}[/]")
             else:
-                arch = info.get("arch", "?")
+                arch = info.get("machine", "?")
                 imports = info.get("imports", [])
                 exports = info.get("exports", [])
                 console.print(f"  📄 [cyan]{name}[/]  arch={arch}  import={len(imports)}  export={len(exports)}")
@@ -260,9 +270,14 @@ def cmd_manifest(args):
             label = {"activities": "🎬 Activity", "services": "⚙️ Service", 
                      "receivers": "📡 BroadcastReceiver", "providers": "🗄️ ContentProvider"}
             t3 = Table(title=label.get(comp_type, comp_type), box=box.SIMPLE, border_style="green")
-            t3.add_column("组件", style="cyan")
+            t3.add_column("组件名", style="cyan")
             for c in comps:
-                t3.add_row(c)
+                # 新格式: {'type':..., 'attrs':{...}}
+                if isinstance(c, dict):
+                    name = c.get('attrs', {}).get('name', c.get('attrs', {}).get('android:name', '?'))
+                else:
+                    name = str(c)
+                t3.add_row(name)
             console.print(t3)
 
     console.print()
@@ -346,19 +361,21 @@ def cmd_so(args):
             continue
 
         # 概览面板
-        arch = r.get("arch", "?")
+        arch = r.get("machine", "?")
         cls = r.get("class", "?")
         endian = r.get("endian", "?")
-        entry = hex(r.get("entry", 0)) if isinstance(r.get("entry"), int) else r.get("entry", "?")
+        entry = r.get("entry", "?")
+        sections = r.get("sections", "?")
+        segments = r.get("segments", "?")
 
         info_text = Text()
         info_text.append(f"🔧 {s}\n", style="bold cyan")
         info_text.append(f"  Architecture: {arch}  |  Class: {cls}  |  Endian: {endian}\n")
-        info_text.append(f"  Entry: {entry}  |  Sections: {r.get('section_count', '?')}  |  Segments: {r.get('segment_count', '?')}")
+        info_text.append(f"  Entry: {entry}  |  Sections: {sections}  |  Segments: {segments}")
         console.print(Panel(info_text, title="ELF 概览", border_style="magenta", box=box.ROUNDED))
 
         # 依赖
-        deps = r.get("needed", [])
+        deps = r.get("dependencies", [])
         if deps:
             t = Table(box=box.SIMPLE, border_style="dim")
             t.add_column("📦 依赖库", style="cyan")
@@ -373,26 +390,26 @@ def cmd_so(args):
             ie_table = Table(box=box.SIMPLE)
             ie_table.add_column("方向", style="cyan", width=8)
             ie_table.add_column("函数名", style="white")
-            ie_table.add_column("来源", style="dim")
             for imp in imports[:30]:
-                ie_table.add_row("⬅️ 导入", imp.get("name", "?"), imp.get("lib", ""))
+                ie_table.add_row("⬅️ 导入", imp)
             for exp in exports[:20]:
-                ie_table.add_row("➡️ 导出", exp.get("name", "?"), hex(exp.get("value", 0)) if isinstance(exp.get("value"), int) else "")
+                ie_table.add_row("➡️ 导出", exp)
             console.print(ie_table)
             if len(imports) > 30:
                 console.print(f"[dim]... 还有 {len(imports)-30} 个导入[/]")
             if len(exports) > 20:
                 console.print(f"[dim]... 还有 {len(exports)-20} 个导出[/]")
 
-        # 加固检测
-        packer = r.get("packer", {})
-        if packer.get("detected"):
-            console.print(f"[red]🛡️ 加固壳: {', '.join(packer.get('packers', []))}[/]")
+        # 加固检测（单独调用，不在 summary 中）
+        packers = elf_detect_packer(data)
+        if packers:
+            console.print(f"[red]🛡️ 加固壳: {', '.join(packers)}[/]")
 
-        # 加密库检测
-        crypto = r.get("crypto", [])
+        # 加密库检测（单独调用，不在 summary 中）
+        crypto = elf_detect_crypto(data)
         if crypto:
-            console.print(f"[yellow]🔐 加密库: {', '.join(crypto)}[/]")
+            crypto_names = list(crypto.keys()) if isinstance(crypto, dict) else crypto
+            console.print(f"[yellow]🔐 加密库: {', '.join(crypto_names)}[/]")
 
     console.print()
 

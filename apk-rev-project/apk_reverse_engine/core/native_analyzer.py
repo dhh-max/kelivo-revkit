@@ -72,7 +72,7 @@ class ElfImage:
     def parse(data):
         if len(data) < 20:
             raise ValueError('Not an ELF file: too short')
-        if data[0:4] != b'\\x7fELF':
+        if data[0:4] != b'\x7fELF':
             raise ValueError('Not an ELF file: bad magic')
         img = ElfImage(data)
         img.is64 = data[4] == 2
@@ -110,8 +110,11 @@ class ElfImage:
 
     def _read_asciiz(self, offset):
         if offset < 0 or offset >= self.length: return ''
-        end = self.data.index(b'\\x00', offset) if b'\\x00' in self.data[offset:offset+256] else self.length
-        return self.data[offset:end].decode('utf-8', errors='replace')
+        try:
+            end = self.data.index(b'\x00', offset)
+            return self.data[offset:end].decode('utf-8', errors='replace')
+        except ValueError:
+            return self.data[offset:].decode('utf-8', errors='replace')
 
     def _read_sections(self):
         if self.e_shoff == 0 or self.e_shnum == 0: return
@@ -346,7 +349,7 @@ class NativeAnalyzer:
 
     @staticmethod
     def is_elf(data):
-        return len(data) >= 4 and data[:4] == b'\\x7fELF'
+        return len(data) >= 4 and data[:4] == b'\x7fELF'
 
     @staticmethod
     def analyze(data):

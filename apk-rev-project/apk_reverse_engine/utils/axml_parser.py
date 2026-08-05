@@ -139,6 +139,8 @@ class AXMLParser:
     def get_manifest_simple(self):
         r = self.parse(); tags = r.get('tags', [])
         pkg = ""; sdk = {}; perms = []; comps = []
+        # components 按 Activity/Service/Receiver/Provider 分类
+        activities = []; services = []; receivers = []; providers = []
         for tag in tags:
             if tag['type'] == 'start' and tag['name'] == 'manifest':
                 for a in tag['attrs']:
@@ -146,12 +148,33 @@ class AXMLParser:
                     if 'package' in n: pkg = a['value']
                     elif 'versioncode' in n: sdk['versionCode'] = a['value']
                     elif 'versionname' in n: sdk['versionName'] = a['value']
-                    elif 'minsdk' in n: sdk['minSdk'] = a['value']
+            # uses-sdk 标签
+            if tag['type'] == 'start' and tag['name'] == 'uses-sdk':
+                for a in tag['attrs']:
+                    n = a['name'].lower()
+                    if 'minsdk' in n: sdk['minSdk'] = a['value']
                     elif 'targetsdk' in n: sdk['targetSdk'] = a['value']
+                    elif 'maxsdk' in n: sdk['maxSdk'] = a['value']
             if tag['type'] == 'start' and tag['name'] == 'uses-permission':
                 for a in tag['attrs']:
                     if 'name' in a['name'].lower(): perms.append(a['value'])
-            if tag['type'] == 'start' and tag['name'] in ['activity','service','receiver','provider']:
-                c = {'type': tag['name'], 'attrs': {a['name']:a['value'] for a in tag['attrs']}}
+            if tag['type'] == 'start' and tag['name'] == 'activity':
+                c = {'type': 'activity', 'attrs': {a['name']:a['value'] for a in tag['attrs']}}
                 comps.append(c)
-        return {'package': pkg, 'sdk': sdk, 'permissions': perms, 'components': comps}
+                activities.append(c)
+            if tag['type'] == 'start' and tag['name'] == 'service':
+                c = {'type': 'service', 'attrs': {a['name']:a['value'] for a in tag['attrs']}}
+                comps.append(c)
+                services.append(c)
+            if tag['type'] == 'start' and tag['name'] == 'receiver':
+                c = {'type': 'receiver', 'attrs': {a['name']:a['value'] for a in tag['attrs']}}
+                comps.append(c)
+                receivers.append(c)
+            if tag['type'] == 'start' and tag['name'] == 'provider':
+                c = {'type': 'provider', 'attrs': {a['name']:a['value'] for a in tag['attrs']}}
+                comps.append(c)
+                providers.append(c)
+        return {'package': pkg, 'sdk': sdk, 'permissions': perms,
+                'components': comps,
+                'activities': activities, 'services': services,
+                'receivers': receivers, 'providers': providers}
