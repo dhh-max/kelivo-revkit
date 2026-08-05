@@ -5,17 +5,34 @@ class APKRepacker:
 
     @staticmethod
     def _find_jar(name):
-        paths = [f'/usr/local/bin/{name}', f'/usr/local/bin/bin/{name}']
+        """查找工具可执行路径，支持.jar和PATH内可执行文件"""
+        # 不带.jar后缀的可执行文件（shell wrapper / PATH命令）
+        base = name.replace('.jar', '')
+        import shutil
+        which = shutil.which(base)
+        if which:
+            return which
+        # .jar文件路径搜索
+        paths = [
+            f'/usr/local/bin/{name}',
+            f'/usr/local/bin/bin/{name}',
+            f'/home/kelivo-revkit/tools/{name}',
+            f'/home/tools/{name}',
+        ]
         for p in paths:
-            if os.path.exists(p): return p
+            if os.path.exists(p) and os.path.getsize(p) > 0:
+                return p
         return None
 
     @staticmethod
     def apktool_build(decoded_dir, output_apk, force=False, aapt=None):
         apktool = APKRepacker._find_jar('apktool.jar')
         if not apktool:
-            return {"success": False, "error": "apktool.jar not found"}
-        cmd = ['java', '-jar', apktool, 'b', decoded_dir, '-o', output_apk]
+            return {"success": False, "error": "apktool not found"}
+        if apktool.endswith('.jar'):
+            cmd = ['java', '-jar', apktool, 'b', decoded_dir, '-o', output_apk]
+        else:
+            cmd = [apktool, 'b', decoded_dir, '-o', output_apk]
         if force: cmd.append('-f')
         if aapt: cmd.extend(['--aapt', aapt])
         try:

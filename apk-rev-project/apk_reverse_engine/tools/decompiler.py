@@ -5,24 +5,37 @@ class APKDecompiler:
 
     @staticmethod
     def _find_jar(name):
+        """查找工具可执行路径，支持.jar和PATH内可执行文件"""
+        # 不带.jar后缀的可执行文件（shell wrapper / PATH命令）
+        base = name.replace('.jar', '')
+        import shutil
+        which = shutil.which(base)
+        if which:
+            return which
+        # .jar文件路径搜索
         paths = [
             f'/usr/local/bin/{name}',
             f'/usr/local/bin/bin/{name}',
             f'/usr/share/java/{name}',
             f'/opt/{name}',
+            f'/home/kelivo-revkit/tools/{name}',
+            f'/home/tools/{name}',
         ]
         for p in paths:
-            if os.path.exists(p):
+            if os.path.exists(p) and os.path.getsize(p) > 0:
                 return p
         return None
 
     @staticmethod
     def jadx_decompile(apk_path, output_dir, deobf=True, show_inconsistent=False, options=None):
-        jadx_jar = APKDecompiler._find_jar('jadx.jar')
-        if not jadx_jar:
-            return {"success": False, "error": "jadx.jar not found. Install: https://github.com/skylot/jadx"}
+        jadx = APKDecompiler._find_jar('jadx.jar')
+        if not jadx:
+            return {"success": False, "error": "jadx not found. Install: https://github.com/skylot/jadx"}
         
-        cmd = ["java", "-jar", jadx_jar, "-d", output_dir, "--show-bad-code"]
+        if jadx.endswith('.jar'):
+            cmd = ["java", "-jar", jadx, "-d", output_dir, "--show-bad-code"]
+        else:
+            cmd = [jadx, "-d", output_dir, "--show-bad-code"]
         if deobf:
             cmd.append("--deobf")
         if show_inconsistent:
@@ -55,11 +68,14 @@ class APKDecompiler:
     @staticmethod
     def jadx_gui(apk_path):
         """启动jadx-gui"""
-        jadx_jar = APKDecompiler._find_jar('jadx.jar')
-        if not jadx_jar:
-            return {"success": False, "error": "jadx.jar not found"}
+        jadx = APKDecompiler._find_jar('jadx.jar')
+        if not jadx:
+            return {"success": False, "error": "jadx not found"}
         try:
-            subprocess.Popen(["java", "-jar", jadx_jar, "-gui", apk_path])
+            if jadx.endswith('.jar'):
+                subprocess.Popen(["java", "-jar", jadx, "-gui", apk_path])
+            else:
+                subprocess.Popen([jadx, "-gui", apk_path])
             return {"success": True, "message": "jadx-gui launched"}
         except Exception as e:
             return {"success": False, "error": str(e)}
@@ -106,8 +122,11 @@ class APKDecompiler:
         """使用apktool解包"""
         apktool = APKDecompiler._find_jar('apktool.jar')
         if not apktool:
-            return {"success": False, "error": "apktool.jar not found"}
-        cmd = ['java', '-jar', apktool, 'd', apk_path, '-o', output_dir]
+            return {"success": False, "error": "apktool not found"}
+        if apktool.endswith('.jar'):
+            cmd = ['java', '-jar', apktool, 'd', apk_path, '-o', output_dir]
+        else:
+            cmd = [apktool, 'd', apk_path, '-o', output_dir]
         if force:
             cmd.append('-f')
         if no_src:
