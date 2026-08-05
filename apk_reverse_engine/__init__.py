@@ -207,11 +207,79 @@ def security_analyze(manifest_simple, permissions, obfuscation_score, packers):
 
 def analyze_code(text):
     """分析代码中的密钥/敏感信息"""
-    return _CodeAnalyzer.analyze(text)
+    return _CodeAnalyzer.analyze_all(text)
 
 def analyze_network(hosts):
     """分析网络地址(内网/公网IP分类)"""
     return _NetworkAnalyzer.analyze(hosts)
+
+def analyze_full(apk_path):
+    """一键全量分析：结构 + Manifest + DEX + 签名 + 权限 + 混淆 + 加固 + 安全 + SO
+
+    单次打开APK，一次性完成所有分析，避免重复IO
+    """
+    result = {'apk_path': apk_path, 'file_size': os.path.getsize(apk_path)}
+
+    with _APKContext(apk_path) as ctx:
+        # 1. 结构摘要
+        result['structure'] = ctx.get_structure_summary()
+
+        # 2. Manifest
+        try:
+            md = ctx.get_manifest_xml()
+            result['manifest'] = get_manifest_info(md)
+        except Exception:
+            result['manifest'] = {}
+
+        # 3. DEX分析 + 类名提取
+        dex_files = ctx.get_dex_files()
+        result['dex_summary'] = []
+        class_names = []
+        for d in dex_files:
+            try:
+                data = ctx.read_file(d)
+                dp = _DexParser(data)
+                dp.parse_header()
+                result['dex_summary'].append({'name': d, 'size': len(data), **dp.get_summary()})
+                class_names.extend(dp.get_class_names())
+            except Exception as e:
+                result['dex_summary'].append({'name': d, 'error': str(e)})
+
+        # 4. 签名验证
+        result['signature'] = _SignVerifier.verify_all(ctx.zip, apk_path)
+
+        # 5. SO文件分析
+        so_files = ctx.get_so_files()
+        result['abi_architectures'] = list(set(s.split('/')[0] for s in so_files if '/' in s))
+        result['native_analysis'] = {}
+        for s in so_files:
+            try:
+                data = ctx.read_file(s)
+                result['native_analysis'][s] = analyze_elf(data)
+            except Exception as e:
+                result['native_analysis'][s] = {'error': str(e)}
+
+        # 6. 权限分析
+        raw_perms = result['manifest'].get('permissions', [])
+        perm_names = [p.split('.')[-1] if '.' in p else p for p in raw_perms]
+        result['permissions'] = analyze_permissions(perm_names)
+
+        # 7. 混淆检测
+        result['obfuscation'] = detect_obfuscation(class_names)
+
+        # 8. 加固检测
+        packers = detect_packer(ctx.zip)
+        result['packers'] = packers
+
+        # 9. 安全评估
+        result['security'] = security_analyze(
+            result['manifest'],
+            result['permissions'],
+            result['obfuscation'].get('score', 0),
+            packers,
+        )
+
+    return result
 
 # ============================================================
 # 补丁模块 - Patching
@@ -472,7 +540,7 @@ __all__ = [
     # Analysis
     'static_analyze', 'analyze_permissions', 'detect_obfuscation', 'detect_packer',
     'detect_anti_tamper', 'detect_reflection', 'detect_string_encryption',
-    'security_analyze', 'analyze_code', 'analyze_network',
+    'security_analyze', 'analyze_code', 'analyze_network', 'analyze_full',
     # Patching
     'smali_patch_return', 'smali_patch_condition', 'smali_bypass_signature',
     'manifest_patch', 'manifest_set_debuggable', 'manifest_allow_backup',
