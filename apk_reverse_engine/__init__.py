@@ -24,10 +24,11 @@ def read_apk_file(apk_path, file_path):
         return ctx.read_file(file_path)
 
 def extract_apk(apk_path, output_dir):
-    """解压APK到目录"""
+    """解压APK到目录（稳健模式，逐文件提取）"""
     with _APKContext(apk_path) as ctx:
-        ctx.extract_to(output_dir)
-        return {'success': True, 'dir': output_dir}
+        r = ctx.extract_to(output_dir)
+        return {'success': len(r.get('errors', [])) < r.get('extracted', 0) or r.get('extracted', 0) > 0,
+                'dir': output_dir, 'extracted': r.get('extracted', 0), 'errors': r.get('errors', [])}
 
 def apk_structure(apk_path):
     """获取APK结构摘要"""

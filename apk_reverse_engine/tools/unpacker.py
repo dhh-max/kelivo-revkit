@@ -29,10 +29,21 @@ class APKUnpacker:
 
     @staticmethod
     def extract_raw(apk_path, output_dir):
-        ctx = APKContext(apk_path)
-        ctx.extract_to(output_dir)
-        ctx.close()
-        return {"success": True, "dir": output_dir}
+        """解压APK原始文件（稳健模式：逐文件提取，支持非UTF-8文件名）"""
+        try:
+            ctx = APKContext(apk_path)
+            result = ctx.extract_to(output_dir)
+            ctx.close()
+            success = len(result.get('errors', [])) < result.get('extracted', 0) or result.get('extracted', 0) > 0
+            return {
+                "success": success,
+                "dir": output_dir,
+                "extracted": result.get('extracted', 0),
+                "errors": result.get('errors', []),
+                "error": result['errors'][0]['error'] if result.get('errors') and not success else None
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
     @staticmethod
     def extract_dex(apk_path, output_dir):

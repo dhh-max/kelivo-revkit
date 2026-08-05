@@ -1,4 +1,5 @@
 import zipfile, os, hashlib, tempfile, shutil, re
+from datetime import datetime
 
 class APKContext:
     def __init__(self, apk_path):
@@ -35,9 +36,52 @@ class APKContext:
     def read_file(self, path): return self.zip.read(path)
 
     def extract_to(self, dest_dir, members=None):
+        """稳健解压：逐文件提取，处理编码异常，保留SO可执行权限"""
         os.makedirs(dest_dir, exist_ok=True)
-        self.zip.extractall(dest_dir, members)
-        return dest_dir
+        targets = members if members is not None else self.file_list
+        errors = []
+        extracted = 0
+        for name in targets:
+            try:
+                # 处理非UTF-8编码文件名
+                try:
+                    dest_path = os.path.join(dest_dir, name)
+                except UnicodeDecodeError:
+                    dest_path = os.path.join(dest_dir, name.encode('cp437').decode('utf-8', errors='replace'))
+                dest_dirname = os.path.dirname(dest_path)
+                if dest_dirname and not os.path.exists(dest_dirname):
+                    os.makedirs(dest_dirname, exist_ok=True)
+                info = self.zip.getinfo(name)
+                # 跳过目录条目
+                if name.endswith('/'):
+                    os.makedirs(dest_path, exist_ok=True)
+                    extracted += 1
+                    continue
+                # 逐文件提取
+                with self.zip.open(name) as src, open(dest_path, 'wb') as dst:
+                    while True:
+                        chunk = src.read(1048576)
+                        if not chunk:
+                            break
+                        dst.write(chunk)
+                # 保留原始时间戳
+                date_time = info.date_time
+                if date_time and date_time != (0, 0, 0, 0, 0, 0):
+                    try:
+                        ts = datetime(*date_time).timestamp()
+                        os.utime(dest_path, (ts, ts))
+                    except (ValueError, OSError):
+                        pass
+                # SO文件加执行权限
+                if name.endswith('.so'):
+                    try:
+                        os.chmod(dest_path, os.stat(dest_path).st_mode | 0o111)
+                    except OSError:
+                        pass
+                extracted += 1
+            except Exception as e:
+                errors.append({'file': name, 'error': str(e)})
+        return {'extracted': extracted, 'errors': errors, 'dir': dest_dir}
 
     def get_temp_dir(self):
         if self._temp_dir is None: self._temp_dir = tempfile.mkdtemp(prefix='apk_ctx_')
