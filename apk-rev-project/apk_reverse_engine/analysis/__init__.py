@@ -5,3 +5,8 @@ from .network_analyzer import NetworkAnalyzer
 from .obfuscation_detector import ObfuscationDetector
 from .security_analyzer import SecurityAnalyzer
 from .clue_chain import ClueChain
+from .apk_diff import APKDiffEngine
+from .endpoint_extractor import EndpointExtractor
+from .key_scanner import KeyScanner
+from .cert_deep_analyzer import CertDeepAnalyzer
+from .apk_cleaner import APKCleaner

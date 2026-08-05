@@ -757,6 +757,335 @@ def cmd_patch(args):
     t.add_row("大小", _fmt_size(len(data)))
     console.print(_make_panel(t, "🔧 补丁结果", "green"))
 
+# ── 增强逆向新功能 ──────────────────────────────────────
+
+def cmd_diff(args):
+    """对比两个APK差异"""
+    with console.status("🔍 对比APK差异中...", spinner="dots"):
+        # 同时分析两个APK获取manifest/classes/permissions
+        r1 = analyze_full(args.apk1)
+        r2 = analyze_full(args.apk2)
+        m1 = r1.get("manifest", {})
+        m2 = r2.get("manifest", {})
+        perms1 = [p.split('.')[-1] if '.' in p else p for p in m1.get("permissions", [])]
+        perms2 = [p.split('.')[-1] if '.' in p else p for p in m2.get("permissions", [])]
+
+        # 收集类名
+        dex1 = r1.get("dex_summary", [])
+        dex2 = r2.get("dex_summary", [])
+        classes1 = []
+        classes2 = []
+        with open_apk(args.apk1) as ctx:
+            for d in ctx.get_dex_files():
+                from apk_reverse_engine import dex_class_names
+                classes1.extend(dex_class_names(ctx.read_file(d)))
+        with open_apk(args.apk2) as ctx:
+            for d in ctx.get_dex_files():
+                from apk_reverse_engine import dex_class_names
+                classes2.extend(dex_class_names(ctx.read_file(d)))
+
+        r = compare_apks(args.apk1, args.apk2, m1, m2, classes1, classes2, perms1, perms2)
+
+    if args.json:
+        console.print(json.dumps(r, indent=2, ensure_ascii=False, default=str))
+        return
+
+    # 标题
+    console.print(Panel(
+        f"[bold cyan]{os.path.basename(args.apk1)}[/] vs [bold cyan]{os.path.basename(args.apk2)}[/]",
+        title="🔍 APK 差异对比", border_style="cyan", box=box.DOUBLE
+    ))
+
+    # 摘要
+    summary = r.get("summary", {})
+    level = summary.get("change_level", "?")
+    clr = {"微小": "green", "中等": "yellow", "显著": "red", "重大": "red"}.get(level, "white")
+    console.print(f"[bold]变更等级:[/] [{clr}]{level}[/]  [dim]变更总数: {summary.get('total_changes', 0)}[/]")
+
+    # 大小对比
+    sz = r.get("structure", {}).get("size", {})
+    if sz:
+        t = Table(box=box.SIMPLE, show_header=False)
+        t.add_column("指标", style="cyan")
+        t.add_column("旧", justify="right")
+        t.add_column("新", justify="right")
+        t.add_row("原始大小", _fmt_size(sz.get('old_raw', 0)), _fmt_size(sz.get('new_raw', 0)))
+        t.add_row("压缩大小", _fmt_size(sz.get('old_compressed', 0)), _fmt_size(sz.get('new_compressed', 0)))
+        diff = sz.get('diff_raw', 0)
+        diff_str = f"+{_fmt_size(diff)}" if diff > 0 else _fmt_size(diff)
+        t.add_row("差异", f"[{'red' if diff>0 else 'green'}]{diff_str}[/]", "")
+        console.print(_make_panel(t, "📊 大小对比", "green"))
+
+    # 文件差异
+    files = r.get("structure", {}).get("files", {})
+    if files:
+        t = Table(box=box.SIMPLE, show_header=False)
+        t.add_column("类别", style="cyan")
+        t.add_column("数量", justify="right")
+        t.add_row("旧文件总数", str(files.get('total_old', 0)))
+        t.add_row("新文件总数", str(files.get('total_new', 0)))
+        t.add_row("新增文件", f"[green]+{len(files.get('added', []))}[/]")
+        t.add_row("删除文件", f"[red]-{len(files.get('removed', []))}[/]")
+        t.add_row("修改文件", f"[yellow]{len(files.get('modified', []))}[/]")
+        t.add_row("未变更", str(files.get('unchanged', 0)))
+        console.print(_make_panel(t, "📁 文件变更", "yellow"))
+
+        if files.get('added'):
+            console.print(Panel("\n".join(f"  [green]➕ {f}[/]" for f in files['added'][:15]),
+                                title="新增文件", border_style="green", title_align="left"))
+        if files.get('removed'):
+            console.print(Panel("\n".join(f"  [red]➖ {f}[/]" for f in files['removed'][:15]),
+                                title="删除文件", border_style="red", title_align="left"))
+        if files.get('modified'):
+            console.print(Panel("\n".join(f"  [yellow]✏️ {m['file']} ({_fmt_size(m['old_size'])} → {_fmt_size(m['new_size'])})[/]" for m in files['modified'][:15]),
+                                title="修改文件", border_style="yellow", title_align="left"))
+
+    # Manifest差异
+    man_diffs = r.get("manifest", [])
+    if man_diffs:
+        t = Table(box=box.SIMPLE, show_header=False)
+        t.add_column("字段", style="cyan")
+        t.add_column("旧值", style="red")
+        t.add_column("新值", style="green")
+        for d in man_diffs:
+            t.add_row(d['field'], str(d.get('old', '?')), str(d.get('new', '?')))
+        console.print(_make_panel(t, "📋 Manifest 变更", "blue"))
+
+    # 权限差异
+    perm_diff = r.get("permissions", {})
+    if perm_diff:
+        if perm_diff.get('added'):
+            console.print(f"[green]➕ 新增权限 ({len(perm_diff['added'])}):[/] {' '.join(perm_diff['added'][:10])}")
+        if perm_diff.get('removed'):
+            console.print(f"[red]➖ 移除权限 ({len(perm_diff['removed'])}):[/] {' '.join(perm_diff['removed'][:10])}")
+
+    # 类差异
+    cls_diff = r.get("classes", {})
+    if cls_diff:
+        console.print(f"[bold]📦 类统计:[/] 新增 [green]{len(cls_diff.get('added', []))}[/] 移除 [red]{len(cls_diff.get('removed', []))}[/] 共同 {cls_diff.get('common_count', 0)}")
+
+    console.print()
+
+def cmd_endpoints(args):
+    """从DEX中提取网络端点"""
+    with console.status("🌐 提取网络端点...", spinner="dots"):
+        with open_apk(args.apk) as ctx:
+            all_strings = []
+            for d in ctx.get_dex_files():
+                from apk_reverse_engine import dex_strings
+                all_strings.extend(dex_strings(ctx.read_file(d)))
+        r = extract_endpoints(all_strings)
+
+    if args.json:
+        console.print(json.dumps(r, indent=2, ensure_ascii=False, default=str))
+        return
+
+    console.print(Panel(
+        f"[bold cyan]{os.path.basename(args.apk)}[/]",
+        title="🌐 网络端点分析", border_style="cyan", box=box.DOUBLE
+    ))
+
+    # 协议概览
+    proto = r.get("protocols", {})
+    console.print(f"[bold]📊 协议:[/] HTTP={proto.get('http_only',0)}  HTTPS={proto.get('https_only',0)}  "
+                  f"不安全比例=[{'red' if proto.get('insecure_ratio',0)>10 else 'green'}]{proto.get('insecure_ratio',0)}%[/]")
+
+    # URL列表
+    urls = r.get("urls", [])
+    if urls:
+        console.print(Panel("\n".join(f"  {u}" for u in urls[:20]),
+                            title=f"📝 URL ({len(urls)})", border_style="blue", title_align="left"))
+
+    # 域名
+    domains = r.get("domains", [])
+    if domains:
+        t = Table(box=box.SIMPLE, show_header=False)
+        t.add_column("类型", style="cyan")
+        t.add_column("域名", style="white")
+        for d in domains[:20]:
+            tag = ""
+            if d in r.get("cloud_hosts", []):
+                tag = " ☁️云"
+            elif d in r.get("cdn_hosts", []):
+                tag = " 🚀CDN"
+            elif d in r.get("internal_hosts", []):
+                tag = " 🔒内网"
+            t.add_row(tag, d)
+        console.print(_make_panel(t, f"🌐 域名 ({len(domains)})", "cyan"))
+
+    # IP
+    public_ips = r.get("public_ips", [])
+    private_ips = r.get("private_ips", [])
+    if public_ips or private_ips:
+        console.print(f"[bold]📡 IP:[/] 公网 [red]{len(public_ips)}[/] 内网 [dim]{len(private_ips)}[/]")
+        if public_ips:
+            console.print(f"  [red]{' '.join(public_ips[:10])}[/]")
+
+    # API路径
+    api_paths = r.get("api_paths", [])
+    if api_paths:
+        console.print(Panel("\n".join(f"  {p}" for p in api_paths[:20]),
+                            title=f"🔗 API路径 ({len(api_paths)})", border_style="magenta", title_align="left"))
+
+    # 端口
+    ports = r.get("ports", [])
+    if ports:
+        console.print(f"[bold]🔌 端口:[/] {', '.join(ports[:15])}")
+
+    console.print()
+
+def cmd_keyscan(args):
+    """扫描DEX中的硬编码密钥"""
+    with console.status("🔑 扫描密钥...", spinner="dots"):
+        with open_apk(args.apk) as ctx:
+            all_strings = []
+            for d in ctx.get_dex_files():
+                from apk_reverse_engine import dex_strings
+                all_strings.extend(dex_strings(ctx.read_file(d)))
+        r = scan_keys(all_strings)
+        weak_crypto = detect_weak_crypto(all_strings)
+
+    if args.json:
+        console.print(json.dumps(r, indent=2, ensure_ascii=False, default=str))
+        return
+
+    summary = r.get("summary", {})
+    total = summary.get("total", 0)
+    high = summary.get("high", 0)
+    medium = summary.get("medium", 0)
+    risk_score = summary.get("risk_score", 0)
+    risk_level = summary.get("risk_level", "低风险")
+
+    clr = {"严重": "red", "中等": "yellow", "低风险": "green"}.get(risk_level, "white")
+    console.print(Panel(
+        f"[bold {clr}]风险评分: {risk_score}/100 ({risk_level})[/]\n"
+        f"发现 {total} 个敏感信息 (高危={high} 中危={medium})",
+        title="🔑 密钥扫描结果", border_style=clr, box=box.DOUBLE
+    ))
+
+    keys = r.get("keys", [])
+    if keys:
+        sev_icon = {"HIGH": "🔴", "MEDIUM": "🟡", "INFO": "🔵"}
+        for k in keys[:30]:
+            icon = sev_icon.get(k.get("severity", "INFO"), "•")
+            console.print(f"  {icon} [bold]{k['category']}[/] [dim]{k['match'][:80]}[/]")
+        if len(keys) > 30:
+            console.print(f"[dim]... 还有 {len(keys)-30} 项[/]")
+
+    if weak_crypto:
+        console.print(f"\n[bold yellow]⚠️ 弱加密告警:[/]")
+        for w in weak_crypto:
+            console.print(f"  • {w}")
+
+    console.print()
+
+def cmd_cert(args):
+    """深度分析签名证书"""
+    with console.status("📜 分析签名证书...", spinner="dots"):
+        with open_apk(args.apk) as ctx:
+            sig = verify_signature(ctx.zip, args.apk)
+            cert_info = sig.get("cert_info", {})
+            cert_analysis = analyze_cert_deep(cert_info)
+
+    # 签名方案
+    console.print(Panel(
+        f"[bold]签名方案:[/] V1={_bool_icon(sig.get('v1', False))}  "
+        f"V2={_bool_icon(sig.get('v2', False))}  V3={_bool_icon(sig.get('v3', False))}\n"
+        f"[bold]安全等级:[/] {sig.get('security_level', '?')}",
+        title="📜 签名证书分析", border_style="cyan", box=box.DOUBLE
+    ))
+
+    if "error" in cert_analysis:
+        console.print(f"[red]❌ {cert_analysis['error']}[/]")
+        return
+
+    # 签发者/主题
+    t = Table(box=box.SIMPLE, show_header=False)
+    t.add_column("属性", style="cyan")
+    t.add_column("值")
+    t.add_row("签发者", cert_analysis.get('issuer_str', '?'))
+    t.add_row("主体", cert_analysis.get('subject_str', '?'))
+    t.add_row("序列号", cert_analysis.get('serial', '?'))
+    validity = cert_analysis.get('validity', {})
+    if validity:
+        t.add_row("有效期", f"{validity.get('not_before', '?')} → {validity.get('not_after', '?')}")
+    console.print(_make_panel(t, "📋 证书信息", "blue"))
+
+    # 风险评分
+    risk_score = cert_analysis.get('risk_score', 0)
+    risk_level = cert_analysis.get('risk_level', '?')
+    clr = {"安全": "green", "低风险": "yellow", "中风险": "red", "高风险": "red"}.get(risk_level, "white")
+    console.print(f"[bold]风险评分:[/] [{clr}]{risk_score}/100 ({risk_level})[/]")
+
+    for issue in cert_analysis.get('issues', []):
+        console.print(f"  {issue}")
+    for finding in cert_analysis.get('findings', []):
+        console.print(f"  {finding}")
+
+    console.print()
+
+def cmd_clean(args):
+    """APK清理优化"""
+    if not args.dry_run and args.output:
+        with console.status("🧹 清理APK中..."):
+            r = clean_apk(args.apk, args.output, args.remove_debug, args.remove_meta, remove_backup=True)
+        if r.get("success"):
+            console.print(f"[bold green]✅ 清理成功: {args.output}[/]")
+            t = Table(box=box.SIMPLE, show_header=False)
+            t.add_column("指标", style="cyan")
+            t.add_column("值")
+            t.add_row("保留文件", str(r.get('kept', 0)))
+            t.add_row("移除文件", str(r.get('removed', 0)))
+            t.add_row("节省空间", _fmt_size(r.get('removed_size', 0)))
+            t.add_row("压缩率", f"{r.get('saved_percent', 0)}%")
+            console.print(_make_panel(t, "📊 清理结果", "green"))
+            return
+
+    # 分析模式
+    with console.status("🧹 分析APK冗余文件..."):
+        r = analyze_apk_clean(args.apk)
+
+    sz = r.get("size", 0)
+    waste = r.get("total_waste", 0)
+    ratio = r.get("waste_ratio", 0)
+    level = r.get("clean_potential", {}).get("level", "?")
+    clr = {"优秀": "green", "良好": "blue", "一般": "yellow", "需优化": "red"}.get(level, "white")
+
+    console.print(Panel(
+        f"[bold]APK大小:[/] {_fmt_size(sz)}  |  "
+        f"[bold]可回收:[/] [{'red' if waste>0 else 'green'}]{_fmt_size(waste)}[/]  |  "
+        f"[bold {clr}]优化等级: {level} ({ratio})[/]",
+        title="🧹 APK清理分析", border_style=clr, box=box.DOUBLE
+    ))
+
+    # 调试文件
+    debug_files = r.get("debug_files", [])
+    if debug_files:
+        console.print(Panel("\n".join(f"  [red]🗑️ {f['file']} ({_fmt_size(f['size'])})[/]" for f in debug_files[:10]),
+                            title=f"调试/测试文件 ({len(debug_files)})", border_style="red", title_align="left"))
+
+    # 大文件
+    large = r.get("large_files", [])
+    if large:
+        t = Table(box=box.SIMPLE)
+        t.add_column("文件", style="cyan")
+        t.add_column("大小", justify="right")
+        for f in large[:10]:
+            t.add_row(f['file'], _fmt_size(f['size']))
+        console.print(_make_panel(t, f"大文件 Top {len(large[:10])}", "yellow"))
+
+    # 建议
+    for rec in r.get("recommendations", []):
+        ps = rec.get('potential_saving', '')
+        if isinstance(ps, (int, float)):
+            ps = _fmt_size(ps)
+        console.print(f"  💡 [bold]{rec['type']}:[/] {rec['detail']} [dim](可节省: {ps})[/]")
+
+    if not args.dry_run and not args.output:
+        console.print(f"\n[dim]💡 使用 reng clean {args.apk} output.apk 执行清理[/]")
+
+    console.print()
+
 # ── 主入口 ──────────────────────────────────────────────────
 
 def main():
@@ -931,6 +1260,41 @@ def main():
     p.add_argument("input", help="输入文件路径")
     p.add_argument("output", help="输出文件路径")
     p.set_defaults(func=cmd_convert)
+
+    # ── 增强逆向新功能 ────────────────────────────────────
+
+    # diff
+    p = sub.add_parser("diff", help="🔍 对比两个APK差异 (结构/文件/类/权限)")
+    p.add_argument("apk1", help="旧APK文件路径")
+    p.add_argument("apk2", help="新APK文件路径")
+    p.add_argument("--json", action="store_true", help="以JSON格式输出")
+    p.set_defaults(func=cmd_diff)
+
+    # endpoints
+    p = sub.add_parser("endpoints", help="🌐 从DEX中提取网络端点 (URL/IP/域名/API路径)")
+    p.add_argument("apk", help="APK文件路径")
+    p.add_argument("--json", action="store_true", help="以JSON格式输出")
+    p.set_defaults(func=cmd_endpoints)
+
+    # keyscan
+    p = sub.add_parser("keyscan", help="🔑 扫描DEX中的硬编码密钥/凭证/令牌")
+    p.add_argument("apk", help="APK文件路径")
+    p.add_argument("--json", action="store_true", help="以JSON格式输出")
+    p.set_defaults(func=cmd_keyscan)
+
+    # cert
+    p = sub.add_parser("cert", help="📜 深度分析签名证书 (调试证书/有效期/CA)")
+    p.add_argument("apk", help="APK文件路径")
+    p.set_defaults(func=cmd_cert)
+
+    # clean
+    p = sub.add_parser("clean", help="🧹 分析APK冗余文件并清理优化")
+    p.add_argument("apk", help="APK文件路径")
+    p.add_argument("output", nargs="?", default="", help="输出APK路径（清理后需重新签名）")
+    p.add_argument("--remove-debug", action="store_true", default=True, help="移除调试/测试文件")
+    p.add_argument("--remove-meta", action="store_true", help="移除META-INF签名文件（重签名前）")
+    p.add_argument("--dry-run", action="store_true", help="仅分析，不执行清理")
+    p.set_defaults(func=cmd_clean)
 
     args = parser.parse_args()
     

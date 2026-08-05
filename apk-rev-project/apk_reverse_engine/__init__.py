@@ -172,6 +172,11 @@ from .analysis.obfuscation_detector import ObfuscationDetector as _ObfuscationDe
 from .analysis.security_analyzer import SecurityAnalyzer as _SecurityAnalyzer
 from .analysis.code_analyzer import CodeAnalyzer as _CodeAnalyzer
 from .analysis.network_analyzer import NetworkAnalyzer as _NetworkAnalyzer
+from .analysis.apk_diff import APKDiffEngine as _APKDiffEngine
+from .analysis.endpoint_extractor import EndpointExtractor as _EndpointExtractor
+from .analysis.key_scanner import KeyScanner as _KeyScanner
+from .analysis.cert_deep_analyzer import CertDeepAnalyzer as _CertDeepAnalyzer
+from .analysis.apk_cleaner import APKCleaner as _APKCleaner
 
 def static_analyze(apk_path):
     """APK静态分析: 结构/Manifest/DEX摘要/签名/ABI"""
@@ -344,6 +349,40 @@ def clue_chain_analyze(manifest=None, class_names=None, native_analysis=None,
         signature=signature, apk_structure=apk_structure,
         dex_strings=dex_strings, dex_summary=dex_summary,
     )
+
+# ============================================================
+# 增强逆向新功能 - Analysis Extensions
+# ============================================================
+
+def compare_apks(apk1_path, apk2_path, manifest1=None, manifest2=None,
+                 classes1=None, classes2=None, perms1=None, perms2=None):
+    """对比两个APK的结构/文件/类/权限差异"""
+    return _APKDiffEngine.compare_full(apk1_path, apk2_path, manifest1, manifest2,
+                                        classes1, classes2, perms1, perms2)
+
+def extract_endpoints(strings):
+    """从DEX字符串中深度提取网络端点(URL/IP/域名/API路径/端口)"""
+    return _EndpointExtractor.extract_all(strings)
+
+def scan_keys(strings):
+    """扫描DEX字符串中的硬编码密钥/凭证/令牌"""
+    return _KeyScanner.scan_strings(strings)
+
+def detect_weak_crypto(strings):
+    """检测弱加密算法使用"""
+    return _KeyScanner.detect_weak_crypto(strings)
+
+def analyze_cert_deep(cert_info):
+    """深度分析证书安全性(调试证书/有效期/CA/哈希)"""
+    return _CertDeepAnalyzer.analyze(cert_info)
+
+def analyze_apk_clean(apk_path):
+    """分析APK冗余文件及清理优化建议"""
+    return _APKCleaner.analyze(apk_path)
+
+def clean_apk(apk_path, output_path, remove_debug=True, remove_meta=False, remove_backup=True):
+    """清理APK冗余文件并输出新APK（清理后需重新签名）"""
+    return _APKCleaner.clean_apk(apk_path, output_path, remove_debug, remove_meta, remove_backup)
 
 # ============================================================
 # 补丁模块 - Patching
@@ -628,6 +667,9 @@ __all__ = [
     'detect_anti_tamper', 'detect_reflection', 'detect_string_encryption',
     'security_analyze', 'analyze_code', 'analyze_network', 'analyze_full',
     'clue_chain_analyze',
+    # Analysis Extensions
+    'compare_apks', 'extract_endpoints', 'scan_keys', 'detect_weak_crypto',
+    'analyze_cert_deep', 'analyze_apk_clean', 'clean_apk',
     # Patching
     'smali_patch_return', 'smali_patch_condition', 'smali_bypass_signature',
     'manifest_patch', 'manifest_set_debuggable', 'manifest_allow_backup',
