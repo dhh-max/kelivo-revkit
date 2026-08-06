@@ -10,3 +10,11 @@ from .endpoint_extractor import EndpointExtractor
 from .key_scanner import KeyScanner
 from .cert_deep_analyzer import CertDeepAnalyzer
 from .apk_cleaner import APKCleaner
+from .core_class_locator import CoreClassLocator
+from .sdk_detector import SDKDetector
+from .manifest_editor import ManifestEditor
+from .string_analyzer import StringAnalyzer
+from .resource_obfuscation import ResourceObfuscationDetector
+from .ad_detector import AdDetector
+from .deobfuscator import Deobfuscator
+from .social_login_detector import SocialLoginDetector

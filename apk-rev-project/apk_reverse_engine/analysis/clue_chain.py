@@ -82,7 +82,9 @@ class ClueChain:
     def analyze(cls, manifest=None, dex_summary=None, class_names=None,
                 native_analysis=None, so_files=None, assets_files=None,
                 permissions=None, packers=None, obfuscation_score=None,
-                signature=None, apk_structure=None, dex_strings=None):
+                signature=None, apk_structure=None, dex_strings=None,
+                ad_analysis=None, string_analysis=None,
+                resource_obfuscation=None):
         """全量线索串联分析"""
         clues = []
         risks = set()
@@ -94,6 +96,8 @@ class ClueChain:
             cls._dynamic_loading, cls._signature, cls._structure,
             cls._sensitive_classes, cls._dex_strings,
             cls._broadcast_receivers, cls._background_network,
+            cls._ad_integration, cls._string_risk,
+            cls._resource_obfuscation_cross,
         ]
 
         for analyzer in analyzers:
@@ -104,7 +108,9 @@ class ClueChain:
                              permissions=permissions, packers=packers,
                              obfuscation_score=obfuscation_score,
                              signature=signature, apk_structure=apk_structure,
-                             dex_strings=dex_strings)
+                             dex_strings=dex_strings,
+                             ad_analysis=ad_analysis, string_analysis=string_analysis,
+                             resource_obfuscation=resource_obfuscation)
                 clues.extend(r.get('clues', []))
                 risks.update(r.get('risks', []))
                 tags.update(r.get('tags', set()))
@@ -639,7 +645,8 @@ class ClueChain:
         # 特征标签加权
         high_risk_tags = {'beanshell', 'packed', 'heavy_protection', 'stub_app',
                           'dynamic_loading', 'native_suspicious', 'sms_receiver',
-                          'background_tracking', 'permission_abuse'}
+                          'background_tracking', 'permission_abuse', 'ad_heavy',
+                          'string_sensitive_data', 'resource_obfuscated'}
         score += len(tags & high_risk_tags) * 8
 
         # 扣分项：纯 WebView 套壳且无其他风险 → 降低
@@ -671,6 +678,9 @@ class ClueChain:
             'js_bridge': 'JS Bridge', 'sms_receiver': '短信拦截',
             'background_tracking': '后台追踪', 'native_suspicious': 'Native 可疑',
             'crypto_usage': '加密使用', 'suspicious_assets': '可疑资源',
+            'ad_heavy': '密集广告集成', 'ad_present': '存在广告',
+            'string_sensitive_data': '字符串敏感数据',
+            'resource_obfuscated': '资源混淆',
         }
         tag_desc = [tag_labels.get(t, t) for t in tags if t in tag_labels]
 
@@ -682,3 +692,155 @@ class ClueChain:
             'clue_summary': f'{high_count} 高危, {medium_count} 中危, {len(clues) - high_count - medium_count} 信息',
             'tags': tag_desc,
         }
+
+    # ============================================================
+    # 分析器13: 广告集成串关联
+    # ============================================================
+    @classmethod
+    def _ad_integration(cls, **kw):
+        clues, risks, tags = [], set(), set()
+        ad_analysis = kw.get('ad_analysis')
+        class_names = kw.get('class_names') or []
+        permissions = kw.get('permissions') or []
+
+        if not ad_analysis or 'error' in ad_analysis:
+            return {'clues': clues, 'risks': risks, 'tags': tags}
+
+        ad_summary = ad_analysis.get('summary', {})
+        ad_level = ad_summary.get('level', '无广告')
+        ad_score = ad_summary.get('score', 0)
+        ad_sdk_count = ad_summary.get('ad_sdk_count', 0)
+
+        if ad_level == '密集广告' or ad_score >= 60:
+            ad_types = []
+            if ad_summary.get('has_banner'): ad_types.append('Banner')
+            if ad_summary.get('has_interstitial'): ad_types.append('插屏')
+            if ad_summary.get('has_rewarded'): ad_types.append('激励视频')
+            if ad_summary.get('has_native'): ad_types.append('原生')
+            if ad_summary.get('has_mediation'): ad_types.append('聚合广告')
+
+            clues.append({
+                'type': 'heavy_ad', 'severity': 'medium',
+                'title': '密集广告集成',
+                'detail': f'{ad_sdk_count}个广告SDK, 等级{ad_level}({ad_score}/100), '
+                          f'类型: {", ".join(ad_types) if ad_types else "未知"}',
+                'cross_ref': [s['name'] for s in ad_analysis.get('ad_sdks', [])[:5]],
+            })
+            tags.add('ad_heavy')
+
+            # 广告 + 过多危险权限 → 隐私风险
+            perm_set = set(p.upper() for p in permissions)
+            high_risk_ad_perms = {'ACCESS_FINE_LOCATION', 'ACCESS_BACKGROUND_LOCATION',
+                                  'READ_CONTACTS', 'READ_SMS', 'CAMERA', 'RECORD_AUDIO',
+                                  'READ_EXTERNAL_STORAGE', 'GET_ACCOUNTS'}
+            found_ad_risk = perm_set & high_risk_ad_perms
+            if len(found_ad_risk) >= 3:
+                clues.append({
+                    'type': 'ad_privacy_risk', 'severity': 'high',
+                    'title': '广告SDK过度收集隐私',
+                    'detail': f'密集广告 + {len(found_ad_risk)}个敏感权限: '
+                              f'{", ".join(sorted(found_ad_risk))}',
+                    'cross_ref': sorted(found_ad_risk),
+                })
+                risks.add('AD_PRIVACY_OVERCOLLECT')
+                tags.add('ad_privacy_risk')
+
+        elif ad_level == '有广告' or ad_score >= 30:
+            clues.append({
+                'type': 'ad_present', 'severity': 'info',
+                'title': '集成广告SDK',
+                'detail': f'{ad_sdk_count}个广告SDK, 评分{ad_score}/100',
+                'cross_ref': [s['name'] for s in ad_analysis.get('ad_sdks', [])[:3]],
+            })
+            tags.add('ad_present')
+
+        return {'clues': clues, 'risks': risks, 'tags': tags}
+
+    # ============================================================
+    # 分析器14: 字符串敏感数据风险
+    # ============================================================
+    @classmethod
+    def _string_risk(cls, **kw):
+        clues, risks, tags = [], set(), set()
+        string_analysis = kw.get('string_analysis')
+        class_names = kw.get('class_names') or []
+
+        if not string_analysis or 'error' in string_analysis:
+            return {'clues': clues, 'risks': risks, 'tags': tags}
+
+        s = string_analysis.get('summary', {})
+
+        # 敏感信息
+        if s.get('has_sensitive'):
+            sensitive_count = s.get('sensitive_count', 0)
+            private_ip_count = s.get('private_ip_count', 0)
+            url_count = s.get('url_count', 0)
+            base64_count = s.get('base64_count', 0)
+
+            severity = 'high' if sensitive_count > 10 or private_ip_count > 3 else 'medium'
+            clues.append({
+                'type': 'string_sensitive', 'severity': severity,
+                'title': '字符串含敏感数据',
+                'detail': f'敏感信息{sensitive_count}项, 内网IP{private_ip_count}个, '
+                          f'URL{url_count}个, Base64{base64_count}个',
+                'cross_ref': ['sensitive_strings', 'private_ips', 'urls', 'base64'],
+            })
+            tags.add('string_sensitive_data')
+
+            if sensitive_count > 20:
+                risks.add('EXCESSIVE_SENSITIVE_STRINGS')
+
+        # 硬编码密钥 (来自 string_analysis 或 key_scanner)
+        if s.get('has_hardcoded_keys'):
+            key_count = s.get('hardcoded_key_count', 0)
+            clues.append({
+                'type': 'hardcoded_keys', 'severity': 'high',
+                'title': '硬编码密钥/凭证',
+                'detail': f'发现 {key_count} 个硬编码密钥或凭证',
+                'cross_ref': ['hardcoded_keys'],
+            })
+            risks.add('HARDCODED_CREDENTIALS')
+            tags.add('hardcoded_credentials')
+
+        return {'clues': clues, 'risks': risks, 'tags': tags}
+
+    # ============================================================
+    # 分析器15: 资源混淆串关联
+    # ============================================================
+    @classmethod
+    def _resource_obfuscation_cross(cls, **kw):
+        clues, risks, tags = [], set(), set()
+        resource_obfuscation = kw.get('resource_obfuscation')
+        packers = kw.get('packers') or []
+        obfuscation_score = kw.get('obfuscation_score')
+
+        if not resource_obfuscation or 'error' in resource_obfuscation:
+            return {'clues': clues, 'risks': risks, 'tags': tags}
+
+        ro = resource_obfuscation.get('summary', {})
+        ro_score = ro.get('score', 0)
+        ro_level = ro.get('level', '低')
+
+        if ro_level == '高' or ro_score >= 60:
+            ratio = ro.get('obfuscated_ratio', 0)
+            clues.append({
+                'type': 'resource_obfuscation', 'severity': 'medium',
+                'title': '资源混淆',
+                'detail': f'评分{ro_score}/100 ({ro_level}), 混淆率{ratio:.1%}',
+                'cross_ref': [f'ratio={ratio:.2f}', f'score={ro_score}'],
+            })
+            tags.add('resource_obfuscated')
+
+            # 资源混淆 + 代码混淆 + 加固 = 三重保护
+            if packers and (obfuscation_score or 0) > 50:
+                clues.append({
+                    'type': 'triple_protection', 'severity': 'high',
+                    'title': '三重保护: 加固+代码混淆+资源混淆',
+                    'detail': f'加固壳({", ".join(packers)}) + 代码混淆({obfuscation_score}/100) '
+                              f'+ 资源混淆({ro_score}/100)',
+                    'cross_ref': ['packers', 'obfuscation', 'resource_obfuscation'],
+                })
+                risks.add('TRIPLE_PROTECTION')
+                tags.add('triple_protection')
+
+        return {'clues': clues, 'risks': risks, 'tags': tags}

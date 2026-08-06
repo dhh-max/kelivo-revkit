@@ -167,6 +167,7 @@ def parse_arsc(data):
 # ============================================================
 
 from .analysis.clue_chain import ClueChain as _ClueChain
+from .analysis.core_class_locator import CoreClassLocator as _CoreClassLocator
 
 from .analysis.static_analyzer import StaticAnalyzer as _StaticAnalyzer
 from .analysis.permission_analyzer import PermissionAnalyzer as _PermissionAnalyzer
@@ -179,6 +180,13 @@ from .analysis.endpoint_extractor import EndpointExtractor as _EndpointExtractor
 from .analysis.key_scanner import KeyScanner as _KeyScanner
 from .analysis.cert_deep_analyzer import CertDeepAnalyzer as _CertDeepAnalyzer
 from .analysis.apk_cleaner import APKCleaner as _APKCleaner
+from .analysis.sdk_detector import SDKDetector as _SDKDetector
+from .analysis.manifest_editor import ManifestEditor as _ManifestEditor
+from .analysis.string_analyzer import StringAnalyzer as _StringAnalyzer
+from .analysis.resource_obfuscation import ResourceObfuscationDetector as _ResourceObfuscationDetector
+from .analysis.ad_detector import AdDetector as _AdDetector
+from .analysis.deobfuscator import Deobfuscator as _Deobfuscator
+from .analysis.social_login_detector import SocialLoginDetector as _SocialLoginDetector
 
 def static_analyze(apk_path):
     """APK静态分析: 结构/Manifest/DEX摘要/签名/ABI"""
@@ -220,6 +228,24 @@ def analyze_code(text):
     """分析代码中的密钥/敏感信息"""
     return _CodeAnalyzer.analyze_all(text)
 
+def analyze_danger_summary(text):
+    """危险调用摘要分析"""
+    return _CodeAnalyzer.analyze_danger_summary(text)
+
+def build_cfg(instructions):
+    """构建DEX指令控制流图"""
+    from .analysis.code_analyzer import CFGBuilder
+    return CFGBuilder.analyze_method(instructions)
+
+def analyze_method(instructions):
+    """分析方法指令摘要"""
+    from .analysis.code_analyzer import MethodAnalyzer
+    return MethodAnalyzer.analyze_method_summary(instructions)
+
+def deobfuscate_analyze(text, class_names=None, instructions=None):
+    """一站式去混淆分析"""
+    return _Deobfuscator.analyze_full(text, class_names, instructions)
+
 def analyze_network(hosts):
     """分析网络地址(内网/公网IP分类)"""
     return _NetworkAnalyzer.analyze(hosts)
@@ -242,10 +268,11 @@ def analyze_full(apk_path):
         except Exception:
             result['manifest'] = {}
 
-        # 3. DEX分析 + 类名提取
+        # 3. DEX分析 + 类名 + 字符串提取（一次性完成）
         dex_files = ctx.get_dex_files()
         result['dex_summary'] = []
         class_names = []
+        all_dex_strings = []  # 统一提取，避免重复IO
         for d in dex_files:
             try:
                 data = ctx.read_file(d)
@@ -253,6 +280,7 @@ def analyze_full(apk_path):
                 dp.parse_header()
                 result['dex_summary'].append({'name': d, 'size': len(data), **dp.get_summary()})
                 class_names.extend(dp.get_class_names())
+                all_dex_strings.extend(dp.get_strings())
             except Exception as e:
                 result['dex_summary'].append({'name': d, 'error': str(e)})
 
@@ -290,21 +318,9 @@ def analyze_full(apk_path):
             packers,
         )
 
-        # 10. 线索串联分析 - 自动发现跨模块可疑信号
+        # 10. 线索串联分析 - 自动发现跨模块可疑信号（使用已提取的字符串）
+        all_files = ctx.list_files() if hasattr(ctx, 'list_files') else []
         try:
-            # 收集 DEX 字符串
-            all_dex_strings = []
-            for d in dex_files:
-                try:
-                    data = ctx.read_file(d)
-                    dp = _DexParser(data)
-                    dp.parse_header()
-                    all_dex_strings.extend(dp.get_strings())
-                except:
-                    pass
-
-            # 获取 assets 文件列表
-            all_files = ctx.list_files() if hasattr(ctx, 'list_files') else []
             assets_files = [f for f in all_files if f.startswith('assets/')]
 
             result['clue_chain'] = _ClueChain.analyze(
@@ -318,16 +334,62 @@ def analyze_full(apk_path):
                 obfuscation_score=result['obfuscation'].get('score', 0),
                 signature=result['signature'],
                 dex_strings=all_dex_strings,
+                ad_analysis=result.get('ad_analysis'),
+                string_analysis=result.get('string_analysis'),
+                resource_obfuscation=result.get('resource_obfuscation'),
             )
         except Exception as e:
             result['clue_chain'] = {'error': str(e), 'clues': [], 'score': 0, 'level': 'unknown'}
+
+        # 11. SDK检测（新增）
+        try:
+            result['sdk_analysis'] = _SDKDetector.analyze(
+                class_names=class_names,
+                strings=all_dex_strings,
+                permissions=perm_names,
+            )
+        except Exception as e:
+            result['sdk_analysis'] = {'error': str(e)}
+
+        # 12. 字符串深度分析（新增）
+        try:
+            result['string_analysis'] = _StringAnalyzer.analyze(all_dex_strings)
+        except Exception as e:
+            result['string_analysis'] = {'error': str(e)}
+
+        # 13. 资源混淆检测（新增）
+        try:
+            result['resource_obfuscation'] = _ResourceObfuscationDetector.analyze(file_list=all_files)
+        except Exception as e:
+            result['resource_obfuscation'] = {'error': str(e)}
+
+        # 14. 广告检测（新增）
+        try:
+            result['ad_analysis'] = _AdDetector.analyze(
+                class_names=class_names,
+                strings=all_dex_strings,
+                permissions=perm_names,
+            )
+        except Exception as e:
+            result['ad_analysis'] = {'error': str(e)}
+
+        # 15. 社交登录检测（微信/QQ/GitHub/支付宝等）
+        try:
+            result['social_login_analysis'] = _SocialLoginDetector.analyze(
+                class_names=class_names,
+                strings=all_dex_strings,
+            )
+        except Exception as e:
+            result['social_login_analysis'] = {'error': str(e)}
 
     return result
 
 def clue_chain_analyze(manifest=None, class_names=None, native_analysis=None,
                        so_files=None, assets_files=None, permissions=None,
                        packers=None, obfuscation_score=None, signature=None,
-                       apk_structure=None, dex_strings=None, dex_summary=None):
+                       apk_structure=None, dex_strings=None, dex_summary=None,
+                       ad_analysis=None, string_analysis=None,
+                       resource_obfuscation=None):
     """线索串联分析 - 跨模块关联，自动发现可疑信号
 
     将 Manifest / DEX / SO / Assets / 权限 等维度的分析结果交叉关联，
@@ -350,7 +412,45 @@ def clue_chain_analyze(manifest=None, class_names=None, native_analysis=None,
         packers=packers, obfuscation_score=obfuscation_score,
         signature=signature, apk_structure=apk_structure,
         dex_strings=dex_strings, dex_summary=dex_summary,
+        ad_analysis=ad_analysis, string_analysis=string_analysis,
+        resource_obfuscation=resource_obfuscation,
     )
+
+# ============================================================
+# 核心类定位 - Core Class Locator
+# ============================================================
+
+def locate_core_classes(dex_data, top_n=20, min_score=10, include_sdk=False):
+    """从DEX原始数据中定位核心类（多维度启发式评分）
+
+    Args:
+        dex_data: DEX文件二进制数据
+        top_n: 返回前N个
+        min_score: 最低分数阈值
+        include_sdk: 是否包含SDK类
+
+    Returns:
+        list[dict]: 按综合评分排序的核心类列表
+    """
+    from apk_reverse_engine.analysis.core_class_locator import locate_core_classes as _lcc
+    return _lcc(dex_data, top_n=top_n, min_score=min_score, include_sdk=include_sdk)
+
+def locate_core_classes_from_apk(apk_path, top_n=20, min_score=10, include_sdk=False, use_manifest=False):
+    """从APK中读取所有DEX并定位核心类
+
+    Args:
+        apk_path: APK文件路径
+        top_n: 返回前N个
+        min_score: 最低分数
+        include_sdk: 是否包含SDK类
+        use_manifest: 是否结合Manifest信息
+
+    Returns:
+        dict: {'dex_files': {...}, 'merged': [...]}
+    """
+    from apk_reverse_engine.analysis.core_class_locator import locate_core_classes_from_apk as _lccfa
+    return _lccfa(apk_path, top_n=top_n, min_score=min_score,
+                   include_sdk=include_sdk, use_manifest=use_manifest)
 
 # ============================================================
 # 增强逆向新功能 - Analysis Extensions
@@ -385,6 +485,80 @@ def analyze_apk_clean(apk_path):
 def clean_apk(apk_path, output_path, remove_debug=True, remove_meta=False, remove_backup=True):
     """清理APK冗余文件并输出新APK（清理后需重新签名）"""
     return _APKCleaner.clean_apk(apk_path, output_path, remove_debug, remove_meta, remove_backup)
+
+def detect_sdks(class_names):
+    """从DEX类名列表中检测第三方SDK/追踪器"""
+    return _SDKDetector.detect_from_class_names(class_names)
+
+def analyze_sdk_privacy(class_names=None, strings=None, permissions=None):
+    """一站式SDK检测与隐私风险评估"""
+    return _SDKDetector.analyze(class_names, strings, permissions)
+
+def analyze_strings(strings):
+    """DEX 字符串深度分析（分类/敏感信息/URL提取）"""
+    return _StringAnalyzer.analyze(strings)
+
+def detect_resource_obfuscation(file_list=None, r_class_content=None,
+                                 arsc_packages=None, layout_files=None):
+    """资源混淆检测"""
+    return _ResourceObfuscationDetector.analyze(file_list, r_class_content, arsc_packages, layout_files)
+
+def manifest_edit(xml_text, **changes):
+    """批量修改 AndroidManifest 属性
+
+    Args:
+        xml_text: 文本格式的 AndroidManifest.xml
+        **changes: 属性名=值，如 debuggable='true', allowBackup='false'
+
+    Returns:
+        str: 修改后的 XML 文本
+    """
+    return _ManifestEditor.batch_set(xml_text, changes)
+
+def manifest_enable_debuggable(xml_text):
+    """开启 debuggable"""
+    return _ManifestEditor.enable_debuggable(xml_text)
+
+def manifest_disable_debuggable(xml_text):
+    """关闭 debuggable"""
+    return _ManifestEditor.disable_debuggable(xml_text)
+
+def manifest_set_exported(xml_text, component_name, exported=True):
+    """设置组件 exported 属性"""
+    return _ManifestEditor.set_exported(xml_text, component_name, exported)
+
+def detect_ads(class_names=None, strings=None, permissions=None):
+    """一站式广告检测 - 识别APK中的广告SDK/代码模式/权限/URL
+
+    返回:
+        dict: {
+            'ad_sdks': [...],     # 检测到的广告SDK
+            'code_patterns': {...}, # 广告代码模式
+            'permissions': {...},   # 广告相关权限
+            'ad_urls': {...},      # 广告网络URL
+            'ad_strings': [...],   # 广告字符串特征
+            'score': 0-100,        # 广告密度评分
+            'level': '无广告/轻度广告/有广告/密集广告',
+            'summary': {...},
+        }
+    """
+    return _AdDetector.analyze(class_names, strings, permissions)
+
+def detect_social_login(class_names=None, strings=None):
+    """一站式社交登录检测 - 识别 APK 中的微信/QQ/GitHub/支付宝/Google/Facebook/Apple/Twitter/微博登录
+
+    返回:
+        dict: {
+            'detected_platforms': {...},  # 各平台检测详情
+            'platform_details': [...],    # 按置信度排序的平台列表
+            'total_platforms': int,       # 检测到的平台数
+            'score': 0-100,               # 综合集成评分
+            'level': str,                 # 等级: 无/少量/多平台/密集
+            'has_social_login': bool,
+            'summary': {...},
+        }
+    """
+    return _SocialLoginDetector.analyze(class_names, strings)
 
 # ============================================================
 # 补丁模块 - Patching
@@ -582,6 +756,8 @@ from .utils.file_utils import FileUtils as _FileUtils
 from .utils.smali_utils import SMALIUtils as _SMALIUtils
 from .utils.cert_utils import CertUtils as _CertUtils
 from .utils.logger import Logger as _Logger
+from .utils.i18n import _, set_lang, get_lang, LANGUAGES, LANG_CODES, save_lang, language_name, register as i18n_register
+from .tools.resource_lang import ResourceLanguageTool
 
 def ensure_dir(path):
     """确保目录存在，不存在则创建"""
@@ -671,7 +847,17 @@ __all__ = [
     'clue_chain_analyze',
     # Analysis Extensions
     'compare_apks', 'extract_endpoints', 'scan_keys', 'detect_weak_crypto',
+    'detect_sdks', 'analyze_sdk_privacy',
     'analyze_cert_deep', 'analyze_apk_clean', 'clean_apk',
+    'analyze_strings', 'detect_resource_obfuscation',
+    'manifest_edit', 'manifest_enable_debuggable', 'manifest_disable_debuggable',
+    'manifest_set_exported',
+    'detect_ads',
+    'detect_social_login',
+    # Deobfuscation
+    'deobfuscate_analyze',
+    # Code Analysis
+    'analyze_code', 'analyze_danger_summary', 'build_cfg', 'analyze_method',
     # Patching
     'smali_patch_return', 'smali_patch_condition', 'smali_bypass_signature',
     'manifest_patch', 'manifest_set_debuggable', 'manifest_allow_backup',
@@ -693,4 +879,10 @@ __all__ = [
     'smali_parse_class', 'smali_find_methods', 'smali_find_strings',
     'smali_extract_method', 'smali_find_invokes', 'smali_analyze_method',
     'cert_parse', 'cert_info', 'Logger', 'AXMLConverter',
+    # i18n
+    '_', 'set_lang', 'get_lang', 'LANGUAGES', 'LANG_CODES', 'save_lang', 'language_name', 'i18n_register',
+    # Resource Language
+    'ResourceLanguageTool',
+    # Core Class Locator
+    'locate_core_classes', 'locate_core_classes_from_apk',
 ]
