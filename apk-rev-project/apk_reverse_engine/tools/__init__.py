@@ -5,3 +5,4 @@ from .searcher import APKSearch
 from .decompiler import APKDecompiler
 from .merger import APKMerger
 from .converter import APKConverter
+from .standalone_unpacker import unpack_apk_standalone

@@ -13,6 +13,7 @@ for p in (_pkg_root, '/home', '/home/kelivo-revkit'):
 from apk_reverse_engine import *
 from apk_reverse_engine import open_apk, get_manifest_info, static_analyze, analyze_full
 from apk_reverse_engine.tools.unpacker import APKUnpacker as _APKUnpacker
+from apk_reverse_engine.tools.standalone_unpacker import unpack_apk_standalone as _standalone_unpack
 
 # ── Rich UI ──────────────────────────────────────────────────
 from rich.console import Console
@@ -549,6 +550,30 @@ def cmd_search(args):
 def cmd_unpack(args):
     """解压 APK - 全面增强版"""
     from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskID
+
+    # ── 独立模式 (兼容第三方中转站) ──
+    if args.standalone:
+        with console.status(f"{ICO['pkg']} 独立模式解包中...", spinner="dots"):
+            r = _standalone_unpack(args.apk, args.output, mode='full' if not args.dry_run else 'analyze')
+        if r.get("success"):
+            s = r.get("structure", {})
+            rows = [
+                ('总文件', str(s.get("total_files", 0))),
+                ('DEX', str(s.get("dex_count", 0))),
+                ('SO', str(s.get("so_count", 0))),
+                ('资源', str(s.get("res_count", 0))),
+                ('大小', _fmt_size(s.get("size", 0))),
+                ('类数', str(r.get("total_classes", 0))),
+                ('加固', ', '.join(r.get("packers", [])) or '无'),
+                ('混淆', r.get("obfuscation", {}).get("level", '?')),
+                ('输出目录', args.output),
+            ]
+            if r.get('extracted'):
+                rows.insert(0, ('提取文件', str(r['extracted'])))
+            console.print(_kv_table(rows, f'{ICO["ok"]} 独立解包: {os.path.basename(args.apk)}', 'green'))
+        else:
+            _error(f"独立解包失败: {r.get('error', '未知错误')}")
+        return
 
     # 预览模式
     if args.dry_run:
@@ -2388,6 +2413,7 @@ def main():
     p.add_argument("--flatten", "-f", action="store_true", help="扁平化，不保留子目录结构")
     p.add_argument("--dry-run", "-n", action="store_true", help="仅预览不解压")
     p.add_argument("--category", "-c", help="按分类提取 (dex/lib/res/assets/meta_inf/all)，支持别名 so→lib, cert→meta_inf")
+    p.add_argument("--standalone", action="store_true", help="纯Python独立模式 (兼容第三方中转站，不依赖apktool等外部工具)")
     p.set_defaults(func=cmd_unpack)
 
     # verify
