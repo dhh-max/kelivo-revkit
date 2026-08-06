@@ -5,6 +5,15 @@
 import sys, os, json, zipfile, hashlib, struct, re, base64
 from collections import Counter
 
+# ═══════════════════════════════════════════════════════════════
+# 工具函数
+# ═══════════════════════════════════════════════════════════════
+def _fmt_size(s):
+    for u in ('B','KB','MB','GB'):
+        if s < 1024: return f"{s:.1f}{u}"
+        s /= 1024
+    return f"{s:.1f}TB"
+
 # ═══════════════════════════════════════════════════════════
 # 轻量 DEX 解析器（纯Python，不依赖任何外部库）
 # ═══════════════════════════════════════════════════════════
@@ -438,6 +447,12 @@ def unpack_apk_standalone(apk_path, output_dir=None, mode='analyze'):
         result['security_issues'] = sec_issues
         result['permission_count'] = len(perms)
 
+        # ── 社交登录检测 ──
+        result['social_login'] = _standalone_detect_social(all_class_names, all_strings)
+
+        # ── SDK检测 ──
+        result['sdk_detected'] = _standalone_detect_sdk(all_class_names)
+
         # ── 导出关键字符串（安全相关） ──
         url_pattern = re.compile(r'https?://[^\s\'\"<>]+')
         ip_pattern = re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b')
@@ -497,6 +512,185 @@ def unpack_apk_standalone(apk_path, output_dir=None, mode='analyze'):
         zf.close()
 
     return result
+
+
+# ═══════════════════════════════════════════════════════════════
+# 社交登录检测 (内置, 15个平台)
+# ═══════════════════════════════════════════════════════════════
+_SOCIAL_PLATFORMS = {
+    'wechat':{'name':'微信登录','icon':'💬','risk':'中',
+        'sdk':[r'com\.tencent\.mm\.opensdk',r'com\.tencent\.connect',r'com\.tencent\.tauth',r'wx[a-z0-9]{16,}'],
+        'code':[r'WXEntryActivity',r'WXApi',r'IWXAPI',r'sendReq',r'wechat_login',r'wechat_token',r'wechat_openid',r'wechat_unionid',r'wx_login'],
+        'str':[r'wx[a-z0-9]{16,}',r'wechat',r'weixin',r'openid',r'unionid',r'snsapi_userinfo',r'api\.weixin\.qq\.com',r'open\.weixin\.qq\.com'],
+        'url':[r'api\.weixin\.qq\.com',r'open\.weixin\.qq\.com',r'wechat\.com']},
+    'qq':{'name':'QQ登录','icon':'🐧','risk':'中',
+        'sdk':[r'com\.tencent\.connect',r'com\.tencent\.open',r'com\.tencent\.tauth',r'mqqapi'],
+        'code':[r'Tencent',r'QQLogin',r'qq_login',r'qq_token',r'qq_openid',r'IUiListener',r'TAuthActivity',r'qq_auth'],
+        'str':[r'tencent[0-9]{5,}',r'qq',r'tencent',r'mqqapi://',r'graph\.qq\.com',r'openmobile\.qq\.com'],
+        'url':[r'graph\.qq\.com',r'openmobile\.qq\.com',r'connect\.qq\.com']},
+    'github':{'name':'GitHub登录','icon':'🐙','risk':'低',
+        'sdk':[r'com\.github',r'github\.login',r'github\.oauth',r'github\.auth'],
+        'code':[r'GitHubLogin',r'github_login',r'github_oauth',r'Octokit',r'GithubClient',r'ghp_[a-zA-Z0-9]{36,}'],
+        'str':[r'github\.com/login',r'github\.com/oauth',r'api\.github\.com',r'client_id=',r'ghp_',r'gho_'],
+        'url':[r'github\.com',r'api\.github\.com']},
+    'alipay':{'name':'支付宝登录','icon':'💳','risk':'中',
+        'sdk':[r'com\.alipay\.sdk',r'com\.alipay\.auth',r'alipaySdk',r'alipaysec'],
+        'code':[r'AlipayLogin',r'alipay_login',r'alipay_auth',r'alipay_token',r'AuthResult',r'ali_auth'],
+        'str':[r'alipay',r'alipay\.com',r'auth\.alipay\.com',r'openapi\.alipay\.com',r'app_id=[0-9]+',r'auth_code'],
+        'url':[r'alipay\.com',r'alipaydev\.com',r'auth\.alipay\.com']},
+    'weibo':{'name':'微博登录','icon':'📱','risk':'中',
+        'sdk':[r'com\.sina\.weibo',r'com\.sina\.open',r'com\.weibo\.sdk'],
+        'code':[r'WeiboLogin',r'weibo_login',r'weibo_auth',r'SsoHandler',r'AccessTokenKeeper'],
+        'str':[r'weibo',r'api\.weibo\.com',r'open\.weibo\.com',r'client_id=[0-9]+',r'appkey=[0-9]+'],
+        'url':[r'api\.weibo\.com',r'open\.weibo\.com',r'weibo\.com']},
+    'google':{'name':'Google登录','icon':'🔵','risk':'低',
+        'sdk':[r'com\.google\.android\.gms\.auth',r'com\.google\.firebase\.auth',r'com\.google\.android\.gms\.signin'],
+        'code':[r'GoogleSignIn',r'GoogleSignInClient',r'FirebaseAuth',r'getIdToken',r'SignInButton',r'google_sign_in'],
+        'str':[r'accounts\.google\.com',r'googleapis\.com/auth',r'googleusercontent\.com',r'firebase\.com',r'client_id=[0-9]+\.apps\.googleusercontent\.com'],
+        'url':[r'accounts\.google\.com',r'googleapis\.com',r'google\.com']},
+    'facebook':{'name':'Facebook登录','icon':'👍','risk':'中',
+        'sdk':[r'com\.facebook\.login',r'com\.facebook\.auth',r'com\.facebook\.FBAuth'],
+        'code':[r'FacebookLogin',r'facebook_login',r'LoginButton',r'LoginManager',r'AccessToken',r'CallbackManager'],
+        'str':[r'facebook\.com/login',r'facebook\.com/dialog',r'graph\.facebook\.com',r'fb_app_id',r'facebook_app_id'],
+        'url':[r'facebook\.com',r'graph\.facebook\.com',r'fbcdn\.net']},
+    'apple':{'name':'Apple登录','icon':'🍎','risk':'低',
+        'sdk':[r'com\.apple\.',r'apple\.signin',r'apple\.login'],
+        'code':[r'AppleSignIn',r'apple_sign_in',r'ASAuthorization',r'SignInWithApple',r'apple_id_credential'],
+        'str':[r'apple\.com/auth',r'appleid\.apple\.com',r'apple_id',r'sign_in_with_apple'],
+        'url':[r'apple\.com',r'appleid\.apple\.com']},
+    'twitter':{'name':'Twitter登录','icon':'🐦','risk':'低',
+        'sdk':[r'com\.twitter\.sdk',r'com\.twitter\.android',r'com\.fabric\.sdk\.android'],
+        'code':[r'TwitterLogin',r'twitter_login',r'TwitterAuth',r'TwitterSession',r'TwitterAuthClient'],
+        'str':[r'twitter\.com/oauth',r'api\.twitter\.com',r'consumer_key',r'consumer_secret',r'oauth_token'],
+        'url':[r'twitter\.com',r'api\.twitter\.com',r't\.co']},
+    'douyin':{'name':'抖音登录','icon':'🎵','risk':'中',
+        'sdk':[r'com\.bytedance\.',r'com\.douyin',r'com\.aweme'],
+        'code':[r'DouYinLogin',r'douyin_login',r'DouYinAuth',r'douyin_auth',r'douyin_token',r'douyin_openid'],
+        'str':[r'douyin',r'bytedance',r'aweme',r'pangle'],
+        'url':[r'douyin\.com',r'pangle\.com']},
+    'dingtalk':{'name':'钉钉登录','icon':'🔷','risk':'中',
+        'sdk':[r'com\.alibaba\.android\.dingtalk',r'com\.alibaba\.dingtalk'],
+        'code':[r'DingTalkLogin',r'dingtalk_login',r'DDLogin',r'dd_login'],
+        'str':[r'dingtalk',r'com\.alibaba\.dingtalk'],
+        'url':[r'dingtalk\.com']},
+    'huawei':{'name':'华为登录','icon':'🌺','risk':'低',
+        'sdk':[r'com\.huawei\.hms\.support\.account',r'com\.huawei\.hms\.feature\.account',r'com\.huawei\.agconnect'],
+        'code':[r'HuaweiIdAuth',r'HuaweiIdAuthManager',r'HuaweiIdSignIn',r'signInWithHuawei',r'HMSLogin'],
+        'str':[r'huawei\.hms',r'huawei\.agconnect',r'huaweiid'],
+        'url':[r'huawei\.com',r'developer\.huawei\.com']},
+    'xiaomi':{'name':'小米登录','icon':'📱','risk':'低',
+        'sdk':[r'com\.xiaomi\.account',r'com\.xiaomi\.passport',r'com\.xiaomi\.sdk'],
+        'code':[r'XiaomiLogin',r'xiaomi_login',r'MiLogin',r'mi_login',r'XiaomiAuth'],
+        'str':[r'xiaomi\.account',r'xiaomi\.passport',r'milogin'],
+        'url':[r'xiaomi\.com',r'account\.xiaomi\.com']},
+    'linkedin':{'name':'LinkedIn登录','icon':'💼','risk':'低',
+        'sdk':[r'com\.linkedin\.',r'org\.linkedin'],
+        'code':[r'LinkedInLogin',r'linkedin_login',r'LinkedInAuth',r'linkedin_auth',r'LinkedInOAuth'],
+        'str':[r'linkedin',r'org\.linkedin'],
+        'url':[r'linkedin\.com']},
+    'line':{'name':'Line登录','icon':'💚','risk':'低',
+        'sdk':[r'line\.sdk',r'jp\.line'],
+        'code':[r'LineLogin',r'line_login',r'LineAuth',r'line_auth',r'LineSDK'],
+        'str':[r'line\.sdk',r'jp\.line',r'linelogin'],
+        'url':[r'line\.me',r'api\.line\.me']},
+    'kakao':{'name':'Kakao登录','icon':'💛','risk':'低',
+        'sdk':[r'com\.kakao\.auth',r'com\.kakao\.sdk',r'com\.kakao\.talk'],
+        'code':[r'KakaoLogin',r'kakao_login',r'KakaoAuth',r'kakao_auth',r'KakaoSDK'],
+        'str':[r'kakao',r'kakao\.com',r'kapi\.kakao\.com'],
+        'url':[r'kakao\.com',r'kapi\.kakao\.com']},
+}
+
+def _standalone_detect_social(class_names, strings):
+    """内置社交登录检测 - 从类名和字符串中检测15个平台"""
+    combined = ' '.join(c.replace('/','.').lstrip('L').rstrip(';') for c in (class_names or []))+' '+' '.join(strings or [])
+    combined_lower = combined.lower()
+    detected = []
+    for key, info in _SOCIAL_PLATFORMS.items():
+        score = 0
+        matched_sdk = 0; matched_code = 0; matched_str = 0
+        for p in info.get('sdk',[]):
+            if re.search(p, combined): matched_sdk += 1; break
+        for p in info.get('code',[]):
+            if re.search(p, combined): matched_code += 1
+        for p in info.get('str',[]):
+            if re.search(p, combined_lower): matched_str += 1
+        score = min(matched_sdk*40 + matched_code*20 + matched_str*15, 100)
+        if score > 0:
+            w = 1.5 if info['risk']=='高' else 1.2 if info['risk']=='中' else 1.0
+            detected.append({'key':key,'name':info['name'],'icon':info['icon'],'risk':info['risk'],
+                'confidence':score,'score':round(score*w/100*25,1),
+                'sdk_count':matched_sdk,'code_count':matched_code,'string_count':matched_str})
+    detected.sort(key=lambda x:-x['confidence'])
+    ts = sum(d['score'] for d in detected)
+    return {'platforms':detected,'total':len(detected),'total_score':round(min(ts,100),1),
+        'level':'密集集成' if ts>=60 else '多平台集成' if ts>=30 else '少量集成' if ts>=10 else '无'}
+
+# ═══════════════════════════════════════════════════════════════
+# SDK检测 (内置, 40+ SDK)
+# ═══════════════════════════════════════════════════════════════
+_SDK_SIGNATURES = [
+    (r'com\.google\.android\.gms\.ads','Google Ads','广告','高'),
+    (r'com\.facebook\.ads','Facebook Ads','广告','高'),
+    (r'com\.facebook\.','Facebook SDK','社交/追踪','高'),
+    (r'com\.applovin\.','AppLovin','广告','高'),
+    (r'com\.unity3d','Unity3D','游戏引擎','低'),
+    (r'com\.vungle\.','Vungle','广告','高'),
+    (r'com\.ironsource\.','IronSource','广告','高'),
+    (r'com\.chartboost\.','Chartboost','广告','高'),
+    (r'com\.adcolony\.','AdColony','广告','高'),
+    (r'com\.inmobi\.','InMobi','广告','高'),
+    (r'com\.bytedance\.','ByteDance/Pangle','广告','高'),
+    (r'com\.mintegral\.','Mintegral','广告','高'),
+    (r'com\.adjust\.sdk','Adjust','归因/追踪','高'),
+    (r'com\.appsflyer\.','AppsFlyer','归因/追踪','高'),
+    (r'com\.kochava\.','Kochava','归因/追踪','高'),
+    (r'com\.google\.firebase\.','Firebase SDK','云服务','中'),
+    (r'com\.google\.analytics','Google Analytics','分析','中'),
+    (r'com\.mixpanel\.','Mixpanel','分析','中'),
+    (r'com\.amplitude\.','Amplitude','分析','中'),
+    (r'com\.flurry\.','Flurry','分析','中'),
+    (r'com\.sentry\.','Sentry','错误追踪','低'),
+    (r'com\.bugsnag\.','Bugsnag','错误追踪','低'),
+    (r'com\.umeng\.','Umeng/友盟','分析','高'),
+    (r'com\.tencent\.bugly','Tencent Bugly','错误追踪','低'),
+    (r'com\.google\.firebase\.messaging','Firebase FCM','推送','中'),
+    (r'com\.huawei\.hms\.push','Huawei Push','推送','中'),
+    (r'com\.xiaomi\.push','Xiaomi Push','推送','中'),
+    (r'com\.igexin\.push','GeTui Push','推送','中'),
+    (r'com\.jpush\.','JPush','推送','中'),
+    (r'com\.onesignal\.','OneSignal','推送','中'),
+    (r'com\.stripe\.','Stripe','支付','中'),
+    (r'com\.paypal\.','PayPal','支付','中'),
+    (r'com\.alipay\.','Alipay','支付','中'),
+    (r'com\.unionpay\.','UnionPay','支付','中'),
+    (r'com\.squareup\.okhttp','OkHttp','网络','低'),
+    (r'com\.bumptech\.glide','Glide','图片','低'),
+    (r'com\.google\.gson','Gson','JSON','低'),
+    (r'com\.google\.protobuf','Protobuf','序列化','低'),
+    (r'com\.squareup\.retrofit','Retrofit','网络','低'),
+    (r'com\.tencent\.mmkv','MMKV','存储','低'),
+    (r'com\.alibaba\.fastjson','FastJson','JSON','低'),
+    (r'com\.google\.android\.gms\.','Google Play Services','基础服务','低'),
+    (r'com\.huawei\.hms\.','Huawei HMS','基础服务','低'),
+    (r'com\.baidu\.','Baidu SDK','综合','中'),
+    (r'com\.tencent\.','Tencent SDK','综合','中'),
+    (r'com\.alibaba\.','Alibaba SDK','综合','中'),
+]
+
+def _standalone_detect_sdk(class_names):
+    """内置SDK检测 - 从类名中检测40+ SDK"""
+    combined = ' '.join(c.replace('/','.').lstrip('L').rstrip(';') for c in (class_names or []))
+    detected = {}
+    for pat, name, cat, risk in _SDK_SIGNATURES:
+        if re.search(pat, combined):
+            k = (name, cat)
+            if k not in detected:
+                detected[k] = {'name':name,'category':cat,'risk':risk,'count':0}
+            detected[k]['count'] += 1
+    sdks = sorted(detected.values(), key=lambda x:-x['count'])
+    risk_count = {'高':0,'中':0,'低':0}
+    for s in sdks: risk_count[s['risk']] = risk_count.get(s['risk'],0)+1
+    return {'sdks':sdks,'total':len(sdks),'risk_summary':risk_count}
 
 
 # ═══════════════════════════════════════════════════════════
