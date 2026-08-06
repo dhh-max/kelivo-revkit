@@ -97,6 +97,11 @@ class LiteManifestParser:
         self.pos += 2
         return v
 
+    def _u1(self):
+        v = self.data[self.pos]
+        self.pos += 1
+        return v
+
     def _u4(self):
         v = struct.unpack_from('<I', self.data, self.pos)[0]
         self.pos += 4
@@ -122,7 +127,8 @@ class LiteManifestParser:
         if string_chunk_type != 0x001C0001:
             return {'error': f'not string chunk: 0x{string_chunk_type:08x}'}
 
-        string_start = self.pos
+        # stringsStart 字段是相对于 chunk 头部（文件偏移 8）的偏移
+        string_start = 8  # chunk 在文件中的起始位置
         string_count = self._u4()
         _ = self._u4()  # style_count
         _ = self._u4()  # flags
@@ -191,30 +197,37 @@ class LiteManifestParser:
                 elif name == 'application':
                     in_application = True
 
-                # 解析属性
+                # 解析属性 (AXML 每个属性 20 字节: ns(4) + name(4) + rawValue(4) + typedValue_size(2) + res0(1) + dataType(1) + data(4))
                 attrs = {}
                 for a in range(attr_count):
                     if self.pos + 20 > len(self.data):
                         break
-                    ans = self._u4()  # namespace
-                    an = self._u4()   # name
-                    avs = self._u4()  # value string
-                    avt = self._u4()  # type
+                    ans = self._u4()  # namespace string index
+                    an = self._u4()   # name string index
+                    avs = self._u4()  # raw value string index (-1 if none)
+                    _ = self._u2()   # typedValue_size (should be 8)
+                    _ = self._u1()   # res0 (should be 0)
+                    avt = self._u1()  # dataType
                     avd = self._u4()  # data
                     attr_name = self._read_string(an)
-                    if avt == 0x03:  # string
+                    if avt == 0x03:  # TYPE_STRING
                         attr_val = self._read_string(avs)
-                    elif avt == 0x10:
+                    elif avt == 0x10:  # TYPE_INT_DEC
                         attr_val = str(avd)
-                    elif avt == 0x12:
+                    elif avt == 0x12:  # TYPE_INT_BOOLEAN
                         attr_val = 'true' if avd == -1 or avd == 0xFFFFFFFF else 'false'
+                    elif avt == 0x11:  # TYPE_INT_HEX
+                        attr_val = f'0x{avd:x}'
                     else:
-                        attr_val = str(avd)
+                        # 资源引用 (dataType 0x01 = TYPE_REFERENCE) 或未知类型
+                        attr_val = f'@{avd}' if avt == 0x01 else str(avd)
                     attrs[attr_name] = attr_val
 
                 # 提取信息
                 if in_manifest and name == 'manifest':
                     pkg = attrs.get('package', '')
+                    vn = attrs.get('versionName', '')
+                    vc = attrs.get('versionCode', '')
                 elif name == 'uses-sdk':
                     sdk_min = int(attrs.get('minSdkVersion', 0))
                     sdk_target = int(attrs.get('targetSdkVersion', 0))
@@ -222,6 +235,14 @@ class LiteManifestParser:
                     perm = attrs.get('name', '')
                     if perm:
                         perms.append(perm)
+                elif in_application and name == 'activity':
+                    activities.append(attrs.get('name', ''))
+                elif in_application and name == 'service':
+                    services.append(attrs.get('name', ''))
+                elif in_application and name == 'receiver':
+                    receivers.append(attrs.get('name', ''))
+                elif in_application and name == 'provider':
+                    providers.append(attrs.get('name', ''))
 
                 stack.append(name)
 
