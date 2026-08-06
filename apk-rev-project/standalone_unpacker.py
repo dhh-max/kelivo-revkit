@@ -693,9 +693,84 @@ def _standalone_detect_sdk(class_names):
     return {'sdks':sdks,'total':len(sdks),'risk_summary':risk_count}
 
 
-# ═══════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
+# 摘要输出 - 生成紧凑终端摘要，避免全量JSON撑爆上下文
+# ═══════════════════════════════════════════════════════════════
+def _generate_summary(result):
+    """从分析结果中提取紧凑摘要（≈1KB），适合对话输出"""
+    lines = []
+    name = os.path.basename(result.get('apk_path', ''))
+    sz = _fmt_size(result.get('structure', {}).get('size', 0))
+    lines.append(f"📦 {name} ({sz})")
+
+    # 结构概要
+    s = result.get('structure', {})
+    parts = []
+    if s.get('dex_count'): parts.append(f"DEX×{s['dex_count']}")
+    if s.get('so_count'): parts.append(f"SO×{s['so_count']}")
+    if s.get('total_files'): parts.append(f"文件×{s['total_files']}")
+    if parts:
+        lines.append(f"  📁 {' '.join(parts)}")
+
+    # 总类数
+    tc = result.get('total_classes', 0)
+    if tc:
+        lines.append(f"  🧬 类 {tc}")
+
+    # Manifest
+    m = result.get('manifest', {})
+    if m.get('package'):
+        lines.append(f"  📋 {m['package']}")
+    if m.get('sdk', {}).get('minSdk') or m.get('sdk', {}).get('targetSdk'):
+        lines.append(f"  📱 SDK {m['sdk']['minSdk']}→{m['sdk']['targetSdk']}")
+
+    # 加固/混淆
+    p = result.get('packers', [])
+    if p:
+        lines.append(f"  🛡️ 加固: {'/'.join(p)}")
+    o = result.get('obfuscation', {})
+    if o.get('level') and o.get('score', 0) > 0:
+        lines.append(f"  🎭 混淆: {o['level']}({o['score']}分)")
+
+    # 危险权限
+    dp = result.get('dangerous_permissions', [])
+    if dp:
+        lines.append(f"  ⚠️ 危险权限({len(dp)}): {' '.join(dp[:5])}")
+        if len(dp) > 5:
+            lines[-1] += f" +{len(dp)-5}个"
+
+    # SDK
+    sdk = result.get('sdk_detected', {})
+    if sdk.get('sdks'):
+        hi = [x['name'] for x in sdk['sdks'][:6] if x['risk'] in ('高','中')]
+        if hi:
+            lines.append(f"  🔌 SDK({sdk['total']}): {' '.join(hi)}")
+            if len(sdk['sdks']) > 6:
+                lines[-1] += f" +{len(sdk['sdks'])-6}个"
+
+    # 社交登录
+    sl = result.get('social_login', {})
+    if sl.get('platforms'):
+        plats = [f"{p['icon']}{p['name']}" for p in sl['platforms'][:4]]
+        if plats:
+            lines.append(f"  🔐 社交登录({sl['total']}): {' '.join(plats)}")
+
+    # 发现
+    f = result.get('findings', {})
+    finding_parts = []
+    if f.get('urls'): finding_parts.append(f"URL×{len(f['urls'])}")
+    if f.get('ips'): finding_parts.append(f"IP×{len(f['ips'])}")
+    if f.get('emails'): finding_parts.append(f"邮箱×{len(f['emails'])}")
+    if f.get('potential_keys'): finding_parts.append(f"密钥×{len(f['potential_keys'])}")
+    if finding_parts:
+        lines.append(f"  🔍 发现: {' '.join(finding_parts)}")
+
+    return '\n'.join(lines)
+
+
+# ═══════════════════════════════════════════════════════════════
 # 命令行入口
-# ═══════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description='Standalone APK Unpacker')
@@ -704,7 +779,21 @@ if __name__ == '__main__':
     parser.add_argument('-m', '--mode', default='analyze', choices=['analyze', 'extract', 'full'],
                         help='Mode: analyze/extract/full')
     parser.add_argument('--compact', action='store_true', help='Compact JSON output')
+    parser.add_argument('--summary', action='store_true',
+                        help='摘要模式：全量JSON写文件，终端只输出紧凑摘要（避免撑爆上下文）')
+    parser.add_argument('--summary-path', default=None,
+                        help='摘要输出路径（默认：APK同目录下 *.analysis.json）')
     args = parser.parse_args()
 
     result = unpack_apk_standalone(args.apk, args.output, args.mode)
-    print(json.dumps(result, ensure_ascii=False, indent=None if args.compact else 2))
+
+    if args.summary:
+        # 写入全量JSON到文件
+        out_path = args.summary_path or os.path.splitext(args.apk)[0] + '.analysis.json'
+        with open(out_path, 'w', encoding='utf-8') as f:
+            json.dump(result, f, ensure_ascii=False, indent=2)
+        # 终端只输出摘要
+        print(_generate_summary(result))
+        print(f"\n📄 全量结果已保存: {out_path}")
+    else:
+        print(json.dumps(result, ensure_ascii=False, indent=None if args.compact else 2))
