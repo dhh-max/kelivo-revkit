@@ -295,7 +295,17 @@ bool _shouldIncludeStreamingUsageOptions(
   if (isLongCatOmniModelId(upstreamModelId) || _isLongCatHost(host)) {
     return false;
   }
-  return !host.contains('mistral.ai') && !host.contains('openrouter');
+  // Only add stream_options for known official providers that support it.
+  // Transit stations (custom baseUrl) often don't support this parameter
+  // and may return empty or malformed responses when it's present.
+  return host.contains('openai.com') ||
+      host.contains('azure.com') ||
+      host.contains('deepseek.com') ||
+      host.contains('siliconflow.cn') ||
+      host.contains('dashscope') ||
+      host.contains('volcengine.com') ||
+      host.contains('xiaomimimo') ||
+      host.contains('zhipuai.cn');
 }
 
 bool _isClaudeModelId(String modelId) {
@@ -704,22 +714,39 @@ String _extractOpenAICompatibleDeltaText(Map? delta) {
   if (deltaType == 'response.audio.delta') {
     return '';
   }
+  // 1) Standard: delta.content (String)
   final content = delta['content'];
   if (content is String) {
     return content;
   }
+  // 2) Some providers/transit stations use delta.text instead of delta.content
+  final text = delta['text'];
+  if (text is String) {
+    return text;
+  }
+  // 3) Array content (e.g., multimodal delta with text parts)
   if (content is List) {
     final buffer = StringBuffer();
     for (final item in content) {
       if (item is! Map) continue;
-      final text = (item['text'] ?? item['delta'] ?? '').toString();
+      final t = (item['text'] ?? item['delta'] ?? '').toString();
       final type = (item['type'] ?? '').toString();
-      if (text.isEmpty) continue;
+      if (t.isEmpty) continue;
       if (type.isEmpty || type == 'text') {
-        buffer.write(text);
+        buffer.write(t);
       }
     }
     return buffer.toString();
+  }
+  // 4) Some transit stations put content directly at delta level as a string
+  //    e.g., {"choices":[{"delta":"你好"}]}
+  if (delta['content'] == null && delta['text'] == null) {
+    for (final key in delta.keys) {
+      final val = delta[key];
+      if (val is String && val.isNotEmpty && key != 'role' && key != 'type') {
+        return val;
+      }
+    }
   }
   return '';
 }
@@ -760,6 +787,7 @@ class _OpenAIProviderInfo {
   bool get isDeepSeek =>
       host.contains('deepseek') ||
       upstreamModelId.toLowerCase().contains('deepseek');
+  bool get isDeepSeekOfficial => host.contains('deepseek.com');
   bool get isDashScope => host.contains('dashscope') || host.contains('aliyun');
   bool get isVolc =>
       host.contains('ark.cn-beijing.volces.com') ||
@@ -857,7 +885,7 @@ void _applyVendorReasoningKnobs(
       body.remove('thinking_budget');
     }
     body.remove('reasoning_effort');
-  } else if (info.isDeepSeek) {
+  } else if (info.isDeepSeekOfficial) {
     if (isReasoning) {
       body['thinking'] = {'type': off ? 'disabled' : 'enabled'};
     } else {
@@ -2194,11 +2222,15 @@ Stream<ChatStreamChunk> _sendOpenAIStream(
               continue;
             } else {
               // No further tool calls; finish
+              final fallbackContent = assistantContentBuffer.isNotEmpty &&
+                      approxCompletionChars == 0
+                  ? assistantContentBuffer
+                  : '';
               final approxTotal =
                   approxPromptTokens +
                   approxTokensFromChars(approxCompletionChars);
               yield ChatStreamChunk(
-                content: '',
+                content: fallbackContent,
                 isDone: true,
                 totalTokens: usage?.totalTokens ?? approxTotal,
                 usage: usage,
@@ -2208,10 +2240,16 @@ Stream<ChatStreamChunk> _sendOpenAIStream(
           }
         }
 
+        // Safety net: if we never emitted content during streaming
+        // (e.g., transit station format mismatch), use the accumulated buffer.
+        final fallbackContent = assistantContentBuffer.isNotEmpty &&
+                approxCompletionChars == 0
+            ? assistantContentBuffer
+            : '';
         final approxTotal =
             approxPromptTokens + approxTokensFromChars(approxCompletionChars);
         yield ChatStreamChunk(
-          content: '',
+          content: fallbackContent,
           isDone: true,
           totalTokens: usage?.totalTokens ?? approxTotal,
           usage: usage,
@@ -4128,11 +4166,17 @@ Stream<ChatStreamChunk> _sendOpenAIStream(
   }
 
   // Fallback: provider closed SSE without sending [DONE]
+  // If we accumulated content but never flushed it (format mismatch),
+  // emit the buffer here so the message isn't lost.
+  final fallbackContent = assistantContentBuffer.isNotEmpty &&
+          approxCompletionChars == 0
+      ? assistantContentBuffer
+      : '';
   final approxTotal =
       usage?.totalTokens ??
       (approxPromptTokens + approxTokensFromChars(approxCompletionChars));
   yield ChatStreamChunk(
-    content: '',
+    content: fallbackContent,
     isDone: true,
     totalTokens: approxTotal,
     usage: usage,
