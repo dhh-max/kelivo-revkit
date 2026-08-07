@@ -9,7 +9,7 @@
   python3 standalone_runner.py --json                   # 输出JSON（默认输出自然语言摘要）
   python3 standalone_runner.py --inbox                  # 收件箱模式：批量扫描目录中的APK
 """
-import sys, os, json, glob
+import sys, os, json, time
 
 _self_dir = os.path.dirname(os.path.abspath(__file__))
 if _self_dir not in sys.path:
@@ -18,7 +18,23 @@ from standalone_unpacker import unpack_apk_standalone, _fmt_size, _compact_resul
 
 
 def auto_find_apk():
-    """自动扫描常见目录，返回最新上传的 APK 文件路径"""
+    """自动扫描常见目录，返回最新上传的 APK 文件路径（兼容单文件调用）"""
+    apks = auto_find_apks(max_n=1)
+    return apks[0] if apks else None
+
+
+def auto_find_apks(max_n=10, out_dir=None, recent_hours=None):
+    """自动扫描常见目录，返回**未分析过**的新APK列表（按上传时间倒序。
+
+    Args:
+        max_n: 最多返回多少个候选（默认10）
+        out_dir: 已分析结果目录；若该目录下已有同名 .analysis.json 则视为已分析，跳过
+        recent_hours: 只返回最近N小时内上传的APK；None=不过滤时间
+
+    Returns:
+        list[str]: 未分析过的APK路径列表，按时间新→旧
+    """
+    out_dir = out_dir or DEFAULT_OUT_DIR
     scan_dirs = [
         '/sdcard/Download',
         '/sdcard/MT2/apks',
@@ -26,15 +42,19 @@ def auto_find_apk():
         '/sdcard',
         '/home/kelivo-revkit/apk-rev-project',
         '/sdcard/Download/Operit/cleanOnExit',
-        '/sdcard/Download/Operit',
+        '/sdcard/Download/Operit/inbox',
     ]
     candidates = []
+    seen = set()
     for d in scan_dirs:
         if os.path.isdir(d):
             try:
                 for f in os.listdir(d):
                     if f.lower().endswith('.apk'):
                         fp = os.path.join(d, f)
+                        if fp in seen:
+                            continue
+                        seen.add(fp)
                         candidates.append((os.path.getmtime(fp), fp))
             except:
                 pass
@@ -44,13 +64,40 @@ def auto_find_apk():
                 for f in files:
                     if f.lower().endswith('.apk'):
                         fp = os.path.join(root, f)
+                        if fp in seen:
+                            continue
+                        seen.add(fp)
                         candidates.append((os.path.getmtime(fp), fp))
                 if root.count(os.sep) > 4:
                     dirs.clear()
     if not candidates:
-        return None
+        return []
+
+    # 按时间倒序
     candidates.sort(key=lambda x: -x[0])
-    return candidates[0][1]
+
+    # 过滤：跳过已分析过（out_dir 下已有同名 .analysis.json）
+    analyzed = set()
+    if os.path.isdir(out_dir):
+        try:
+            for f in os.listdir(out_dir):
+                if f.endswith('.analysis.json'):
+                    # 去掉 .analysis.json 后缀 → 得到原始APK的短名
+                    base = f[:-len('.analysis.json')]
+                    analyzed.add(base)
+        except:
+            pass
+    fresh = []
+    for mtime, fp in candidates:
+        base = os.path.splitext(os.path.basename(fp))[0]
+        if base in analyzed:
+            continue  # 已分析，跳过
+        if recent_hours is not None and (time.time() - mtime) > recent_hours * 3600:
+            break  # 从新到旧，遇到超时的就停
+        fresh.append(fp)
+        if len(fresh) >= max_n:
+            break
+    return fresh
 
 
 DEFAULT_OUT_DIR = '/sdcard/Download/Operit/analyzed'
@@ -189,12 +236,31 @@ if __name__ == '__main__':
 
     apk_path = args.apk
     if not apk_path:
-        apk_path = auto_find_apk()
-        if not apk_path:
-            msg = '❌ 未找到APK文件，请上传或指定路径'
+        # 批量模式：自动查找所有未分析的新APK，逐个处理
+        apks = auto_find_apks(max_n=args.max_apks, out_dir=args.out_dir)
+        if not apks:
+            msg = '❌ 未找到未分析的新APK文件，请上传或指定路径'
             print(json.dumps({'success': False, 'error': msg}, ensure_ascii=False) if args.json else msg)
             sys.exit(1)
+        if args.json:
+            results = []
+            for apk in apks:
+                r = analyze_apk(apk, args.mode, output_json=True,
+                                write_file=not args.no_write, out_dir=args.out_dir)
+                results.append(r)
+            print(json.dumps(results, ensure_ascii=False, indent=2))
+        else:
+            for i, apk in enumerate(apks):
+                if i > 0:
+                    print()
+                print(f"📦 [{i+1}/{len(apks)}] {os.path.basename(apk)}")
+                result = analyze_apk(apk, args.mode, output_json=False,
+                                     write_file=not args.no_write, out_dir=args.out_dir)
+                print(result)
+            print(f"\n📊 共处理 {len(apks)} 个APK")
+        sys.exit(0)
 
+    # 单文件模式
     result = analyze_apk(apk_path, args.mode, output_json=args.json,
                          write_file=not args.no_write, out_dir=args.out_dir)
     if args.json:
