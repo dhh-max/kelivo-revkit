@@ -148,11 +148,11 @@ def analyze_apk(apk_path, mode='quick', output_json=False, write_file=True, out_
         err = r.get('error', '分析失败')
         return json.dumps({'success': False, 'error': err}, ensure_ascii=False) if output_json else f"❌ 分析失败: {err}"
 
-    # 全量结果写文件（对话不展示，避免上下文污染）
+    # 精简结果写文件（只保存关键字段，天然防上下文污染）
     result_path = None
     if write_file:
         try:
-            result_path = write_result_file(full, apk_path, out_dir)
+            result_path = write_result_file(r, apk_path, out_dir)
         except Exception as e:
             result_path = None
     

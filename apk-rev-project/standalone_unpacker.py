@@ -975,13 +975,12 @@ def process_inbox(inbox_dir='/sdcard/Download/Operit/inbox',
                 summary['sdk_detected'] = r.get('sdk_detected', {})
             if mode == 'full':
                 summary['finding_counts'] = r.get('finding_counts', {})
-                summary['size_by_category'] = full.get('size_by_category', {})
 
-            # 写入全量结果文件（全量数据，不是压缩版）
+            # 写入精简结果文件（只保存关键字段，不是全量数据）
             safe_name = os.path.splitext(os.path.basename(apk_path))[0]
             result_path = os.path.join(output_dir, f'{safe_name}.analysis.json')
             with open(result_path, 'w', encoding='utf-8') as f:
-                json.dump(full, f, ensure_ascii=False, indent=2)
+                json.dump(r, f, ensure_ascii=False, indent=2)
 
             summary['result_path'] = result_path
             results.append(summary)
@@ -1034,14 +1033,14 @@ if __name__ == '__main__':
     result = unpack_apk_standalone(args.apk, args.output, args.mode, compact=not args.summary)
 
     if args.summary:
-        # 全量模式：compact=False 拿全量写文件，输出压缩摘要
+        # 精简模式：compact=False 拿全量分析，但只写关键字段到文件，输出压缩摘要
         full = unpack_apk_standalone(args.apk, args.output, args.mode, compact=False)
         compact_r = _compact_result(full) if full.get('success') else full
         out_path = args.summary_path or os.path.splitext(args.apk)[0] + '.analysis.json'
         with open(out_path, 'w', encoding='utf-8') as f:
-            json.dump(full, f, ensure_ascii=False, indent=2)
+            json.dump(compact_r, f, ensure_ascii=False, indent=2)
         # 终端只输出摘要
         print(_generate_summary(compact_r))
-        print(f"\n📄 全量结果已保存: {out_path}")
+        print(f"\n📄 精简结果已保存: {out_path}")
     else:
         print(json.dumps(result, ensure_ascii=False, indent=None if args.compact else 2))
