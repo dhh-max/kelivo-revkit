@@ -873,6 +873,100 @@ def cert_info(data):
 Logger = _Logger
 """日志工具类，用法: log = Logger('name', 'INFO')"""
 
+# ============================================================
+# 工作区管理 - Workspace（参照 Operit 工作区能力）
+# ============================================================
+
+from .workspace.manager import Workspace as _Workspace
+
+def create_workspace(name, root=None, description='', apk_path=None):
+    """创建新工作区"""
+    return _Workspace.create(name, root, description, apk_path)
+
+def list_workspaces(root=None):
+    """列出所有工作区"""
+    return _Workspace.list(root)
+
+def open_workspace(name, root=None):
+    """打开已有工作区"""
+    return _Workspace.open(name, root)
+
+def delete_workspace(name, root=None):
+    """删除工作区"""
+    return _Workspace.open(name, root).delete()
+
+# ============================================================
+# 设备集成 - ADB（参照 Operit 设备集成能力）
+# ============================================================
+
+from .device.adb import ADB as _ADB
+
+def adb_devices():
+    """列出已连接的 ADB 设备"""
+    return _ADB.devices()
+
+def adb_connect(host='127.0.0.1', port=5555):
+    """连接 ADB 设备"""
+    return _ADB().connect(host, port)
+
+def adb_install(apk_path, device_id=None, reinstall=False, grant_permissions=False):
+    """通过 ADB 安装 APK 到设备"""
+    return _ADB(device_id).install(apk_path, reinstall, grant_permissions)
+
+def adb_uninstall(package_name, device_id=None, keep_data=False):
+    """通过 ADB 卸载设备上的应用"""
+    return _ADB(device_id).uninstall(package_name, keep_data)
+
+def adb_pull(remote, local, device_id=None):
+    """从设备拉取文件到本地"""
+    return _ADB(device_id).pull(remote, local)
+
+def adb_push(local, remote, device_id=None):
+    """推送本地文件到设备"""
+    return _ADB(device_id).push(local, remote)
+
+def adb_screenshot(output_path, device_id=None):
+    """截取设备屏幕"""
+    return _ADB(device_id).screenshot(output_path)
+
+def adb_logcat(device_id=None, filter_spec=None, lines=50):
+    """获取设备日志"""
+    return _ADB(device_id).logcat(filter_spec, lines)
+
+# ============================================================
+# 知识库 - Knowledge Base（参照 Operit 持久记忆能力）
+# ============================================================
+
+from .knowledge.kb import KnowledgeBase as _KnowledgeBase
+from .knowledge.kb import seed_default_knowledge as _seed_default_knowledge
+
+def create_knowledge_base(path=None):
+    """创建或加载知识库"""
+    return _KnowledgeBase(path)
+
+def seed_knowledge(path=None):
+    """写入内置加固/SDK/混淆特征到知识库"""
+    return _seed_default_knowledge(path)
+
+# ============================================================
+# 备份/恢复 - Snapshot（参照 Operit 本地备份能力）
+# ============================================================
+
+from .backup.snapshot import Snapshot as _Snapshot
+from .backup.snapshot import export_analysis_result as _export_analysis_result
+
+def export_workspace(workspace_dir, output_path=None, include_artifacts=False):
+    """导出工作区为可移植 JSON 快照"""
+    return _Snapshot.export(workspace_dir, output_path, include_artifacts)
+
+def import_workspace(snapshot_path, target_dir=None, extract_artifacts=False):
+    """从快照恢复工作区"""
+    return _Snapshot.import_(snapshot_path, target_dir, extract_artifacts)
+
+def export_analysis(apk_path, result, output_path=None, include_raw=False):
+    """导出单次分析结果的可移植 JSON"""
+    return _export_analysis_result(apk_path, result, output_path, include_raw)
+
 __all__ = [
     # Core
     'open_apk', 'list_apk_files', 'read_apk_file', 'extract_apk', 'apk_structure',

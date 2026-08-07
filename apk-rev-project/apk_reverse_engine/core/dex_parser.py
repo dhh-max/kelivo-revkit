@@ -253,35 +253,42 @@ class DexParser:
                                 'access_flags': self._access_flags_str(acc_diff),
                             })
 
-                    # Direct methods
+                    # Direct methods (with code_item)
                     last_idx = 0
                     for j in range(dmc):
                         idx_diff, sz = self._sleb(pos); pos += sz
                         acc_diff, sz = self._sleb(pos); pos += sz
                         last_idx += idx_diff
+                        # 后续跟 code_off (ULEB128)，如果有代码
+                        code_off = 0
+                        if not (acc_diff & 0x0400):  # 非 NATIVE
+                            code_off, sz2 = self._sleb(pos); pos += sz2
                         method = self._methods[last_idx] if 0 <= last_idx < len(self._methods) else None
-                        if method:
-                            direct_methods.append({
-                                'method_idx': last_idx,
-                                'name': method['name'],
-                                'proto': method['proto'],
-                                'access_flags': self._access_flags_str(acc_diff),
-                            })
+                        mi = {'method_idx': last_idx, 'name': method['name'] if method else f'?{last_idx}',
+                              'proto': method['proto'] if method else None,
+                              'access_flags': self._access_flags_str(acc_diff)}
+                        if code_off:
+                            mi['code_off'] = code_off
+                            mi['code'] = self._parse_code_item(code_off)
+                        direct_methods.append(mi)
 
-                    # Virtual methods
+                    # Virtual methods (with code_item)
                     last_idx = 0
                     for j in range(vmc):
                         idx_diff, sz = self._sleb(pos); pos += sz
                         acc_diff, sz = self._sleb(pos); pos += sz
                         last_idx += idx_diff
+                        code_off = 0
+                        if not (acc_diff & 0x0400):
+                            code_off, sz2 = self._sleb(pos); pos += sz2
                         method = self._methods[last_idx] if 0 <= last_idx < len(self._methods) else None
-                        if method:
-                            virtual_methods.append({
-                                'method_idx': last_idx,
-                                'name': method['name'],
-                                'proto': method['proto'],
-                                'access_flags': self._access_flags_str(acc_diff),
-                            })
+                        mi = {'method_idx': last_idx, 'name': method['name'] if method else f'?{last_idx}',
+                              'proto': method['proto'] if method else None,
+                              'access_flags': self._access_flags_str(acc_diff)}
+                        if code_off:
+                            mi['code_off'] = code_off
+                            mi['code'] = self._parse_code_item(code_off)
+                        virtual_methods.append(mi)
                 except Exception as e:
                     pass
 
@@ -322,6 +329,152 @@ class DexParser:
         if flags & 0x20000: names.append('CONSTRUCTOR')
         if flags & 0x40000: names.append('DECLARED_SYNCHRONIZED')
         return '|'.join(names) if names else 'DEFAULT'
+
+    # ── Code Item 解析 ──
+    def _parse_code_item(self, off):
+        """解析 code_item 结构，返回指令摘要"""
+        try:
+            n = len(self.data)
+            if off + 16 > n:
+                return {'error': 'code_item too small'}
+            registers_size = self._u2(off)
+            ins_size = self._u2(off + 2)
+            outs_size = self._u2(off + 4)
+            tries_size = self._u2(off + 6)
+            debug_info_off = self._u4(off + 8)
+            insns_size = self._u4(off + 12)
+            insns_start = off + 16
+            insns_end = insns_start + insns_size * 2
+            if insns_end > n:
+                insns_end = n
+
+            # 提取指令字节（16位指令）
+            raw_insns = self.data[insns_start:insns_end]
+
+            # 提取 try/catch 信息
+            tries = []
+            handlers = []
+            if tries_size > 0:
+                # 对齐到 4 字节
+                pos = insns_end
+                if pos % 4 != 0:
+                    pos += 4 - (pos % 4)
+                for _ in range(tries_size):
+                    if pos + 8 > n:
+                        break
+                    try_start = self._u4(pos)
+                    try_count = self._u2(pos + 4)
+                    handler_off = self._u2(pos + 6)
+                    tries.append({
+                        'start_addr': try_start,
+                        'insn_count': try_count,
+                        'handler_off': handler_off,
+                    })
+                    pos += 8
+                # 解析 handlers
+                if pos + 2 <= n:
+                    handler_count = self._sleb(pos)[0]
+                    pos += self._sleb(pos)[1] if handler_count >= 0 else 1
+                    # 简化：只记录数量
+                    handlers = {'count': handler_count}
+
+            return {
+                'registers_size': registers_size,
+                'ins_size': ins_size,
+                'outs_size': outs_size,
+                'tries_size': tries_size,
+                'debug_info_off': debug_info_off,
+                'insns_size': insns_size,
+                'insns_bytes': len(raw_insns),
+                'insns_start': insns_start,
+                'tries': tries,
+                'handlers': handlers,
+            }
+        except Exception as e:
+            return {'error': str(e)}
+
+    # ── Annotation 解析 ──
+    def _parse_annotations_off(self, off):
+        """解析 annotations_directory_item"""
+        try:
+            if off <= 0 or off + 16 > len(self.data):
+                return None
+            class_annot_off = self._u4(off)
+            field_size = self._u4(off + 4)
+            method_size = self._u4(off + 8)
+            param_size = self._u4(off + 12)
+            result = {
+                'class_annotation_off': class_annot_off,
+                'field_annotations': [],
+                'method_annotations': [],
+                'parameter_annotations': [],
+            }
+            pos = off + 16
+            for _ in range(field_size):
+                if pos + 8 > len(self.data): break
+                result['field_annotations'].append({
+                    'field_idx': self._u4(pos),
+                    'annotations_off': self._u4(pos + 4),
+                })
+                pos += 8
+            for _ in range(method_size):
+                if pos + 8 > len(self.data): break
+                result['method_annotations'].append({
+                    'method_idx': self._u4(pos),
+                    'annotations_off': self._u4(pos + 4),
+                })
+                pos += 8
+            for _ in range(param_size):
+                if pos + 8 > len(self.data): break
+                result['parameter_annotations'].append({
+                    'method_idx': self._u4(pos),
+                    'annotations_off': self._u4(pos + 4),
+                })
+                pos += 8
+            return result
+        except Exception:
+            return None
+
+    def get_annotations(self, class_def):
+        """获取指定类定义的注解信息"""
+        self._ensure_parsed()
+        ani = class_def.get('annotations_off', 0)
+        if ani:
+            return self._parse_annotations_off(ani)
+        return None
+
+    def get_annotation_set(self, off):
+        """解析 annotation_set_item"""
+        if off <= 0 or off + 4 > len(self.data):
+            return []
+        try:
+            count = self._u4(off)
+            annotations = []
+            for i in range(count):
+                if off + 4 + i * 4 + 4 > len(self.data):
+                    break
+                ao = self._u4(off + 4 + i * 4)
+                annotations.append(self._get_annotation_off(ao))
+            return annotations
+        except Exception:
+            return []
+
+    def _get_annotation_off(self, off):
+        """解析 annotation_item（简化）"""
+        try:
+            if off <= 0 or off + 4 > len(self.data):
+                return {'error': 'invalid offset'}
+            visibility = self._u1(off)
+            vis_map = {0: 'build', 1: 'runtime', 2: 'system'}
+            type_idx = self._sleb(off + 1)[0]
+            type_name = self._types[type_idx]['descriptor'] if 0 <= type_idx < len(self._types) else f'?{type_idx}'
+            return {
+                'visibility': vis_map.get(visibility, f'unknown({visibility})'),
+                'type_idx': type_idx,
+                'type': type_name,
+            }
+        except Exception as e:
+            return {'error': str(e)}
 
     def get_string(self, idx):
         self._ensure_parsed()

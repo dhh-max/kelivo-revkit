@@ -104,25 +104,84 @@ def add_file_to_apk(apk_path, output_path, file_path, data):
         data: 文件内容（bytes）
 
     Returns:
-        dict: {'added': file_path, 'output': output_path}
+        dict: {'added': file_path, 'output': output_path, 'was_overwrite': bool}
     """
+    replaced = False
     with zipfile.ZipFile(apk_path, 'r') as zin:
         existing = set(zin.namelist())
         with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zout:
             for info in zin.infolist():
-                zout.writestr(info, zin.read(info.filename))
-            if file_path not in existing:
+                if info.filename == file_path:
+                    zout.writestr(info, data)
+                    replaced = True
+                else:
+                    zout.writestr(info, zin.read(info.filename))
+            if not replaced:
                 zout.writestr(file_path, data)
-            else:
-                # 覆盖
-                pass  # 上面已写出旧内容，但需要重新写
-    # 覆盖模式：重新打包
-    if file_path in existing:
-        with zipfile.ZipFile(apk_path, 'r') as zin:
-            with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zout:
-                for info in zin.infolist():
-                    if info.filename == file_path:
-                        zout.writestr(info, data)
+    return {'added': file_path, 'output': output_path, 'was_overwrite': replaced}
+
+
+def add_files_bulk(apk_path, output_path, file_entries, overwrite=True):
+    """批量向 APK 中添加/更新文件（单次IO）
+
+    Args:
+        apk_path: 原始 APK 路径
+        output_path: 输出 APK 路径
+        file_entries: {arcname: data_bytes, ...}
+        overwrite: 是否覆盖已存在的文件
+
+    Returns:
+        dict: {'added': [...], 'skipped': [...], 'output': output_path}
+    """
+    added = []
+    skipped = []
+    with zipfile.ZipFile(apk_path, 'r') as zin:
+        existing = set(zin.namelist())
+        with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zout:
+            for info in zin.infolist():
+                if info.filename in file_entries:
+                    if overwrite:
+                        zout.writestr(info, file_entries[info.filename])
+                        added.append(info.filename)
                     else:
                         zout.writestr(info, zin.read(info.filename))
-    return {'added': file_path, 'output': output_path}
+                        skipped.append(info.filename)
+                else:
+                    zout.writestr(info, zin.read(info.filename))
+            for fname, fdata in file_entries.items():
+                if fname not in existing:
+                    zout.writestr(fname, fdata)
+                    added.append(fname)
+    return {'added': added, 'skipped': skipped, 'output': output_path}
+
+
+def update_file_in_apk_v2(apk_path, output_path, file_path, data, add_if_missing=False):
+    """更新 APK 中文件内容（v2版本，支持添加缺失文件）
+
+    Args:
+        apk_path: 原始 APK 路径
+        output_path: 输出 APK 路径
+        file_path: 要更新的文件路径
+        data: 新文件内容（bytes）
+        add_if_missing: 文件不存在时是否添加
+
+    Returns:
+        dict: {'updated': bool, 'added': bool, 'file': file_path, 'output': output_path}
+    """
+    found = False
+    with zipfile.ZipFile(apk_path, 'r') as zin:
+        with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zout:
+            for info in zin.infolist():
+                if info.filename == file_path:
+                    zout.writestr(info, data)
+                    found = True
+                else:
+                    zout.writestr(info, zin.read(info.filename))
+            if not found and add_if_missing:
+                zout.writestr(file_path, data)
+    return {
+        'updated': found,
+        'added': (not found and add_if_missing),
+        'file': file_path,
+        'output': output_path,
+    }
