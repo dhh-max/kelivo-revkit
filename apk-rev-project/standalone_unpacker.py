@@ -372,11 +372,20 @@ def _compact_result(result):
     if result.get('abis'):
         keep['abis'] = result['abis']
 
-    # 加固检测 + 危险权限（用户要求保留，其余分析推导字段丢弃）
+    # 加固检测 + 危险权限 + 混淆 + 安全提示（用户关心的最终结论，全部保留）
     keep['packer_count'] = len(result.get('packers', []) or [])
     keep['packers'] = result.get('packers', [])
     keep['dangerous_permission_count'] = len(result.get('dangerous_permissions', []) or [])
     keep['dangerous_permissions'] = result.get('dangerous_permissions', [])
+    keep['total_classes'] = result.get('total_classes', 0)
+    keep['permission_count'] = result.get('permission_count', 0)
+    if result.get('obfuscation'):
+        keep['obfuscation'] = result['obfuscation']
+    if result.get('security_issues'):
+        keep['security_issues'] = result['security_issues']
+        keep['security_issue_count'] = len(result['security_issues'])
+    if result.get('size_by_category'):
+        keep['size_by_category'] = result['size_by_category']
     return keep
 
 
@@ -835,7 +844,7 @@ def _standalone_detect_sdk(class_names):
 # 摘要输出 - 生成紧凑终端摘要，避免全量JSON撑爆上下文
 # ═══════════════════════════════════════════════════════════════
 def _generate_summary(result):
-    """从分析结果中提取自然语言摘要（≈500B），适合直接输出给用户
+    """从分析结果中提取自然语言摘要（≈600B），适合直接输出给用户
     只输出『解包后的内容』（包信息 + 文件结构），不输出任何分析推导
     兼容压缩版(_compact_result)与全量版两种结构"""
     name = os.path.basename(result.get('apk_path', ''))
@@ -865,13 +874,27 @@ def _generate_summary(result):
     if s.get('meta_inf_count'): files.append(f"META-INF×{s['meta_inf_count']}")
     if files: parts.append(f"  📂 {' '.join(files)}")
     
-    # 加固 + 危险权限（用户要求保留，其余分析不输出）
+    # 混淆 + 类数
+    obf = result.get('obfuscation', {})
+    tc = result.get('total_classes', 0)
+    obf_line = []
+    if tc: obf_line.append(f"类{tc}个")
+    if obf.get('level') and obf.get('level') != '低':
+        obf_line.append(f"混淆{obf['level']}({obf.get('score',0)}分)")
+    if obf_line: parts.append(f"  🔍 {' '.join(obf_line)}")
+    
+    # 加固 + 危险权限 + 安全提示
     extras = []
     packers = result.get('packers', [])
     if packers: extras.append(f"🛡️{'/'.join(packers)}")
     dp = result.get('dangerous_permissions', [])
     if dp: extras.append(f"⚠️{' '.join(dp)}")
     if extras: parts.append(f"  {' '.join(extras)}")
+    
+    # 安全提示（单独一行，仅在有内容时）
+    sec = result.get('security_issues', [])
+    if sec:
+        parts.append(f"  ⚡{' '.join(sec)}")
 
     return '\n'.join(parts)
 
