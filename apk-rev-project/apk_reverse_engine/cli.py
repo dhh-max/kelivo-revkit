@@ -2426,11 +2426,11 @@ def main():
     p.add_argument("--flatten", "-f", action="store_true", help="扁平化，不保留子目录结构")
     p.add_argument("--dry-run", "-n", action="store_true", help="仅预览不解压")
     p.add_argument("--category", "-c", help="按分类提取 (dex/lib/res/assets/meta_inf/all)，支持别名 so→lib, cert→meta_inf")
-p.add_argument("--manifest", "-m", help="JSON清单文件路径，精确指定要提取的文件列表（原子性+校验）")
-p.add_argument("--no-verify", action="store_true", help="使用清单时跳过SHA256校验")
-p.add_argument("--no-fail-missing", action="store_true", help="使用清单时允许缺失条目不报错")
-p.add_argument("--standalone", action="store_true", help="纯Python独立模式 (兼容第三方中转站，不依赖apktool等外部工具)")
-p.set_defaults(func=cmd_unpack)
+    p.add_argument("--manifest", "-m", help="JSON清单文件路径，精确指定要提取的文件列表（原子性+校验）")
+    p.add_argument("--no-verify", action="store_true", help="使用清单时跳过SHA256校验")
+    p.add_argument("--no-fail-missing", action="store_true", help="使用清单时允许缺失条目不报错")
+    p.add_argument("--standalone", action="store_true", help="纯Python独立模式 (兼容第三方中转站，不依赖apktool等外部工具)")
+    p.set_defaults(func=cmd_unpack)
 
     # verify
     p = sub.add_parser("verify", help="🔍 校验解压完整性")
