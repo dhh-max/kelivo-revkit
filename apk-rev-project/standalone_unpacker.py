@@ -348,7 +348,11 @@ def _compact_result(result):
     if result.get('abis'):
         keep['abis'] = result['abis']
 
-    # 其余分析推导字段（加固/混淆/权限/SDK/社交登录/findings）全部丢弃
+    # 加固检测 + 危险权限（用户要求保留，其余分析推导字段丢弃）
+    keep['packer_count'] = len(result.get('packers', []) or [])
+    keep['packers'] = result.get('packers', [])
+    keep['dangerous_permission_count'] = len(result.get('dangerous_permissions', []) or [])
+    keep['dangerous_permissions'] = result.get('dangerous_permissions', [])
     return keep
 
 
@@ -836,6 +840,14 @@ def _generate_summary(result):
     if s.get('res_count'): files.append(f"res×{s['res_count']}")
     if s.get('meta_inf_count'): files.append(f"META-INF×{s['meta_inf_count']}")
     if files: parts.append(f"  📂 {' '.join(files)}")
+    
+    # 加固 + 危险权限（用户要求保留，其余分析不输出）
+    extras = []
+    packers = result.get('packers', [])
+    if packers: extras.append(f"🛡️{'/'.join(packers)}")
+    dp = result.get('dangerous_permissions', [])
+    if dp: extras.append(f"⚠️{' '.join(dp)}")
+    if extras: parts.append(f"  {' '.join(extras)}")
 
     return '\n'.join(parts)
 
