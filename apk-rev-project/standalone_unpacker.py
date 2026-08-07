@@ -321,16 +321,20 @@ def _compact_result(result):
         if k in result:
             keep[k] = result[k]
 
-    # structure：只保留摘要需要的数字字段，丢弃 sha256/分类大小等大字段
+    # structure：只保留『解包后的内容』（包信息 + 文件分类计数），丢弃 sha256/分类大小等大字段
     st = result.get('structure') or {}
     keep['structure'] = {
         'size': st.get('size', 0),
+        'total_files': st.get('total_files', 0),
         'dex_count': st.get('dex_count', 0),
         'so_count': st.get('so_count', 0),
-        'total_files': st.get('total_files', 0),
+        'image_count': st.get('image_count', 0),
+        'xml_count': st.get('xml_count', 0),
+        'arsc_count': st.get('arsc_count', 0),
+        'assets_count': st.get('assets_count', 0),
+        'res_count': st.get('res_count', 0),
+        'meta_inf_count': st.get('meta_inf_count', 0),
     }
-
-    keep['total_classes'] = result.get('total_classes', 0)
 
     # manifest：只保留 package + sdk 数值
     m = result.get('manifest') or {}
@@ -340,55 +344,11 @@ def _compact_result(result):
                 'targetSdk': m.get('sdk', {}).get('targetSdk', 0)},
     }
 
-    # abis：只保留架构列表（可能多个，但通常很短，保留）
+    # abis：只保留架构列表（通常很短，保留）
     if result.get('abis'):
         keep['abis'] = result['abis']
 
-    # obfuscation：只保留分值和等级
-    o = result.get('obfuscation') or {}
-    keep['obfuscation'] = {
-        'score': o.get('score', 0),
-        'level': o.get('level', ''),
-    }
-
-    # 列表字段全部转计数
-    keep['packer_count'] = len(result.get('packers', []) or [])
-    keep['dangerous_permission_count'] = len(result.get('dangerous_permissions', []) or [])
-    keep['security_issue_count'] = len(result.get('security_issues', []) or [])
-    keep['permission_count'] = result.get('permission_count', 0)
-
-    # findings 只保留计数，丢弃原始列表（URL/IP/邮箱/密钥原文）
-    f = result.get('findings')
-    if isinstance(f, dict):
-        keep['finding_counts'] = {
-            'urls': len(f.get('urls', [])),
-            'ips': len(f.get('ips', [])),
-            'emails': len(f.get('emails', [])),
-            'keys': len(f.get('potential_keys', [])),
-        }
-
-    # social_login 精简为平台名+风险（不保留置信度/匹配数）
-    sl = result.get('social_login')
-    if isinstance(sl, dict):
-        keep['social_login'] = {
-            'total': sl.get('total', 0),
-            'level': sl.get('level', ''),
-            'platforms': [
-                {'name': p.get('name'), 'risk': p.get('risk')}
-                for p in sl.get('platforms', [])
-            ],
-        }
-
-    # sdk_detected 精简为名称+风险（不保留分类/匹配数）
-    sd = result.get('sdk_detected')
-    if isinstance(sd, dict):
-        keep['sdk_detected'] = {
-            'total': sd.get('total', 0),
-            'sdks': [
-                {'name': s.get('name'), 'risk': s.get('risk')}
-                for s in sd.get('sdks', [])
-            ],
-        }
+    # 其余分析推导字段（加固/混淆/权限/SDK/社交登录/findings）全部丢弃
     return keep
 
 
@@ -848,52 +808,34 @@ def _standalone_detect_sdk(class_names):
 # ═══════════════════════════════════════════════════════════════
 def _generate_summary(result):
     """从分析结果中提取自然语言摘要（≈500B），适合直接输出给用户
+    只输出『解包后的内容』（包信息 + 文件结构），不输出任何分析推导
     兼容压缩版(_compact_result)与全量版两种结构"""
     name = os.path.basename(result.get('apk_path', ''))
     s = result.get('structure', {})
     m = result.get('manifest', {})
-    o = result.get('obfuscation', {})
-    sdk = result.get('sdk_detected', {})
-    sl = result.get('social_login', {})
+    abis = result.get('abis') or []
 
     parts = [f"📦 {name} ({_fmt_size(s.get('size', 0))})"]
     
-    # 基本信息
+    # 包信息
     info = []
     if m.get('package'): info.append(m['package'])
-    if s.get('dex_count'): info.append(f"{s['dex_count']}个DEX")
-    if s.get('so_count'): info.append(f"{s['so_count']}个SO")
     if m.get('sdk', {}).get('minSdk'): info.append(f"SDK {m['sdk']['minSdk']}→{m['sdk']['targetSdk']}")
-    if s.get('total_files'): info.append(f"{s['total_files']}文件")
+    if abis: info.append(f"ABI: {'/'.join(abis)}")
     if info: parts.append(f"  📋 {' · '.join(info)}")
     
-    # 安全风险（一行）——兼容压缩版计数与全量版列表
-    risks = []
-    packer_n = result.get('packer_count', len(result.get('packers', []) or []))
-    if packer_n: risks.append(f"🛡️加固{packer_n}种")
-    if o.get('level'): risks.append(f"🎭混淆{o['level']}({o.get('score',0)}分)")
-    dp_n = result.get('dangerous_permission_count', len(result.get('dangerous_permissions', []) or []))
-    if dp_n: risks.append(f"⚠️危险权限{dp_n}项")
-    if sdk.get('sdks'): risks.append(f"🔌{sdk['total']}个SDK")
-    if sl.get('platforms'): risks.append(f"🔐{sl['total']}社交登录")
-    if risks: parts.append(f"  {' '.join(risks)}")
-    
-    # 发现的网络资产（仅当有值得注意的发现）
-    finding_parts = []
-    fcounts = result.get('finding_counts') or {}
-    if result.get('findings'):
-        ffind = result['findings']
-        fcounts = {
-            'urls': len(ffind.get('urls', [])),
-            'ips': len(ffind.get('ips', [])),
-            'emails': len(ffind.get('emails', [])),
-            'keys': len(ffind.get('potential_keys', [])),
-        }
-    if fcounts.get('urls'): finding_parts.append(f"URL×{fcounts['urls']}")
-    if fcounts.get('ips'): finding_parts.append(f"IP×{fcounts['ips']}")
-    if fcounts.get('emails'): finding_parts.append(f"邮箱×{fcounts['emails']}")
-    if fcounts.get('keys'): finding_parts.append(f"密钥×{fcounts['keys']}")
-    if finding_parts: parts.append(f"  🔍 {' '.join(finding_parts)}")
+    # 解包后的文件结构（文件分类计数）
+    files = []
+    if s.get('total_files'): files.append(f"共{s['total_files']}文件")
+    if s.get('dex_count'): files.append(f"DEX×{s['dex_count']}")
+    if s.get('so_count'): files.append(f"SO×{s['so_count']}")
+    if s.get('image_count'): files.append(f"图片×{s['image_count']}")
+    if s.get('xml_count'): files.append(f"XML×{s['xml_count']}")
+    if s.get('arsc_count'): files.append(f"ARSC×{s['arsc_count']}")
+    if s.get('assets_count'): files.append(f"assets×{s['assets_count']}")
+    if s.get('res_count'): files.append(f"res×{s['res_count']}")
+    if s.get('meta_inf_count'): files.append(f"META-INF×{s['meta_inf_count']}")
+    if files: parts.append(f"  📂 {' '.join(files)}")
 
     return '\n'.join(parts)
 
