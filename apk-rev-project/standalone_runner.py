@@ -169,9 +169,9 @@ def analyze_apk(apk_path, mode='quick', output_json=False, write_file=True, out_
         'total_classes': r.get('total_classes', 0),
         'obfuscation_level': r.get('obfuscation', {}).get('level', ''),
         'obfuscation_score': r.get('obfuscation', {}).get('score', 0),
-        'packers': r.get('packers', []),
-        'dangerous_permissions': r.get('dangerous_permissions', []),
-        'security_issues': r.get('security_issues', []),
+        'packer_count': r.get('packer_count', 0),
+        'dangerous_permission_count': r.get('dangerous_permission_count', 0),
+        'security_issue_count': r.get('security_issue_count', 0),
         'result_path': result_path,
     }
     if mode in ('social', 'full'):
@@ -179,7 +179,7 @@ def analyze_apk(apk_path, mode='quick', output_json=False, write_file=True, out_
     if mode in ('sdk', 'full'):
         summary['sdk_detected'] = r.get('sdk_detected', {})
     if mode == 'full':
-        summary['findings'] = r.get('findings', {})
+        summary['finding_counts'] = r.get('finding_counts', {})
     
     if output_json:
         return summary

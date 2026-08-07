@@ -305,17 +305,57 @@ def write_result_file(full_result, apk_path, out_dir=None):
 # ═══════════════════════════════════════════════════════════════
 def _compact_result(result):
     """压缩分析结果：剥离大体积verbose字段（findings列表/dex明细/size_by_category等），
-    仅保留摘要所需的最小集合，大幅降低内存与上下文占用。"""
+    仅保留摘要所需的最小集合，大幅降低内存与上下文占用。
+
+    压缩原则：
+    - 列表字段（权限/加固/安全问题）→ 只保留计数，丢弃原文
+    - 网络资产（URL/IP/邮箱/密钥）→ 只保留计数
+    - 社交/SDK → 只保留平台名+风险（不保留置信度/匹配数等冗余）
+    - structure 只保留摘要需要的数字字段（丢弃 sha256 等大字段）
+    """
     if not isinstance(result, dict):
         return result
 
     keep = {}
-    for k in ('apk_path', 'success', 'error', 'structure', 'abis', 'manifest',
-              'total_classes', 'total_strings', 'signature', 'obfuscation',
-              'packers', 'dangerous_permissions', 'security_issues',
-              'permission_count', 'extracted', 'output_dir'):
+    for k in ('apk_path', 'success', 'error'):
         if k in result:
             keep[k] = result[k]
+
+    # structure：只保留摘要需要的数字字段，丢弃 sha256/分类大小等大字段
+    st = result.get('structure') or {}
+    keep['structure'] = {
+        'size': st.get('size', 0),
+        'dex_count': st.get('dex_count', 0),
+        'so_count': st.get('so_count', 0),
+        'total_files': st.get('total_files', 0),
+    }
+
+    keep['total_classes'] = result.get('total_classes', 0)
+
+    # manifest：只保留 package + sdk 数值
+    m = result.get('manifest') or {}
+    keep['manifest'] = {
+        'package': m.get('package', ''),
+        'sdk': {'minSdk': m.get('sdk', {}).get('minSdk', 0),
+                'targetSdk': m.get('sdk', {}).get('targetSdk', 0)},
+    }
+
+    # abis：只保留架构列表（可能多个，但通常很短，保留）
+    if result.get('abis'):
+        keep['abis'] = result['abis']
+
+    # obfuscation：只保留分值和等级
+    o = result.get('obfuscation') or {}
+    keep['obfuscation'] = {
+        'score': o.get('score', 0),
+        'level': o.get('level', ''),
+    }
+
+    # 列表字段全部转计数
+    keep['packer_count'] = len(result.get('packers', []) or [])
+    keep['dangerous_permission_count'] = len(result.get('dangerous_permissions', []) or [])
+    keep['security_issue_count'] = len(result.get('security_issues', []) or [])
+    keep['permission_count'] = result.get('permission_count', 0)
 
     # findings 只保留计数，丢弃原始列表（URL/IP/邮箱/密钥原文）
     f = result.get('findings')
@@ -327,27 +367,25 @@ def _compact_result(result):
             'keys': len(f.get('potential_keys', [])),
         }
 
-    # social_login 精简为平台名+风险+置信度
+    # social_login 精简为平台名+风险（不保留置信度/匹配数）
     sl = result.get('social_login')
     if isinstance(sl, dict):
         keep['social_login'] = {
             'total': sl.get('total', 0),
             'level': sl.get('level', ''),
             'platforms': [
-                {'name': p.get('name'), 'icon': p.get('icon'),
-                 'risk': p.get('risk'), 'confidence': p.get('confidence')}
+                {'name': p.get('name'), 'risk': p.get('risk')}
                 for p in sl.get('platforms', [])
             ],
         }
 
-    # sdk_detected 精简为名称+分类+风险
+    # sdk_detected 精简为名称+风险（不保留分类/匹配数）
     sd = result.get('sdk_detected')
     if isinstance(sd, dict):
         keep['sdk_detected'] = {
             'total': sd.get('total', 0),
-            'risk_summary': sd.get('risk_summary', {}),
             'sdks': [
-                {'name': s.get('name'), 'category': s.get('category'), 'risk': s.get('risk')}
+                {'name': s.get('name'), 'risk': s.get('risk')}
                 for s in sd.get('sdks', [])
             ],
         }
@@ -809,19 +847,16 @@ def _standalone_detect_sdk(class_names):
 # 摘要输出 - 生成紧凑终端摘要，避免全量JSON撑爆上下文
 # ═══════════════════════════════════════════════════════════════
 def _generate_summary(result):
-    """从分析结果中提取自然语言摘要（≈500B），适合直接输出给用户"""
+    """从分析结果中提取自然语言摘要（≈500B），适合直接输出给用户
+    兼容压缩版(_compact_result)与全量版两种结构"""
     name = os.path.basename(result.get('apk_path', ''))
-    sz = _fmt_size(result.get('structure', {}).get('size', 0))
     s = result.get('structure', {})
     m = result.get('manifest', {})
     o = result.get('obfuscation', {})
-    p = result.get('packers', [])
-    dp = result.get('dangerous_permissions', [])
     sdk = result.get('sdk_detected', {})
     sl = result.get('social_login', {})
-    f = result.get('findings', {})
 
-    parts = [f"📦 {name} ({sz})"]
+    parts = [f"📦 {name} ({_fmt_size(s.get('size', 0))})"]
     
     # 基本信息
     info = []
@@ -832,18 +867,19 @@ def _generate_summary(result):
     if s.get('total_files'): info.append(f"{s['total_files']}文件")
     if info: parts.append(f"  📋 {' · '.join(info)}")
     
-    # 安全风险（一行）
+    # 安全风险（一行）——兼容压缩版计数与全量版列表
     risks = []
-    if p: risks.append(f"🛡️加固/{'/'.join(p)}")
+    packer_n = result.get('packer_count', len(result.get('packers', []) or []))
+    if packer_n: risks.append(f"🛡️加固{packer_n}种")
     if o.get('level'): risks.append(f"🎭混淆{o['level']}({o.get('score',0)}分)")
-    if dp: risks.append(f"⚠️危险权限{len(dp)}项")
+    dp_n = result.get('dangerous_permission_count', len(result.get('dangerous_permissions', []) or []))
+    if dp_n: risks.append(f"⚠️危险权限{dp_n}项")
     if sdk.get('sdks'): risks.append(f"🔌{sdk['total']}个SDK")
     if sl.get('platforms'): risks.append(f"🔐{sl['total']}社交登录")
     if risks: parts.append(f"  {' '.join(risks)}")
     
     # 发现的网络资产（仅当有值得注意的发现）
     finding_parts = []
-    # 兼容压缩版(finding_counts) 与 全量版(findings) 两种结构
     fcounts = result.get('finding_counts') or {}
     if result.get('findings'):
         ffind = result['findings']
@@ -923,15 +959,13 @@ def process_inbox(inbox_dir='/sdcard/Download/Operit/inbox',
                 'so_count': r.get('structure', {}).get('so_count', 0),
                 'total_files': r.get('structure', {}).get('total_files', 0),
                 'total_classes': r.get('total_classes', 0),
-                'total_strings': r.get('total_strings', 0),
                 'obfuscation_level': r.get('obfuscation', {}).get('level', ''),
                 'obfuscation_score': r.get('obfuscation', {}).get('score', 0),
-                'packers': r.get('packers', []),
-                'signature_v1': r.get('signature', {}).get('v1_valid', False),
-                'abis': r.get('abis', []),
-                'dangerous_permissions': r.get('dangerous_permissions', []),
-                'security_issues': r.get('security_issues', []),
+                'packer_count': r.get('packer_count', 0),
+                'risky_permission_count': r.get('dangerous_permission_count', 0),
+                'security_issue_count': r.get('security_issue_count', 0),
                 'permission_count': r.get('permission_count', 0),
+                'abis': r.get('abis', []),
                 # 自然语言摘要（输出给用户看）
                 'summary': _generate_summary(r),
             }
