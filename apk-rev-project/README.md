@@ -2,7 +2,7 @@
 
 全功能 APK 逆向工程工具集 — 解包/分析/反编译/修补/重打包/签名 一站式工具。
 
-**版本**: 2.1.0
+**版本**: 2.2.0
 
 ---
 
@@ -15,6 +15,7 @@
 - **线索串联/核心类定位** — 基于字符串和行为模式定位核心逻辑
 - **Smali 补丁/原生补丁/资源补丁** — 动态修改 APK 行为
 - **多语言支持(i18n)** — 资源字符串提取与翻译
+- **签名证书指纹提取** — 直接解析 v2/v3 Signing Block 提取证书 SHA-256（纯标准库，无需 apksigner/keytool）
 
 ## 基础工具（v2.1.0 新增）
 
@@ -55,6 +56,27 @@ from apk_reverse_engine.popup_remover import remove_share_popup
 2. 删除 Manifest 中弹窗组件声明
 3. 替换启动 Activity 为真实类名
 4. 自动 Debug 签名
+
+## 签名证书指纹提取（v2.2.0 新增，移植自 RikkaMinis）
+
+直接解析 APK v2/v3 Signing Block 提取签名证书 SHA-256 指纹，纯 Python 标准库实现，
+无需 apksigner / keytool，可用于验证 APK 是否携带期望的签名密钥。
+
+```python
+from apk_reverse_engine import extract_cert_sha256, verify_signature
+
+# 提取证书 SHA-256（小写十六进制）
+sha = extract_cert_sha256('app-release.apk')
+print(sha)                       # e.g. fc0c40...b16113
+
+# 获取原始 DER 证书字节
+cert_der = extract_cert_sha256('app-release.apk', raw=True)
+
+# verify_signature 现在也自动附带 cert_sha256
+with open_apk('app-release.apk') as ctx:
+    sig = verify_signature(ctx.zip, 'app-release.apk')
+    print(sig.get('cert_sha256'))   # 与 extract_cert_sha256 一致
+```
 
 ## 快速开始
 

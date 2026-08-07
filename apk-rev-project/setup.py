@@ -3,7 +3,7 @@
 from setuptools import setup, find_packages
 setup(
     name='apk-reverse-engine',
-    version='2.1.0',
+    version='2.2.0',
     description='全功能 APK 逆向工具集 - 解包/分析/反编译/修补/重打包/签名 一站式工具',
     long_description='''APK Reverse Engineering Engine v2
 全功能 APK 逆向工程工具集，涵盖：
@@ -17,6 +17,7 @@ setup(
 - 多语言支持(i18n)
 - 基础工具：APK 文件操作(删除/添加/更新/搜索)
 - 基础工具：Manifest 二进制操作(查找/删除/替换组件与属性)
+- 签名证书指纹提取：直接解析 v2/v3 Signing Block 提取证书 SHA-256(纯标准库)
 ''',
     long_description_content_type='text/plain',
     author='Kelivo RevKit',

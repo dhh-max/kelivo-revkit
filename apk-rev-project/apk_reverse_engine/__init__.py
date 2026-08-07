@@ -1,7 +1,7 @@
 """APK Reverse Engineering Engine v2 - 全模块基础功能API"""
 import os, zipfile
 
-__version__ = '2.1.0'
+__version__ = '2.2.0'
 
 # ============================================================
 # 核心模块 - Core
@@ -154,6 +154,15 @@ def verify_signature_v2(apk_path):
 def verify_signature(apk_zip, apk_path):
     """同时验证APK v1+v2+v3所有签名方案"""
     return _SignVerifier.verify_all(apk_zip, apk_path)
+
+def extract_cert_sha256(apk_path, raw=False):
+    """从APK v2/v3签名块直接提取签名证书SHA-256（纯标准库，无需apksigner/keytool）
+
+    移植自 RikkaMinis/scripts/apk_cert_sha256.py。
+    返回第一个签名者叶子证书的 SHA-256（小写十六进制）；raw=True 时返回 DER 证书字节。
+    无 v2/v3 签名时抛出 ValueError。
+    """
+    return _SignVerifier.extract_cert_sha256(apk_path, raw=raw)
 
 # --- 资源解析 ---
 from .core.resource_parser import ResourceParser as _ResourceParser
@@ -866,7 +875,7 @@ __all__ = [
     'dex_search_classes', 'dex_search_methods', 'dex_strings', 'dex_methods',
     'is_elf', 'analyze_elf', 'parse_elf', 'elf_imports', 'elf_exports',
     'elf_find_strings', 'elf_detect_crypto', 'elf_detect_packer',
-    'verify_signature_v1', 'verify_signature_v2', 'verify_signature',
+    'verify_signature_v1', 'verify_signature_v2', 'verify_signature', 'extract_cert_sha256',
     'parse_arsc',
     # Analysis
     'static_analyze', 'analyze_permissions', 'detect_obfuscation', 'detect_packer',

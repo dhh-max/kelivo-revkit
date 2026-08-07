@@ -135,6 +135,120 @@ class SignVerifier:
             return {'v2': False, 'v3': False, 'error': str(e)}
 
     @staticmethod
+    def _find_signing_block_pairs(data):
+        """直接解析 APK Signing Block，返回 {scheme_id: bytes} 字典。
+
+        移植自 RikkaMinis/scripts/apk_cert_sha256.py —— 只依赖 Python 标准库，
+        无需 apksigner/keytool。定位 EOCD → 中央目录前的 Signing Block →
+        逐对解析 scheme_id 与 payload。
+        """
+        eocd = data.rfind(b'PK\x05\x06')
+        if eocd < 0:
+            raise ValueError('not a zip/apk: no End Of Central Directory record')
+        cd_offset = struct.unpack_from('<I', data, eocd + 16)[0]
+
+        if data[cd_offset - 16:cd_offset] != SignVerifier.APK_SIG_BLOCK_MAGIC:
+            raise ValueError('no APK Signing Block (unsigned, or v1/JAR-signed only)')
+
+        footer_size = struct.unpack_from('<Q', data, cd_offset - 24)[0]
+        block_start = cd_offset - footer_size - 8
+        block_size = struct.unpack_from('<Q', data, block_start)[0]
+
+        pairs = {}
+        pos = block_start + 8
+        end = block_start + 8 + block_size - 24  # stop before trailing size+magic
+        while pos < end:
+            pair_len = struct.unpack_from('<Q', data, pos)[0]
+            pair_id = struct.unpack_from('<I', data, pos + 8)[0]
+            pairs[pair_id] = data[pos + 12:pos + 8 + pair_len]
+            pos += 8 + pair_len
+        return pairs
+
+    @staticmethod
+    def _first_certificate(block):
+        """从 v2/v3 block 中提取第一个签名者的叶子证书（DER）。
+
+        布局（全部为 u32 长度前缀序列）：
+            signers -> signer -> signed_data -> [digests][certificates]...
+        """
+        signer_len = struct.unpack_from('<I', block, 4)[0]  # 跳过外层 signers 长度
+        signer = block[8:8 + signer_len]
+
+        signed_data_len = struct.unpack_from('<I', signer, 0)[0]
+        signed_data = signer[4:4 + signed_data_len]
+
+        digests_len = struct.unpack_from('<I', signed_data, 0)[0]
+        certs_off = 4 + digests_len  # 跳过 digests 序列
+        cert_len = struct.unpack_from('<I', signed_data, certs_off + 4)[0]
+        cert = signed_data[certs_off + 8:certs_off + 8 + cert_len]
+
+        if not cert.startswith(b'\x30\x82'):
+            raise ValueError('parsed bytes are not a DER certificate — layout changed?')
+        return cert
+
+    @staticmethod
+    def extract_cert_sha256(apk_path, raw=False):
+        """从 APK v2/v3 Signing Block 直接提取签名证书 SHA-256。
+
+        移植自 RikkaMinis/scripts/apk_cert_sha256.py，纯标准库实现。
+        返回第一个签名者叶子证书的 SHA-256（小写十六进制）。
+        若 raw=True 则返回 DER 证书字节本身。
+
+        >>> sha = SignVerifier.extract_cert_sha256('app.apk')
+        >>> print(sha)  # e.g. fc0c40...b16113
+        """
+        with open(apk_path, 'rb') as f:
+            data = f.read()
+
+        pairs = SignVerifier._find_signing_block_pairs(data)
+        for scheme_id in (0x7109871a, 0xf05368c0):  # v2, v3
+            if scheme_id in pairs:
+                cert = SignVerifier._first_certificate(pairs[scheme_id])
+                if raw:
+                    return cert
+                return hashlib.sha256(cert).hexdigest()
+
+        raise ValueError('APK has a signing block but no v2/v3 signature')
+
+    @staticmethod
+    def verify_v2(apk_path):
+        """验证APK Signature Scheme v2/v3"""
+        try:
+            with open(apk_path, 'rb') as f:
+                data = f.read()
+
+            try:
+                pairs = SignVerifier._find_signing_block_pairs(data)
+            except ValueError as e:
+                return {'v2': False, 'v3': False, 'reason': str(e)}
+
+            result = {
+                'v2': SignVerifier.ID_APK_SIGNATURE_SCHEME_V2 in pairs,
+                'v3': SignVerifier.ID_APK_SIGNATURE_SCHEME_V3 in pairs,
+                'block_present': True,
+            }
+            for sid, key in ((SignVerifier.ID_APK_SIGNATURE_SCHEME_V2, 'v2'),
+                             (SignVerifier.ID_APK_SIGNATURE_SCHEME_V3, 'v3')):
+                if sid in pairs:
+                    result[f'{key}_block_size'] = len(pairs[sid]) + 8
+
+            # 尝试提取签名证书 SHA-256（直接解析 Signing Block）
+            try:
+                for sid in (SignVerifier.ID_APK_SIGNATURE_SCHEME_V2,
+                            SignVerifier.ID_APK_SIGNATURE_SCHEME_V3):
+                    if sid in pairs:
+                        cert = SignVerifier._first_certificate(pairs[sid])
+                        result['cert_sha256'] = hashlib.sha256(cert).hexdigest()
+                        result['cert_der_len'] = len(cert)
+                        break
+            except ValueError:
+                pass
+
+            return result
+        except Exception as e:
+            return {'v2': False, 'v3': False, 'error': str(e)}
+
+    @staticmethod
     def verify_all(apk_zip, apk_path):
         """同时验证所有签名方案"""
         v1 = SignVerifier.verify_v1(apk_zip)
@@ -146,6 +260,13 @@ class SignVerifier:
             'v3': v2v3.get('v3', False),
             'cert_info': v1.get('cert_info', {}),
         }
+
+        # 合并 v2/v3 提取的证书 SHA-256（优先于 v1 JAR 签名）
+        if v2v3.get('cert_sha256'):
+            result['cert_sha256'] = v2v3['cert_sha256']
+            result['cert_der_len'] = v2v3.get('cert_der_len')
+        elif v1.get('cert_info', {}).get('sha256'):
+            result['cert_sha256'] = v1['cert_info']['sha256']
         
         # Determine overall security level
         if result['v3']:
