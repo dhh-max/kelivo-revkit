@@ -14,13 +14,9 @@ import sys, os, json, time
 _self_dir = os.path.dirname(os.path.abspath(__file__))
 if _self_dir not in sys.path:
     sys.path.insert(0, _self_dir)
-from standalone_unpacker import unpack_apk_standalone, _fmt_size, _compact_result, process_inbox, _generate_summary
-
-
-def auto_find_apk():
-    """自动扫描常见目录，返回最新上传的 APK 文件路径（兼容单文件调用）"""
-    apks = auto_find_apks(max_n=1)
-    return apks[0] if apks else None
+from standalone_unpacker import (unpack_apk_standalone, _fmt_size, _compact_result,
+                                  process_inbox, _generate_summary, write_result_file,
+                                  DEFAULT_OUT_DIR)
 
 
 def auto_find_apks(max_n=10, out_dir=None, recent_hours=None):
@@ -98,34 +94,6 @@ def auto_find_apks(max_n=10, out_dir=None, recent_hours=None):
         if len(fresh) >= max_n:
             break
     return fresh
-
-
-DEFAULT_OUT_DIR = '/sdcard/Download/Operit/analyzed'
-
-
-def _short_apk_name(apk_path):
-    """返回安全的APK文件名（不含路径和扩展名）"""
-    return os.path.splitext(os.path.basename(apk_path))[0]
-
-
-def write_result_file(full_result, apk_path, out_dir=None):
-    """将全量分析结果写入JSON文件，返回文件路径
-    
-    Args:
-        full_result: 全量分析结果dict
-        apk_path: 原始APK路径
-        out_dir: 输出目录（默认 DEFAULT_OUT_DIR）
-    
-    Returns:
-        str: 写入的文件路径
-    """
-    out_dir = out_dir or DEFAULT_OUT_DIR
-    os.makedirs(out_dir, exist_ok=True)
-    safe = _short_apk_name(apk_path) or 'apk'
-    result_path = os.path.join(out_dir, f'{safe}.analysis.json')
-    with open(result_path, 'w', encoding='utf-8') as f:
-        json.dump(full_result, f, ensure_ascii=False, indent=2)
-    return result_path
 
 
 def analyze_apk(apk_path, mode='quick', output_json=False, write_file=True, out_dir=None):

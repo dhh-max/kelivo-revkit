@@ -2,7 +2,7 @@
 """APK Standalone Unpacker - 不依赖super_admin:terminal，仅通过code_runner运行
 兼容第三方中转站环境，输出紧凑JSON
 """
-import sys, os, json, zipfile, hashlib, struct, re, base64
+import os, json, zipfile, hashlib, struct, re
 from collections import Counter
 
 # ═══════════════════════════════════════════════════════════════
