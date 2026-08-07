@@ -351,6 +351,148 @@ class APKUnpacker:
                 'size': sz, 'sha256': sha.hexdigest(), 'ok': orig - cnt <= 0}
 
     @staticmethod
+    def extract_manifest(apk_path, output_dir, manifest=None, structure=True,
+                         fail_on_missing=True, verify=True):
+        """按精确清单原子提取 + 校验
+
+        设计：
+          1. 清单解析 → 支持精确条目列表 / 'all' / 分类别名(dex,lib,res,assets,meta_inf)
+          2. 原子提取 → 先解压到临时目录，全部成功后原子性移动到最终目录
+          3. 逐条校验 → 每个条目校验存在性 + SHA256 指纹，缺失项默认使操作失败
+          4. 返回清单报告 → 每个条目提取状态/校验状态/指纹
+
+        参数:
+            apk_path: APK路径
+            output_dir: 最终输出目录
+            manifest: 精确清单。None/'all'=全部文件；list=条目列表；
+                      字典 {'files': [...], 'categories': [...], 'fail_on_missing': bool}
+            structure: 是否按分类归档
+            fail_on_missing: 清单中缺失条目是否导致失败（原子性）
+            verify: 是否做 SHA256 校验
+        """
+        import tempfile
+        ctx = APKContext(apk_path)
+        all_files = [n for n in ctx.file_list if not n.endswith('/')]
+
+        # ---- 解析清单 ----
+        fail_on_missing_eff = fail_on_missing
+        file_list = None
+        categories = None
+        if isinstance(manifest, dict):
+            file_list = manifest.get('files')
+            categories = manifest.get('categories')
+            fail_on_missing_eff = manifest.get('fail_on_missing', fail_on_missing)
+        elif isinstance(manifest, (list, tuple)) and manifest:
+            file_list = list(manifest)
+        # None / 'all' / 空list 视为全部
+
+        target_map = {}  # arcname -> (cat)
+        if file_list:
+            for f in file_list:
+                target_map[f] = None
+        elif categories:
+            alias_map = {'so': 'lib', 'cert': 'meta_inf', 'native': 'lib'}
+            norm_cats = {alias_map.get(c.strip().lower(), c.strip().lower()) for c in categories}
+            for f in all_files:
+                cat = APKUnpacker._classify_file(f)
+                g = 'meta_inf' if cat == 'cert' else cat
+                if 'all' not in norm_cats and g not in norm_cats:
+                    continue
+                target_map[f] = cat
+        else:
+            for f in all_files:
+                target_map[f] = APKUnpacker._classify_file(f)
+
+        # ---- 预检：清单是否有条目根本不存在 ----
+        missing = [f for f in target_map if f not in set(all_files)]
+        if missing and fail_on_missing_eff:
+            ctx.close()
+            return {"success": False, "error": "manifest entries not in apk",
+                    "missing": missing, "extracted": 0, "total": len(target_map)}
+
+        # ---- 原子提取：先写入临时目录 ----
+        tmp_dir = tempfile.mkdtemp(prefix='.apk_extract_', dir=os.path.dirname(output_dir) or '.')
+        extracted = 0
+        errors = []
+        cat_counts = {}
+        try:
+            for arcname in target_map:
+                cat = APKUnpacker._classify_file(arcname)
+                try:
+                    if structure:
+                        sub = APKUnpacker._get_category_dir(cat, structure)
+                        rel = APKUnpacker._get_rel_path(arcname, cat)
+                        dest = os.path.join(tmp_dir, sub, rel) if sub else os.path.join(tmp_dir, arcname)
+                    else:
+                        dest = os.path.join(tmp_dir, arcname)
+                    os.makedirs(os.path.dirname(dest), exist_ok=True)
+                    with open(dest, 'wb') as f:
+                        f.write(ctx.read_file(arcname))
+                    if arcname.endswith('.so'):
+                        os.chmod(dest, os.stat(dest).st_mode | 0o111)
+                    extracted += 1
+                    cat_counts[cat] = cat_counts.get(cat, 0) + 1
+                except Exception as e:
+                    errors.append({'file': arcname, 'error': str(e)})
+            if errors:
+                # 有失败条目，原子性撤销
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+                ctx.close()
+                return {"success": False, "error": "atomic extract failed, rolled back",
+                        "errors": errors, "extracted": 0, "total": len(target_map)}
+            # 全部成功 → 原子移动到最终目录
+            FileUtils.ensure_dir(output_dir)
+            if os.path.exists(output_dir) and os.listdir(output_dir):
+                # 目标非空，合并
+                for root, dirs, files in os.walk(tmp_dir):
+                    rel_dir = os.path.relpath(root, tmp_dir)
+                    for d in dirs:
+                        os.makedirs(os.path.join(output_dir, rel_dir, d), exist_ok=True)
+                    for f in files:
+                        src = os.path.join(root, f)
+                        dst = os.path.join(output_dir, rel_dir, f)
+                        os.makedirs(os.path.dirname(dst), exist_ok=True)
+                        shutil.move(src, dst)
+            else:
+                shutil.rmtree(output_dir, ignore_errors=True)
+                os.makedirs(output_dir, exist_ok=True)
+                for item in os.listdir(tmp_dir):
+                    shutil.move(os.path.join(tmp_dir, item), output_dir)
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        except Exception as e:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            ctx.close()
+            return {"success": False, "error": str(e), "extracted": 0, "total": len(target_map)}
+
+        # ---- 逐条校验 ----
+        report = []
+        if verify:
+            for arcname in target_map:
+                cat = APKUnpacker._classify_file(arcname)
+                try:
+                    disk_sha = hashlib.sha256(ctx.read_file(arcname)).hexdigest()
+                    # 校验写入磁盘的文件
+                    if structure:
+                        sub = APKUnpacker._get_category_dir(cat, structure)
+                        rel = APKUnpacker._get_rel_path(arcname, cat)
+                        fpath = os.path.join(output_dir, sub, rel) if sub else os.path.join(output_dir, arcname)
+                    else:
+                        fpath = os.path.join(output_dir, arcname)
+                    with open(fpath, 'rb') as fh:
+                        written_sha = hashlib.sha256(fh.read()).hexdigest()
+                    ok = (disk_sha == written_sha)
+                except Exception:
+                    ok, disk_sha = False, ''
+                report.append({'file': arcname, 'verified': ok, 'sha256': disk_sha})
+        ctx.close()
+        verified_ok = sum(1 for r in report if r['verified']) if verify else extracted
+        success = (not missing) if fail_on_missing_eff else True
+        return {"success": success, "dir": output_dir, "extracted": extracted,
+                "total": len(target_map), "missing": missing,
+                "verified": verified_ok if verify else None,
+                "categories": cat_counts, "report": report}
+
+    @staticmethod
     def _find_jar(name):
         for p in [f'/usr/local/bin/{name}', f'/usr/local/bin/bin/{name}', f'/usr/share/java/{name}']:
             if os.path.exists(p): return p

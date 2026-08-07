@@ -709,6 +709,12 @@ def verify_unpack(apk_path, output_dir):
     """校验解压完整性"""
     return _APKUnpacker.verify_integrity(apk_path, output_dir)
 
+def extract_manifest(apk_path, output_dir, manifest=None, structure=True,
+                     fail_on_missing=True, verify=True):
+    """按精确清单原子提取 + 校验"""
+    return _APKUnpacker.extract_manifest(apk_path, output_dir, manifest,
+                                         structure, fail_on_missing, verify)
+
 def extract_dex(apk_path, output_dir):
     """提取APK中所有DEX文件"""
     return _APKUnpacker.extract_dex(apk_path, output_dir)
@@ -904,7 +910,7 @@ __all__ = [
     'resource_patch_arsc', 'resource_patch_package_name',
     # Tools
     'unpack_apk', 'extract_dex', 'extract_so', 'extract_resources',
-'extract_selective', 'extract_parallel', 'extract_incremental', 'extract_by_category', 'verify_unpack',
+'extract_selective', 'extract_parallel', 'extract_incremental', 'extract_by_category', 'verify_unpack', 'extract_manifest',
     'apktool_decode', 'apktool_build', 'zip_rebuild', 'zip_update', 'zipalign',
     'sign_debug', 'sign_apk', 'search_apk',
     'jadx_decompile', 'androguard_analyze',

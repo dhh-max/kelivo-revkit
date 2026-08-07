@@ -627,6 +627,15 @@ def cmd_unpack(args):
         elif args.incremental:
             r = _APKUnpacker.extract_incremental(args.apk, args.output, structure=args.structure,
                                                   flatten=args.flatten)
+        elif args.manifest:
+            import json
+            with open(args.manifest, 'r') as fh:
+                manifest_data = json.load(fh)
+            r = _APKUnpacker.extract_manifest(args.apk, args.output,
+                                              manifest=manifest_data,
+                                              structure=args.structure,
+                                              fail_on_missing=not args.no_fail_missing,
+                                              verify=not args.no_verify)
         elif args.include or args.exclude:
             r = _APKUnpacker.extract_selective(args.apk, args.output,
                                   include_types=args.include.split(',') if args.include else None,
@@ -646,6 +655,10 @@ def cmd_unpack(args):
             rows.append(("分类统计", ", ".join(f"{k}={v}" for k, v in sorted(cats.items()))))
         if r.get('sha256'):
             rows.append(("SHA256", r['sha256'][:16] + '...'))
+        if r.get('verified') is not None:
+            rows.append(("校验通过", f"{r.get('verified')}/{r.get('total', '?')} (SHA256)"))
+        if r.get('missing'):
+            rows.append(("清单缺失", ", ".join(r['missing'][:3])))
         errors = r.get('errors', [])
         if errors:
             rows.append(("错误", f"{len(errors)} 个: {', '.join(e['file'] for e in errors[:3])}"))
@@ -2413,8 +2426,11 @@ def main():
     p.add_argument("--flatten", "-f", action="store_true", help="扁平化，不保留子目录结构")
     p.add_argument("--dry-run", "-n", action="store_true", help="仅预览不解压")
     p.add_argument("--category", "-c", help="按分类提取 (dex/lib/res/assets/meta_inf/all)，支持别名 so→lib, cert→meta_inf")
-    p.add_argument("--standalone", action="store_true", help="纯Python独立模式 (兼容第三方中转站，不依赖apktool等外部工具)")
-    p.set_defaults(func=cmd_unpack)
+p.add_argument("--manifest", "-m", help="JSON清单文件路径，精确指定要提取的文件列表（原子性+校验）")
+p.add_argument("--no-verify", action="store_true", help="使用清单时跳过SHA256校验")
+p.add_argument("--no-fail-missing", action="store_true", help="使用清单时允许缺失条目不报错")
+p.add_argument("--standalone", action="store_true", help="纯Python独立模式 (兼容第三方中转站，不依赖apktool等外部工具)")
+p.set_defaults(func=cmd_unpack)
 
     # verify
     p = sub.add_parser("verify", help="🔍 校验解压完整性")
