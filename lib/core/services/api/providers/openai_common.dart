@@ -892,6 +892,15 @@ void _applyVendorReasoningKnobs(
       body.remove('thinking');
       body.remove('reasoning_effort');
     }
+  } else {
+    // Unknown / transit-station host: strip all vendor-specific reasoning knobs
+    // so the request body stays clean (only standard OpenAI params remain).
+    body.remove('thinking');
+    body.remove('enable_thinking');
+    body.remove('thinking_budget');
+    body.remove('thinking_mode');
+    body.remove('reasoning');
+    body.remove('reasoning_effort');
   }
 }
 
