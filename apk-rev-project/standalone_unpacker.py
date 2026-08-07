@@ -269,16 +269,102 @@ class LiteManifestParser:
         }
 
 
-# ═══════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
+# 常量与工具函数
+# ═══════════════════════════════════════════════════════════════
+DEFAULT_OUT_DIR = '/sdcard/Download/Operit/analyzed'
+
+
+def _short_apk_name(apk_path):
+    """返回安全的APK文件名基（不含路径和扩展名）"""
+    return os.path.splitext(os.path.basename(apk_path))[0]
+
+
+def write_result_file(full_result, apk_path, out_dir=None):
+    """将全量分析结果写入JSON文件，返回文件路径
+    
+    Args:
+        full_result: 全量分析结果dict
+        apk_path: 原始APK路径
+        out_dir: 输出目录（默认 DEFAULT_OUT_DIR）
+    
+    Returns:
+        str: 写入的文件路径
+    """
+    out_dir = out_dir or DEFAULT_OUT_DIR
+    os.makedirs(out_dir, exist_ok=True)
+    safe = _short_apk_name(apk_path) or 'apk'
+    result_path = os.path.join(out_dir, f'{safe}.analysis.json')
+    with open(result_path, 'w', encoding='utf-8') as f:
+        json.dump(full_result, f, ensure_ascii=False, indent=2)
+    return result_path
+
+
+# ═══════════════════════════════════════════════════════════════
+# 上下文压缩 - 去掉verbose字段，只保留摘要所需最小集
+# ═══════════════════════════════════════════════════════════════
+def _compact_result(result):
+    """压缩分析结果：剥离大体积verbose字段（findings列表/dex明细/size_by_category等），
+    仅保留摘要所需的最小集合，大幅降低内存与上下文占用。"""
+    if not isinstance(result, dict):
+        return result
+
+    keep = {}
+    for k in ('apk_path', 'success', 'error', 'structure', 'abis', 'manifest',
+              'total_classes', 'total_strings', 'signature', 'obfuscation',
+              'packers', 'dangerous_permissions', 'security_issues',
+              'permission_count', 'extracted', 'output_dir'):
+        if k in result:
+            keep[k] = result[k]
+
+    # findings 只保留计数，丢弃原始列表（URL/IP/邮箱/密钥原文）
+    f = result.get('findings')
+    if isinstance(f, dict):
+        keep['finding_counts'] = {
+            'urls': len(f.get('urls', [])),
+            'ips': len(f.get('ips', [])),
+            'emails': len(f.get('emails', [])),
+            'keys': len(f.get('potential_keys', [])),
+        }
+
+    # social_login 精简为平台名+风险+置信度
+    sl = result.get('social_login')
+    if isinstance(sl, dict):
+        keep['social_login'] = {
+            'total': sl.get('total', 0),
+            'level': sl.get('level', ''),
+            'platforms': [
+                {'name': p.get('name'), 'icon': p.get('icon'),
+                 'risk': p.get('risk'), 'confidence': p.get('confidence')}
+                for p in sl.get('platforms', [])
+            ],
+        }
+
+    # sdk_detected 精简为名称+分类+风险
+    sd = result.get('sdk_detected')
+    if isinstance(sd, dict):
+        keep['sdk_detected'] = {
+            'total': sd.get('total', 0),
+            'risk_summary': sd.get('risk_summary', {}),
+            'sdks': [
+                {'name': s.get('name'), 'category': s.get('category'), 'risk': s.get('risk')}
+                for s in sd.get('sdks', [])
+            ],
+        }
+    return keep
+
+
+# ═══════════════════════════════════════════════════════════════
 # 主解包逻辑
-# ═══════════════════════════════════════════════════════════
-def unpack_apk_standalone(apk_path, output_dir=None, mode='analyze'):
+# ═══════════════════════════════════════════════════════════════
+def unpack_apk_standalone(apk_path, output_dir=None, mode='analyze', compact=True):
     """解包APK（纯Python，不依赖外部工具）
     
     Args:
         apk_path: APK文件路径
         output_dir: 可选，解压目录
         mode: 'analyze'（仅分析）| 'extract'（提取文件）| 'full'（全量）
+        compact: True=不存储verbose字段(dex详情/findings列表/size_by_category)，减少内存和上下文占用
     
     Returns:
         dict: 分析结果JSON
@@ -525,6 +611,11 @@ def unpack_apk_standalone(apk_path, output_dir=None, mode='analyze'):
 
         result['success'] = True
 
+        # compact=True：返回压缩版（只保留摘要所需字段，大幅降低内存和上下文占用）
+        # 全量数据已写入 file_data 供后续落盘
+        if compact:
+            result = _compact_result(result)
+
     except Exception as e:
         result['error'] = str(e)
         import traceback
@@ -752,10 +843,20 @@ def _generate_summary(result):
     
     # 发现的网络资产（仅当有值得注意的发现）
     finding_parts = []
-    if f.get('urls'): finding_parts.append(f"URL×{len(f['urls'])}")
-    if f.get('ips'): finding_parts.append(f"IP×{len(f['ips'])}")
-    if f.get('emails'): finding_parts.append(f"邮箱×{len(f['emails'])}")
-    if f.get('potential_keys'): finding_parts.append(f"密钥×{len(f['potential_keys'])}")
+    # 兼容压缩版(finding_counts) 与 全量版(findings) 两种结构
+    fcounts = result.get('finding_counts') or {}
+    if result.get('findings'):
+        ffind = result['findings']
+        fcounts = {
+            'urls': len(ffind.get('urls', [])),
+            'ips': len(ffind.get('ips', [])),
+            'emails': len(ffind.get('emails', [])),
+            'keys': len(ffind.get('potential_keys', [])),
+        }
+    if fcounts.get('urls'): finding_parts.append(f"URL×{fcounts['urls']}")
+    if fcounts.get('ips'): finding_parts.append(f"IP×{fcounts['ips']}")
+    if fcounts.get('emails'): finding_parts.append(f"邮箱×{fcounts['emails']}")
+    if fcounts.get('keys'): finding_parts.append(f"密钥×{fcounts['keys']}")
     if finding_parts: parts.append(f"  🔍 {' '.join(finding_parts)}")
 
     return '\n'.join(parts)
@@ -803,14 +904,15 @@ def process_inbox(inbox_dir='/sdcard/Download/Operit/inbox',
 
     for apk_path in apks:
         try:
-            # 分析
-            r = unpack_apk_standalone(apk_path)
+            # 分析：compact=False 拿全量用于落盘，压缩版用于对话输出
+            full = unpack_apk_standalone(apk_path, compact=False)
+            r = _compact_result(full) if full.get('success') else full
             if not r.get('success'):
                 errors += 1
                 results.append({'apk': os.path.basename(apk_path), 'success': False, 'error': r.get('error', '')})
                 continue
 
-            # 构建摘要
+            # 构建摘要（使用压缩后的结果，避免上下文污染）
             summary = {
                 'success': True,
                 'apk': os.path.basename(apk_path),
@@ -838,14 +940,14 @@ def process_inbox(inbox_dir='/sdcard/Download/Operit/inbox',
             if mode in ('sdk', 'full'):
                 summary['sdk_detected'] = r.get('sdk_detected', {})
             if mode == 'full':
-                summary['findings'] = r.get('findings', {})
-                summary['size_by_category'] = r.get('size_by_category', {})
+                summary['finding_counts'] = r.get('finding_counts', {})
+                summary['size_by_category'] = full.get('size_by_category', {})
 
-            # 写入单个结果文件
+            # 写入全量结果文件（全量数据，不是压缩版）
             safe_name = os.path.splitext(os.path.basename(apk_path))[0]
             result_path = os.path.join(output_dir, f'{safe_name}.analysis.json')
             with open(result_path, 'w', encoding='utf-8') as f:
-                json.dump(r, f, ensure_ascii=False, indent=2)
+                json.dump(full, f, ensure_ascii=False, indent=2)
 
             summary['result_path'] = result_path
             results.append(summary)
@@ -895,15 +997,17 @@ if __name__ == '__main__':
                         help='摘要输出路径（默认：APK同目录下 *.analysis.json）')
     args = parser.parse_args()
 
-    result = unpack_apk_standalone(args.apk, args.output, args.mode)
+    result = unpack_apk_standalone(args.apk, args.output, args.mode, compact=not args.summary)
 
     if args.summary:
-        # 写入全量JSON到文件
+        # 全量模式：compact=False 拿全量写文件，输出压缩摘要
+        full = unpack_apk_standalone(args.apk, args.output, args.mode, compact=False)
+        compact_r = _compact_result(full) if full.get('success') else full
         out_path = args.summary_path or os.path.splitext(args.apk)[0] + '.analysis.json'
         with open(out_path, 'w', encoding='utf-8') as f:
-            json.dump(result, f, ensure_ascii=False, indent=2)
+            json.dump(full, f, ensure_ascii=False, indent=2)
         # 终端只输出摘要
-        print(_generate_summary(result))
+        print(_generate_summary(compact_r))
         print(f"\n📄 全量结果已保存: {out_path}")
     else:
         print(json.dumps(result, ensure_ascii=False, indent=None if args.compact else 2))

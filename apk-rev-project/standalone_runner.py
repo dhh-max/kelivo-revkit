@@ -14,7 +14,7 @@ import sys, os, json, glob
 _self_dir = os.path.dirname(os.path.abspath(__file__))
 if _self_dir not in sys.path:
     sys.path.insert(0, _self_dir)
-from standalone_unpacker import unpack_apk_standalone, _fmt_size, process_inbox, _generate_summary
+from standalone_unpacker import unpack_apk_standalone, _fmt_size, _compact_result, process_inbox, _generate_summary
 
 
 def auto_find_apk():
@@ -53,65 +53,114 @@ def auto_find_apk():
     return candidates[0][1]
 
 
-def analyze_apk(apk_path, mode='quick', output_json=False):
-    """一站式APK分析入口
+DEFAULT_OUT_DIR = '/sdcard/Download/Operit/analyzed'
+
+
+def _short_apk_name(apk_path):
+    """返回安全的APK文件名（不含路径和扩展名）"""
+    return os.path.splitext(os.path.basename(apk_path))[0]
+
+
+def write_result_file(full_result, apk_path, out_dir=None):
+    """将全量分析结果写入JSON文件，返回文件路径
+    
+    Args:
+        full_result: 全量分析结果dict
+        apk_path: 原始APK路径
+        out_dir: 输出目录（默认 DEFAULT_OUT_DIR）
+    
+    Returns:
+        str: 写入的文件路径
+    """
+    out_dir = out_dir or DEFAULT_OUT_DIR
+    os.makedirs(out_dir, exist_ok=True)
+    safe = _short_apk_name(apk_path) or 'apk'
+    result_path = os.path.join(out_dir, f'{safe}.analysis.json')
+    with open(result_path, 'w', encoding='utf-8') as f:
+        json.dump(full_result, f, ensure_ascii=False, indent=2)
+    return result_path
+
+
+def analyze_apk(apk_path, mode='quick', output_json=False, write_file=True, out_dir=None):
+    """一站式APK分析入口（Operit风格：全量数据落盘，返回精简结果）
     
     Args:
         apk_path: APK文件路径
         mode: quick|social|sdk|full
         output_json: True=返回JSON dict, False=返回自然语言摘要
+        write_file: 是否将全量结果写入JSON文件（默认True，避免撑爆上下文）
+        out_dir: 结果输出目录（默认 DEFAULT_OUT_DIR）
     
     Returns:
-        str 或 dict：取决于 output_json 参数
+        str 或 dict：取决于 output_json 参数（含文件路径字段）
     """
-    r = unpack_apk_standalone(apk_path)
+    # compact=False 拿全量数据用于落盘；对话只输出压缩版，全量不进入上下文
+    full = unpack_apk_standalone(apk_path, compact=False)
+    r = _compact_result(full) if full.get('success') else full
     if not r.get('success'):
-        return json.dumps({'error': r.get('error', '分析失败')}, ensure_ascii=False) if output_json else f"❌ 分析失败: {r.get('error', '未知错误')}"
+        err = r.get('error', '分析失败')
+        return json.dumps({'success': False, 'error': err}, ensure_ascii=False) if output_json else f"❌ 分析失败: {err}"
+
+    # 全量结果写文件（对话不展示，避免上下文污染）
+    result_path = None
+    if write_file:
+        try:
+            result_path = write_result_file(full, apk_path, out_dir)
+        except Exception as e:
+            result_path = None
+    
+    # 构建精简摘要
+    summary = {
+        'success': True,
+        'apk': os.path.basename(apk_path),
+        'package': r.get('manifest', {}).get('package', ''),
+        'size': r.get('structure', {}).get('size', 0),
+        'size_human': _fmt_size(r.get('structure', {}).get('size', 0)),
+        'dex_count': r.get('structure', {}).get('dex_count', 0),
+        'so_count': r.get('structure', {}).get('so_count', 0),
+        'total_files': r.get('structure', {}).get('total_files', 0),
+        'total_classes': r.get('total_classes', 0),
+        'obfuscation_level': r.get('obfuscation', {}).get('level', ''),
+        'obfuscation_score': r.get('obfuscation', {}).get('score', 0),
+        'packers': r.get('packers', []),
+        'dangerous_permissions': r.get('dangerous_permissions', []),
+        'security_issues': r.get('security_issues', []),
+        'result_path': result_path,
+    }
+    if mode in ('social', 'full'):
+        summary['social_login'] = r.get('social_login', {})
+    if mode in ('sdk', 'full'):
+        summary['sdk_detected'] = r.get('sdk_detected', {})
+    if mode == 'full':
+        summary['findings'] = r.get('findings', {})
     
     if output_json:
-        summary = {
-            'success': True,
-            'apk': os.path.basename(apk_path),
-            'package': r.get('manifest', {}).get('package', ''),
-            'size': r.get('structure', {}).get('size', 0),
-            'size_human': _fmt_size(r.get('structure', {}).get('size', 0)),
-            'dex_count': r.get('structure', {}).get('dex_count', 0),
-            'so_count': r.get('structure', {}).get('so_count', 0),
-            'total_files': r.get('structure', {}).get('total_files', 0),
-            'total_classes': r.get('total_classes', 0),
-            'obfuscation_level': r.get('obfuscation', {}).get('level', ''),
-            'obfuscation_score': r.get('obfuscation', {}).get('score', 0),
-            'packers': r.get('packers', []),
-            'dangerous_permissions': r.get('dangerous_permissions', []),
-            'security_issues': r.get('security_issues', []),
-        }
-        if mode in ('social', 'full'):
-            summary['social_login'] = r.get('social_login', {})
-        if mode in ('sdk', 'full'):
-            summary['sdk_detected'] = r.get('sdk_detected', {})
-        if mode == 'full':
-            summary['findings'] = r.get('findings', {})
         return summary
     
-    # 默认：返回自然语言摘要
-    return _generate_summary(r)
+    # 默认：自然语言摘要 + 文件路径
+    text = _generate_summary(r)
+    if result_path:
+        text += f"\n📄 全量结果已保存: {result_path}"
+    return text
 
 
 if __name__ == '__main__':
     import argparse
-    parser = argparse.ArgumentParser(description='APK Standalone Analyzer')
+    parser = argparse.ArgumentParser(description='APK Standalone Analyzer (Operit风格: 全量落盘, 对话输出摘要)')
     parser.add_argument('apk', nargs='?', default=None, help='APK file path (留空则自动查找最新上传的APK)')
     parser.add_argument('--mode', '-m', default='quick',
                         choices=['quick', 'full', 'social', 'sdk'],
                         help='Analysis mode (default: quick)')
     parser.add_argument('--json', '-j', action='store_true',
                         help='输出JSON格式（默认输出自然语言摘要）')
+    parser.add_argument('--no-write', action='store_true',
+                        help='不写出全量结果文件（默认会写入）')
+    parser.add_argument('--out-dir', default=DEFAULT_OUT_DIR,
+                        help='全量结果输出目录（默认: /sdcard/Download/Operit/analyzed）')
     parser.add_argument('--inbox', '-i', action='store_true',
                         help='收件箱模式：批量扫描目录中的APK并分析')
     parser.add_argument('--inbox-dir', default='/sdcard/Download/Operit/inbox',
                         help='收件箱目录（默认: /sdcard/Download/Operit/inbox）')
-    parser.add_argument('--out-dir', default='/sdcard/Download/Operit/analyzed',
-                        help='分析结果输出目录（默认: /sdcard/Download/Operit/analyzed）')
     parser.add_argument('--max-apks', type=int, default=10,
                         help='最多处理APK数量（默认: 10）')
     parser.add_argument('--delete-after', action='store_true',
@@ -146,7 +195,8 @@ if __name__ == '__main__':
             print(json.dumps({'success': False, 'error': msg}, ensure_ascii=False) if args.json else msg)
             sys.exit(1)
 
-    result = analyze_apk(apk_path, args.mode, output_json=args.json)
+    result = analyze_apk(apk_path, args.mode, output_json=args.json,
+                         write_file=not args.no_write, out_dir=args.out_dir)
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))
     else:
