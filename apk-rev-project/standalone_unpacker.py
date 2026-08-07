@@ -902,33 +902,25 @@ def process_inbox(inbox_dir='/sdcard/Download/Operit/inbox',
                 results.append({'apk': os.path.basename(apk_path), 'success': False, 'error': r.get('error', '')})
                 continue
 
-            # 构建摘要（使用压缩后的结果，避免上下文污染）
+            # 构建摘要（只保留解包内容 + 加固 + 危险权限）
+            m = r.get('manifest', {})
             summary = {
                 'success': True,
                 'apk': os.path.basename(apk_path),
-                'package': r.get('manifest', {}).get('package', ''),
+                'package': m.get('package', ''),
                 'size': r.get('structure', {}).get('size', 0),
                 'size_human': _fmt_size(r.get('structure', {}).get('size', 0)),
                 'dex_count': r.get('structure', {}).get('dex_count', 0),
                 'so_count': r.get('structure', {}).get('so_count', 0),
                 'total_files': r.get('structure', {}).get('total_files', 0),
-                'total_classes': r.get('total_classes', 0),
-                'obfuscation_level': r.get('obfuscation', {}).get('level', ''),
-                'obfuscation_score': r.get('obfuscation', {}).get('score', 0),
+                'packers': r.get('packers', []),
                 'packer_count': r.get('packer_count', 0),
-                'risky_permission_count': r.get('dangerous_permission_count', 0),
-                'security_issue_count': r.get('security_issue_count', 0),
-                'permission_count': r.get('permission_count', 0),
+                'dangerous_permissions': r.get('dangerous_permissions', []),
+                'dangerous_permission_count': r.get('dangerous_permission_count', 0),
                 'abis': r.get('abis', []),
                 # 自然语言摘要（输出给用户看）
                 'summary': _generate_summary(r),
             }
-            if mode in ('social', 'full'):
-                summary['social_login'] = r.get('social_login', {})
-            if mode in ('sdk', 'full'):
-                summary['sdk_detected'] = r.get('sdk_detected', {})
-            if mode == 'full':
-                summary['finding_counts'] = r.get('finding_counts', {})
 
             # 写入精简结果文件（只保存关键字段，不是全量数据）
             safe_name = os.path.splitext(os.path.basename(apk_path))[0]
