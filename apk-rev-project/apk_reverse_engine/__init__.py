@@ -1,7 +1,7 @@
 """APK Reverse Engineering Engine v2 - 全模块基础功能API"""
 import os, zipfile
 
-__version__ = '2.0.0'
+__version__ = '2.1.0'
 
 # ============================================================
 # 核心模块 - Core
@@ -559,6 +559,34 @@ def detect_social_login(class_names=None, strings=None):
         }
     """
     return _SocialLoginDetector.analyze(class_names, strings)
+
+# ============================================================
+# 基础操作工具 - APK 文件 & AXML Manifest
+# ============================================================
+
+from .core.apk_file_ops import (
+    list_apk_files as apk_list_files,
+    delete_files_from_apk,
+    delete_files_by_pattern,
+    update_file_in_apk,
+    add_file_to_apk,
+)
+from .core.manifest_ops import (
+    find_tags,
+    remove_tags,
+    remove_tags_by_rule,
+    remove_component,
+    replace_attr_value,
+    replace_launcher_activity,
+    get_attr_value,
+    get_all_attr_values,
+)
+
+# ============================================================
+# 弹窗去除模块 - Popup Remover（默认关闭，用户提出时启用）
+# 启用方式: from apk_reverse_engine.popup_remover import remove_share_popup
+# ============================================================
+# 默认不导入，仅按需加载
 
 # ============================================================
 # 补丁模块 - Patching

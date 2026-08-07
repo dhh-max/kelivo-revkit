@@ -3,18 +3,20 @@
 from setuptools import setup, find_packages
 setup(
     name='apk-reverse-engine',
-    version='2.0.0',
+    version='2.1.0',
     description='全功能 APK 逆向工具集 - 解包/分析/反编译/修补/重打包/签名 一站式工具',
     long_description='''APK Reverse Engineering Engine v2
 全功能 APK 逆向工程工具集，涵盖：
 - APK 解包/打包/签名/对齐
 - DEX/ELF 解析分析
-- Manifest 解析与编辑
+- Manifest 解析与编辑 - 二进制 AXML 直接解析与修改
 - 混淆/加固/SDK/隐私检测
 - 线索串联/核心类定位/字符串分析
 - 资源混淆检测/网络端点提取
 - Smali 补丁/原生补丁/资源补丁
 - 多语言支持(i18n)
+- 基础工具：APK 文件操作(删除/添加/更新/搜索)
+- 基础工具：Manifest 二进制操作(查找/删除/替换组件与属性)
 ''',
     long_description_content_type='text/plain',
     author='Kelivo RevKit',
