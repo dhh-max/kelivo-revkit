@@ -439,13 +439,29 @@ class MessageBuilderService {
         }
         final text = await readDocument(d);
         if (text == null || text.trim().isEmpty) continue;
+
+        // Check for binary file marker from DocumentTextExtractor
+        const binaryMarker = '[[BinaryFile:';
+        if (text.startsWith(binaryMarker)) {
+          // Extract the original path from the marker
+          final binaryPath = text.substring(
+            binaryMarker.length,
+            text.length - 2, // strip trailing ']]'
+          );
+          filePrompts.writeln('## user sent a file: ${d.fileName}');
+          filePrompts.writeln(
+            'This file appears to be a binary file (not readable as text). '
+            'The file path is: $binaryPath',
+          );
+          continue;
+        }
+
         filePrompts.writeln('## user sent a file: ${d.fileName}');
         filePrompts.writeln('<content>');
         filePrompts.writeln('```');
         filePrompts.writeln(text);
         filePrompts.writeln('```');
         filePrompts.writeln('</content>');
-        filePrompts.writeln();
       }
 
       String merged = (filePrompts.toString() + cleanedUser).trim();

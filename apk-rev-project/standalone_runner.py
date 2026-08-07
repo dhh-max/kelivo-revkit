@@ -7,13 +7,16 @@
   python3 standalone_runner.py                          # 自动查找最新上传的APK
   python3 standalone_runner.py /path/to/app.apk         # 指定路径
   python3 standalone_runner.py --mode social            # 自动查找+社交登录检测
+  python3 standalone_runner.py --inbox                  # 收件箱模式：批量扫描目录中的APK
+  python3 standalone_runner.py --inbox --inbox-dir /custom/path --out-dir /custom/out
+  python3 standalone_runner.py --inbox --delete-after  # 分析后删除原APK
 """
 import sys, os, json, glob
 
 _self_dir = os.path.dirname(os.path.abspath(__file__))
 if _self_dir not in sys.path:
     sys.path.insert(0, _self_dir)
-from standalone_unpacker import unpack_apk_standalone, _fmt_size
+from standalone_unpacker import unpack_apk_standalone, _fmt_size, process_inbox
 
 
 def auto_find_apk():
@@ -104,7 +107,29 @@ if __name__ == '__main__':
                         choices=['quick', 'full', 'social', 'sdk'],
                         help='Analysis mode (default: quick)')
     parser.add_argument('--compact', '-c', action='store_true', help='Compact JSON output')
+    parser.add_argument('--inbox', '-i', action='store_true',
+                        help='收件箱模式：批量扫描目录中的APK并分析')
+    parser.add_argument('--inbox-dir', default='/sdcard/Download/Operit/inbox',
+                        help='收件箱目录（默认: /sdcard/Download/Operit/inbox）')
+    parser.add_argument('--out-dir', default='/sdcard/Download/Operit/analyzed',
+                        help='分析结果输出目录（默认: /sdcard/Download/Operit/analyzed）')
+    parser.add_argument('--max-apks', type=int, default=10,
+                        help='最多处理APK数量（默认: 10）')
+    parser.add_argument('--delete-after', action='store_true',
+                        help='分析完成后删除原APK')
     args = parser.parse_args()
+
+    # 收件箱模式
+    if args.inbox:
+        report = process_inbox(
+            inbox_dir=args.inbox_dir,
+            output_dir=args.out_dir,
+            mode=args.mode,
+            max_apks=args.max_apks,
+            delete_after=args.delete_after,
+        )
+        print(json.dumps(report, ensure_ascii=False, indent=None if args.compact else 2))
+        sys.exit(0)
 
     apk_path = args.apk
     if not apk_path:

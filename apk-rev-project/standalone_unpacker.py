@@ -790,6 +790,119 @@ def _generate_summary(result):
 
 
 # ═══════════════════════════════════════════════════════════════
+# 收件箱模式 - 批量扫描目录中的APK并分析
+# ═══════════════════════════════════════════════════════════════
+def process_inbox(inbox_dir='/sdcard/Download/Operit/inbox',
+                  output_dir='/sdcard/Download/Operit/analyzed',
+                  mode='quick', max_apks=10, delete_after=False):
+    """扫描收件箱目录，批量分析APK，结果写入JSON文件
+    
+    Args:
+        inbox_dir: 收件箱目录路径（自动创建）
+        output_dir: 分析结果输出目录（自动创建）
+        mode: 分析模式 quick|full|social|sdk
+        max_apks: 最多处理APK数量
+        delete_after: 分析完成后是否删除原APK
+    
+    Returns:
+        dict: {processed: int, errors: int, results: [summary_dict]}
+    """
+    # 确保目录存在
+    os.makedirs(inbox_dir, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
+
+    # 扫描APK文件
+    apks = []
+    for f in sorted(os.listdir(inbox_dir)):
+        if f.lower().endswith('.apk') and os.path.isfile(os.path.join(inbox_dir, f)):
+            apks.append(os.path.join(inbox_dir, f))
+        if len(apks) >= max_apks:
+            break
+
+    if not apks:
+        return {'processed': 0, 'errors': 0, 'results': [],
+                'message': f'收件箱({inbox_dir})中未找到APK文件'}
+
+    results = []
+    processed = 0
+    errors = 0
+
+    for apk_path in apks:
+        try:
+            # 分析
+            r = unpack_apk_standalone(apk_path)
+            if not r.get('success'):
+                errors += 1
+                results.append({'apk': os.path.basename(apk_path), 'success': False, 'error': r.get('error', '')})
+                continue
+
+            # 构建摘要
+            summary = {
+                'success': True,
+                'apk': os.path.basename(apk_path),
+                'package': r.get('manifest', {}).get('package', ''),
+                'size': r.get('structure', {}).get('size', 0),
+                'size_human': _fmt_size(r.get('structure', {}).get('size', 0)),
+                'dex_count': r.get('structure', {}).get('dex_count', 0),
+                'so_count': r.get('structure', {}).get('so_count', 0),
+                'total_files': r.get('structure', {}).get('total_files', 0),
+                'total_classes': r.get('total_classes', 0),
+                'total_strings': r.get('total_strings', 0),
+                'obfuscation_level': r.get('obfuscation', {}).get('level', ''),
+                'obfuscation_score': r.get('obfuscation', {}).get('score', 0),
+                'packers': r.get('packers', []),
+                'signature_v1': r.get('signature', {}).get('v1_valid', False),
+                'abis': r.get('abis', []),
+                'dangerous_permissions': r.get('dangerous_permissions', []),
+                'security_issues': r.get('security_issues', []),
+                'permission_count': r.get('permission_count', 0),
+            }
+            if mode in ('social', 'full'):
+                summary['social_login'] = r.get('social_login', {})
+            if mode in ('sdk', 'full'):
+                summary['sdk_detected'] = r.get('sdk_detected', {})
+            if mode == 'full':
+                summary['findings'] = r.get('findings', {})
+                summary['size_by_category'] = r.get('size_by_category', {})
+
+            # 写入单个结果文件
+            safe_name = os.path.splitext(os.path.basename(apk_path))[0]
+            result_path = os.path.join(output_dir, f'{safe_name}.analysis.json')
+            with open(result_path, 'w', encoding='utf-8') as f:
+                json.dump(r, f, ensure_ascii=False, indent=2)
+
+            summary['result_path'] = result_path
+            results.append(summary)
+            processed += 1
+
+            # 可选删除原APK
+            if delete_after:
+                os.remove(apk_path)
+
+        except Exception as e:
+            errors += 1
+            results.append({'apk': os.path.basename(apk_path), 'success': False, 'error': str(e)})
+
+    # 写入汇总报告
+    report_path = os.path.join(output_dir, '_inbox_report.json')
+    report = {
+        'timestamp': __import__('datetime').datetime.now().isoformat(),
+        'inbox_dir': inbox_dir,
+        'output_dir': output_dir,
+        'mode': mode,
+        'processed': processed,
+        'errors': errors,
+        'total': len(apks),
+        'results': results,
+    }
+    with open(report_path, 'w', encoding='utf-8') as f:
+        json.dump(report, f, ensure_ascii=False, indent=2)
+
+    report['report_path'] = report_path
+    return report
+
+
+# ═══════════════════════════════════════════════════════════════
 # 命令行入口
 # ═══════════════════════════════════════════════════════════════
 if __name__ == '__main__':
