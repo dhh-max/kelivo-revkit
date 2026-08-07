@@ -6,17 +6,15 @@
 用法:
   python3 standalone_runner.py                          # 自动查找最新上传的APK
   python3 standalone_runner.py /path/to/app.apk         # 指定路径
-  python3 standalone_runner.py --mode social            # 自动查找+社交登录检测
+  python3 standalone_runner.py --json                   # 输出JSON（默认输出自然语言摘要）
   python3 standalone_runner.py --inbox                  # 收件箱模式：批量扫描目录中的APK
-  python3 standalone_runner.py --inbox --inbox-dir /custom/path --out-dir /custom/out
-  python3 standalone_runner.py --inbox --delete-after  # 分析后删除原APK
 """
 import sys, os, json, glob
 
 _self_dir = os.path.dirname(os.path.abspath(__file__))
 if _self_dir not in sys.path:
     sys.path.insert(0, _self_dir)
-from standalone_unpacker import unpack_apk_standalone, _fmt_size, process_inbox
+from standalone_unpacker import unpack_apk_standalone, _fmt_size, process_inbox, _generate_summary
 
 
 def auto_find_apk():
@@ -41,7 +39,6 @@ def auto_find_apk():
             except:
                 pass
     if not candidates:
-        # 再广撒网搜一遍（限制深度防卡死）
         for root_dir in ['/sdcard', '/home/kelivo-revkit']:
             for root, dirs, files in os.walk(root_dir):
                 for f in files:
@@ -52,51 +49,52 @@ def auto_find_apk():
                     dirs.clear()
     if not candidates:
         return None
-    # 按修改时间排序，取最新的
     candidates.sort(key=lambda x: -x[0])
     return candidates[0][1]
 
 
-def analyze_apk(apk_path, mode='quick'):
-    """一站式APK分析入口"""
+def analyze_apk(apk_path, mode='quick', output_json=False):
+    """一站式APK分析入口
+    
+    Args:
+        apk_path: APK文件路径
+        mode: quick|social|sdk|full
+        output_json: True=返回JSON dict, False=返回自然语言摘要
+    
+    Returns:
+        str 或 dict：取决于 output_json 参数
+    """
     r = unpack_apk_standalone(apk_path)
     if not r.get('success'):
-        return r
-    summary = {
-        'success': True,
-        'apk': os.path.basename(apk_path),
-        'package': r.get('manifest', {}).get('package', ''),
-        'size': r.get('structure', {}).get('size', 0),
-        'size_human': _fmt_size(r.get('structure', {}).get('size', 0)),
-        'dex_count': r.get('structure', {}).get('dex_count', 0),
-        'so_count': r.get('structure', {}).get('so_count', 0),
-        'total_files': r.get('structure', {}).get('total_files', 0),
-        'total_classes': r.get('total_classes', 0),
-        'total_strings': r.get('total_strings', 0),
-        'obfuscation_level': r.get('obfuscation', {}).get('level', ''),
-        'obfuscation_score': r.get('obfuscation', {}).get('score', 0),
-        'packers': r.get('packers', []),
-        'signature_v1': r.get('signature', {}).get('v1_valid', False),
-        'abis': r.get('abis', []),
-        'dangerous_permissions': r.get('dangerous_permissions', []),
-        'security_issues': r.get('security_issues', []),
-        'permission_count': r.get('permission_count', 0),
-        'manifest': {
+        return json.dumps({'error': r.get('error', '分析失败')}, ensure_ascii=False) if output_json else f"❌ 分析失败: {r.get('error', '未知错误')}"
+    
+    if output_json:
+        summary = {
+            'success': True,
+            'apk': os.path.basename(apk_path),
             'package': r.get('manifest', {}).get('package', ''),
-            'sdk': r.get('manifest', {}).get('sdk', {}),
-            'permissions_count': len(r.get('manifest', {}).get('permissions', [])),
-            'activities_count': len(r.get('manifest', {}).get('activities', [])),
-            'services_count': len(r.get('manifest', {}).get('services', [])),
-        },
-    }
-    if mode in ('social', 'full'):
-        summary['social_login'] = r.get('social_login', {})
-    if mode in ('sdk', 'full'):
-        summary['sdk_detected'] = r.get('sdk_detected', {})
-    if mode == 'full':
-        summary['findings'] = r.get('findings', {})
-        summary['size_by_category'] = r.get('size_by_category', {})
-    return summary
+            'size': r.get('structure', {}).get('size', 0),
+            'size_human': _fmt_size(r.get('structure', {}).get('size', 0)),
+            'dex_count': r.get('structure', {}).get('dex_count', 0),
+            'so_count': r.get('structure', {}).get('so_count', 0),
+            'total_files': r.get('structure', {}).get('total_files', 0),
+            'total_classes': r.get('total_classes', 0),
+            'obfuscation_level': r.get('obfuscation', {}).get('level', ''),
+            'obfuscation_score': r.get('obfuscation', {}).get('score', 0),
+            'packers': r.get('packers', []),
+            'dangerous_permissions': r.get('dangerous_permissions', []),
+            'security_issues': r.get('security_issues', []),
+        }
+        if mode in ('social', 'full'):
+            summary['social_login'] = r.get('social_login', {})
+        if mode in ('sdk', 'full'):
+            summary['sdk_detected'] = r.get('sdk_detected', {})
+        if mode == 'full':
+            summary['findings'] = r.get('findings', {})
+        return summary
+    
+    # 默认：返回自然语言摘要
+    return _generate_summary(r)
 
 
 if __name__ == '__main__':
@@ -106,7 +104,8 @@ if __name__ == '__main__':
     parser.add_argument('--mode', '-m', default='quick',
                         choices=['quick', 'full', 'social', 'sdk'],
                         help='Analysis mode (default: quick)')
-    parser.add_argument('--compact', '-c', action='store_true', help='Compact JSON output')
+    parser.add_argument('--json', '-j', action='store_true',
+                        help='输出JSON格式（默认输出自然语言摘要）')
     parser.add_argument('--inbox', '-i', action='store_true',
                         help='收件箱模式：批量扫描目录中的APK并分析')
     parser.add_argument('--inbox-dir', default='/sdcard/Download/Operit/inbox',
@@ -127,16 +126,28 @@ if __name__ == '__main__':
             mode=args.mode,
             max_apks=args.max_apks,
             delete_after=args.delete_after,
+            output_json=args.json,
         )
-        print(json.dumps(report, ensure_ascii=False, indent=None if args.compact else 2))
+        if args.json:
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+        else:
+            for r in report.get('results', []):
+                if r.get('success'):
+                    print(r.get('summary', ''))
+                    print()
+            print(f"📊 共处理 {report.get('processed',0)} 个APK, {report.get('errors',0)} 个失败")
         sys.exit(0)
 
     apk_path = args.apk
     if not apk_path:
         apk_path = auto_find_apk()
         if not apk_path:
-            print(json.dumps({'success': False, 'error': '未找到APK文件，请上传或指定路径'}, ensure_ascii=False))
+            msg = '❌ 未找到APK文件，请上传或指定路径'
+            print(json.dumps({'success': False, 'error': msg}, ensure_ascii=False) if args.json else msg)
             sys.exit(1)
 
-    result = analyze_apk(apk_path, args.mode)
-    print(json.dumps(result, ensure_ascii=False, indent=None if args.compact else 2))
+    result = analyze_apk(apk_path, args.mode, output_json=args.json)
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    else:
+        print(result)

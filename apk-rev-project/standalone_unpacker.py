@@ -718,75 +718,47 @@ def _standalone_detect_sdk(class_names):
 # 摘要输出 - 生成紧凑终端摘要，避免全量JSON撑爆上下文
 # ═══════════════════════════════════════════════════════════════
 def _generate_summary(result):
-    """从分析结果中提取紧凑摘要（≈1KB），适合对话输出"""
-    lines = []
+    """从分析结果中提取自然语言摘要（≈500B），适合直接输出给用户"""
     name = os.path.basename(result.get('apk_path', ''))
     sz = _fmt_size(result.get('structure', {}).get('size', 0))
-    lines.append(f"📦 {name} ({sz})")
-
-    # 结构概要
     s = result.get('structure', {})
-    parts = []
-    if s.get('dex_count'): parts.append(f"DEX×{s['dex_count']}")
-    if s.get('so_count'): parts.append(f"SO×{s['so_count']}")
-    if s.get('total_files'): parts.append(f"文件×{s['total_files']}")
-    if parts:
-        lines.append(f"  📁 {' '.join(parts)}")
-
-    # 总类数
-    tc = result.get('total_classes', 0)
-    if tc:
-        lines.append(f"  🧬 类 {tc}")
-
-    # Manifest
     m = result.get('manifest', {})
-    if m.get('package'):
-        lines.append(f"  📋 {m['package']}")
-    if m.get('sdk', {}).get('minSdk') or m.get('sdk', {}).get('targetSdk'):
-        lines.append(f"  📱 SDK {m['sdk']['minSdk']}→{m['sdk']['targetSdk']}")
-
-    # 加固/混淆
-    p = result.get('packers', [])
-    if p:
-        lines.append(f"  🛡️ 加固: {'/'.join(p)}")
     o = result.get('obfuscation', {})
-    if o.get('level') and o.get('score', 0) > 0:
-        lines.append(f"  🎭 混淆: {o['level']}({o['score']}分)")
-
-    # 危险权限
+    p = result.get('packers', [])
     dp = result.get('dangerous_permissions', [])
-    if dp:
-        lines.append(f"  ⚠️ 危险权限({len(dp)}): {' '.join(dp[:5])}")
-        if len(dp) > 5:
-            lines[-1] += f" +{len(dp)-5}个"
-
-    # SDK
     sdk = result.get('sdk_detected', {})
-    if sdk.get('sdks'):
-        hi = [x['name'] for x in sdk['sdks'][:6] if x['risk'] in ('高','中')]
-        if hi:
-            lines.append(f"  🔌 SDK({sdk['total']}): {' '.join(hi)}")
-            if len(sdk['sdks']) > 6:
-                lines[-1] += f" +{len(sdk['sdks'])-6}个"
-
-    # 社交登录
     sl = result.get('social_login', {})
-    if sl.get('platforms'):
-        plats = [f"{p['icon']}{p['name']}" for p in sl['platforms'][:4]]
-        if plats:
-            lines.append(f"  🔐 社交登录({sl['total']}): {' '.join(plats)}")
-
-    # 发现
     f = result.get('findings', {})
+
+    parts = [f"📦 {name} ({sz})"]
+    
+    # 基本信息
+    info = []
+    if m.get('package'): info.append(m['package'])
+    if s.get('dex_count'): info.append(f"{s['dex_count']}个DEX")
+    if s.get('so_count'): info.append(f"{s['so_count']}个SO")
+    if m.get('sdk', {}).get('minSdk'): info.append(f"SDK {m['sdk']['minSdk']}→{m['sdk']['targetSdk']}")
+    if s.get('total_files'): info.append(f"{s['total_files']}文件")
+    if info: parts.append(f"  📋 {' · '.join(info)}")
+    
+    # 安全风险（一行）
+    risks = []
+    if p: risks.append(f"🛡️加固/{'/'.join(p)}")
+    if o.get('level'): risks.append(f"🎭混淆{o['level']}({o.get('score',0)}分)")
+    if dp: risks.append(f"⚠️危险权限{len(dp)}项")
+    if sdk.get('sdks'): risks.append(f"🔌{sdk['total']}个SDK")
+    if sl.get('platforms'): risks.append(f"🔐{sl['total']}社交登录")
+    if risks: parts.append(f"  {' '.join(risks)}")
+    
+    # 发现的网络资产（仅当有值得注意的发现）
     finding_parts = []
     if f.get('urls'): finding_parts.append(f"URL×{len(f['urls'])}")
     if f.get('ips'): finding_parts.append(f"IP×{len(f['ips'])}")
     if f.get('emails'): finding_parts.append(f"邮箱×{len(f['emails'])}")
     if f.get('potential_keys'): finding_parts.append(f"密钥×{len(f['potential_keys'])}")
-    if finding_parts:
-        lines.append(f"  🔍 发现: {' '.join(finding_parts)}")
+    if finding_parts: parts.append(f"  🔍 {' '.join(finding_parts)}")
 
-    return '\n'.join(lines)
+    return '\n'.join(parts)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -794,7 +766,8 @@ def _generate_summary(result):
 # ═══════════════════════════════════════════════════════════════
 def process_inbox(inbox_dir='/sdcard/Download/Operit/inbox',
                   output_dir='/sdcard/Download/Operit/analyzed',
-                  mode='quick', max_apks=10, delete_after=False):
+                  mode='quick', max_apks=10, delete_after=False,
+                  output_json=False):
     """扫描收件箱目录，批量分析APK，结果写入JSON文件
     
     Args:
@@ -803,6 +776,7 @@ def process_inbox(inbox_dir='/sdcard/Download/Operit/inbox',
         mode: 分析模式 quick|full|social|sdk
         max_apks: 最多处理APK数量
         delete_after: 分析完成后是否删除原APK
+        output_json: 是否输出JSON格式（False=输出自然语言摘要）
     
     Returns:
         dict: {processed: int, errors: int, results: [summary_dict]}
@@ -856,6 +830,8 @@ def process_inbox(inbox_dir='/sdcard/Download/Operit/inbox',
                 'dangerous_permissions': r.get('dangerous_permissions', []),
                 'security_issues': r.get('security_issues', []),
                 'permission_count': r.get('permission_count', 0),
+                # 自然语言摘要（输出给用户看）
+                'summary': _generate_summary(r),
             }
             if mode in ('social', 'full'):
                 summary['social_login'] = r.get('social_login', {})
