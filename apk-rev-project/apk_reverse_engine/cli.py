@@ -3554,7 +3554,7 @@ def main():
   reng patch app.apk out --type hex --old 9090 --new 9091  SO 补丁
         """
     )
-    parser.add_argument('--version', action='version', version='APK Reverse Engine v2.0.0')
+    parser.add_argument('--version', action='version', version='APK Reverse Engine v2.4.0')
     parser.add_argument('--interactive', '-i', action='store_true', help='🎮 进入交互式菜单模式')
     sub = parser.add_subparsers(dest="command")
 
