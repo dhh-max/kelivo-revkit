@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """APK Reverse Engineering Engine v2 - CLI (Rich终端UI)"""
-import sys, os, json, zipfile
+import sys, os, json, zipfile, argparse
 
 # 确保能找到 apk_reverse_engine 包
 # 无论脚本从哪个目录运行，都定位到包根目录
@@ -14,6 +14,9 @@ from apk_reverse_engine import *
 from apk_reverse_engine import open_apk, get_manifest_info, static_analyze, analyze_full
 from apk_reverse_engine.tools.unpacker import APKUnpacker as _APKUnpacker
 from apk_reverse_engine.tools.standalone_unpacker import unpack_apk_standalone as _standalone_unpack
+from apk_reverse_engine.tools.info_extractor import APKInfoExtractor as _APKInfoExtractor
+from apk_reverse_engine.tools.validator import APKValidator as _APKValidator
+from apk_reverse_engine.tools.batch import APKBatchProcessor as _APKBatchProcessor
 
 # ── Rich UI ──────────────────────────────────────────────────
 from rich.console import Console
@@ -2024,6 +2027,370 @@ def cmd_ads(args):
         _json.dump(result, open(args.json, 'w'), indent=2, ensure_ascii=False)
         _success(f"JSON 已保存到 {args.json}")
 
+# ── adremove - 广告移除 ───────────────────────────────────────────
+
+def cmd_adremove(args):
+    """移除APK中的广告（多SDK定向 + 正则通杀 + assets/manifest清理）"""
+    import tempfile
+    import shutil
+    import subprocess
+    from apk_reverse_engine.analysis.ad_remover import AdRemover
+
+    apk_path = args.apk
+    if not os.path.isfile(apk_path):
+        _error(f"文件不存在: {apk_path}")
+        return
+
+    # 输出目录
+    output = args.output
+    if not output:
+        base = os.path.splitext(os.path.basename(apk_path))[0]
+        output = f"{base}_noads.apk"
+
+    # 解码目录
+    decode_dir = args.decode_dir
+    cleanup_decode = False
+    if not decode_dir:
+        decode_dir = tempfile.mkdtemp(prefix='adremove_')
+        cleanup_decode = True
+
+    # 步骤1: Apktool 解码
+    if not os.path.isdir(decode_dir) or not any(f.startswith('smali') for f in os.listdir(decode_dir)):
+        console.print(f"{ICO['pkg']} [bold]步骤 1/4:[/] Apktool 解包中...")
+        if os.path.isdir(decode_dir):
+            shutil.rmtree(decode_dir)
+        os.makedirs(decode_dir, exist_ok=True)
+        apktool_cmd = ['apktool', 'd', '-f', '-o', decode_dir, apk_path]
+        result = subprocess.run(apktool_cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            _error(f"Apktool 解包失败:\n{result.stderr}")
+            if cleanup_decode:
+                shutil.rmtree(decode_dir, ignore_errors=True)
+            return
+        _success("解包完成")
+    else:
+        console.print(f"{ICO['pkg']} [dim]使用已有解包目录: {decode_dir}[/]")
+
+    # 检测广告SDK
+    console.print(f"{ICO['mag']} [bold]步骤 2/4:[/] 检测广告 SDK...")
+    detected = AdRemover.detect_ad_sdks(decode_dir)
+    if detected:
+        sdk_names = [AdRemover.AD_SDKS[k]['icon'] + ' ' + AdRemover.AD_SDKS[k]['name'] for k in detected]
+        console.print(f"  [yellow]检测到 {len(detected)} 个广告SDK:[/]")
+        for name in sdk_names:
+            console.print(f"    • {name}")
+    else:
+        console.print("  [green]未检测到已知广告SDK[/]")
+
+    # 构建选项
+    options = {}
+    if args.sdks:
+        # 只处理指定的SDK
+        sdk_list = [s.strip() for s in args.sdks.split(',')]
+        for k in ['tencent', 'kuaishou', 'pangle', 'baidu', 'toutiao', 'sigmob', 'google', 'miads']:
+            options[k] = k in sdk_list
+    if args.no_regex:
+        options['regex'] = False
+    if args.no_assets:
+        options['assets'] = False
+    if args.no_manifest:
+        options['manifest'] = False
+
+    # 步骤3: 执行广告移除
+    console.print(f"{ICO['fix']} [bold]步骤 3/4:[/] 执行广告移除...")
+    assets_dir = os.path.join(decode_dir, 'assets')
+    manifest_path = os.path.join(decode_dir, 'AndroidManifest.xml')
+
+    with console.status("[bold cyan]移除广告中...", spinner="dots"):
+        report = AdRemover.remove_all(
+            smali_root=decode_dir,
+            assets_dir=assets_dir if os.path.isdir(assets_dir) else None,
+            manifest_path=manifest_path if os.path.isfile(manifest_path) else None,
+            options=options,
+        )
+
+    # 输出报告
+    _spacer()
+    console.print(_header("🧹 广告移除报告", os.path.basename(apk_path)))
+
+    console.print(_make_panel(
+        f"[bold]总补丁数:[/] {report['total_patched']}  "
+        f"[bold]修改文件:[/] {report['total_files']}",
+        "📊 移除摘要", "green"
+    ))
+
+    # SDK详情
+    if report['sdks']:
+        _section("SDK 定向移除")
+        t = Table(box=box.SIMPLE)
+        t.add_column("SDK", style="cyan")
+        t.add_column("补丁数", justify="right")
+        t.add_column("文件数", justify="right")
+        t.add_column("Manifest", justify="right")
+        for sdk_key, r in report['sdks'].items():
+            icon = AdRemover.AD_SDKS.get(sdk_key, {}).get('icon', '')
+            name = AdRemover.AD_SDKS.get(sdk_key, {}).get('name', sdk_key)
+            mr = r.get('manifest_removed', '-')
+            t.add_row(f"{icon} {name}", str(r.get('patched', 0)), str(r.get('files', 0)), str(mr))
+        console.print(t)
+
+    # 正则通杀
+    if report.get('regex', {}).get('replacements', 0) > 0:
+        _section("正则通杀")
+        console.print(f"  [dim]模式数:[/] {report['regex']['patterns_applied']}  "
+                      f"[dim]替换:[/] {report['regex']['replacements']}  "
+                      f"[dim]文件:[/] {report['regex']['files']}")
+
+    # Assets清理
+    if report.get('assets', {}).get('count', 0) > 0:
+        _section(f"Assets 清理 ({report['assets']['count']}个文件)")
+        for f in report['assets']['deleted'][:20]:
+            console.print(f"  [red]✗[/] {f}")
+        if len(report['assets']['deleted']) > 20:
+            console.print(f"  [dim]...还有 {len(report['assets']['deleted']) - 20} 个[/]")
+
+    # Manifest清理
+    if report.get('manifest', {}).get('removed', 0) > 0:
+        _section(f"Manifest 清理 ({report['manifest']['removed']}个组件)")
+
+    # 步骤4: 重打包 + 签名
+    console.print(f"{ICO['build']} [bold]步骤 4/4:[/] 重打包 & 签名...")
+    with console.status("[bold cyan]重打包中...", spinner="dots"):
+        build_cmd = ['apktool', 'b', '-f', '-o', output, decode_dir]
+        result = subprocess.run(build_cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            _error(f"重打包失败:\n{result.stderr}")
+            if cleanup_decode:
+                shutil.rmtree(decode_dir, ignore_errors=True)
+            return
+
+    # 签名
+    if not args.no_sign:
+        with console.status("[bold cyan]签名中...", spinner="dots"):
+            r = sign_debug(output, output)
+            if not r.get('success'):
+                _error(f"签名失败: {r.get('error', '未知错误')}")
+
+    _success(f"广告移除完成: {output}")
+    console.print(f"  [dim]解包目录: {decode_dir}[/]")
+    if cleanup_decode and not args.keep_decode:
+        shutil.rmtree(decode_dir, ignore_errors=True)
+        console.print("  [dim]临时解包目录已清理[/]")
+
+    if report['total_patched'] == 0 and not report.get('assets', {}).get('count', 0):
+        _warn("未发现可移除的广告特征（可能使用了未知SDK或加固保护）")
+
+
+# ── adai - AI广告分析 ──────────────────────────────────────────
+
+def cmd_adai(args):
+    """AI 广告识别分析 - 使用 LLM 智能分析 APK 中的广告接口和实现"""
+    from apk_reverse_engine.analysis.ad_ai_engine import AdAIEngine
+
+    api_key = args.api_key
+    api_url = args.api_url or ""
+    engine = AdAIEngine(api_key=api_key, api_url=api_url)
+
+    # 多对话同时使用时禁用速率限制
+    if getattr(args, 'no_rate_limit', False):
+        AdAIEngine.set_rate_limit(False)
+
+    # 列出模型模式
+    if args.list_models:
+        console.print(f"{ICO['mag']} [bold]可用 AI 模型列表[/]")
+        _spacer()
+        models = engine.get_available_models()
+        for m in models:
+            display = AdAIEngine.get_model_display_name(m)
+            tag = " [yellow](思考模式)[/]" if AdAIEngine.is_thinking_model(m) else ""
+            console.print(f"  • [cyan]{m}[/] [dim]({display})[/]{tag}")
+        _spacer()
+        console.print(f"  [dim]共 {len(models)} 个可用模型[/]")
+        return
+
+    # 检查模型
+    model = args.model
+    if not model:
+        console.print(f"{ICO['mag']} [bold]未指定模型，列出可用模型:[/]")
+        models = engine.get_available_models()
+        for m in models:
+            display = AdAIEngine.get_model_display_name(m)
+            tag = " (思考模式)" if AdAIEngine.is_thinking_model(m) else ""
+            console.print(f"  • {m} ({display}){tag}")
+        console.print(f"\n  [dim]请使用 --model <model_id> 指定模型[/]")
+        return
+
+    # 从 APK 提取代码
+    from apk_reverse_engine.core.dex_parser import DexParser
+
+    code_snippets = []
+    skipped_count = 0
+    with console.status(f"{ICO['mag']} 提取 APK 代码...", spinner="dots"):
+        with open_apk(args.apk) as ctx:
+            dex_files = ctx.get_dex_files()
+            for d in dex_files:
+                data = ctx.read_file(d)
+                parser = DexParser(data)
+                classes = parser.get_class_defs()
+                for cls in classes:
+                    class_name = cls.get('class_name', '')
+                    if args.class_name and args.class_name.lower() not in class_name.lower():
+                        continue
+                    # 获取类中的方法
+                    for mlist_name in ['direct_methods', 'virtual_methods']:
+                        for m in cls.get(mlist_name, []):
+                            try:
+                                code_item = parser.get_code_item(m)
+                                if code_item and code_item.get('instructions'):
+                                    method_name = m.get('name', '')
+                                    instructions = code_item['instructions']
+                                    snippet = f"# Class: {class_name}\n# Method: {method_name}\n"
+                                    # 取前 500 条指令
+                                    snippet += '\n'.join(
+                                        f"  {i['mnemonic']} {i.get('operands', [])}"
+                                        for i in instructions[:AdAIEngine.MAX_INSTRUCTIONS]
+                                    )
+                                    # 智能预筛选（使用 AdAIEngine.prefilter_ad_code）
+                                    is_ad, score = AdAIEngine.prefilter_ad_code(
+                                        snippet, class_name, method_name,
+                                        args.custom_keywords or ''
+                                    )
+                                    if is_ad:
+                                        code_snippets.append({
+                                            'class': class_name,
+                                            'method': method_name,
+                                            'code': snippet,
+                                            'score': score,
+                                        })
+                                    else:
+                                        skipped_count += 1
+                            except Exception:
+                                continue
+
+    if not code_snippets:
+        _warn("未找到包含广告相关关键词的代码片段")
+        console.print(f"  [dim]已跳过 {skipped_count} 个无广告特征的代码片段[/]")
+        console.print(f"  [dim]尝试分析所有代码可能耗时较长，建议指定 --class-name[/]")
+        return
+
+    # 按相关度排序
+    code_snippets.sort(key=lambda x: x['score'], reverse=True)
+
+    console.print(f"{ICO['mag']} 找到 {len(code_snippets)} 个候选代码片段"
+                  f" [dim](已跳过 {skipped_count} 个无关片段)[/]")
+
+    # 构建分析选项
+    options = {
+        'show_ad_blocking_suggestions': not args.no_blocking,
+    }
+    if args.custom_keywords:
+        options['custom_ad_keywords'] = args.custom_keywords
+
+    # 分析模式
+    question_mode = 'supplement' if (args.supplement or args.question) else 'direct'
+
+    # 流式或非流式
+    use_stream = args.stream and not args.json
+
+    # 并发数（默认5，可通过 --concurrent 调整）
+    max_workers = getattr(args, 'concurrent', 5) or AdAIEngine.MAX_CONCURRENT
+
+    max_analyze = min(len(code_snippets), args.max_snippets if hasattr(args, 'max_snippets') else 20)
+    to_analyze = code_snippets[:max_analyze]
+
+    # ── 并发分析 ──
+    results = []
+    if use_stream:
+        # 并发流式输出
+        console.print(f"\n{ICO['gear']} [bold]并发流式分析 {len(to_analyze)} 个片段"
+                      f" [dim]({max_workers} 路同时)[/]\n")
+        # 为每个片段维护独立缓冲区
+        buffers = {i: [] for i in range(len(to_analyze))}
+        done_flags = [False] * len(to_analyze)
+
+        for idx, chunk in engine.analyze_stream_batch(
+            snippets=to_analyze,
+            source_language=args.language,
+            model=model,
+            question=args.question or '',
+            question_mode=question_mode,
+            options=options,
+            max_workers=max_workers,
+        ):
+            buffers[idx].append(chunk)
+            # 带标签的实时输出
+            snippet = to_analyze[idx]
+            short_class = snippet['class'].split('/')[-1].split(';')[0] if snippet['class'] else f'#{idx}'
+            console.print(f"[dim][{idx+1}/{len(to_analyze)} {short_class}][/]", end='', style="dim")
+            console.print(chunk, end='', style="cyan")
+
+        console.print()
+
+        # 收集结果
+        for i, snippet in enumerate(to_analyze):
+            full = ''.join(buffers[i])
+            if full:
+                results.append({
+                    'class': snippet['class'],
+                    'method': snippet['method'],
+                    'analysis': full,
+                    'score': snippet['score'],
+                })
+            else:
+                results.append({
+                    'class': snippet['class'],
+                    'method': snippet['method'],
+                    'score': snippet['score'],
+                    'error': '流式分析未返回内容',
+                })
+    else:
+        # 并发非流式
+        console.print(f"\n{ICO['gear']} [bold]并发分析 {len(to_analyze)} 个片段"
+                      f" [dim]({max_workers} 路同时)[/]\n")
+
+        completed_count = 0
+        total_count = len(to_analyze)
+
+        def _on_complete(index, result):
+            nonlocal completed_count
+            completed_count += 1
+            snippet = to_analyze[index]
+            short_class = snippet['class'].split('/')[-1].split(';')[0] if snippet['class'] else f'#{index}'
+            if 'error' in result:
+                console.print(f"  [red]✗[/] [{completed_count}/{total_count}] "
+                              f"{short_class} :: {snippet['method']} [red]{result['error']}[/]")
+            else:
+                console.print(f"  [green]✓[/] [{completed_count}/{total_count}] "
+                              f"{short_class} :: {snippet['method']} [dim](相关度: {snippet['score']})[/]")
+
+        results = engine.analyze_batch(
+            snippets=to_analyze,
+            source_language=args.language,
+            model=model,
+            question=args.question or '',
+            question_mode=question_mode,
+            options=options,
+            max_workers=max_workers,
+            on_complete=_on_complete,
+        )
+
+    # 输出结果
+    _spacer()
+    console.print(_header("🤖 AI 广告分析报告", os.path.basename(args.apk)))
+
+    for r in results:
+        _section(f"{r['class']} :: {r['method']} [dim](相关度: {r.get('score', 0)})[/]")
+        if 'error' in r:
+            console.print(f"  [red]分析失败: {r['error']}[/]")
+        else:
+            console.print(r['analysis'])
+
+    if args.json:
+        import json as _json
+        _json.dump(results, open(args.json, 'w'), indent=2, ensure_ascii=False)
+        _success(f"JSON 已保存到 {args.json}")
+
+
 # ── disasm - DEX 反汇编 ──────────────────────────────────────────
 
 def cmd_disasm(args):
@@ -2331,11 +2698,831 @@ def cmd_cfg(args):
     
     _spacer()
 
+# ── dataflow - DEX 数据流分析 ────────────────────────────────────
+
+def cmd_dataflow(args):
+    """DEX 数据流分析 (寄存器追踪/污点分析/常量传播)"""
+    from apk_reverse_engine.analysis.enhanced import DexDataFlowAnalyzer
+    from apk_reverse_engine.core.dex_parser import DexParser
+
+    with console.status(f"{ICO['blue']} 执行数据流分析...", spinner="dots"):
+        with open_apk(args.apk) as ctx:
+            dex_data = ctx.read_file(ctx.get_dex_files()[0])
+            dp = DexParser(dex_data)
+            analyzer = DexDataFlowAnalyzer(dp)
+            result = analyzer.analyze_method_dataflow(args.class_name, method_name=args.method)
+
+    console.print(_header(f"{ICO['blue']} 数据流分析", f"{args.class_name}{'.' + args.method if args.method else ''}"))
+    if 'error' in result:
+        _error(result['error'])
+        return
+
+    # 寄存器追踪
+    regs = result.get('registers', {})
+    if regs:
+        _section(f"寄存器状态 ({len(regs)}个)")
+        t = Table(box=box.SIMPLE)
+        t.add_column("寄存器", style="cyan")
+        t.add_column("类型", style="yellow")
+        t.add_column("值/来源", style="dim")
+        for reg, info in list(regs.items())[:20]:
+            t.add_row(reg, info.get('type', ''), str(info.get('value', info.get('source', ''))))
+        console.print(t)
+
+    # 污点传播
+    taint = result.get('taint', {})
+    if taint.get('sources') or taint.get('sinks'):
+        _section("污点分析")
+        if taint.get('sources'):
+            console.print(f"  [red]📍 污点源: {', '.join(taint['sources'][:10])}[/]")
+        if taint.get('sinks'):
+            console.print(f"  [red]🎯 污点汇: {', '.join(taint['sinks'][:10])}[/]")
+        if taint.get('paths'):
+            _section("污点传播路径")
+            for path in taint['paths'][:5]:
+                console.print(f"  [dim]{' → '.join(path)}[/]")
+
+    # 常量传播
+    consts = result.get('constants', {})
+    if consts:
+        _section(f"常量传播 ({len(consts)}个)")
+        for reg, val in list(consts.items())[:15]:
+            console.print(f"  [cyan]{reg}[/] = [yellow]{val}[/]")
+
+    _spacer()
+
+# ── callgraph - 调用图分析 ──────────────────────────────────────
+
+def cmd_callgraph(args):
+    """构建 DEX 方法调用图并分析"""
+    from apk_reverse_engine.analysis.enhanced import CallGraphBuilder
+    from apk_reverse_engine.core.dex_parser import DexParser
+
+    with console.status(f"{ICO['blue']} 构建调用图...", spinner="dots"):
+        with open_apk(args.apk) as ctx:
+            dex_data = ctx.read_file(ctx.get_dex_files()[0])
+            dp = DexParser(dex_data)
+            cg = CallGraphBuilder.build_call_graph(dp)
+
+    console.print(_header(f"{ICO['blue']} 调用图分析", os.path.basename(args.apk)))
+    _info(f"总方法数: {cg.get('total_methods', 0)}  |  总调用边: {cg.get('total_edges', 0)}")
+
+    # 入口点
+    entries = CallGraphBuilder.find_entry_points(cg)
+    if entries:
+        _section(f"入口点 ({len(entries)}个) - 未被内部调用的方法")
+        for e in entries[:15]:
+            console.print(f"  [green]📍 {e}[/]")
+        if len(entries) > 15:
+            console.print(f"  [dim]... 还有 {len(entries) - 15} 个[/]")
+
+    # 热点方法
+    hotspots = CallGraphBuilder.find_hotspots(cg, top_n=15)
+    if hotspots:
+        _section("热点方法 (被调用次数最多)")
+        t = Table(box=box.SIMPLE)
+        t.add_column("排名", justify="right", style="dim")
+        t.add_column("方法", style="cyan")
+        t.add_column("被调用次数", justify="right", style="yellow")
+        for i, (method, count) in enumerate(hotspots, 1):
+            t.add_row(str(i), method, str(count))
+        console.print(t)
+
+    # 递归调用
+    recursive = CallGraphBuilder.detect_recursive(cg)
+    if recursive:
+        _section(f"递归调用 ({len(recursive)}个)")
+        for r in recursive[:10]:
+            console.print(f"  [yellow]🔄 {r}[/]")
+        if len(recursive) > 10:
+            console.print(f"  [dim]... 还有 {len(recursive) - 10} 个[/]")
+
+    _spacer()
+
+# ── decrypt - 字符串解密分析 ────────────────────────────────────
+
+def cmd_decrypt(args):
+    """DEX 加密字符串检测与自动解密"""
+    from apk_reverse_engine.analysis.enhanced import StringDecryptor
+    from apk_reverse_engine.core.dex_parser import DexParser
+
+    with console.status(f"{ICO['mag']} 分析加密字符串...", spinner="dots"):
+        with open_apk(args.apk) as ctx:
+            dex_data = ctx.read_file(ctx.get_dex_files()[0])
+            dp = DexParser(dex_data)
+            result = StringDecryptor.analyze_decrypt_pattern(dp, class_name=args.class_name)
+
+    console.print(_header(f"{ICO['mag']} 字符串解密分析", os.path.basename(args.apk)))
+    if 'error' in result:
+        _error(result['error'])
+        return
+
+    patterns = result.get('decrypt_patterns', [])
+    if patterns:
+        _section(f"解密模式 ({len(patterns)}个)")
+        for p in patterns[:15]:
+            console.print(f"  [cyan]算法: {p.get('algorithm', 'unknown')}[/]  "
+                         f"[dim]密钥: {p.get('key', '')}[/]")
+            if p.get('decrypted'):
+                console.print(f"    [green]✅ {p['decrypted'][:60]}[/]")
+    else:
+        console.print("  [green]✅ 未检测到加密字符串模式[/]")
+
+    # 自动解密结果
+    decrypted = result.get('auto_decrypted', [])
+    if decrypted:
+        _section(f"自动解密成功 ({len(decrypted)}个)")
+        for d in decrypted[:15]:
+            console.print(f"  [green]{d[:60]}[/]")
+
+    _spacer()
+
+# ── anti - 反分析检测 ───────────────────────────────────────────
+
+def cmd_anti(args):
+    """检测 APK 中的反调试/反Root/反模拟器/完整性校验等"""
+    from apk_reverse_engine.analysis.enhanced import AntiAnalysisDetector
+    from apk_reverse_engine.core.dex_parser import DexParser
+
+    with console.status(f"{ICO['red']} 检测反分析措施...", spinner="dots"):
+        with open_apk(args.apk) as ctx:
+            class_names = []
+            strings = []
+            for dex_name in ctx.get_dex_files():
+                data = ctx.read_file(dex_name)
+                dp = DexParser(data)
+                class_names.extend(dp.get_class_names())
+                strings.extend(dp.get_strings())
+            text = '\n'.join(strings)
+            result = AntiAnalysisDetector.detect_all(text, class_names=class_names, strings=strings)
+
+    console.print(_header(f"{ICO['red']} 反分析检测", os.path.basename(args.apk)))
+
+    categories = [
+        ('anti_debug', '反调试', '🔴'),
+        ('anti_root', '反Root', '🟠'),
+        ('anti_emulator', '反模拟器', '🟡'),
+        ('integrity_check', '完整性校验', '🟣'),
+        ('anti_tamper', '防篡改', '🔵'),
+    ]
+
+    total_detected = 0
+    for key, label, icon in categories:
+        cat = result.get(key, {})
+        if cat.get('detected'):
+            total_detected += 1
+            _section(f"{icon} {label} - 检测到 {cat.get('count', 0)} 项")
+            for ind in cat.get('indicators', [])[:8]:
+                console.print(f"  [yellow]⚠ {ind}[/]")
+            if len(cat.get('indicators', [])) > 8:
+                console.print(f"  [dim]... 还有 {len(cat['indicators']) - 8} 项[/]")
+
+    if total_detected == 0:
+        console.print("  [green]✅ 未检测到明显反分析措施[/]")
+    else:
+        console.print()
+        _warn(f"共检测到 {total_detected} 类反分析措施，逆向难度较高")
+
+    _spacer()
+
+# ── crypto - 加密分析 ───────────────────────────────────────────
+
+def cmd_crypto(args):
+    """全面加密分析 (算法/模式/哈希/弱加密/密钥管理)"""
+    from apk_reverse_engine.analysis.enhanced import CryptoAnalyzer
+    from apk_reverse_engine.core.dex_parser import DexParser
+
+    with console.status(f"{ICO['yellow']} 执行加密分析...", spinner="dots"):
+        with open_apk(args.apk) as ctx:
+            class_names = []
+            strings = []
+            for dex_name in ctx.get_dex_files():
+                data = ctx.read_file(dex_name)
+                dp = DexParser(data)
+                class_names.extend(dp.get_class_names())
+                strings.extend(dp.get_strings())
+            result = CryptoAnalyzer.analyze(class_names=class_names, strings=strings)
+
+    console.print(_header(f"{ICO['yellow']} 加密分析", os.path.basename(args.apk)))
+
+    # 加密算法
+    algos = result.get('algorithms', {})
+    if algos:
+        _section(f"检测到的加密算法 ({sum(algos.values()) if isinstance(algos, dict) and all(isinstance(v, int) for v in algos.values()) else len(algos)}种)")
+        if isinstance(algos, dict):
+            for algo, count in algos.items():
+                if isinstance(count, int):
+                    console.print(f"  [cyan]{algo}[/]: {count}次")
+                else:
+                    console.print(f"  [cyan]{algo}[/]: {count}")
+
+    # 哈希算法
+    hashes = result.get('hashes', {})
+    if hashes:
+        _section(f"哈希算法 ({len(hashes) if isinstance(hashes, (list, dict)) else hashes}种)")
+        if isinstance(hashes, dict):
+            for h, c in hashes.items():
+                console.print(f"  [cyan]{h}[/]: {c}")
+        elif isinstance(hashes, list):
+            for h in hashes:
+                console.print(f"  [cyan]{h}[/]")
+
+    # 弱加密
+    weak = result.get('weak_crypto', {})
+    if weak.get('detected'):
+        _section("⚠️ 弱加密/不安全算法")
+        for w in weak.get('findings', [])[:10]:
+            console.print(f"  [red]❌ {w}[/]")
+        _warn("检测到弱加密算法，存在安全风险")
+
+    # 密钥
+    keys = result.get('keys', {})
+    if keys.get('found'):
+        _section(f"硬编码密钥 ({keys.get('count', 0)}个)")
+        for k in keys.get('keys', [])[:10]:
+            console.print(f"  [yellow]🔑 {k}[/]")
+
+    _spacer()
+
+# ── hook - Hook 脚本生成 ────────────────────────────────────────
+
+def cmd_hook(args):
+    """生成 Frida/Xposed hook 脚本或 Smali 补丁"""
+    from apk_reverse_engine.analysis.enhanced import HookGenerator
+
+    console.print(_header(f"{ICO['green']} Hook 脚本生成", args.target_class))
+
+    bypass_flags = []
+    if args.bypass_debug:
+        bypass_flags.append('anti_debug')
+    if args.bypass_root:
+        bypass_flags.append('anti_root')
+    if args.bypass_emulator:
+        bypass_flags.append('anti_emulator')
+
+    if args.format == 'frida':
+        script = HookGenerator.generate_frida_script(
+            args.target_class, args.method,
+            verbose=args.verbose, trace_args=args.trace_args,
+            trace_return=args.trace_return, bypass_flags=bypass_flags or None
+        )
+        _section("Frida 脚本")
+        console.print(script)
+    elif args.format == 'xposed':
+        if not args.package:
+            _error("Xposed 模块需要 --package 参数")
+            return
+        script = HookGenerator.generate_xposed_module(
+            args.package, args.target_class, args.method, bypass_flags=bypass_flags or None
+        )
+        _section("Xposed 模块代码")
+        console.print(script)
+    elif args.format == 'smali':
+        script = HookGenerator.generate_smali_patch(
+            args.target_class, args.method, args.patch_type, args.value or '0x0'
+        )
+        _section("Smali 补丁")
+        console.print(script)
+
+    if args.output:
+        with open(args.output, 'w', encoding='utf-8') as f:
+            f.write(script)
+        _success(f"已保存到 {args.output}")
+
+    _spacer()
+
+# ── cmd_info - 信息一站式提取 ─────────────────────────────────
+def cmd_info(args):
+    """提取 APK 一站式元信息"""
+    from apk_reverse_engine.tools.info_extractor import APKInfoExtractor
+    r = APKInfoExtractor.extract_all(args.apk)
+    if args.json:
+        console.print_json(json.dumps(r, ensure_ascii=False, default=str))
+        return
+    console.print(_header('📦 APK 信息提取', os.path.basename(args.apk)))
+    _section('基本信息')
+    _kv_table([
+        ('文件名', r.get('file_name', '')),
+        ('大小', r.get('file_size_display', '')),
+        ('SHA256', r.get('sha256', '')),
+        ('包名', r.get('package_name', '')),
+        ('版本名', r.get('version_name', '')),
+        ('版本号', r.get('version_code', '')),
+        ('最小SDK', r.get('min_sdk', '')),
+        ('目标SDK', r.get('target_sdk', '')),
+    ])
+    _section('统计')
+    _kv_table([
+        ('DEX文件数', r.get('dex_count', 0)),
+        ('类总数', r.get('total_classes', 0)),
+        ('方法总数', r.get('total_methods', 0)),
+        ('字符串总数', r.get('total_strings', 0)),
+        ('SO文件数', r.get('so_files', {}).get('count', 0)),
+        ('ABI架构', ', '.join(r.get('so_files', {}).get('architectures', {}).keys()) or '无'),
+    ])
+    _section('签名')
+    sig = r.get('signature', {})
+    _kv_table([
+        ('已签名', '✅' if sig.get('is_signed') else '❌'),
+        ('v1签名', '✅' if sig.get('v1_signature') else '❌'),
+        ('v2签名', '✅' if sig.get('v2_signature') else '❌'),
+        ('v3签名', '✅' if sig.get('v3_signature') else '❌'),
+        ('证书SHA256', sig.get('cert_sha256', '')),
+    ])
+
+
+# ── cmd_validate - APK 完整性验证 ─────────────────────────────
+def cmd_validate(args):
+    """验证 APK 完整性"""
+    from apk_reverse_engine.tools.validator import APKValidator
+    if args.compare:
+        r = APKValidator.compare_checksums(args.apk, args.compare)
+        console.print(_header('🔍 APK 校验和对比'))
+        _kv_table([
+            ('文件A', r.get('file_a', '')),
+            ('文件B', r.get('file_b', '')),
+            ('SHA256(A)', r.get('sha256_a', '')),
+            ('SHA256(B)', r.get('sha256_b', '')),
+            ('一致', '✅' if r.get('match') else '❌'),
+        ])
+        return
+    r = APKValidator.validate_apk(args.apk)
+    console.print(_header('🛡️ APK 完整性验证', os.path.basename(args.apk)))
+    console.print(_make_panel(
+        f"[bold]{'✅ 验证通过' if r.get('valid') else '❌ 验证失败'}[/]",
+        '结 果', 'green' if r.get('valid') else 'red'))
+    info = r.get('info', {})
+    _section('文件信息')
+    _kv_table([
+        ('大小', info.get('file_size', '')),
+        ('SHA256', info.get('sha256', '')),
+        ('包名', info.get('package', '')),
+        ('版本号', info.get('version_code', '')),
+        ('目标SDK', info.get('target_sdk', '')),
+        ('条目数', info.get('entry_count', '')),
+        ('已签名', '✅' if info.get('is_signed') else '❌'),
+    ])
+    if r.get('errors'):
+        _section('错误')
+        for e in r['errors']:
+            console.print(f'  [bold red]❌ {e}[/]')
+    if r.get('warnings'):
+        _section('警告')
+        for w in r['warnings']:
+            console.print(f'  [bold yellow]⚠️ {w}[/]')
+
+
+# ── cmd_batch - 批量处理 ──────────────────────────────────────
+def cmd_batch(args):
+    """批量处理 APK"""
+    from apk_reverse_engine.tools.batch import APKBatchProcessor
+    if args.mode == 'analyze':
+        r = APKBatchProcessor.batch_analyze(args.dir, recursive=not args.no_recursive, max_workers=args.workers)
+        console.print(_header('📊 批量分析', args.dir))
+        if not r.get('success'):
+            _error(r.get('error', '未知错误'))
+            return
+        console.print(f'  [bold]共发现 {r["total"]} 个 APK[/]')
+        for path, info in r.get('results', {}).items():
+            if 'error' in info:
+                console.print(f'  [red]❌ {os.path.basename(path)}: {info["error"]}[/]')
+            else:
+                cert = (info.get('cert_sha256') or '')[:12]
+                console.print(f'  [green]✅ {os.path.basename(path)}[/] [dim]{info.get("package_name","")} v{info.get("version_name","")}[/] '
+                              f'[dim]{info.get("dex_count",0)}dex {info.get("so_count",0)}so[/] [dim]{cert}...[/]')
+    elif args.mode == 'validate':
+        r = APKBatchProcessor.batch_validate(args.dir, recursive=not args.no_recursive, max_workers=args.workers)
+        console.print(_header('🛡️ 批量验证', args.dir))
+        console.print(f'  [bold]共 {r.get("total",0)} 个 APK，通过 {r.get("valid_count",0)}，失败 {r.get("invalid_count",0)}[/]')
+        for path, info in r.get('results', {}).items():
+            ok = info.get('valid')
+            console.print(f'  {"[green]✅" if ok else "[red]❌"} {os.path.basename(path)}[/]'
+                          + (f'  [dim]{", ".join(info.get("errors",[])[:2])}[/]' if not ok else ''))
+    elif args.mode == 'sign':
+        r = APKBatchProcessor.batch_sign(args.dir, output_dir=args.output, recursive=not args.no_recursive)
+        console.print(_header('📝 批量签名', args.dir))
+        console.print(f'  [bold]共 {r.get("total",0)} 个 APK，成功 {r.get("signed_count",0)}，失败 {r.get("failed_count",0)}[/]')
+        for path, info in r.get('results', {}).items():
+            console.print(f'  {"[green]✅" if info.get("success") else "[red]❌"} {os.path.basename(path)}[/] '
+                          f'[dim]{info.get("output","") or info.get("error","")}[/]')
+    elif args.mode == 'report':
+        r = APKBatchProcessor.batch_report(args.dir, recursive=not args.no_recursive, output_json=args.json_out)
+        console.print(_header('📄 批量报告', args.dir))
+        if r.get('success'):
+            console.print(r.get('markdown', ''))
+        else:
+            _error(r.get('error', '未知错误'))
+
+
+# ── 交互式模式 ───────────────────────────────────────────────
+
+
+# 最近使用的 APK 历史（持久化到 ~/.apk_rev_history）
+_HIST_FILE = os.path.expanduser('~/.apk_rev_history')
+_HIST_MAX = 8
+
+def _load_history():
+    try:
+        if os.path.exists(_HIST_FILE):
+            with open(_HIST_FILE, 'r', encoding='utf-8') as f:
+                return [l.strip() for l in f if l.strip()]
+    except Exception:
+        pass
+    return []
+
+def _save_history(apk):
+    hist = _load_history()
+    if apk in hist:
+        hist.remove(apk)
+    hist.insert(0, apk)
+    hist = hist[:_HIST_MAX]
+    try:
+        with open(_HIST_FILE, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(hist))
+    except Exception:
+        pass
+
+# 交互式命令注册表: 名称 -> (分类, 说明, 需要的输入字段)
+_INTERACTIVE_COMMANDS = {
+    "inspect":  ("基本信息", "📦 APK 基本信息概览", ["apk"]),
+    "info":     ("基本信息", "📊 信息一站式提取 (包名/版本/DEX/SO/签名)", ["apk"]),
+    "validate": ("基本信息", "🛡️ APK 完整性验证", ["apk"]),
+    "analyze":  ("基本信息", "🔬 全面分析 (权限/混淆/加固/安全)", ["apk"]),
+    "manifest": ("基本信息", "📋 解析 AndroidManifest.xml", ["apk"]),
+    "dex":      ("基本信息", "📜 DEX 文件分析", ["apk"]),
+    "classes":  ("基本信息", "📦 列出 DEX 类名", ["apk"]),
+    "so":       ("基本信息", "🔧 分析 SO 文件", ["apk"]),
+    "search":   ("分析与搜索", "🔍 搜索关键字 (字符串/类/方法)", ["apk", "query"]),
+    "clue":     ("分析与搜索", "🔗 线索串联分析", ["apk"]),
+    "core":     ("分析与搜索", "🎯 核心类定位", ["apk"]),
+    "sdk":      ("分析与搜索", "🌐 SDK/追踪器检测", ["apk"]),
+    "strings":  ("分析与搜索", "📜 字符串深度分析", ["apk"]),
+    "resobf":   ("分析与搜索", "🎨 资源混淆检测", ["apk"]),
+    "ads":      ("分析与搜索", "📢 广告检测", ["apk"]),
+    "adremove": ("分析与搜索", "🧹 一键移除广告", ["apk", "output"]),
+    "social":   ("分析与搜索", "💬 社交登录检测", ["apk"]),
+    "deobf":    ("分析与搜索", "🎭 去混淆分析", ["apk"]),
+    "cert":     ("分析与搜索", "📝 签名证书分析", ["apk"]),
+    "endpoints":("分析与搜索", "🌐 提取网络端点", ["apk"]),
+    "keyscan":  ("分析与搜索", "🔑 扫描硬编码密钥", ["apk"]),
+    "unpack":   ("打包与转换", "📦 解压 APK", ["apk", "output"]),
+    "verify":   ("打包与转换", "🔍 校验解压完整性", ["apk", "output"]),
+    "rebuild":  ("打包与转换", "📦 从目录重建 APK", ["input", "output"]),
+    "sign":     ("打包与转换", "📝 签名 APK", ["apk", "output"]),
+    "zipalign": ("打包与转换", "📐 对齐 APK", ["apk", "output"]),
+}
+
+def _interactive_prompt(prompt, default=''):
+    """带默认值的输入提示（纯文本，避免 Rich 标记开销）"""
+    try:
+        if default:
+            val = input(f"  {prompt} ({default}): ") or default
+        else:
+            val = input(f"  {prompt}: ")
+    except (EOFError, KeyboardInterrupt):
+        return None
+    return val.strip()
+
+def _interactive_choose_apk():
+    """让用户选择 APK 文件（支持历史记录/路径输入/目录浏览）— Rich 增强版"""
+    hist = _load_history()
+    while True:
+        console.print()
+        if hist:
+            console.print(f"  [bold cyan]📦 最近使用的 APK ({len(hist[:5])} 条):[/]")
+            t = Table(box=box.SIMPLE, show_header=False, padding=(0, 2))
+            t.add_column("#", justify="right", style="dim", width=4)
+            t.add_column("文件名", style="bold cyan")
+            t.add_column("目录", style="dim")
+            for i, h in enumerate(hist[:5], 1):
+                t.add_row(str(i), os.path.basename(h), os.path.dirname(h))
+            console.print(t)
+            console.print(f"  [dim]输入 [bold]c[/] 清除历史 | [bold].[/] 扫描当前目录[/]")
+        else:
+            console.print(f"  [dim]无历史记录 | 输入路径或 [bold].[/] 扫描当前目录[/]")
+        console.print(f"  [dim]{'─' * 50}[/]")
+        p = _interactive_prompt(
+            "APK 路径 (历史编号/直接路径/. 扫描当前目录/目录路径)"
+        )
+        if p is None:
+            return None
+        p = p.strip()
+        if not p:
+            continue
+        # 清除历史
+        if p.lower() == 'c':
+            try:
+                os.remove(_HIST_FILE)
+            except Exception:
+                pass
+            hist = []
+            _success("历史已清除")
+            continue
+        # 历史编号选择
+        if p.isdigit() and hist:
+            idx = int(p)
+            if 1 <= idx <= len(hist):
+                apk = hist[idx - 1]
+                if os.path.isfile(apk):
+                    return apk
+                _warn("文件已不存在")
+                hist.pop(idx - 1)
+                continue
+        # 目录 -> 列出其中的 apk（非递归，避免卡顿）
+        if os.path.isdir(p):
+            try:
+                apks = sorted([os.path.join(p, f) for f in os.listdir(p) if f.endswith('.apk')])
+            except PermissionError:
+                _error("无权限访问目录")
+                continue
+            if not apks:
+                _warn("该目录下未找到 .apk 文件")
+                continue
+            console.print(f"  [bold cyan]📂 找到 {len(apks)} 个 APK:[/]")
+            t = Table(box=box.SIMPLE, show_header=False, padding=(0, 2))
+            t.add_column("#", justify="right", style="dim", width=4)
+            t.add_column("文件名", style="cyan")
+            t.add_column("大小", justify="right", style="yellow")
+            for i, a in enumerate(apks[:20], 1):
+                try:
+                    sz = _fmt_size(os.path.getsize(a))
+                except Exception:
+                    sz = '?'
+                t.add_row(str(i), os.path.basename(a), sz)
+            console.print(t)
+            if len(apks) > 20:
+                console.print(f"  [dim]... 还有 {len(apks)-20} 个 (输入完整路径直接指定)[/]")
+            sel = _interactive_prompt("选择编号")
+            try:
+                return apks[int(sel) - 1]
+            except (ValueError, IndexError):
+                _error("无效编号")
+                continue
+        if os.path.isfile(p) and p.endswith('.apk'):
+            return p
+        if os.path.isfile(p):
+            _warn("该文件不是 .apk")
+            continue
+        _error("路径不存在")
+
+def interactive_mode():
+    """交互式菜单模式 — Rich 增强版"""
+    console.print()
+    console.print(Panel.fit(
+        "[bold cyan]⚡ APK Reverse Engineering Engine v2[/]\n"
+        "[dim]  交互模式  |  47 命令  |  全链路逆向工具集  [/]",
+        border_style="cyan", box=box.DOUBLE_EDGE
+    ))
+
+    # 按分类分组
+    groups = {}
+    for name, (cat, desc, _) in _INTERACTIVE_COMMANDS.items():
+        groups.setdefault(cat, []).append((name, desc))
+
+    def _status_bar():
+        """底部状态栏：显示上次执行的命令"""
+        if last_cmd:
+            console.print(f"  [dim]┄┄ 上次: [bold cyan]{last_cmd}[/]  [dim]| 输入 r 重跑 | b 返回菜单 | q 退出[/]")
+        else:
+            console.print(f"  [dim]┄┄ 输入类别编号或命令名 | b 返回菜单 | q 退出[/]")
+
+    def show_menu():
+        cat_list = list(groups.keys())
+        console.print()
+        t = Table(box=box.ROUNDED, border_style="cyan", show_header=True, padding=(0, 2))
+        t.add_column("#", justify="right", style="dim", width=4)
+        t.add_column("类别", style="bold cyan")
+        t.add_column("命令数", justify="right", style="yellow")
+        t.add_column("说明", style="dim")
+        cat_descs = {
+            "基本信息": "APK 结构/版本/签名/DEX/SO 概览",
+            "分析与搜索": "线索串联/核心定位/SDK/字符串/混淆/广告/安全",
+            "打包与转换": "解包/重建/签名/对齐/格式转换",
+        }
+        for i, cat in enumerate(cat_list, 1):
+            cnt = len(groups[cat])
+            t.add_row(str(i), cat, str(cnt), cat_descs.get(cat, ""))
+        console.print(t)
+        _status_bar()
+        return cat_list
+
+    def show_category(cat_name):
+        """以 Rich 表格展示某个类别下的所有命令"""
+        cmds = groups[cat_name]
+        console.print()
+        console.print(f"  [bold cyan]📂 {cat_name}[/]  [dim]({len(cmds)} 个命令)[/]")
+        console.print(f"  [dim]{'─' * 50}[/]")
+        t = Table(box=box.SIMPLE, show_header=False, padding=(0, 2))
+        t.add_column("#", justify="right", style="dim", width=4)
+        t.add_column("命令", style="bold cyan", width=14)
+        t.add_column("说明", style="white")
+        for i, (name, desc) in enumerate(cmds, 1):
+            t.add_row(str(i), name, desc)
+        console.print(t)
+        console.print(f"  [bold yellow]0[/]. [dim]返回菜单[/]  [bold yellow]b[/]. [dim]返回[/]  [bold yellow]q[/]. [dim]退出[/]  [bold yellow]r[/]. [dim]重跑[/]")
+        return cmds
+
+    def run_command(cmd_name):
+        """收集参数并执行指定命令"""
+        nonlocal last_cmd, last_values
+        if cmd_name not in _INTERACTIVE_COMMANDS:
+            _error(f"未知命令: {cmd_name}")
+            return
+        _, _, fields = _INTERACTIVE_COMMANDS[cmd_name]
+        # 收集参数
+        values = {}
+        for f in fields:
+            if f == 'apk':
+                apk = _interactive_choose_apk()
+                if apk is None:
+                    return
+                _save_history(apk)
+                values['apk'] = apk
+            elif f == 'query':
+                q = _interactive_prompt("搜索关键字")
+                if q is None:
+                    return
+                values['query'] = q
+            elif f == 'output':
+                out = _interactive_prompt("输出路径", cmd_name + '_out')
+                if out is None:
+                    return
+                values['output'] = out
+            elif f == 'input':
+                inp = _interactive_prompt("输入目录")
+                if inp is None:
+                    return
+                values['input'] = inp
+
+        # 保存为上一条命令
+        last_cmd = cmd_name
+        last_values = values
+
+        # 构造 argparse.Namespace 并调用（使用模块级分发表，避免重复构建）
+        ns = argparse.Namespace()
+        for k, v in values.items():
+            setattr(ns, k, v)
+        # 常见可选参数默认值
+        for opt in ('json', 'max', 'workers', 'force', 'output', 'compare'):
+            if not hasattr(ns, opt):
+                if opt == 'max':
+                    setattr(ns, opt, 100)
+                elif opt == 'workers':
+                    setattr(ns, opt, 4)
+                else:
+                    setattr(ns, opt, None)
+        console.print()
+        console.print(f"  [bold cyan]▶ 执行: {cmd_name}[/]")
+        console.print(f"  [dim]{'─' * 40}[/]")
+        try:
+            _INTERACTIVE_DISPATCH[cmd_name](ns)
+        except Exception as e:
+            _error(f"执行失败: {e}")
+        console.print()
+
+    last_cat = None
+    last_cmd = None
+    last_values = None
+    while True:
+        try:
+            if last_cat is None:
+                cats = show_menu()
+                sel = _interactive_prompt("选择")
+                if sel is None:
+                    return
+                s = sel.strip().lower()
+                if s in ('exit', 'quit', 'q'):
+                    break
+                if s in ('menu', 'b'):
+                    continue
+                # 快捷重新执行上一条命令
+                if s in ('r', 'rr') and last_cmd:
+                    run_command(last_cmd)
+                    continue
+                if s == 'help' or s == '?':
+                    console.print()
+                    console.print(Panel(
+                        f"[bold]快捷操作:[/]\n"
+                        f"  [cyan]数字[/]    选择类别/命令\n"
+                        f"  [cyan]命令名[/]  直接执行（支持前缀模糊匹配）\n"
+                        f"  [cyan]r[/]       重跑上一条命令\n"
+                        f"  [cyan]b / menu[/]  返回上级菜单\n"
+                        f"  [cyan]q / exit[/]  退出\n\n"
+                        f"[bold]可用命令 ({len(_INTERACTIVE_COMMANDS)}):[/]\n"
+                        f"  [cyan]{', '.join(_INTERACTIVE_COMMANDS.keys())}[/]",
+                        title="❓ 帮助", border_style="yellow", title_align="left"
+                    ))
+                    continue
+                # 命令名模糊匹配（支持前缀/子串）
+                if s not in _INTERACTIVE_COMMANDS:
+                    matches = [n for n in _INTERACTIVE_COMMANDS if s in n or n.startswith(s)]
+                    if len(matches) == 1:
+                        console.print(f"  [dim]▶ 匹配到命令 [bold cyan]{matches[0]}[/][/]")
+                        run_command(matches[0])
+                        continue
+                    elif len(matches) > 1:
+                        _warn(f"匹配到多个命令: {', '.join(matches)}")
+                        continue
+                # 直接输入命令名
+                if s in _INTERACTIVE_COMMANDS:
+                    run_command(s)
+                    continue
+                try:
+                    idx = int(sel)
+                except ValueError:
+                    _error("无效输入 (输入命令名或类别编号)")
+                    continue
+                if idx == 0:
+                    break
+                if idx < 1 or idx > len(cats):
+                    _error("无效类别")
+                    continue
+                last_cat = cats[idx - 1]
+            # 显示该类别下的命令
+            cmds = show_category(last_cat)
+            sel = _interactive_prompt("选择命令")
+            if sel is None:
+                return
+            s = sel.strip().lower()
+            if s in ('exit', 'quit', 'q'):
+                break
+            if s in ('menu', 'b'):
+                last_cat = None
+                continue
+            # 快捷重新执行上一条命令
+            if s in ('r', 'rr') and last_cmd:
+                run_command(last_cmd)
+                last_cat = None
+                continue
+            # 直接输入命令名
+            if s in _INTERACTIVE_COMMANDS:
+                run_command(s)
+                last_cat = None
+                continue
+            # 模糊匹配
+            if s not in _INTERACTIVE_COMMANDS:
+                matches = [n for n in _INTERACTIVE_COMMANDS if s in n or n.startswith(s)]
+                if len(matches) == 1:
+                    console.print(f"  [dim]▶ 匹配到命令 [bold cyan]{matches[0]}[/][/]")
+                    run_command(matches[0])
+                    last_cat = None
+                    continue
+                elif len(matches) > 1:
+                    _warn(f"匹配到多个命令: {', '.join(matches)}")
+                    continue
+            try:
+                idx = int(sel)
+            except ValueError:
+                _error("无效输入 (输入编号或命令名)")
+                continue
+            if idx == 0:
+                last_cat = None
+                continue
+            if idx < 1 or idx > len(cmds):
+                _error("无效编号")
+                continue
+
+            cmd_name = cmds[idx - 1][0]
+            run_command(cmd_name)
+            last_cat = None
+        except KeyboardInterrupt:
+            break
+    console.print()
+    console.print(Panel.fit(
+        "[bold cyan]再见！👋[/]  [dim]感谢使用 APK Reverse Engine[/]",
+        border_style="dim", box=box.SIMPLE
+    ))
+
+def _safe_dispatch(cmd_name):
+    """动态获取命令函数"""
+    fn = globals().get('cmd_' + cmd_name)
+    return fn if fn else (lambda a: console.print(f"  [red]命令 {cmd_name} 不可用[/]"))
+
+
+# 模块级命令分发表（避免每次执行时重复构建，减少卡顿）
+_INTERACTIVE_DISPATCH = {
+    "inspect": lambda a: globals().get('cmd_inspect', lambda x: None)(a),
+    "info": lambda a: globals().get('cmd_info', lambda x: None)(a),
+    "validate": lambda a: globals().get('cmd_validate', lambda x: None)(a),
+    "analyze": lambda a: globals().get('cmd_analyze', lambda x: None)(a),
+    "manifest": lambda a: globals().get('cmd_manifest', lambda x: None)(a),
+    "dex": lambda a: globals().get('cmd_dex', lambda x: None)(a),
+    "classes": lambda a: globals().get('cmd_classes', lambda x: None)(a),
+    "so": lambda a: globals().get('cmd_so', lambda x: None)(a),
+    "search": lambda a: globals().get('cmd_search', lambda x: None)(a),
+    "unpack": lambda a: globals().get('cmd_unpack', lambda x: None)(a),
+    "verify": lambda a: globals().get('cmd_verify', lambda x: None)(a),
+}
+# 其余命令使用动态分发
+for _n in ("clue", "core", "sdk", "strings", "resobf", "ads", "social",
+           "deobf", "cert", "endpoints", "keyscan", "rebuild", "sign", "zipalign",
+           "dataflow", "callgraph", "decrypt", "anti", "crypto", "hook"):
+    _INTERACTIVE_DISPATCH.setdefault(_n, _safe_dispatch(_n))
+
+
 # ── 主入口 ──────────────────────────────────────────────────
 
 def main():
-    import argparse
-
     parser = argparse.ArgumentParser(
         description="[bold cyan]APK Reverse Engineering Engine v2[/] - 全功能 APK 逆向工具集",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -2368,12 +3555,36 @@ def main():
         """
     )
     parser.add_argument('--version', action='version', version='APK Reverse Engine v2.0.0')
+    parser.add_argument('--interactive', '-i', action='store_true', help='🎮 进入交互式菜单模式')
     sub = parser.add_subparsers(dest="command")
 
     # inspect
     p = sub.add_parser("inspect", help="📦 APK 基本信息概览")
     p.add_argument("apk", help="APK 文件路径")
     p.set_defaults(func=cmd_inspect)
+
+    # info - 信息一站式提取
+    p = sub.add_parser("info", help="📊 APK 信息一站式提取 (包名/版本/DEX/SO/签名/证书)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("--json", action="store_true", help="以JSON格式输出")
+    p.set_defaults(func=cmd_info)
+
+    # validate - APK 完整性验证
+    p = sub.add_parser("validate", help="🛡️ APK 完整性验证 (ZIP/签名/Manifest/SHA256)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("--compare", help="对比另一个 APK 的 SHA256 校验和")
+    p.set_defaults(func=cmd_validate)
+
+    # batch - 批量处理
+    p = sub.add_parser("batch", help="📦 批量处理 APK (分析/验证/签名/报告)")
+    p.add_argument("mode", choices=['analyze', 'validate', 'sign', 'report'],
+                   help="模式: analyze分析 / validate验证 / sign签名 / report报告")
+    p.add_argument("dir", help="APK 目录路径")
+    p.add_argument("--output", "-o", help="输出目录 (sign/report模式)")
+    p.add_argument("--workers", "-w", type=int, default=4, help="并发线程数 [默认=4]")
+    p.add_argument("--no-recursive", action="store_true", help="不递归子目录")
+    p.add_argument("--json-out", help="报告输出为 JSON 文件路径 (report模式)")
+    p.set_defaults(func=cmd_batch)
 
     # analyze
     p = sub.add_parser("analyze", help="🔬 全面分析 APK (权限/混淆/加固/安全/SO)")
@@ -2648,6 +3859,39 @@ def main():
     p.add_argument("--json", "-j", nargs="?", const="true", help="导出结果为 JSON 文件")
     p.set_defaults(func=cmd_ads)
 
+    # ── adremove - 广告移除 ───────────────────────────────────────
+    p = sub.add_parser("adremove", help="🧹 一键移除广告 (8大SDK定向+正则通杀+assets清理+重打包)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("output", nargs='?', help="输出 APK 路径 (默认: <name>_noads.apk)")
+    p.add_argument("--decode-dir", "-d", help="指定已解包目录 (跳过 apktool 解包)")
+    p.add_argument("--sdks", "-s", help="只处理指定SDK，逗号分隔 (tencent,kuaishou,pangle,baidu,toutiao,sigmob,google,miads)")
+    p.add_argument("--no-regex", action="store_true", help="禁用正则通杀")
+    p.add_argument("--no-assets", action="store_true", help="禁用 assets 清理")
+    p.add_argument("--no-manifest", action="store_true", help="禁用 manifest 清理")
+    p.add_argument("--no-sign", action="store_true", help="跳过签名")
+    p.add_argument("--keep-decode", action="store_true", help="保留临时解包目录")
+    p.set_defaults(func=cmd_adremove)
+
+    # ── adai - AI广告分析 ────────────────────────────────────────
+    p = sub.add_parser("adai", help="🤖 AI广告识别分析 (LLM智能分析广告接口)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("--api-key", "-k", required=True, help="API 密钥 (SiliconFlow/OpenAI)")
+    p.add_argument("--api-url", "-u", help="自定义 API 地址 (默认: SiliconFlow)")
+    p.add_argument("--model", "-m", help="模型ID (不指定则列出可用模型)")
+    p.add_argument("--language", "-l", choices=['smali', 'java', 'xml', 'javascript'], default='smali', help="源代码语言")
+    p.add_argument("--class-name", "-c", help="指定类名过滤 (仅分析该类的代码)")
+    p.add_argument("--question", "-q", help="补充问题 (使用补充问答模式)")
+    p.add_argument("--supplement", action="store_true", help="使用补充问答模式")
+    p.add_argument("--list-models", action="store_true", help="列出可用AI模型后退出")
+    p.add_argument("--no-blocking", action="store_true", help="不显示广告屏蔽建议")
+    p.add_argument("--stream", action="store_true", help="流式输出 AI 分析结果")
+    p.add_argument("--custom-keywords", help="自定义广告关键词（逗号分隔）")
+    p.add_argument("--max-snippets", type=int, default=20, help="最大分析代码片段数")
+    p.add_argument("--concurrent", type=int, default=5, help="最大并发分析数（默认5路同时）")
+    p.add_argument("--no-rate-limit", action="store_true", help="禁用速率限制（多对话同时使用时推荐）")
+    p.add_argument("--json", "-j", nargs="?", const="true", help="导出结果为 JSON 文件")
+    p.set_defaults(func=cmd_adai)
+
     # ── disasm - DEX 反汇编 ────────────────────────────────────
     p = sub.add_parser("disasm", help="🔄 DEX 反汇编 (列出方法/签名)")
     p.add_argument("apk", help="APK 文件路径")
@@ -2683,22 +3927,78 @@ def main():
     p.add_argument("--class-name", "-c", help="类名过滤")
     p.set_defaults(func=cmd_cfg)
 
+    # ── 增强分析命令 ─────────────────────────────────────────────
+    # dataflow - DEX 数据流分析
+    p = sub.add_parser("dataflow", help="🔬 DEX 数据流分析 (寄存器追踪/污点分析/常量传播)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("class_name", help="目标类名 (如 Lcom/example/Main;)")
+    p.add_argument("--method", "-m", help="目标方法名 (不指定则分析整个类)")
+    p.set_defaults(func=cmd_dataflow)
+
+    # callgraph - 调用图分析
+    p = sub.add_parser("callgraph", help="🕸️ 调用图分析 (入口点/热点/递归检测)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.set_defaults(func=cmd_callgraph)
+
+    # decrypt - 字符串解密分析
+    p = sub.add_parser("decrypt", help="🔐 加密字符串检测与自动解密")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("--class-name", "-c", help="限定类名 (不指定则全DEX扫描)")
+    p.set_defaults(func=cmd_decrypt)
+
+    # anti - 反分析检测
+    p = sub.add_parser("anti", help="🛡️ 反分析检测 (反调试/反Root/反模拟器/完整性校验)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.set_defaults(func=cmd_anti)
+
+    # crypto - 加密分析
+    p = sub.add_parser("crypto", help="🔑 加密分析 (算法/模式/哈希/弱加密/密钥)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.set_defaults(func=cmd_crypto)
+
+    # hook - Hook 脚本生成
+    p = sub.add_parser("hook", help="🪝 Hook 脚本生成 (Frida/Xposed/Smali)")
+    p.add_argument("target_class", help="目标类名 (如 com.example.Main)")
+    p.add_argument("--method", "-m", help="目标方法名")
+    p.add_argument("--format", "-f", choices=['frida', 'xposed', 'smali'], default='frida',
+                   help="输出格式: frida(默认) / xposed / smali")
+    p.add_argument("--package", "-p", help="应用包名 (xposed 模式必需)")
+    p.add_argument("--patch-type", "-t", default='bypass_return',
+                   choices=['bypass_return', 'nop', 'log', 'return', 'stub'],
+                   help="Smali 补丁类型 (smali 模式)")
+    p.add_argument("--value", "-v", help="返回值 (smali return 模式)")
+    p.add_argument("--verbose", action="store_true", help="详细输出 (frida 模式)")
+    p.add_argument("--trace-args", action="store_true", help="追踪参数 (frida 模式)")
+    p.add_argument("--trace-return", action="store_true", help="追踪返回值 (frida 模式)")
+    p.add_argument("--bypass-debug", action="store_true", help="生成反调试绕过代码")
+    p.add_argument("--bypass-root", action="store_true", help="生成反Root绕过代码")
+    p.add_argument("--bypass-emulator", action="store_true", help="生成反模拟器绕过代码")
+    p.add_argument("--output", "-o", help="输出文件路径")
+    p.set_defaults(func=cmd_hook)
+
     args = parser.parse_args()
+
+    # 交互式模式
+    if getattr(args, 'interactive', False):
+        interactive_mode()
+        return
     
     if not hasattr(args, "func"):
-        # 显示欢迎界面 - 增强版
+        # 显示欢迎界面 - Rich 增强版
         console.print()
         console.print(Panel.fit(
-            "[bold cyan]  ⚡ APK Reverse Engineering Engine v2  [/]\n"
-            "[dim]  全功能 APK 逆向工具集  |  37 命令  |  15,000+ 行核心引擎  [/]",
+            "[bold cyan]⚡ APK Reverse Engineering Engine v2[/]\n"
+            "[dim]  全功能 APK 逆向工具集  |  47 命令  |  16,000+ 行核心引擎  [/]",
             border_style="cyan", box=box.DOUBLE_EDGE
         ))
         console.print()
-        
-        # 按类别分组展示所有命令
+
+        # 按类别分组展示所有命令 — 统一 Rich 表格
         cmd_groups = [
             ("📋 基本信息", "cyan", [
                 ("inspect", "APK 基本信息概览"),
+                ("info", "📊 信息一站式提取 (包名/版本/DEX/SO/签名)"),
+                ("validate", "🛡️ APK 完整性验证"),
                 ("analyze", "全面分析 APK (安全/混淆/加固/SDK)"),
                 ("manifest", "解析 AndroidManifest.xml"),
                 ("dex", "DEX 文件分析 (头信息/搜索)"),
@@ -2712,9 +4012,17 @@ def main():
                 ("strings", "字符串深度分析 (分类/敏感信息)"),
                 ("resobf", "资源混淆检测 (命名/R类/布局)"),
                 ("ads", "广告检测 (SDK/代码模式/权限)"),
+                ("adremove", "🧹 一键移除广告 (8大SDK+正则通杀+清理)"),
+                ("adai", "🤖 AI广告识别分析 (LLM智能分析广告接口)"),
                 ("social", "社交登录检测 (微信/QQ/GitHub/支付宝等)"),
                 ("deobf", "去混淆分析 (类名/XOR/算术混淆)"),
                 ("cert", "签名证书深度分析"),
+                ("dataflow", "🔬 数据流分析 (寄存器/污点/常量传播)"),
+                ("callgraph", "🕸️ 调用图分析 (入口点/热点/递归)"),
+                ("decrypt", "🔐 加密字符串检测与自动解密"),
+                ("anti", "🛡️ 反分析检测 (反调试/反Root/反模拟器)"),
+                ("crypto", "🔑 加密分析 (算法/模式/弱加密/密钥)"),
+                ("hook", "🪝 Hook 脚本生成 (Frida/Xposed/Smali)"),
             ]),
             ("🔍 搜索与提取", "yellow", [
                 ("search", "搜索关键字 (字符串/类/方法)"),
@@ -2748,21 +4056,22 @@ def main():
                 ("reslang", "APK 资源语言处理 (多语言)"),
             ]),
         ]
-        
+
         for group_name, group_color, cmds in cmd_groups:
-            t = Table(box=box.SIMPLE, show_header=False, padding=(0, 2, 0, 0))
-            t.add_column("命令", style="bold", width=16)
+            t = Table(box=box.ROUNDED, border_style=group_color, show_header=True, padding=(0, 2))
+            t.add_column("命令", style=f"bold {group_color}", width=16)
             t.add_column("说明", style="dim")
             for cmd, desc in cmds:
-                t.add_row(f"[{group_color}]{cmd}[/]", desc)
-            console.print(_make_panel(t, f'{group_name}', group_color))
+                t.add_row(cmd, desc)
+            console.print(Panel(t, title=group_name, title_align='left', border_style=group_color, box=box.ROUNDED))
             console.print()
-        
+
         # 底部统计信息
         total_cmds = sum(len(g[2]) for g in cmd_groups)
         console.print(Panel(
             f"[bold]完整命令集:[/] {total_cmds} 个命令  |  "
             f"[bold]帮助:[/] [cyan]reng <command> --help[/]  |  "
+            f"[bold]交互模式:[/] [magenta]reng --interactive[/]  |  "
             f"[bold]版本:[/] [yellow]v2.0.0[/]",
             border_style="dim", box=box.SIMPLE
         ))

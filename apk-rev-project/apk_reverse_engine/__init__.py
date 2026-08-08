@@ -194,8 +194,16 @@ from .analysis.manifest_editor import ManifestEditor as _ManifestEditor
 from .analysis.string_analyzer import StringAnalyzer as _StringAnalyzer
 from .analysis.resource_obfuscation import ResourceObfuscationDetector as _ResourceObfuscationDetector
 from .analysis.ad_detector import AdDetector as _AdDetector
+from .analysis.ad_remover import AdRemover as _AdRemover
 from .analysis.deobfuscator import Deobfuscator as _Deobfuscator
 from .analysis.social_login_detector import SocialLoginDetector as _SocialLoginDetector
+from .analysis.ad_ai_engine import AdAIEngine as _AdAIEngine
+from .analysis.ad_ai_engine import analyze_ad_code as _analyze_ad_code
+from .analysis.ad_ai_engine import analyze_ad_code_stream as _analyze_ad_code_stream
+from .analysis.ad_ai_engine import analyze_ad_code_stream_batch as _analyze_ad_code_stream_batch
+from .analysis.ad_ai_engine import analyze_ad_code_batch as _analyze_ad_code_batch
+from .analysis.ad_ai_engine import prefilter_ad_code as _prefilter_ad_code
+from .analysis.ad_ai_engine import list_ai_models as _list_ai_models
 
 def static_analyze(apk_path):
     """APK静态分析: 结构/Manifest/DEX摘要/签名/ABI"""
@@ -465,6 +473,91 @@ def locate_core_classes_from_apk(apk_path, top_n=20, min_score=10, include_sdk=F
 # 增强逆向新功能 - Analysis Extensions
 # ============================================================
 
+# ── 增强分析模块 (DEX指令级深度分析) ──
+from .analysis.enhanced import (
+    DexDataFlowAnalyzer as _DexDataFlowAnalyzer,
+    TaintTracker as _TaintTracker,
+    CallGraphBuilder as _CallGraphBuilder,
+    StringDecryptor as _StringDecryptor,
+    AntiAnalysisDetector as _AntiAnalysisDetector,
+    CryptoAnalyzer as _CryptoAnalyzer,
+    HookGenerator as _HookGenerator,
+)
+
+def analyze_dataflow(dex_parser, class_name, method_name=None):
+    """DEX数据流分析 - 寄存器追踪、污点分析、常量传播"""
+    return _DexDataFlowAnalyzer(dex_parser).analyze_method_dataflow(class_name, method_name)
+
+def trace_register(dex_parser, class_name, method_name, target_reg):
+    """追踪指定寄存器的所有读写位置"""
+    return _DexDataFlowAnalyzer(dex_parser).trace_register(class_name, method_name, target_reg)
+
+def propagate_constants(dex_parser, class_name, method_name):
+    """常量传播分析 - 追踪方法内所有常量值的流动"""
+    return _DexDataFlowAnalyzer(dex_parser).propagate_constants(class_name, method_name)
+
+def build_call_graph(dex_parser):
+    """从 DexParser 构建全量方法调用图"""
+    return _CallGraphBuilder.build_call_graph(dex_parser)
+
+def find_callers(call_graph, target_class, target_method=None):
+    """反向查找谁调用了指定方法"""
+    return _CallGraphBuilder.find_callers(call_graph, target_class, target_method)
+
+def find_callees(call_graph, source_class, source_method=None):
+    """正向查找指定方法调用了哪些方法"""
+    return _CallGraphBuilder.find_callees(call_graph, source_class, source_method)
+
+def find_entry_points(call_graph):
+    """查找入口点 - 没有被任何内部方法调用的方法"""
+    return _CallGraphBuilder.find_entry_points(call_graph)
+
+def find_hotspots(call_graph, top_n=20):
+    """查找热点方法 - 被调用次数最多的方法"""
+    return _CallGraphBuilder.find_hotspots(call_graph, top_n)
+
+def detect_recursive(call_graph):
+    """检测递归调用（直接/间接）"""
+    return _CallGraphBuilder.detect_recursive(call_graph)
+
+def auto_decrypt_strings(byte_array):
+    """自动尝试多种解密方式解密字节数组"""
+    return _StringDecryptor.auto_decrypt_bytes(byte_array)
+
+def find_encrypted_strings(smali_text):
+    """在smali代码中查找加密字符串模式"""
+    return _StringDecryptor.find_encrypted_strings_in_smali(smali_text)
+
+def analyze_decrypt_pattern(dex_parser, class_name=None):
+    """分析DEX中的解密模式"""
+    return _StringDecryptor.analyze_decrypt_pattern(dex_parser, class_name)
+
+def detect_anti_analysis(text, class_names=None, strings=None):
+    """一站式检测所有反分析措施（反调试/反Root/反模拟器/完整性校验等）"""
+    return _AntiAnalysisDetector.detect_all(text, class_names, strings)
+
+def detect_timing_checks(instructions):
+    """检测基于时间差的反调试"""
+    return _AntiAnalysisDetector.detect_timing_checks(instructions)
+
+def analyze_crypto(text=None, class_names=None, strings=None, native_data=None):
+    """全面加密分析 - 算法/模式/哈希/弱加密/密钥管理"""
+    return _CryptoAnalyzer.analyze(text, class_names, strings, native_data)
+
+def generate_frida_hook(target_class, target_method=None, verbose=False,
+                        trace_args=False, trace_return=False, bypass_flags=None):
+    """生成Frida hook脚本"""
+    return _HookGenerator.generate_frida_script(target_class, target_method, verbose,
+                                                 trace_args, trace_return, bypass_flags)
+
+def generate_xposed_module(package_name, target_class, target_method=None, bypass_flags=None):
+    """生成Xposed模块代码"""
+    return _HookGenerator.generate_xposed_module(package_name, target_class, target_method, bypass_flags)
+
+def generate_smali_patch(target_class, target_method, patch_type='bypass_return', return_value='0x0'):
+    """生成smali补丁代码片段"""
+    return _HookGenerator.generate_smali_patch(target_class, target_method, patch_type, return_value)
+
 def compare_apks(apk1_path, apk2_path, manifest1=None, manifest2=None,
                  classes1=None, classes2=None, perms1=None, perms2=None):
     """对比两个APK的结构/文件/类/权限差异"""
@@ -553,6 +646,172 @@ def detect_ads(class_names=None, strings=None, permissions=None):
     """
     return _AdDetector.analyze(class_names, strings, permissions)
 
+def remove_ads(smali_root, assets_dir=None, manifest_path=None, options=None):
+    """一键移除APK广告 - 8大SDK定向移除 + 9组正则通杀 + assets清理 + manifest清理
+
+    支持: 腾讯/快手/穿山甲/百度/头条/Sigmob/谷歌/米盟 + 正则通杀 + assets清理
+
+    Args:
+        smali_root: 解码后的APK根目录（含smali/目录）
+        assets_dir: assets目录路径（可选）
+        manifest_path: AndroidManifest.xml路径（可选）
+        options: 选项字典，控制各SDK开关
+
+    Returns:
+        dict: {
+            'total_patched': int,    # 总补丁数
+            'total_files': int,     # 修改文件数
+            'sdks': {...},          # 各SDK移除详情
+            'regex': {...},         # 正则通杀结果
+            'assets': {...},        # assets清理结果
+            'manifest': {...},      # manifest清理结果
+        }
+    """
+    return _AdRemover.remove_all(smali_root, assets_dir, manifest_path, options)
+
+def detect_ad_sdks(smali_root):
+    """检测APK中集成的广告SDK
+
+    Args:
+        smali_root: 解码后的APK根目录
+
+    Returns:
+        list: 检测到的SDK key列表
+    """
+    return _AdRemover.detect_ad_sdks(smali_root)
+
+def ai_analyze_ad_code(code, api_key, model="Qwen/Qwen2.5-7B-Instruct",
+                        source_language="smali", question="",
+                        question_mode="direct", api_url="", options=None):
+    """AI 广告识别分析 - 使用 LLM 智能分析代码中的广告接口（带自动重试和速率限制）
+
+    Args:
+        code: 待分析代码
+        api_key: API 密钥（SiliconFlow/OpenAI 兼容）
+        model: 模型ID
+        source_language: 源语言 (smali/java/xml/javascript)
+        question: 补充模式下的问题
+        question_mode: 'direct' 直连分析 / 'supplement' 补充问答
+        api_url: 自定义 API 地址
+        options: 可选配置（SDK检测范围/自定义关键词等）
+
+    Returns:
+        AI 分析结果文本
+    """
+    return _analyze_ad_code(code, api_key, model, source_language, question, question_mode, api_url, options)
+
+def ai_analyze_ad_code_stream(code, api_key, model="Qwen/Qwen2.5-7B-Instruct",
+                               source_language="smali", question="",
+                               question_mode="direct", api_url="", options=None):
+    """流式 AI 广告分析 - 逐步返回结果片段
+
+    Args:
+        同 ai_analyze_ad_code()
+
+    Yields:
+        str: 逐步返回的分析文本片段
+    """
+    yield from _analyze_ad_code_stream(code, api_key, model, source_language,
+                                        question, question_mode, api_url, options)
+
+def ai_prefilter_ad_code(code, class_name='', method_name='', custom_keywords=''):
+    """智能预筛选代码片段是否包含广告相关内容
+
+    使用 AdDetector 模式库快速预筛，减少不必要的 AI 分析调用
+
+    Args:
+        code: 代码片段
+        class_name: 类名
+        method_name: 方法名
+        custom_keywords: 用户自定义关键词（逗号分隔）
+
+    Returns:
+        (is_ad_related, score): 是否广告相关, 相关度分数
+    """
+    return _prefilter_ad_code(code, class_name, method_name, custom_keywords)
+
+def ai_list_ad_models(api_key="", api_url=""):
+    """获取可用 AI 模型列表（用于广告分析）"""
+    return _list_ai_models(api_key, api_url) or list(_AdAIEngine.FALLBACK_MODELS)
+
+
+def ai_analyze_ad_code_batch(snippets, api_key, model="Qwen/Qwen2.5-7B-Instruct",
+                             source_language="smali", question="",
+                             question_mode="direct", api_url="", options=None,
+                             max_workers=0, on_complete=None, on_stream=None):
+    """并发批量 AI 广告分析（最多5路同时输出）
+
+    多个代码片段同时发送给 AI 分析，不同进程/对话可以同时使用同一供应商 API。
+    使用线程池实现并发，最多 MAX_CONCURRENT（默认5）路同时请求。
+
+    Args:
+        snippets: 代码片段列表 [{'code': ..., 'class': ..., 'method': ..., 'score': ...}, ...]
+        api_key: API 密钥
+        model: 模型ID
+        source_language: 源语言 (smali/java/xml/javascript)
+        question: 补充问题
+        question_mode: 'direct' 或 'supplement'
+        api_url: 自定义 API 地址
+        options: 可选配置
+        max_workers: 并发数（0=自动使用 MAX_CONCURRENT=5）
+        on_complete: 回调 fn(index, result_dict)
+        on_stream: 回调 fn(index, text_chunk)，流式输出
+
+    Returns:
+        结果列表，顺序与输入一致
+    """
+    engine = _AdAIEngine(api_key=api_key, api_url=api_url)
+    return engine.analyze_batch(snippets, source_language, model, question,
+                                question_mode, options, max_workers, on_complete, on_stream)
+
+
+def ai_analyze_ad_code_stream_batch(snippets, api_key, model="Qwen/Qwen2.5-7B-Instruct",
+                                    source_language="smali", question="",
+                                    question_mode="direct", api_url="", options=None,
+                                    max_workers=0):
+    """并发流式批量 AI 广告分析 - 逐步 yield (index, text_chunk)
+
+    多个代码片段同时流式分析，哪个先返回数据就先 yield，
+    适合终端实时显示多路并发输出。
+
+    Yields:
+        (index, text_chunk): 片段索引和对应的文本片段
+    """
+    engine = _AdAIEngine(api_key=api_key, api_url=api_url)
+    yield from engine.analyze_stream_batch(snippets, source_language, model,
+                                           question, question_mode, options, max_workers)
+
+def ai_save_analysis_to_kb(kb, code, analysis, class_name='', method_name='',
+                            model='', score=0):
+    """将 AI 广告分析结果保存到知识库（跨会话复用）
+
+    Args:
+        kb: KnowledgeBase 实例
+        code: 原始代码片段
+        analysis: AI 分析结果文本
+        class_name: 类名
+        method_name: 方法名
+        model: 使用的模型
+        score: 预筛选分数
+    """
+    engine = _AdAIEngine()
+    return engine.save_analysis_to_kb(kb, code, analysis, class_name, method_name, model, score)
+
+def ai_load_analysis_from_kb(kb, code, class_name='', method_name=''):
+    """从知识库查找已保存的 AI 广告分析结果
+
+    Args:
+        kb: KnowledgeBase 实例
+        code: 原始代码片段
+        class_name: 类名
+        method_name: 方法名
+
+    Returns:
+        分析结果文本，未找到返回 None
+    """
+    engine = _AdAIEngine()
+    return engine.load_analysis_from_kb(kb, code, class_name, method_name)
+
 def detect_social_login(class_names=None, strings=None):
     """一站式社交登录检测 - 识别 APK 中的微信/QQ/GitHub/支付宝/Google/Facebook/Apple/Twitter/微博登录
 
@@ -592,10 +851,13 @@ from .core.manifest_ops import (
 )
 
 # ============================================================
-# 弹窗去除模块 - Popup Remover（默认关闭，用户提出时启用）
-# 启用方式: from apk_reverse_engine.popup_remover import remove_share_popup
+# 弹窗去除模块 - Popup Remover（懒加载）
 # ============================================================
-# 默认不导入，仅按需加载
+
+def remove_share_popup(*args, **kwargs):
+    """去除APK中的简单分享弹窗界面（懒加载 popup_remover 模块）"""
+    from .popup_remover import remove_share_popup as _rsp
+    return _rsp(*args, **kwargs)
 
 # ============================================================
 # 补丁模块 - Patching
@@ -939,6 +1201,14 @@ def adb_logcat(device_id=None, filter_spec=None, lines=50):
 
 from .knowledge.kb import KnowledgeBase as _KnowledgeBase
 from .knowledge.kb import seed_default_knowledge as _seed_default_knowledge
+from .knowledge.ad_templates import (
+    get_template as _get_ad_template,
+    get_sdk_template as _get_ad_sdk_template,
+    format_analysis_prompt as _format_ad_analysis_prompt,
+    get_blocking_suggestions as _get_ad_blocking_suggestions,
+    get_common_keywords as _get_ad_common_keywords,
+    get_obfuscated_analysis_guide as _get_ad_obfuscated_guide,
+)
 
 def create_knowledge_base(path=None):
     """创建或加载知识库"""
@@ -947,6 +1217,40 @@ def create_knowledge_base(path=None):
 def seed_knowledge(path=None):
     """写入内置加固/SDK/混淆特征到知识库"""
     return _seed_default_knowledge(path)
+
+def get_ad_template(name):
+    """按名称获取广告分析提示词模板"""
+    return _get_ad_template(name)
+
+def get_ad_sdk_template(sdk_key):
+    """按SDK标识获取广告专项分析模板"""
+    return _get_ad_sdk_template(sdk_key)
+
+def format_ad_analysis_prompt(code_snippet, sdk_hint=''):
+    """组装广告分析提示词（含SDK专项要点）"""
+    return _format_ad_analysis_prompt(code_snippet, sdk_hint)
+
+def get_ad_blocking_suggestions():
+    """获取广告屏蔽建议模板"""
+    return _get_ad_blocking_suggestions()
+
+def get_ad_common_keywords():
+    """获取广告常见关键词列表（用于预筛选）"""
+    return _get_ad_common_keywords()
+
+def get_ad_obfuscated_guide():
+    """获取混淆代码分析指引模板"""
+    return _get_ad_obfuscated_guide()
+
+def get_all_ad_templates():
+    """获取全部广告分析模板"""
+    from .knowledge.ad_templates import get_all_templates as _gat
+    return _gat()
+
+def reload_ad_templates():
+    """重新加载广告模板（XML 资源热更新）"""
+    from .knowledge.ad_templates import reload as _rt
+    return _rt()
 
 # ============================================================
 # 备份/恢复 - Snapshot（参照 Operit 本地备份能力）
@@ -966,6 +1270,50 @@ def import_workspace(snapshot_path, target_dir=None, extract_artifacts=False):
 def export_analysis(apk_path, result, output_path=None, include_raw=False):
     """导出单次分析结果的可移植 JSON"""
     return _export_analysis_result(apk_path, result, output_path, include_raw)
+
+# ============================================================
+# Lite 模块 - 零外部依赖快速分析（懒加载）
+# ============================================================
+
+def unpack_apk_lite(apk_path, output_dir=None, **kwargs):
+    """零依赖快速解包 APK（纯标准库，适合受限环境）
+
+    Args:
+        apk_path: APK 文件路径
+        output_dir: 输出目录（默认自动生成临时目录）
+        **kwargs: 额外参数透传
+
+    Returns:
+        dict: 解包结果摘要
+    """
+    from .lite.unpacker import unpack_apk_lite as _ual
+    return _ual(apk_path, output_dir, **kwargs)
+
+def analyze_apk_lite(apk_path, **kwargs):
+    """零依赖快速分析 APK（结构/Manifest/DEX 摘要，纯标准库）
+
+    Args:
+        apk_path: APK 文件路径
+        **kwargs: 额外参数透传
+
+    Returns:
+        dict: 分析结果
+    """
+    from .lite.analyzer import analyze_apk_lite as _aal
+    return _aal(apk_path, **kwargs)
+
+def auto_find_apks(search_dir=None, **kwargs):
+    """自动搜索目录中的 APK 文件
+
+    Args:
+        search_dir: 搜索目录（默认 /sdcard/Download）
+        **kwargs: 额外参数透传
+
+    Returns:
+        list: 找到的 APK 路径列表
+    """
+    from .lite.analyzer import auto_find_apks as _afa
+    return _afa(search_dir, **kwargs)
 
 __all__ = [
     # Core
@@ -991,10 +1339,17 @@ __all__ = [
     'manifest_set_exported',
     'detect_ads',
     'detect_social_login',
+    # Enhanced Analysis (DEX指令级深度分析)
+    'analyze_dataflow', 'trace_register', 'propagate_constants',
+    'build_call_graph', 'find_callers', 'find_callees',
+    'find_entry_points', 'find_hotspots', 'detect_recursive',
+    'auto_decrypt_strings', 'find_encrypted_strings', 'analyze_decrypt_pattern',
+    'detect_anti_analysis', 'detect_timing_checks', 'analyze_crypto',
+    'generate_frida_hook', 'generate_xposed_module', 'generate_smali_patch',
     # Deobfuscation
     'deobfuscate_analyze',
     # Code Analysis
-    'analyze_code', 'analyze_danger_summary', 'build_cfg', 'analyze_method',
+    'analyze_danger_summary', 'build_cfg', 'analyze_method',
     # Patching
     'smali_patch_return', 'smali_patch_condition', 'smali_bypass_signature',
     'manifest_patch', 'manifest_set_debuggable', 'manifest_allow_backup',
@@ -1016,10 +1371,31 @@ __all__ = [
     'smali_parse_class', 'smali_find_methods', 'smali_find_strings',
     'smali_extract_method', 'smali_find_invokes', 'smali_analyze_method',
     'cert_parse', 'cert_info', 'Logger', 'AXMLConverter',
+    # APK File Ops
+    'apk_list_files', 'delete_files_from_apk', 'delete_files_by_pattern',
+    'update_file_in_apk', 'add_file_to_apk',
+    # Manifest Ops
+    'find_tags', 'remove_tags', 'remove_tags_by_rule', 'remove_component',
+    'replace_attr_value', 'replace_launcher_activity',
+    'get_attr_value', 'get_all_attr_values',
     # i18n
     '_', 'set_lang', 'get_lang', 'LANGUAGES', 'LANG_CODES', 'save_lang', 'language_name', 'i18n_register',
     # Resource Language
     'ResourceLanguageTool',
     # Core Class Locator
     'locate_core_classes', 'locate_core_classes_from_apk',
+    # Knowledge Base & Ad Templates
+    'create_knowledge_base', 'seed_knowledge',
+    'get_ad_template', 'get_ad_sdk_template', 'format_ad_analysis_prompt', 'get_ad_blocking_suggestions',
+    'get_ad_common_keywords', 'get_ad_obfuscated_guide', 'get_all_ad_templates', 'reload_ad_templates',
+    # Ad Remover
+    'remove_ads', 'detect_ad_sdks',
+    # Ad AI Engine
+    'ai_analyze_ad_code', 'ai_analyze_ad_code_stream', 'ai_prefilter_ad_code', 'ai_list_ad_models',
+    'ai_analyze_ad_code_batch', 'ai_analyze_ad_code_stream_batch',
+    'ai_save_analysis_to_kb', 'ai_load_analysis_from_kb',
+    # Popup Remover
+    'remove_share_popup',
+    # Lite（零依赖快速分析）
+    'unpack_apk_lite', 'analyze_apk_lite', 'auto_find_apks',
 ]

@@ -16,5 +16,37 @@ from .manifest_editor import ManifestEditor
 from .string_analyzer import StringAnalyzer
 from .resource_obfuscation import ResourceObfuscationDetector
 from .ad_detector import AdDetector
+from .ad_remover import AdRemover
 from .deobfuscator import Deobfuscator
 from .social_login_detector import SocialLoginDetector
+from .ad_ai_engine import (
+    AdAIEngine,
+    analyze_ad_code,
+    analyze_ad_code_stream,
+    prefilter_ad_code,
+    list_ai_models,
+    analyze_ad_code_batch,
+    analyze_ad_code_stream_batch,
+)
+from .enhanced import (
+    DexDataFlowAnalyzer,
+    TaintTracker,
+    CallGraphBuilder,
+    StringDecryptor,
+    AntiAnalysisDetector,
+    CryptoAnalyzer,
+    HookGenerator,
+)
+
+__all__ = [
+    'StaticAnalyzer', 'PermissionAnalyzer', 'CodeAnalyzer', 'NetworkAnalyzer',
+    'ObfuscationDetector', 'SecurityAnalyzer', 'ClueChain', 'APKDiffEngine',
+    'EndpointExtractor', 'KeyScanner', 'CertDeepAnalyzer', 'APKCleaner',
+    'CoreClassLocator', 'SDKDetector', 'ManifestEditor', 'StringAnalyzer',
+    'ResourceObfuscationDetector', 'AdDetector', 'AdRemover', 'Deobfuscator',
+    'SocialLoginDetector',
+    'AdAIEngine', 'analyze_ad_code', 'analyze_ad_code_stream', 'prefilter_ad_code',
+    'list_ai_models', 'analyze_ad_code_batch', 'analyze_ad_code_stream_batch',
+    'DexDataFlowAnalyzer', 'TaintTracker', 'CallGraphBuilder', 'StringDecryptor',
+    'AntiAnalysisDetector', 'CryptoAnalyzer', 'HookGenerator',
+]
