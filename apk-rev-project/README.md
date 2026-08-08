@@ -2,6 +2,25 @@
 全功能 APK 逆向工程工具集 — 解包/分析/反编译/修补/重打包/签名 一站式工具。
 **版本**: 2.4.0
 ---
+## 下载 / Download
+
+### 📦 CI 构建产物（GitHub Actions）
+
+最新构建由 **Flutter Multi-Platform Build Master** workflow 自动产出，可通过 Actions 页面直接下载：
+
+**产物：`Android-arm64-v8a`**（24.7 MB，APK）
+
+| 项目 | 链接 |
+|------|------|
+| Actions 运行页 | https://github.com/dhh-max/kelivo-revkit/actions/runs/31264104754 |
+| 产物下载页 | https://github.com/dhh-max/kelivo-revkit/actions/runs/31264104754/artifacts/9023703708 |
+| 产物直链（zip） | https://github.com/dhh-max/kelivo-revkit/actions/runs/31264104754/artifacts/9023703708/zip |
+| 产物 SHA-256 | `46cab74e89251f43a5b792dbe4a4ab9d37edfe3983145c37ccc3397fcc25a112` |
+
+> 说明：GitHub 产物下载需登录账号授权。若需持续跟踪最新构建产物，请访问 Actions 页面查看最新一次成功构建。
+
+---
+
 ## 特性
 
 - **APK 解包/打包/签名/对齐** — 完整 APK 生命周期操作
