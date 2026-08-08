@@ -10,14 +10,16 @@
 
 **产物：`Android-arm64-v8a`**（24.7 MB，APK）
 
-| 项目 | 链接 |
-|------|------|
-| Actions 运行页 | https://github.com/dhh-max/kelivo-revkit/actions/runs/31264104754 |
-| 产物下载页 | https://github.com/dhh-max/kelivo-revkit/actions/runs/31264104754/artifacts/9023703708 |
-| 产物直链（zip） | https://github.com/dhh-max/kelivo-revkit/actions/runs/31264104754/artifacts/9023703708/zip |
-| 产物 SHA-256 | `46cab74e89251f43a5b792dbe4a4ab9d37edfe3983145c37ccc3397fcc25a112` |
+| 文件 | 下载直链 | SHA-256 |
+|------|----------|---------|
+| `Android-arm64-v8a.apk`（zip 包） | https://github.com/dhh-max/kelivo-revkit/actions/runs/31264104754/artifacts/9023703708/zip | `46cab74e89251f43a5b792dbe4a4ab9d37edfe3983145c37ccc3397fcc25a112` |
+| Actions 运行页 | https://github.com/dhh-max/kelivo-revkit/actions/runs/31264104754 | — |
+| 产物下载页 | https://github.com/dhh-max/kelivo-revkit/actions/runs/31264104754/artifacts/9023703708 | — |
 
-> 说明：GitHub 产物下载需登录账号授权。若需持续跟踪最新构建产物，请访问 Actions 页面查看最新一次成功构建。
+> **说明**：
+> - 上述 **`/zip` 为产物直链**，指向该次 CI 构建上传的 `Android-arm64-v8a` APK 压缩包（24.7 MB）。
+> - GitHub 产物下载需登录账号授权；`/zip` 直链在带登录态（Cookie/Token）时可直接下载。
+> - 若需持续跟踪最新构建产物，请访问 Actions 页面查看最新一次成功构建。
 
 ---
 
