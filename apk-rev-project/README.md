@@ -4,7 +4,17 @@
 ---
 ## 下载 / Download
 
-### 📦 CI 构建产物（GitHub Actions）
+### 🚀 发行版（Release，推荐）
+
+> 发行版直链无需登录即可直接下载。若尚未发布 Release，请先按下方「如何发布」触发带 `publish_release` 的构建。
+
+| 文件 | 下载直链 | 说明 |
+|------|----------|------|
+| `Kelivo_android_1.1.17+4073_arm64-v8a.apk` | https://github.com/dhh-max/kelivo-revkit/releases/download/<tag>/Kelivo_android_1.1.17+4073_arm64-v8a.apk | Android ARM64（替换 `<tag>` 为实际 Release 标签，如 `v1.1.17`） |
+
+> **如何发布**：到仓库 [Actions → Flutter Multi-Platform Build Master → Run workflow](https://github.com/dhh-max/kelivo-revkit/actions/workflows/build.yml)，勾选「发布到 Release」并填写 Release 标签（如 `v1.1.17`）后运行，产物即会发布到 [Releases 页面](https://github.com/dhh-max/kelivo-revkit/releases)。
+
+### 📦 CI 构建产物（GitHub Actions，兜底）
 
 最新构建由 **Flutter Multi-Platform Build Master** workflow 自动产出，可通过 Actions 页面直接下载：
 
