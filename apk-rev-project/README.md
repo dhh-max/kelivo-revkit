@@ -352,3 +352,202 @@ analysis/enhanced/
 ├── crypto_analyzer.py   # 加密分析（算法/模式/哈希/弱加密/密钥）
 └── hook_generator.py    # Hook 脚本生成（Frida/Xposed/Smali 补丁）
 ```
+
+> 注：README 各章节覆盖 v2.1.0–v2.4.0 全量功能。以下为基础/进阶功能速查，与 `reng` CLI 一一对应。
+
+## CLI 命令全集（`reng`）
+
+### 基础信息与解包
+
+| 命令 | 说明 |
+|---|---|
+| `reng inspect app.apk` | 📦 APK 基本信息概览 |
+| `reng info app.apk` | 📊 信息一站式提取（包名/版本/DEX/SO/签名/证书） |
+| `reng validate app.apk` | 🛡️ 完整性验证（ZIP/签名/Manifest/SHA256） |
+| `reng batch *.apk` | 📦 批量处理（分析/验证/签名/报告） |
+| `reng unpack app.apk` | 📦 解压 APK（分类归档/并行/增量/过滤/预览） |
+| `reng verify app.apk` | 🔍 校验解压完整性 |
+| `reng decode app.apk` | 🔧 Apktool 解包 |
+| `reng build app.apk` | 🔧 Apktool 重打包 |
+| `reng rebuild dir` | 📦 从目录重建 APK（ZIP 打包） |
+| `reng zipalign app.apk` | 📐 对齐 APK（4 字节对齐） |
+
+### 分析与解析
+
+| 命令 | 说明 |
+|---|---|
+| `reng analyze app.apk` | 🔬 全面分析（权限/混淆/加固/安全/SO） |
+| `reng manifest app.apk` | 📋 解析 AndroidManifest.xml |
+| `reng dex app.apk` | 📜 DEX 文件分析 |
+| `reng classes app.apk` | 📦 列出 DEX 类名 |
+| `reng so app.apk` | 🔧 分析 SO 文件 |
+| `reng search app.apk <kw>` | 🔍 在 APK 中搜索 |
+| `reng strings app.apk` | 📜 DEX 字符串深度分析（分类/敏感信息/URL/内网 IP） |
+| `reng disasm app.apk` | 🔄 DEX 反汇编（列出方法/签名） |
+| `reng cfg app.apk` | 🔀 控制流图分析（方法 CFG） |
+| `reng endpoints app.apk` | 🌐 提取网络端点（URL/IP/域名/API 路径） |
+| `reng keyscan app.apk` | 🔑 扫描硬编码密钥/凭证/令牌 |
+| `reng cert app.apk` | 📜 深度分析签名证书（调试证书/有效期/CA） |
+| `reng clean app.apk` | 🧹 分析冗余文件并清理优化 |
+| `reng core app.apk` | 🎯 定位核心类（多维度启发式评分） |
+| `reng clue app.apk` | 🔗 线索串联分析（跨模块自动关联） |
+| `reng sdk app.apk` | 🔍 检测 SDK/追踪器（+隐私风险评估） |
+| `reng social app.apk` | 💬 社交登录检测（微信/QQ/GitHub/支付宝/Google/Facebook/Apple/Twitter/微博） |
+| `reng ads app.apk` | 📢 广告检测（SDK/代码模式/权限/URL/等级评分） |
+| `reng resobf app.apk` | 🎨 资源混淆检测 |
+| `reng deobf app.apk` | 🎭 去混淆分析（类名混淆/XOR/算术混淆） |
+| `reng diff a.apk b.apk` | 🔍 对比两个 APK（结构/文件/类/权限） |
+
+### 签名 / 修补 / 转换
+
+| 命令 | 说明 |
+|---|---|
+| `reng sign app.apk` | 📝 签名 APK（debug key） |
+| `reng patch app.apk out --type hex ...` | 🔧 原生 SO 补丁 |
+| `reng smali app.apk` | 🔧 Smali 修补（绕过签名/NOP/注入/移除） |
+| `reng merge a.apk b.apk` | 🔄 合并多个 APK 或合并 DEX |
+| `reng convert app.dex` | 🔄 格式转换（DEX↔JAR / DEX↔Smali） |
+| `reng axml ...` | 📄 AXML 反编译/编译（二进制 XML ↔ 文本 XML） |
+| `reng jadx app.apk` | ☕ JADX 反编译 |
+| `reng medit app.apk` | 📝 Manifest 属性编辑（调试/备份/加密/组件） |
+| `reng lang` | 🌐 切换 CLI 界面语言（i18n） |
+| `reng reslang app.apk` | 🌍 处理 APK 资源语言（strings.xml 多语言） |
+
+## 核心 Python API 速查
+
+### APK 上下文与文件操作
+
+```python
+from apk_reverse_engine import (
+    open_apk, list_apk_files, read_apk_file, apk_list_files, apk_structure,
+    add_file_to_apk, update_file_in_apk, delete_files_from_apk,
+    delete_files_by_pattern, merge_files, zip_update, zip_rebuild,
+    extract_manifest, extract_dex, extract_resources, extract_so,
+    extract_by_category, extract_selective, extract_incremental, extract_parallel,
+    ensure_dir, safe_write, safe_delete, copy_file,
+    file_md5, file_sha256, human_size,
+)
+```
+
+### 解析分析
+
+```python
+from apk_reverse_engine import (
+    parse_dex, dex_summary, dex_classes, dex_methods, dex_strings,
+    dex_class_names, dex_header, dex_search_classes, dex_search_methods,
+    parse_elf, is_elf, elf_imports, elf_exports, elf_find_strings,
+    elf_detect_packer, elf_detect_crypto,
+    parse_arsc, parse_manifest, get_manifest_info, apk_structure,
+    analyze_strings, analyze_network, analyze_permissions,
+    analyze_sdk_privacy, analyze_danger_summary, analyze_apk_clean,
+    detect_obfuscation, detect_packer, detect_sdks, detect_social_login,
+    detect_reflection, detect_string_encryption, detect_resource_obfuscation,
+    deobfuscate_analyze, security_analyze, static_analyze,
+    locate_core_classes, locate_core_classes_from_apk, clue_chain_analyze,
+    clean_apk, build_cfg, analyze_method, analyze_code,
+)
+```
+
+### 签名 / 证书 / 完整性
+
+```python
+from apk_reverse_engine import (
+    sign_apk, sign_debug, verify_signature, verify_signature_v1,
+    verify_signature_v2, extract_cert_sha256,
+    cert_info, cert_parse, analyze_cert_deep,
+    integrity_patch_debug, integrity_patch_root, verify_unpack,
+)
+```
+
+### Manifest 操作
+
+```python
+from apk_reverse_engine import (
+    manifest_edit, manifest_patch, manifest_set_debuggable,
+    manifest_enable_debuggable, manifest_disable_debuggable,
+    manifest_allow_backup, manifest_set_exported,
+    find_tags, get_attr_value, get_all_attr_values,
+    remove_tags, remove_tags_by_rule, remove_component,
+    replace_attr_value, replace_launcher_activity,
+)
+```
+
+### 原生补丁 / 资源补丁
+
+```python
+from apk_reverse_engine import (
+    native_patch_hex, native_patch_bytes, native_patch_string,
+    native_patch_ret, native_nop_out, native_patch_elf_entry,
+    resource_patch_arsc, resource_patch_package_name,
+    smali_patch_return, smali_patch_condition, smali_bypass_signature,
+    smali_find_methods, smali_find_strings, smali_find_invokes,
+    smali_extract_method, smali_parse_class, smali_analyze_method,
+    smali2dex, dex2smali, dex2jar, jar2dex,
+)
+```
+
+### 高级分析
+
+```python
+from apk_reverse_engine import (
+    analyze_dataflow, trace_register, propagate_constants,
+    build_call_graph, find_callers, find_callees,
+    find_entry_points, find_hotspots, detect_recursive,
+    analyze_crypto, detect_weak_crypto, detect_anti_analysis,
+    detect_timing_checks, detect_anti_tamper,
+    auto_decrypt_strings, find_encrypted_strings, analyze_decrypt_pattern,
+    extract_endpoints, scan_keys, compare_apks,
+    generate_frida_hook, generate_xposed_module, generate_smali_patch,
+)
+```
+
+### 弹窗去除器
+
+```python
+from apk_reverse_engine import remove_share_popup
+```
+
+### 快捷入口
+
+```python
+from apk_reverse_engine import (
+    analyze_full,             # 全面分析
+    analyze_apk_lite,         # 轻量分析（零依赖）
+    unpack_apk, unpack_apk_lite,   # 解包
+    apktool_decode, apktool_build, # Apktool 封装
+    jadx_decompile,           # JADX 反编译
+    auto_find_apks,           # 自动发现 APK
+    verify_unpack, zipalign,  # 校验 / 对齐
+)
+```
+
+## 目录结构
+
+```
+apk_reverse_engine/
+├── __init__.py          # 全模块基础 API 导出
+├── cli.py               # `reng` 命令行入口
+├── core/                # APK/Manifest 二进制操作
+│   ├── apk_context.py   # APK 上下文
+│   ├── apk_file_ops.py  # APK 文件操作
+│   └── manifest_ops.py  # Manifest 二进制操作
+├── analysis/            # 各类分析引擎
+│   ├── enhanced/        # 增强逆向分析（数据流/调用图/解密/反分析/加密/Hook）
+│   ├── ad_detector.py   # 广告检测
+│   ├── ad_remover.py    # 广告移除
+│   ├── ad_ai_engine.py  # AI 广告识别
+│   └── ...              # 字符串/SDK/权限/混淆/加固/网络/证书等
+├── tools/               # 基础工具（解包/签名/转换/合并/搜索/校验等）
+├── workspace/           # 工作区管理（多项目隔离）
+├── backup/              # 快照备份（JSON 导出/导入）
+├── device/              # ADB 设备集成
+├── knowledge/           # 知识库（加固/SDK/混淆特征 + 广告模板）
+├── patching/            # 修补模块
+├── lite/                # 零依赖轻量模块
+├── popup_remover.py     # 弹窗去除器
+└── sandbox/             # 沙盒运行环境
+```
+
+## 许可
+
+本项目用于安全研究与学习用途，请遵守相关法律法规，仅对你有权分析的应用进行逆向操作。
