@@ -23,7 +23,7 @@ class DexParser:
     def _u1(self, off): return self.data[off]
     def _u2(self, off): return struct.unpack_from('<H', self.data, off)[0]
     def _u4(self, off): return struct.unpack_from('<I', self.data, off)[0]
-    def _sleb(self, off):
+    def _uleb(self, off):
         """解析ULEB128"""
         result = 0
         shift = 0
@@ -35,6 +35,22 @@ class DexParser:
             pos += 1
             if not (byte & 0x80):
                 break
+        return result, pos - off
+
+    def _sleb(self, off):
+        """解析SLEB128（有符号）"""
+        result = 0
+        shift = 0
+        pos = off
+        while True:
+            byte = self.data[pos]
+            result |= (byte & 0x7f) << shift
+            shift += 7
+            pos += 1
+            if not (byte & 0x80):
+                break
+        if byte & 0x40:
+            result |= -(1 << shift)
         return result, pos - off
 
     def parse_header(self):
@@ -218,16 +234,15 @@ class DexParser:
             if cdi != 0:
                 try:
                     pos = cdi
-                    sfc, sz = self._sleb(pos); pos += sz
-                    ifc, sz = self._sleb(pos); pos += sz
-                    dmc, sz = self._sleb(pos); pos += sz
-                    vmc, sz = self._sleb(pos); pos += sz
-
+                    sfc, sz = self._uleb(pos); pos += sz
+                    ifc, sz = self._uleb(pos); pos += sz
+                    dmc, sz = self._uleb(pos); pos += sz
+                    vmc, sz = self._uleb(pos); pos += sz
                     # Static fields
                     last_idx = 0
                     for j in range(sfc):
-                        idx_diff, sz = self._sleb(pos); pos += sz
-                        acc_diff, sz = self._sleb(pos); pos += sz
+                        idx_diff, sz = self._uleb(pos); pos += sz
+                        acc_diff, sz = self._uleb(pos); pos += sz
                         last_idx += idx_diff
                         field = self._fields[last_idx] if 0 <= last_idx < len(self._fields) else None
                         if field:
@@ -237,12 +252,11 @@ class DexParser:
                                 'type': field['type'],
                                 'access_flags': self._access_flags_str(acc_diff),
                             })
-
                     # Instance fields
                     last_idx = 0
                     for j in range(ifc):
-                        idx_diff, sz = self._sleb(pos); pos += sz
-                        acc_diff, sz = self._sleb(pos); pos += sz
+                        idx_diff, sz = self._uleb(pos); pos += sz
+                        acc_diff, sz = self._uleb(pos); pos += sz
                         last_idx += idx_diff
                         field = self._fields[last_idx] if 0 <= last_idx < len(self._fields) else None
                         if field:
@@ -252,17 +266,16 @@ class DexParser:
                                 'type': field['type'],
                                 'access_flags': self._access_flags_str(acc_diff),
                             })
-
                     # Direct methods (with code_item)
                     last_idx = 0
                     for j in range(dmc):
-                        idx_diff, sz = self._sleb(pos); pos += sz
-                        acc_diff, sz = self._sleb(pos); pos += sz
+                        idx_diff, sz = self._uleb(pos); pos += sz
+                        acc_diff, sz = self._uleb(pos); pos += sz
                         last_idx += idx_diff
                         # 后续跟 code_off (ULEB128)，如果有代码
                         code_off = 0
                         if not (acc_diff & 0x0400):  # 非 NATIVE
-                            code_off, sz2 = self._sleb(pos); pos += sz2
+                            code_off, sz2 = self._uleb(pos); pos += sz2
                         method = self._methods[last_idx] if 0 <= last_idx < len(self._methods) else None
                         mi = {'method_idx': last_idx, 'name': method['name'] if method else f'?{last_idx}',
                               'proto': method['proto'] if method else None,
@@ -271,16 +284,15 @@ class DexParser:
                             mi['code_off'] = code_off
                             mi['code'] = self._parse_code_item(code_off)
                         direct_methods.append(mi)
-
                     # Virtual methods (with code_item)
                     last_idx = 0
                     for j in range(vmc):
-                        idx_diff, sz = self._sleb(pos); pos += sz
-                        acc_diff, sz = self._sleb(pos); pos += sz
+                        idx_diff, sz = self._uleb(pos); pos += sz
+                        acc_diff, sz = self._uleb(pos); pos += sz
                         last_idx += idx_diff
                         code_off = 0
                         if not (acc_diff & 0x0400):
-                            code_off, sz2 = self._sleb(pos); pos += sz2
+                            code_off, sz2 = self._uleb(pos); pos += sz2
                         method = self._methods[last_idx] if 0 <= last_idx < len(self._methods) else None
                         mi = {'method_idx': last_idx, 'name': method['name'] if method else f'?{last_idx}',
                               'proto': method['proto'] if method else None,
@@ -466,7 +478,7 @@ class DexParser:
                 return {'error': 'invalid offset'}
             visibility = self._u1(off)
             vis_map = {0: 'build', 1: 'runtime', 2: 'system'}
-            type_idx = self._sleb(off + 1)[0]
+            type_idx = self._uleb(off + 1)[0]
             type_name = self._types[type_idx]['descriptor'] if 0 <= type_idx < len(self._types) else f'?{type_idx}'
             return {
                 'visibility': vis_map.get(visibility, f'unknown({visibility})'),
@@ -555,3 +567,79 @@ class DexParser:
             params = ', '.join(proto.get('parameters', []))
             return f"{method['name']}({params}){proto['return_type']}"
         return method.get('name', '') if method else ''
+
+    # ── 增强：源文件 / 类统计 ──
+    def get_source_files(self):
+        """统计 DEX 中引用的源文件及使用类数"""
+        self._ensure_parsed()
+        from collections import Counter
+        counter = Counter()
+        for c in self._class_defs:
+            sf = c.get('source_file') or ''
+            if sf:
+                counter[sf] += 1
+        return [
+            {'file': f, 'classes': n}
+            for f, n in counter.most_common()
+        ]
+
+    def get_most_complex_classes(self, top=20):
+        """按方法数/代码量返回最复杂的类"""
+        self._ensure_parsed()
+        scored = []
+        for c in self._class_defs:
+            methods = c.get('direct_methods', []) + c.get('virtual_methods', [])
+            code_methods = [m for m in methods if m.get('code')]
+            insns = sum((m.get('code', {}).get('insns_size', 0) for m in code_methods), 0)
+            scored.append({
+                'class': c['class_name'],
+                'methods': len(methods),
+                'code_methods': len(code_methods),
+                'insns': insns,
+                'static_fields': len(c.get('static_fields', [])),
+                'instance_fields': len(c.get('instance_fields', [])),
+            })
+        scored.sort(key=lambda x: (x['insns'], x['methods']), reverse=True)
+        return scored[:top]
+
+    def get_class_hierarchy(self, class_name):
+        """沿 superclass 链返回类继承关系"""
+        self._ensure_parsed()
+        chain = []
+        cur = class_name
+        seen = set()
+        while cur and cur not in seen:
+            seen.add(cur)
+            chain.append(cur)
+            cls = self.get_class_by_name(cur)
+            if not cls or not cls.get('super_name'):
+                break
+            cur = cls['super_name']
+        return chain
+
+    def find_reachable_from(self, class_name, max_depth=3):
+        """BFS 扫描类引用拓扑（用于定位核心类/入口）"""
+        self._ensure_parsed()
+        cls = self.get_class_by_name(class_name)
+        if not cls:
+            return {'error': f'Class not found: {class_name}'}
+        type_desc = set()
+        # 收集方法 proto 与字段类型中的引用描述符
+        for m in cls.get('direct_methods', []) + cls.get('virtual_methods', []):
+            proto = m.get('proto')
+            if proto:
+                rt = proto.get('return_type', '')
+                if rt.startswith('L') or rt.startswith('['):
+                    type_desc.add(rt)
+                for p in proto.get('parameters', []):
+                    if p.startswith('L') or p.startswith('['):
+                        type_desc.add(p)
+        for f in cls.get('static_fields', []) + cls.get('instance_fields', []):
+            ft = f.get('type', '')
+            if ft.startswith('L') or ft.startswith('['):
+                type_desc.add(ft)
+        return {
+            'class': class_name,
+            'referenced_types': sorted(type_desc),
+            'referenced_count': len(type_desc),
+        }
