@@ -482,7 +482,12 @@ from .analysis.enhanced import (
     AntiAnalysisDetector as _AntiAnalysisDetector,
     CryptoAnalyzer as _CryptoAnalyzer,
     HookGenerator as _HookGenerator,
+    VulnerabilityScanner as _VulnerabilityScanner,
+    OptimizationPatternDetector as _OptimizationPatternDetector,
 )
+from .core.dex.reaching_defs import ReachingDefinitions as _ReachingDefinitions
+from .core.dex.reaching_defs import LiveVariables as _LiveVariables
+from .core.dex.type_inference import TypeInference as _TypeInference
 
 def analyze_dataflow(dex_parser, class_name, method_name=None):
     """DEX数据流分析 - 寄存器追踪、污点分析、常量传播"""
@@ -1398,4 +1403,120 @@ __all__ = [
     'remove_share_popup',
     # Lite（零依赖快速分析）
     'unpack_apk_lite', 'analyze_apk_lite', 'auto_find_apks',
+    # 新增增强模块 API
+    'analyze_reaching_defs', 'analyze_live_variables', 'infer_types',
+    'scan_vulnerabilities', 'scan_vulnerabilities_strings',
+    'scan_vulnerabilities_manifest', 'scan_vulnerabilities_dex',
+    'analyze_optimization_patterns', 'analyze_method_optimization',
 ]
+
+
+# ============================================================
+# 新增增强模块 API - Reaching Definitions / Live Variables / Type Inference / Vulnerability Scanner / Optimization Patterns
+# ============================================================
+
+def analyze_reaching_defs(instructions, cfg=None):
+    """到达定义分析 - 对每个程序点计算哪些定义能到达此处
+
+    Args:
+        instructions: Instruction 列表
+        cfg: 预构建 CFG（可选）
+
+    Returns:
+        dict: {def_use, in_sets, out_sets, ud_chain, du_chain}
+    """
+    return _ReachingDefinitions.analyze(instructions, cfg)
+
+def analyze_live_variables(instructions, cfg=None):
+    """活越变量分析 - 对每个程序点计算哪些变量在后续会被使用
+
+    Args:
+        instructions: Instruction 列表
+        cfg: 预构建 CFG（可选）
+
+    Returns:
+        dict: {live_in, live_out, dead_defs}
+    """
+    return _LiveVariables.analyze(instructions, cfg)
+
+def infer_types(instructions, cfg=None, strings=None, types=None, fields=None, methods=None):
+    """DEX 寄存器类型推断 - 基于数据流推断每个程序点寄存器的类型
+
+    Args:
+        instructions: Instruction 列表
+        cfg: 预构建 CFG（可选）
+        strings: DEX 字符串池
+        types: DEX 类型描述符列表
+        fields: DEX 字段列表
+        methods: DEX 方法列表
+
+    Returns:
+        dict: {register_types, type_changes, inconsistencies, parameter_types, wide_registers}
+    """
+    return _TypeInference.infer_method(instructions, cfg, strings, types, fields, methods)
+
+def scan_vulnerabilities(strings_list=None, manifest_xml=None, dex_parser=None, call_graph=None):
+    """安全漏洞扫描 - 基于静态分析检测 Android 安全漏洞
+
+    扫描类别：组件暴露/Intent注入/SSL降级/WebView安全/SQLite注入/文件模式/动态加载/弱随机数/硬编码凭据
+
+    Args:
+        strings_list: DEX 字符串列表（可选）
+        manifest_xml: Manifest XML 字符串（可选）
+        dex_parser: DexParser 实例（可选，用于方法级扫描）
+        call_graph: 预构建调用图（可选）
+
+    Returns:
+        dict: {total_findings, summary, categories, critical_findings, all_findings}
+    """
+    string_findings = []
+    manifest_findings = []
+    dex_findings = []
+
+    if strings_list:
+        string_findings = _VulnerabilityScanner.scan_strings(strings_list)
+    if manifest_xml:
+        manifest_findings = _VulnerabilityScanner.scan_manifest(manifest_xml)
+    if dex_parser:
+        dex_findings = _VulnerabilityScanner.scan_dex_methods(dex_parser, call_graph)
+
+    return _VulnerabilityScanner.generate_report(string_findings, manifest_findings, dex_findings)
+
+def scan_vulnerabilities_strings(strings_list):
+    """扫描字符串池中的安全漏洞模式"""
+    return _VulnerabilityScanner.scan_strings(strings_list)
+
+def scan_vulnerabilities_manifest(manifest_xml):
+    """扫描 AndroidManifest.xml 中的安全风险"""
+    return _VulnerabilityScanner.scan_manifest(manifest_xml)
+
+def scan_vulnerabilities_dex(dex_parser, call_graph=None):
+    """扫描 DEX 方法中的安全漏洞"""
+    return _VulnerabilityScanner.scan_dex_methods(dex_parser, call_graph)
+
+def analyze_optimization_patterns(dex_parser, max_methods=100):
+    """DEX 优化模式检测 - 检测 Dalvik 字节码中的编译器优化模式
+
+    检测：常量折叠/死代码消除/寄存器分配/内联候选/代码膨胀/Switch优化/循环不变量/窥孔模式
+
+    Args:
+        dex_parser: DexParser 实例
+        max_methods: 最大分析方法数
+
+    Returns:
+        dict: {analyzed_method_count, total_*, optimization_candidates, methods}
+    """
+    return _OptimizationPatternDetector.analyze_dex(dex_parser, max_methods)
+
+def analyze_method_optimization(instructions, cfg=None, method_info=None):
+    """分析单个方法的优化模式
+
+    Args:
+        instructions: Instruction 列表
+        cfg: 预构建 CFG（可选）
+        method_info: 方法元信息
+
+    Returns:
+        dict: 各种优化模式检测结果
+    """
+    return _OptimizationPatternDetector.analyze_method(instructions, cfg, method_info)

@@ -5,3 +5,5 @@ from .string_decrypt import StringDecryptor
 from .anti_analysis import AntiAnalysisDetector
 from .crypto_analyzer import CryptoAnalyzer
 from .hook_generator import HookGenerator
+from .vulnerability_scanner import VulnerabilityScanner
+from .dex_optimizer_patterns import OptimizationPatternDetector
