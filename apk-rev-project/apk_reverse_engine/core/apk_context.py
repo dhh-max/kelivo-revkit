@@ -154,7 +154,7 @@ class APKContext:
                         for chunk in iter(lambda: fh.read(65536), b''):
                             sha.update(chunk)
                     sha_ok = True
-                except:
+                except Exception:
                     pass
 
         return {

@@ -75,7 +75,7 @@ class CertDeepAnalyzer:
                         nb = datetime.strptime(not_before, fmt)
                         na = datetime.strptime(not_after, fmt)
                         break
-                    except:
+                    except Exception:
                         continue
                 else:
                     nb = na = None
@@ -100,7 +100,7 @@ class CertDeepAnalyzer:
                     if total_days > 365 * 5:  # 超过5年
                         issues.append(f'⚠️ 证书有效期过长 ({total_days} 天)，建议不超过3年')
                         risk_score += 5
-            except:
+            except Exception:
                 pass
 
         # 3. 哈希算法强度
@@ -123,7 +123,7 @@ class CertDeepAnalyzer:
                 if serial_int < 16:  # 序列号太短
                     issues.append('⚠️ 证书序列号过短，可能是自签名')
                     risk_score += 5
-            except:
+            except Exception:
                 pass
 
         # 5. 签名方案兼容性

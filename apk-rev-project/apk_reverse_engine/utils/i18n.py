@@ -32,7 +32,7 @@ def get_saved_lang():
         try:
             with open(_lang_file, 'r', encoding='utf-8') as f:
                 return json.load(f).get("lang", "zh_CN")
-        except:
+        except Exception:
             pass
     return os.environ.get("RENG_LANG", "zh_CN")
 
@@ -46,7 +46,7 @@ def save_lang(lang):
             with open(_lang_file, 'w', encoding='utf-8') as f:
                 json.dump({"lang": lang}, f, ensure_ascii=False)
             return True
-        except:
+        except Exception:
             return False
     return False
 
@@ -107,7 +107,7 @@ def _(text, *args, **kwargs):
     if args or kwargs:
         try:
             return translated % args if args else translated % kwargs
-        except:
+        except Exception:
             return translated
     return translated
 
@@ -534,7 +534,7 @@ for _d in [os.path.join(_home, ".config", "reng"),
                     _current_lang = _data["lang"]
                     _lang_file = _f
                     break
-        except:
+        except Exception:
             pass
 
 # 如果没有找到持久化配置，设置默认路径

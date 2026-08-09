@@ -37,7 +37,7 @@ class ResourcePatcher:
         # 解码原包名
         try:
             old_name = old_pkg.decode('utf-16le', errors='replace').split('\x00')[0]
-        except:
+        except Exception:
             return data
         # 用新包名替换
         new_pkg_data = new_package_name.encode('utf-16le') + b'\x00' * (256 - len(new_package_name.encode('utf-16le')))

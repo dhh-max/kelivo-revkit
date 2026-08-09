@@ -108,7 +108,7 @@ class APKCleaner:
                     try:
                         data = z.read(name)
                         file_contents[name] = data
-                    except:
+                    except Exception:
                         pass
 
             # 5. 重复文件检测

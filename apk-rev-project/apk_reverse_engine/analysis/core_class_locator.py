@@ -581,7 +581,7 @@ def locate_core_classes_from_apk(apk_path, top_n=20, min_score=10, include_sdk=F
             try:
                 manifest_data = zf.read('AndroidManifest.xml')
                 manifest_info = ManifestParser.get_simple(manifest_data)
-            except:
+            except Exception:
                 pass
 
         # 处理所有 DEX 文件

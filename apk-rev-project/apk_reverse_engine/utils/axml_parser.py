@@ -40,7 +40,7 @@ class AXMLParser:
                     return ""
                 raw = self.data[off:off + char_count * 2]
                 return raw.decode('utf-16-le', errors='replace')
-        except:
+        except Exception:
             return ""
     def parse(self):
         magic = self._r32()

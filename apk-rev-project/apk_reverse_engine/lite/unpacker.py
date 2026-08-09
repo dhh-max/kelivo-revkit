@@ -130,7 +130,7 @@ class LiteManifestParser:
                 s = raw.decode('utf-16le', errors='replace')
                 self.strings.append(s)
                 self.pos += char_len * 2
-            except:
+            except Exception:
                 self.strings.append('')
 
         # 解析标签树 - 提取关键信息
@@ -588,7 +588,7 @@ def unpack_apk_standalone(apk_path, output_dir=None, mode='analyze', compact=Tru
                     if name.endswith('.so'):
                         os.chmod(dest, os.stat(dest).st_mode | 0o111)
                     extracted += 1
-                except:
+                except Exception:
                     pass
             result['extracted'] = extracted
             result['output_dir'] = output_dir

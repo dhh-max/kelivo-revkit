@@ -3,7 +3,7 @@
 from setuptools import setup, find_packages
 setup(
     name='apk-reverse-engine',
-    version='2.2.0',
+    version='2.5.0',
     description='全功能 APK 逆向工具集 - 解包/分析/反编译/修补/重打包/签名 一站式工具',
     long_description='''APK Reverse Engineering Engine v2
 全功能 APK 逆向工程工具集，涵盖：

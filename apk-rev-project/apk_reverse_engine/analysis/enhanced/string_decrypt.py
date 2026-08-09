@@ -78,7 +78,7 @@ class StringDecryptor:
                     'result': text[:200],
                     'confidence': StringDecryptor._confidence_score(text),
                 })
-        except:
+        except Exception:
             pass
 
         # 4. ROT13
@@ -90,7 +90,7 @@ class StringDecryptor:
                     'result': text[:200],
                     'confidence': StringDecryptor._confidence_score(text),
                 })
-        except:
+        except Exception:
             pass
 
         # 5. Add/Sub constant
@@ -169,7 +169,7 @@ class StringDecryptor:
                             'decrypted': decrypted[:3],
                             'address': m.start(),
                         })
-                except:
+                except Exception:
                     pass
 
         # Pattern 2: const-string with encoded value
@@ -187,7 +187,7 @@ class StringDecryptor:
                                            'confidence': StringDecryptor._confidence_score(decoded)}],
                             'address': m.start(),
                         })
-                except:
+                except Exception:
                     pass
 
         # Pattern 3: invoke decrypt method with const
@@ -241,7 +241,7 @@ class StringDecryptor:
                                 'decoded': decoded[:100],
                                 'method': 'hex_decode',
                             })
-                    except:
+                    except Exception:
                         pass
                 # Check for base64
                 if re.match(r'^[A-Za-z0-9+/=]+$', s) and len(s) >= 8:
@@ -254,7 +254,7 @@ class StringDecryptor:
                                 'decoded': decoded[:100],
                                 'method': 'base64',
                             })
-                    except:
+                    except Exception:
                         pass
 
         return results

@@ -386,7 +386,7 @@ class NativeAnalyzer:
             if not dynsym or not dynstr: return []
             return [s.name for s in elf.read_symbols(dynsym, dynstr)
                     if s.is_undefined and s.name and s.is_func_or_object][:100]
-        except:
+        except Exception:
             return []
 
     @staticmethod
@@ -398,7 +398,7 @@ class NativeAnalyzer:
             if not dynsym or not dynstr: return []
             return [s.name for s in elf.read_symbols(dynsym, dynstr)
                     if not s.is_undefined and s.is_global and s.name and s.is_func_or_object][:100]
-        except:
+        except Exception:
             return []
 
     @staticmethod

@@ -16,7 +16,7 @@ class StaticAnalyzer:
         try:
             md = self.ctx.get_manifest_xml()
             r['manifest'] = ManifestParser.get_simple(md)
-        except:
+        except Exception:
             r['manifest'] = {}
 
         dex_files = self.ctx.get_dex_files()

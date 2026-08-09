@@ -171,7 +171,7 @@ class AXMLEncoder:
             vt = (TYPE_REFERENCE << 24) | 0x08
             try:
                 vd = int(value[1:], 16) if value[1:].startswith('0x') else 0
-            except:
+            except Exception:
                 vd = 0
             return vi, vt, vd
 

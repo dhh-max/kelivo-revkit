@@ -1,2 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
 *.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# Virtual environments
+venv/
+env/
+.venv/
+.env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Test / Coverage
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+.tox/
+
+# Test files
 test_*
+*_test.py
+
+# Project specific
+*.dex
+*.apk
+*.jar
+*.war
+*.aar
+*.tar.gz
+*.zip
+!tests/fixtures/*.apk
+
+# OS
+Thumbs.db
+desktop.ini

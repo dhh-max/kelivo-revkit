@@ -535,7 +535,7 @@ class ClueChain:
             for u in urls:
                 try:
                     domains[u.split('/')[2]] += 1
-                except:
+                except Exception:
                     pass
             top = domains.most_common(5)
             clues.append({

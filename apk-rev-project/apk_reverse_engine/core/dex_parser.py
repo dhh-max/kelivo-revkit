@@ -120,7 +120,7 @@ class DexParser:
             try:
                 end = self.data.index(b'\x00', off)
                 s = self.data[off:end].decode('utf-8', errors='replace')
-            except:
+            except Exception:
                 s = ''
             self._strings.append(s)
 
@@ -148,7 +148,7 @@ class DexParser:
                     for j in range(param_count):
                         pt = self._u4(pi + 4 + j * 4)
                         param_types.append(self._types[pt]['descriptor'] if 0 <= pt < len(self._types) else f'?{pt}')
-                except:
+                except Exception:
                     pass
             
             self._protos.append({
@@ -222,7 +222,7 @@ class DexParser:
                     for j in range(ic):
                         itf = self._u4(ii + 4 + j * 4)
                         interfaces.append(self._types[itf]['descriptor'] if 0 <= itf < len(self._types) else f'?{itf}')
-                except:
+                except Exception:
                     pass
 
             # Class data (methods + fields)

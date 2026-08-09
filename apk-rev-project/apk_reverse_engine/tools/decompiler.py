@@ -157,7 +157,7 @@ class APKDecompiler:
                     try:
                         with open(fp, 'r', errors='replace') as fh:
                             total_lines += sum(1 for _ in fh)
-                    except:
+                    except Exception:
                         pass
                 elif f.endswith('.smali'):
                     smali_files += 1

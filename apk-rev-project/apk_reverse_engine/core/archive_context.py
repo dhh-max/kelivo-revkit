@@ -54,12 +54,12 @@ def detect_file_type(path):
                 f.close()
                 if len(inner) > 262 and inner[257:262] == b'ustar':
                     return 'tar', '.tar.gz'
-            except:
+            except Exception:
                 pass
             return 'gzip', '.gz'
         if magic[:5] == b'ustar' or (len(magic) >= 6 and magic[257:262] == b'ustar'):
             return 'tar', '.tar'
-    except:
+    except Exception:
         pass
 
     return 'file', os.path.splitext(path)[1]
@@ -404,7 +404,7 @@ class ArchiveContext:
                     # 保留权限
                     try:
                         os.chmod(dest_path, member.mode)
-                    except:
+                    except Exception:
                         pass
 
                 elif self._file_type == 'dir':
@@ -450,7 +450,7 @@ class ArchiveContext:
                         for chunk in iter(lambda: fh.read(65536), b''):
                             sha.update(chunk)
                     sha_ok = True
-                except:
+                except Exception:
                     pass
 
         return {

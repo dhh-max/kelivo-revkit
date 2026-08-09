@@ -32,7 +32,7 @@ class Deobfuscator:
                         keys.add(int(val, 16))
                     else:
                         keys.add(int(val))
-                except:
+                except Exception:
                     pass
         return sorted(keys)[:20]
 
@@ -61,7 +61,7 @@ class Deobfuscator:
                         'bytes': bytes_list[:50],
                         'hex': ' '.join(f'{b:02x}' for b in bytes_list[:20]),
                     })
-            except:
+            except Exception:
                 pass
         return arrays
 
@@ -199,7 +199,7 @@ class Deobfuscator:
                         'decoded': decoded[:100],
                         'method': 'base64',
                     })
-            except:
+            except Exception:
                 pass
             
             # 尝试Hex解码
@@ -212,7 +212,7 @@ class Deobfuscator:
                             'decoded': decoded[:100],
                             'method': 'hex',
                         })
-                except:
+                except Exception:
                     pass
             
             # 尝试Unicode转义
@@ -225,7 +225,7 @@ class Deobfuscator:
                         'decoded': decoded[:100],
                         'method': 'unicode_escape',
                     })
-                except:
+                except Exception:
                     pass
         
         return results[:20]

@@ -1,7 +1,7 @@
 """APK Reverse Engineering Engine v2 - 全模块基础功能API"""
 import os, zipfile
 
-__version__ = '2.4.0'
+__version__ = '2.5.0'
 
 # ============================================================
 # 核心模块 - Core
@@ -1300,28 +1300,24 @@ def unpack_apk_lite(apk_path, output_dir=None, **kwargs):
 
 def analyze_apk_lite(apk_path, **kwargs):
     """零依赖快速分析 APK（结构/Manifest/DEX 摘要，纯标准库）
-
     Args:
         apk_path: APK 文件路径
         **kwargs: 额外参数透传
-
     Returns:
         dict: 分析结果
     """
-    from .lite.analyzer import analyze_apk_lite as _aal
+    from .lite import analyze_apk_lite as _aal
     return _aal(apk_path, **kwargs)
 
 def auto_find_apks(search_dir=None, **kwargs):
     """自动搜索目录中的 APK 文件
-
     Args:
         search_dir: 搜索目录（默认 /sdcard/Download）
         **kwargs: 额外参数透传
-
     Returns:
         list: 找到的 APK 路径列表
     """
-    from .lite.analyzer import auto_find_apks as _afa
+    from .lite import auto_find_apks as _afa
     return _afa(search_dir, **kwargs)
 
 __all__ = [

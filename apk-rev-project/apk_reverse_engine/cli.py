@@ -1286,7 +1286,7 @@ def cmd_core(args):
                     man_data = ctx.get_manifest_xml()
                     man_info = get_manifest_info(man_data)
                     app_package = man_info.get('package', '')
-                except:
+                except Exception:
                     pass
 
             dex_files = ctx.get_dex_files()
@@ -1342,7 +1342,7 @@ def cmd_core(args):
                                     if comp_name.startswith(pkg_dot) or comp_name.startswith('.' + prefix.split('.')[-1]):
                                         is_manifest_match = True
                                         break
-                    except:
+                    except Exception:
                         pass
                     if is_manifest_match or count > 10:
                         auto_package = pkg_dot
@@ -3228,17 +3228,19 @@ def _interactive_choose_apk():
                 _warn("文件已不存在")
                 hist.pop(idx - 1)
                 continue
-        # 目录 -> 列出其中的 apk（非递归，避免卡顿）
+        # 目录 -> 列出其中的归档文件（非递归，避免卡顿）
         if os.path.isdir(p):
             try:
-                apks = sorted([os.path.join(p, f) for f in os.listdir(p) if f.endswith('.apk')])
+                _archive_exts = ('.apk', '.zip', '.jar', '.war', '.tar', '.gz', '.tgz', '.bz2', '.xz', '.dex', '.so', '.aar')
+                apks = sorted([os.path.join(p, f) for f in os.listdir(p)
+                               if f.lower().endswith(_archive_exts) and os.path.isfile(os.path.join(p, f))])
             except PermissionError:
                 _error("无权限访问目录")
                 continue
             if not apks:
-                _warn("该目录下未找到 .apk 文件")
+                _warn("该目录下未找到支持的归档文件")
                 continue
-            console.print(f"  [bold cyan]📂 找到 {len(apks)} 个 APK:[/]")
+            console.print(f"  [bold cyan]📂 找到 {len(apks)} 个文件:[/]")
             t = Table(box=box.SIMPLE, show_header=False, padding=(0, 2))
             t.add_column("#", justify="right", style="dim", width=4)
             t.add_column("文件名", style="cyan")
@@ -3258,11 +3260,8 @@ def _interactive_choose_apk():
             except (ValueError, IndexError):
                 _error("无效编号")
                 continue
-        if os.path.isfile(p) and p.endswith('.apk'):
-            return p
         if os.path.isfile(p):
-            _warn("该文件不是 .apk")
-            continue
+            return p
         _error("路径不存在")
 
 def interactive_mode():
