@@ -549,3 +549,542 @@ class Disassembler:
             for s in blk['successors']:
                 stack.append(s)
         return reachable
+
+    # ════════════════════════════════════════════════════════════
+    # 支配树与自然循环检测
+    # ════════════════════════════════════════════════════════════
+
+    @staticmethod
+    def build_dominator_tree(instructions):
+        """构建支配树（Dominator Tree）。
+
+        使用迭代数据流算法计算每个基本块的直接支配者（immediate dominator）。
+
+        Returns:
+            dict: {
+                'idom': {block_start -> idom_block_start},
+                'dominators': {block_start -> set of all dominators},
+                'dom_tree_children': {block_start -> [children_starts]},
+                'frontier': {block_start -> [frontier_starts]},  # 支配边界
+            }
+        """
+        cfg = Disassembler.build_cfg(instructions)
+        if not cfg['blocks']:
+            return {'idom': {}, 'dominators': {}, 'dom_tree_children': {}, 'frontier': {}}
+
+        blocks = cfg['blocks']
+        entry = cfg['entry']
+        block_starts = [b['start'] for b in blocks]
+        start_set = set(block_starts)
+
+        # 建立前驱映射
+        preds = {b['start']: set(b['predecessors']) for b in blocks}
+
+        # 初始化：entry 的支配者集合 = {entry}，其余 = 全集
+        dom = {}
+        for s in block_starts:
+            dom[s] = set(block_starts)
+        dom[entry] = {entry}
+
+        # 迭代至不动点
+        changed = True
+        while changed:
+            changed = False
+            for s in block_starts:
+                if s == entry:
+                    continue
+                ps = preds.get(s, set())
+                if not ps:
+                    dom[s] = {s}
+                    continue
+                new_dom = set.intersection(*[dom[p] for p in ps if p in dom]) if ps else set()
+                new_dom = new_dom | {s}
+                if new_dom != dom[s]:
+                    dom[s] = new_dom
+                    changed = True
+
+        # 计算直接支配者 (idom)
+        idom = {}
+        for s in block_starts:
+            if s == entry:
+                continue
+            strict_doms = dom[s] - {s}
+            # idom 是 strict_doms 中被所有其他 strict_dom 支配的那个
+            for d in strict_doms:
+                if all(d in dom[other] for other in strict_doms if other != d):
+                    idom[s] = d
+                    break
+
+        # 支配树子节点
+        dom_tree_children = {s: [] for s in block_starts}
+        for s, d in idom.items():
+            dom_tree_children[d].append(s)
+
+        # 支配边界 (Dominance Frontier)
+        frontier = {s: set() for s in block_starts}
+        for b in blocks:
+            s = b['start']
+            ps = preds.get(s, set())
+            if len(ps) >= 2:
+                for p in ps:
+                    runner = p
+                    while runner != idom.get(s, entry):
+                        frontier[runner].add(s)
+                        runner = idom.get(runner, entry)
+
+        return {
+            'idom': idom,
+            'dominators': {s: sorted(v) for s, v in dom.items()},
+            'dom_tree_children': {s: sorted(v) for s, v in dom_tree_children.items()},
+            'frontier': {s: sorted(v) for s, v in frontier.items()},
+        }
+
+    @staticmethod
+    def detect_loops(instructions):
+        """检测自然循环（Natural Loops）。
+
+        基于支配树和回边（Back Edge）识别自然循环。
+
+        Returns:
+            list of dict: 每个循环包含 {
+                'header': 回边目标（循环头）,
+                'tail': 回边源,
+                'body': 循环体中所有基本块 start 地址列表,
+                'body_instructions': 循环体内指令总数,
+                'is_infinite': 是否为无限循环（无退出边）,
+            }
+        """
+        cfg = Disassembler.build_cfg(instructions)
+        if not cfg['blocks']:
+            return []
+
+        dom_info = Disassembler.build_dominator_tree(instructions)
+        idom = dom_info['idom']
+        block_starts = set(b['start'] for b in blocks) if False else set(b['start'] for b in cfg['blocks'])
+
+        # 找回边：边 (u -> v) 中 v 支配 u
+        back_edges = []
+        for b in cfg['blocks']:
+            u = b['start']
+            for v in b['successors']:
+                if v == u:
+                    back_edges.append((u, v))  # 自环
+                elif idom.get(u) == v:
+                    back_edges.append((u, v))
+                elif v in dom_info['dominators'].get(u, []):
+                    back_edges.append((u, v))
+
+        # 去重
+        back_edges = list(set(back_edges))
+
+        loops = []
+        block_map = {b['start']: b for b in cfg['blocks']}
+
+        for tail, header in back_edges:
+            # 自然循环 = {header} ∪ {能到达 tail 且不经过 header 的所有节点}
+            loop_body = {header}
+            if tail != header:
+                loop_body.add(tail)
+                stack = [tail]
+                visited = {header, tail}
+                while stack:
+                    node = stack.pop()
+                    blk = block_map.get(node)
+                    if not blk:
+                        continue
+                    for p in blk['predecessors']:
+                        if p not in visited:
+                            visited.add(p)
+                            loop_body.add(p)
+                            stack.append(p)
+
+            # 统计指令数
+            insn_count = sum(len(block_map[s]['instructions']) for s in loop_body if s in block_map)
+
+            # 检查是否有退出边（循环体到非循环体的边）
+            has_exit = False
+            for s in loop_body:
+                blk = block_map.get(s)
+                if not blk:
+                    continue
+                for succ in blk['successors']:
+                    if succ not in loop_body:
+                        has_exit = True
+                        break
+                if has_exit:
+                    break
+
+            loops.append({
+                'header': header,
+                'tail': tail,
+                'body': sorted(loop_body),
+                'body_instructions': insn_count,
+                'is_infinite': not has_exit,
+                'exit_count': sum(
+                    1 for s in loop_body
+                    if s in block_map
+                    for succ in block_map[s]['successors']
+                    if succ not in loop_body
+                ),
+            })
+
+        return loops
+
+    # ════════════════════════════════════════════════════════════
+    # 方法相似度 / 克隆检测
+    # ════════════════════════════════════════════════════════════
+
+    @staticmethod
+    def compute_method_fingerprint(instructions):
+        """计算方法指纹（opcode 序列哈希）。
+
+        将方法中所有指令的 opcode 序列提取为指纹，用于快速比较方法相似度。
+        忽略寄存器号和常量值，只保留操作语义。
+
+        Returns:
+            dict: {
+                'opcode_sequence': [opcode1, opcode2, ...],
+                'opcode_hash': 序列的哈希值（hex 字符串）,
+                'normalized_sequence': 归一化后的 opcode 名称序列,
+                'instruction_count': 指令总数,
+                'unique_opcodes': 使用的不同 opcode 数,
+            }
+        """
+        if not instructions:
+            return {
+                'opcode_sequence': [],
+                'opcode_hash': '',
+                'normalized_sequence': [],
+                'instruction_count': 0,
+                'unique_opcodes': 0,
+            }
+
+        opcodes = [inst.opcode for inst in instructions]
+        opcode_names = [inst.name for inst in instructions]
+
+        import hashlib
+        seq_bytes = bytes(opcodes)
+        h = hashlib.md5(seq_bytes).hexdigest()
+
+        return {
+            'opcode_sequence': opcodes,
+            'opcode_hash': h,
+            'normalized_sequence': opcode_names,
+            'instruction_count': len(opcodes),
+            'unique_opcodes': len(set(opcodes)),
+        }
+
+    @staticmethod
+    def detect_method_clones(methods_data):
+        """检测方法克隆/重复代码。
+
+        Args:
+            methods_data: list of dict, 每个包含:
+                - 'class_name': 类名
+                - 'method_name': 方法名
+                - 'instructions': Instruction 列表
+                - 'access_flags': 访问标志（可选）
+
+        Returns:
+            dict: {
+                'clone_groups': [{fingerprint, count, methods: [...]}],
+                'total_methods': int,
+                'duplicated_methods': int,
+                'duplication_ratio': float,
+            }
+        """
+        from collections import defaultdict
+
+        fingerprints = defaultdict(list)
+        total = len(methods_data)
+
+        for m in methods_data:
+            insts = m.get('instructions', [])
+            fp = Disassembler.compute_method_fingerprint(insts)
+            if fp['instruction_count'] < 3:
+                continue  # 忽略极短方法
+            fingerprints[fp['opcode_hash']].append({
+                'class': m.get('class_name', '?'),
+                'method': m.get('method_name', '?'),
+                'instruction_count': fp['instruction_count'],
+                'access_flags': m.get('access_flags', ''),
+            })
+
+        clone_groups = []
+        duplicated = 0
+        for fp_hash, methods in fingerprints.items():
+            if len(methods) >= 2:
+                clone_groups.append({
+                    'fingerprint': fp_hash,
+                    'count': len(methods),
+                    'instruction_count': methods[0]['instruction_count'],
+                    'methods': methods,
+                })
+                duplicated += len(methods)
+
+        clone_groups.sort(key=lambda x: x['count'] * x['instruction_count'], reverse=True)
+
+        return {
+            'clone_groups': clone_groups,
+            'total_methods': total,
+            'duplicated_methods': duplicated,
+            'duplication_ratio': round(duplicated / total, 4) if total > 0 else 0.0,
+        }
+
+    # ════════════════════════════════════════════════════════════
+    # 字符串交叉引用分析
+    # ════════════════════════════════════════════════════════════
+
+    @staticmethod
+    def find_string_xrefs(instructions, strings=None, methods=None):
+        """查找方法中对字符串常量的引用。
+
+        扫描所有 const-string / const-string/jumbo 指令，
+        记录每个字符串被引用的位置。
+
+        Args:
+            instructions: Instruction 列表
+            strings: DEX 字符串表
+            methods: DEX 方法表（用于解析引用上下文）
+
+        Returns:
+            list of dict: [{
+                'string_idx': 字符串索引,
+                'string_value': 字符串值,
+                'address': 引用地址,
+                'register': 寄存器,
+                'instruction': 指令名,
+            }]
+        """
+        xrefs = []
+        for inst in instructions:
+            if inst.opcode in (0x1a, 0x1b):  # const-string / const-string/jumbo
+                ref = inst.operands.get('ref', -1)
+                val = ''
+                if strings and 0 <= ref < len(strings):
+                    val = strings[ref]
+                xrefs.append({
+                    'string_idx': ref,
+                    'string_value': val,
+                    'address': inst.address,
+                    'register': inst.operands.get('vA', -1),
+                    'instruction': inst.name,
+                })
+        return xrefs
+
+    @staticmethod
+    def find_field_xrefs(instructions, fields=None):
+        """查找方法中对字段（field）的引用。
+
+        扫描所有 iget/iput/sget/sput 指令，
+        记录每个字段被读/写的位置。
+
+        Returns:
+            list of dict: [{
+                'field_idx': 字段索引,
+                'field_name': 字段名,
+                'class_name': 字段所属类,
+                'access_type': 'read' | 'write',
+                'address': 引用地址,
+                'instruction': 指令名,
+            }]
+        """
+        xrefs = []
+        READ_OPS = {0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58,
+                     0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66}
+        WRITE_OPS = {0x59, 0x5a, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f,
+                      0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d}
+
+        for inst in instructions:
+            if inst.opcode in READ_OPS or inst.opcode in WRITE_OPS:
+                ref = inst.operands.get('ref', -1)
+                field_info = None
+                if fields and 0 <= ref < len(fields):
+                    f = fields[ref]
+                    if isinstance(f, dict):
+                        field_info = f
+                    else:
+                        field_info = {'name': str(f), 'class_name': ''}
+
+                xrefs.append({
+                    'field_idx': ref,
+                    'field_name': field_info.get('name', f'field@{ref}') if field_info else f'field@{ref}',
+                    'class_name': field_info.get('class_name', '') if field_info else '',
+                    'field_type': field_info.get('type', '') if field_info else '',
+                    'access_type': 'read' if inst.opcode in READ_OPS else 'write',
+                    'address': inst.address,
+                    'instruction': inst.name,
+                })
+        return xrefs
+
+    @staticmethod
+    def find_type_xrefs(instructions, types=None):
+        """查找方法中对类型（type）的引用。
+
+        扫描 const-class / check-cast / instance-of / new-instance / new-array 等指令。
+
+        Returns:
+            list of dict: [{
+                'type_idx': 类型索引,
+                'type_desc': 类型描述符,
+                'usage': 引用场景 (const-class/check-cast/instance-of/new-instance/new-array),
+                'address': 引用地址,
+            }]
+        """
+        TYPE_REF_OPS = {
+            0x1c: 'const-class',
+            0x1f: 'check-cast',
+            0x20: 'instance-of',
+            0x22: 'new-instance',
+            0x23: 'new-array',
+        }
+        xrefs = []
+        for inst in instructions:
+            if inst.opcode in TYPE_REF_OPS:
+                ref = inst.operands.get('ref', -1)
+                type_desc = ''
+                if types and 0 <= ref < len(types):
+                    t = types[ref]
+                    type_desc = t.get('descriptor', '') if isinstance(t, dict) else str(t)
+                xrefs.append({
+                    'type_idx': ref,
+                    'type_desc': type_desc,
+                    'usage': TYPE_REF_OPS[inst.opcode],
+                    'address': inst.address,
+                    'instruction': inst.name,
+                })
+        return xrefs
+
+    # ════════════════════════════════════════════════════════════
+    # 异常流分析 (Exception Flow Analysis)
+    # ════════════════════════════════════════════════════════════
+
+    @staticmethod
+    def analyze_exception_flow(instructions, try_catch_info=None):
+        """分析方法中的异常流。
+
+        将 try/catch 信息与 CFG 结合，构建异常边，
+        分析哪些基本块可能因异常而跳转到 catch handler。
+
+        Args:
+            instructions: Instruction 列表
+            try_catch_info: TryCatchParser.parse() 的返回值
+
+        Returns:
+            dict: {
+                'try_ranges': [{start, end, handlers: [...]}],
+                'exception_edges': [{from_block, to_handler, exception_type}],
+                'protected_blocks': 受 try 保护的基本块集合,
+                'unprotected_throws': 不在 try 范围内的 throw 指令,
+                'handler_count': catch handler 总数,
+                'catch_all': 是否存在 catch-all,
+            }
+        """
+        cfg = Disassembler.build_cfg(instructions)
+        blocks = cfg.get('blocks', [])
+        try_catch = try_catch_info or {}
+
+        tries = try_catch.get('tries', [])
+        handlers_list = try_catch.get('handlers', [])
+
+        # 建立地址 -> 基本块映射
+        addr_to_block = {}
+        for b in blocks:
+            for inst in b['instructions']:
+                addr_to_block[inst.address] = b['start']
+
+        # 处理每个 try 范围
+        exception_edges = []
+        protected_addrs = set()
+        try_ranges = []
+        catch_all_found = False
+        handler_count = 0
+
+        for i, tri in enumerate(tries):
+            start_addr = tri.get('start_addr', 0)
+            end_addr = tri.get('end_addr', 0)
+            insn_count = tri.get('insn_count', 0)
+
+            # 标记受保护的地址范围
+            for addr in range(start_addr, start_addr + insn_count * 2, 2):
+                protected_addrs.add(addr)
+
+            # 获取对应的 handlers
+            handler_info = handlers_list[i] if i < len(handlers_list) else {}
+            catch_handlers = handler_info.get('catch_handlers', [])
+            catch_all_addr = handler_info.get('catch_all_addr', None)
+
+            handlers_detail = []
+            for ch in catch_handlers:
+                handler_count += 1
+                type_name = ch.get('type_name', 'java/lang/Throwable')
+                handler_addr = ch.get('handler_addr', 0)
+                handlers_detail.append({
+                    'type': type_name,
+                    'handler_addr': handler_addr,
+                })
+                # 添加异常边：从受保护范围内的每个基本块到 handler
+                for b in blocks:
+                    blk_start = b['start']
+                    blk_end = b['instructions'][-1].address if b['instructions'] else blk_start
+                    # 检查基本块是否与 try 范围重叠
+                    if blk_start >= start_addr and blk_end < (start_addr + insn_count * 2):
+                        exception_edges.append({
+                            'from_block': blk_start,
+                            'to_handler': handler_addr,
+                            'exception_type': type_name,
+                        })
+
+            if catch_all_addr is not None:
+                catch_all_found = True
+                handler_count += 1
+                handlers_detail.append({
+                    'type': 'catch_all',
+                    'handler_addr': catch_all_addr,
+                })
+                for b in blocks:
+                    blk_start = b['start']
+                    blk_end = b['instructions'][-1].address if b['instructions'] else blk_start
+                    if blk_start >= start_addr and blk_end < (start_addr + insn_count * 2):
+                        exception_edges.append({
+                            'from_block': blk_start,
+                            'to_handler': catch_all_addr,
+                            'exception_type': 'catch_all',
+                        })
+
+            try_ranges.append({
+                'start': start_addr,
+                'end': end_addr,
+                'insn_count': insn_count,
+                'handlers': handlers_detail,
+            })
+
+        # 查找不在 try 范围内的 throw 指令
+        unprotected_throws = []
+        for inst in instructions:
+            if inst.opcode == 0x27:  # throw
+                if inst.address not in protected_addrs:
+                    unprotected_throws.append({
+                        'address': inst.address,
+                        'instruction': inst.name,
+                    })
+
+        # 去重异常边
+        seen_edges = set()
+        unique_edges = []
+        for e in exception_edges:
+            key = (e['from_block'], e['to_handler'], e['exception_type'])
+            if key not in seen_edges:
+                seen_edges.add(key)
+                unique_edges.append(e)
+
+        return {
+            'try_ranges': try_ranges,
+            'exception_edges': unique_edges,
+            'protected_blocks': sorted(set(
+                addr_to_block[a] for a in protected_addrs if a in addr_to_block
+            )),
+            'unprotected_throws': unprotected_throws,
+            'handler_count': handler_count,
+            'catch_all': catch_all_found,
+        }
