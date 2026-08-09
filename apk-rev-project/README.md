@@ -1,6 +1,6 @@
 # APK Reverse Engineering Engine v2
 全功能 APK 逆向工程工具集 — 解包/分析/反编译/修补/重打包/签名 一站式工具。
-**版本**: 2.4.0
+**版本**: 2.5.0
 ---
 ## 下载 / Download
 
@@ -582,3 +582,52 @@ apk_reverse_engine/
 ## 许可
 
 本项目用于安全研究与学习用途，请遵守相关法律法规，仅对你有权分析的应用进行逆向操作。
+
+---
+
+## 更新日志
+
+### v2.5.0 (2026-08-10)
+
+#### 通用归档支持
+
+`unpack` 命令从 APK 专用扩展为支持任意归档文件类型，统一通过 `ArchiveContext` 处理：
+
+| 支持类型 | 扩展名 / 检测方式 |
+|----------|-------------------|
+| ZIP 类 | `.apk` `.zip` `.jar` `.war` `.aar` `.aar` |
+| TAR 类 | `.tar` `.tar.gz` `.tgz` `.tar.bz2` `.tar.xz` |
+| GZIP 类 | `.gz`（非 tar.gz） |
+| 目录 | 直接传入目录路径 |
+| 单文件 | 非归档文件，自动包装为单文件上下文 |
+
+文件类型检测采用扩展名优先 + 魔数回退策略，确保即使扩展名缺失也能正确识别。
+
+#### 增强分析模块（v2.4.0→v2.5.0 渐进新增）
+
+| 模块 | 文件 | 说明 |
+|------|------|------|
+| DEX 元数据提取 | `enhanced/dex_metadata.py` | 类/方法/字段/注解元信息深度提取 |
+| Multi-DEX 分析 | `enhanced/multidex_analyzer.py` | 多 DEX 文件交叉引用与去重 |
+| 原生库交叉引用 | `enhanced/native_crossref.py` | JNI 方法与原生库符号交叉引用 |
+| 报告生成器 | `enhanced/report_generator.py` | 多格式分析报告输出 (JSON/HTML/Markdown) |
+
+#### DEX 逆向分析增强
+
+| 模块 | 文件 | 说明 |
+|------|------|------|
+| 到达定义分析 | `core/dex/reaching_defs.py` | 数据流到达定义分析 |
+| 寄存器类型推断 | `core/dex/type_inference.py` | 基于指令流的寄存器类型推断 |
+| 安全漏洞扫描 | `enhanced/vulnerability_scanner.py` | 自动扫描常见安全漏洞模式 |
+| DEX 优化模式检测 | `enhanced/dex_optimizer_patterns.py` | 检测编译器优化模式 |
+
+#### 工程化改进
+
+- **`pyproject.toml`** — 新增 PEP 621 标准项目配置，含构建系统、依赖声明、入口点 `reng`、pytest 配置
+- **测试套件** — 新增 3 个测试文件共 22 个测试用例：
+  - `tests/test_imports.py` — 包导入、版本一致性、公共 API 可达性 (8 项)
+  - `tests/test_archive_context.py` — ZIP/目录/单文件/异常路径的 ArchiveContext 行为 (9 项)
+  - `tests/test_dex_parser.py` — DEX 解析器空数据/非法数据/摘要字段验证 (5 项)
+- **Bug 修复**：
+  - `lite/__init__.py`：`unpack_apk_lite` 导入名未暴露到模块命名空间，导致 `from apk_reverse_engine.lite import unpack_apk_lite` 失败
+  - `ArchiveContext`：单文件类型标识确认为 `'file'`（非 `'single'`）
