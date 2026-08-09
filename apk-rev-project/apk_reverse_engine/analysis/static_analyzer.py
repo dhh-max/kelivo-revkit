@@ -1,4 +1,4 @@
-from ..core.apk_context import APKContext
+from ..core.archive_context import ArchiveContext as APKContext
 from ..core.manifest_parser import ManifestParser
 from ..core.dex_parser import DexParser
 from ..core.sign_verifier import SignVerifier

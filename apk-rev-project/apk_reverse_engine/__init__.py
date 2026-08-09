@@ -8,7 +8,7 @@ __version__ = '2.4.0'
 # ============================================================
 
 # --- APK上下文 ---
-from .core.apk_context import APKContext as _APKContext
+from .core.archive_context import ArchiveContext as _APKContext
 
 def open_apk(apk_path):
     """打开APK文件，返回APKContext上下文对象"""

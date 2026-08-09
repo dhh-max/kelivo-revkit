@@ -8,12 +8,18 @@
   5. 并行解压 → 多线程加速大文件解压
   6. 增量模式 → 跳过已存在且未修改的文件
   7. 丰富选项 → 保留/丢弃时间戳、权限、空目录
+  8. 通用支持 → 支持 APK/ZIP/JAR/WAR/TAR/单文件/目录等任意文件
 """
 
 import os, subprocess, zipfile, hashlib, re, shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from ..core.apk_context import APKContext
+from ..core.archive_context import ArchiveContext, detect_file_type
+
+# 兼容别名：APKContext → ArchiveContext
+# 所有原本使用 APKContext 的方法现在统一使用 ArchiveContext
+# ArchiveContext 完全兼容 APKContext 的接口，同时支持任意文件类型
+APKContext = ArchiveContext
 from ..utils.file_utils import FileUtils
 
 
@@ -76,10 +82,10 @@ class APKUnpacker:
     @staticmethod
     def extract_raw(apk_path, output_dir, structure=True, progress_callback=None,
                     flatten=False, dry_run=False):
-        """解压APK原始文件（稳健模式）
+        """解压任意文件/归档（稳健模式）
 
         参数:
-            apk_path: APK路径
+            apk_path: 文件路径（支持 APK/ZIP/JAR/WAR/TAR/单文件/目录）
             output_dir: 输出目录
             structure: 是否按分类归档子目录
             progress_callback: 进度回调(extracted, total, filename)
@@ -87,9 +93,10 @@ class APKUnpacker:
             dry_run: 仅预览不实际解压
         """
         try:
-            ctx = APKContext(apk_path)
+            ctx = ArchiveContext(apk_path)
             if dry_run:
                 info = ctx.get_structure_summary()
+                ftype = ctx.file_type
                 ctx.close()
                 return {
                     "success": True, "dry_run": True,
@@ -99,6 +106,7 @@ class APKUnpacker:
                     "res_count": info.get("res_count", 0),
                     "assets_count": info.get("assets_count", 0),
                     "size": info.get("size", 0),
+                    "file_type": ftype,
                     "dir": output_dir
                 }
             result = ctx.extract_to(output_dir, structure=structure,

@@ -3783,8 +3783,8 @@ def main():
     p.set_defaults(func=cmd_search)
 
     # unpack
-    p = sub.add_parser("unpack", help="📦 解压 APK (分类归档/并行/增量/过滤/预览)")
-    p.add_argument("apk", help="APK 文件路径")
+    p = sub.add_parser("unpack", help="📦 解压任意归档 (APK/ZIP/JAR/WAR/TAR/单文件/目录 - 分类归档/并行/增量/过滤/预览)")
+    p.add_argument("apk", help="文件路径 (支持 APK/ZIP/JAR/WAR/TAR/单文件/目录)")
     p.add_argument("output", help="输出目录")
     p.add_argument("--structure", "-s", action="store_true", default=True,
                    help="按分类归档子目录 (dex/lib/res/assets/META-INF) [默认开启]")

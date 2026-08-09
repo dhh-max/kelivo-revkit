@@ -1,6 +1,6 @@
 """APK 高级搜索工具 - 支持正则/十六进制/类名/方法/字符串"""
 import os, re
-from ..core.apk_context import APKContext
+from ..core.archive_context import ArchiveContext as APKContext
 
 class APKSearch:
     """APK 高级搜索引擎"""

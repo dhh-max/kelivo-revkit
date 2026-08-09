@@ -29,7 +29,7 @@ class APKMerger:
         """合并多DEX为单个classes.dex (简单拼接)"""
         ctx = None
         try:
-            from ..core.apk_context import APKContext
+            from ..core.archive_context import ArchiveContext as APKContext
             ctx = APKContext(apk_path)
             dex_files = ctx.get_dex_files()
             if not dex_files:
