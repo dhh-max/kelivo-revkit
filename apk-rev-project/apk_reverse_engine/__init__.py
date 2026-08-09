@@ -484,6 +484,10 @@ from .analysis.enhanced import (
     HookGenerator as _HookGenerator,
     VulnerabilityScanner as _VulnerabilityScanner,
     OptimizationPatternDetector as _OptimizationPatternDetector,
+    DexMetadataAnalyzer as _DexMetadataAnalyzer,
+    MultiDexAnalyzer as _MultiDexAnalyzer,
+    ReportGenerator as _ReportGenerator,
+    NativeCrossRefAnalyzer as _NativeCrossRefAnalyzer,
 )
 from .core.dex.reaching_defs import ReachingDefinitions as _ReachingDefinitions
 from .core.dex.reaching_defs import LiveVariables as _LiveVariables
@@ -1408,6 +1412,18 @@ __all__ = [
     'scan_vulnerabilities', 'scan_vulnerabilities_strings',
     'scan_vulnerabilities_manifest', 'scan_vulnerabilities_dex',
     'analyze_optimization_patterns', 'analyze_method_optimization',
+    # DEX 元数据深度分析
+    'analyze_dex_metadata', 'analyze_annotations', 'analyze_debug_info',
+    'detect_hidden_api', 'detect_annotation_processors', 'detect_serialization',
+    # 多 DEX 关联分析
+    'analyze_multidex', 'analyze_multidex_distribution',
+    'analyze_cross_dex_references', 'detect_duplicate_classes',
+    # Native-Java 交叉引用分析
+    'analyze_native_crossref', 'analyze_native_methods', 'analyze_so_exports',
+    'analyze_jni_callbacks', 'cross_reference_native',
+    # 报告生成
+    'generate_report', 'generate_json_report', 'generate_html_report',
+    'generate_markdown_report',
 ]
 
 
@@ -1520,3 +1536,121 @@ def analyze_method_optimization(instructions, cfg=None, method_info=None):
         dict: 各种优化模式检测结果
     """
     return _OptimizationPatternDetector.analyze_method(instructions, cfg, method_info)
+
+# ========== DEX 元数据深度分析 ==========
+
+def analyze_dex_metadata(dex_parser, max_classes=200):
+    """DEX 元数据深度分析 - Annotation/Debug/Hidden API 检测
+
+    Args:
+        dex_parser: DexParser 实例
+        max_classes: 最大分析类数
+
+    Returns:
+        dict: {annotations, debug_info, hidden_api, annotation_processors, serialization}
+    """
+    return _DexMetadataAnalyzer.analyze(dex_parser, max_classes)
+
+def analyze_annotations(dex_parser):
+    """解析 DEX 中的注解信息（类/字段/方法/参数注解）"""
+    return _DexMetadataAnalyzer.analyze_annotations(dex_parser)
+
+def analyze_debug_info(dex_parser, max_classes=200):
+    """提取 DEX 调试信息（行号映射、局部变量名、源文件）"""
+    return _DexMetadataAnalyzer.analyze_debug_info(dex_parser, max_classes)
+
+def detect_hidden_api(dex_parser):
+    """检测 Hidden API 使用（内部 API、Dalvik 系统 API、反射模式）"""
+    return _DexMetadataAnalyzer.detect_hidden_api(dex_parser)
+
+def detect_annotation_processors(dex_parser):
+    """检测注解处理器框架（ButterKnife/Dagger/Room/EventBus 等）"""
+    return _DexMetadataAnalyzer.detect_annotation_processors(dex_parser)
+
+def detect_serialization(dex_parser):
+    """检测序列化框架使用（Parcelable/Gson/Moshi/Jackson 等）"""
+    return _DexMetadataAnalyzer.detect_serialization(dex_parser)
+
+# ========== 多 DEX 关联分析 ==========
+
+def analyze_multidex(dex_parsers):
+    """多 DEX 关联分析 - 跨 DEX 引用追踪、类分布、重复检测
+
+    Args:
+        dex_parsers: dict {dex_name: DexParser}
+
+    Returns:
+        dict: {distribution, cross_references, duplicates}
+    """
+    return _MultiDexAnalyzer.analyze(dex_parsers)
+
+def analyze_multidex_distribution(dex_parsers):
+    """分析多 DEX 文件的类分布统计"""
+    return _MultiDexAnalyzer.analyze_dex_distribution(dex_parsers)
+
+def analyze_cross_dex_references(dex_parsers):
+    """分析跨 DEX 引用关系（DEX A 引用 DEX B 中的类）"""
+    return _MultiDexAnalyzer.analyze_cross_references(dex_parsers)
+
+def detect_duplicate_classes(dex_parsers):
+    """检测重复类（同包名类名出现在多个 DEX）"""
+    return _MultiDexAnalyzer.detect_duplicate_classes(dex_parsers)
+
+# ========== Native-Java 交叉引用分析 ==========
+
+def analyze_native_crossref(dex_parser=None, so_symbols_map=None, so_data=None):
+    """Native-Java 交叉引用分析 - SO 与 DEX 之间的调用关系追踪
+
+    Args:
+        dex_parser: DexParser 实例（可选）
+        so_symbols_map: dict {so_name: [symbol_names]}（可选）
+        so_data: SO 文件二进制数据（可选，用于 JNI 回调分析）
+
+    Returns:
+        dict: {native_methods, so_exports, jni_callbacks, cross_reference}
+    """
+    return _NativeCrossRefAnalyzer.analyze(dex_parser, so_symbols_map, so_data)
+
+def analyze_native_methods(dex_parser):
+    """从 DEX 中提取 native 方法声明"""
+    return _NativeCrossRefAnalyzer.analyze_native_methods(dex_parser)
+
+def analyze_so_exports(so_symbols, so_name=''):
+    """分析 SO 文件的导出符号（JNI 函数/危险模式）"""
+    return _NativeCrossRefAnalyzer.analyze_so_exports(so_symbols, so_name)
+
+def analyze_jni_callbacks(so_data):
+    """分析 SO 中 JNI 回调 Java 的模式"""
+    return _NativeCrossRefAnalyzer.analyze_jni_callbacks(so_data)
+
+def cross_reference_native(dex_parser, so_symbols_map):
+    """交叉引用分析 - DEX native 方法与 SO 导出符号匹配"""
+    return _NativeCrossRefAnalyzer.cross_reference(dex_parser, so_symbols_map)
+
+# ========== 报告生成 ==========
+
+def generate_report(results, apk_name='', output_path=None, fmt='json'):
+    """生成逆向分析报告（JSON/HTML/Markdown）
+
+    Args:
+        results: 分析结果
+        apk_name: APK 文件名
+        output_path: 输出路径（根据格式自动加扩展名）
+        fmt: 格式 json/html/markdown
+
+    Returns:
+        str: 报告内容
+    """
+    return _ReportGenerator.generate(results, apk_name, output_path, fmt)
+
+def generate_json_report(results, apk_name='', output_path=None):
+    """生成 JSON 格式报告"""
+    return _ReportGenerator.generate_json(results, apk_name, output_path)
+
+def generate_html_report(results, apk_name='', output_path=None):
+    """生成 HTML 格式报告（带样式）"""
+    return _ReportGenerator.generate_html(results, apk_name, output_path)
+
+def generate_markdown_report(results, apk_name='', output_path=None):
+    """生成 Markdown 格式报告"""
+    return _ReportGenerator.generate_markdown(results, apk_name, output_path)

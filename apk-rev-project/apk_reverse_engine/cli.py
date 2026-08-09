@@ -3516,8 +3516,169 @@ _INTERACTIVE_DISPATCH = {
 # 其余命令使用动态分发
 for _n in ("clue", "core", "sdk", "strings", "resobf", "ads", "social",
            "deobf", "cert", "endpoints", "keyscan", "rebuild", "sign", "zipalign",
-           "dataflow", "callgraph", "decrypt", "anti", "crypto", "hook"):
+           "dataflow", "callgraph", "decrypt", "anti", "crypto", "hook",
+           "metadata", "multidex", "native-xref", "report"):
     _INTERACTIVE_DISPATCH.setdefault(_n, _safe_dispatch(_n))
+
+
+# ── 增强分析命令 ──────────────────────────────────────────────
+
+def cmd_metadata(args):
+    """DEX 元数据深度分析 - Annotation/Debug/Hidden API 检测"""
+    import json
+    from apk_reverse_engine.core.apk_file_ops import ApkFileOps
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.analysis.enhanced.dex_metadata import DexMetadataAnalyzer
+
+    ops = ApkFileOps(args.apk)
+    dex_data = ops.get_dex_data()
+    if not dex_data:
+        console.print("[red]未找到 DEX 文件[/]")
+        return
+
+    dp = DexParser(dex_data[0])
+    max_cls = getattr(args, 'max_classes', 200)
+    only = getattr(args, 'only', None)
+
+    if only == 'annotations':
+        result = DexMetadataAnalyzer.analyze_annotations(dp)
+    elif only == 'debug':
+        result = DexMetadataAnalyzer.analyze_debug_info(dp, max_cls)
+    elif only == 'hidden_api':
+        result = DexMetadataAnalyzer.detect_hidden_api(dp)
+    elif only == 'processors':
+        result = DexMetadataAnalyzer.detect_annotation_processors(dp)
+    elif only == 'serialization':
+        result = DexMetadataAnalyzer.detect_serialization(dp)
+    else:
+        result = DexMetadataAnalyzer.analyze(dp, max_cls)
+
+    console.print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+
+
+def cmd_multidex(args):
+    """多 DEX 关联分析"""
+    import json
+    from apk_reverse_engine.core.apk_file_ops import ApkFileOps
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.analysis.enhanced.multidex_analyzer import MultiDexAnalyzer
+
+    ops = ApkFileOps(args.apk)
+    dex_datas = ops.get_dex_data()
+    if not dex_datas:
+        console.print("[red]未找到 DEX 文件[/]")
+        return
+
+    dex_parsers = {}
+    for i, dd in enumerate(dex_datas):
+        dex_parsers[f'classes{i+1 if i > 0 else ""}.dex'] = DexParser(dd)
+
+    only = getattr(args, 'only', None)
+    if only == 'distribution':
+        result = MultiDexAnalyzer.analyze_dex_distribution(dex_parsers)
+    elif only == 'cross_refs':
+        result = MultiDexAnalyzer.analyze_cross_references(dex_parsers)
+    elif only == 'duplicates':
+        result = MultiDexAnalyzer.detect_duplicate_classes(dex_parsers)
+    else:
+        result = MultiDexAnalyzer.analyze(dex_parsers)
+
+    console.print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+
+
+def cmd_native_xref(args):
+    """Native-Java 交叉引用分析"""
+    import json
+    from apk_reverse_engine.core.apk_file_ops import ApkFileOps
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.core.native_analyzer import ElfImage
+    from apk_reverse_engine.analysis.enhanced.native_crossref import NativeCrossRefAnalyzer
+
+    ops = ApkFileOps(args.apk)
+    dex_data = ops.get_dex_data()
+    if not dex_data:
+        console.print("[red]未找到 DEX 文件[/]")
+        return
+
+    dp = DexParser(dex_data[0])
+
+    # 获取 SO 符号
+    so_symbols_map = {}
+    so_files = ops.get_so_files() if hasattr(ops, 'get_so_files') else []
+    if args.so:
+        so_files = [args.so]
+
+    for so_path in so_files:
+        try:
+            with open(so_path, 'rb') as f:
+                so_data = f.read()
+            elf = ElfImage(so_data)
+            symbols = [s.name for s in elf.symbols if s.name]
+            so_name = so_path.split('/')[-1]
+            so_symbols_map[so_name] = symbols
+        except Exception:
+            continue
+
+    result = NativeCrossRefAnalyzer.analyze(
+        dex_parser=dp,
+        so_symbols_map=so_symbols_map if so_symbols_map else None,
+    )
+
+    console.print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+
+
+def cmd_report(args):
+    """生成分析报告"""
+    import json as json_mod
+    from apk_reverse_engine.core.apk_file_ops import ApkFileOps
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.analysis.enhanced.report_generator import ReportGenerator
+    from apk_reverse_engine.analysis.enhanced.vulnerability_scanner import VulnerabilityScanner
+
+    ops = ApkFileOps(args.apk)
+    apk_name = args.apk.split('/')[-1]
+
+    results = {}
+
+    # 基本信息
+    try:
+        from apk_reverse_engine.tools.info_extractor import InfoExtractor
+        info = InfoExtractor(args.apk).extract()
+        results['basic_info'] = info
+    except Exception:
+        results['basic_info'] = {'file': apk_name}
+
+    # DEX 分析
+    try:
+        dex_datas = ops.get_dex_data()
+        if dex_datas:
+            dp = DexParser(dex_datas[0])
+            strings = dp.get_strings()
+            results['dex_info'] = {
+                'class_count': len(dp.get_class_defs()),
+                'string_count': len(strings),
+                'method_count': len(dp.get_methods()),
+            }
+
+            # 漏洞扫描
+            vuln = VulnerabilityScanner.scan_strings(strings)
+            results['vulnerability_scan'] = vuln
+
+            if getattr(args, 'full', False):
+                from apk_reverse_engine.analysis.enhanced.dex_metadata import DexMetadataAnalyzer
+                results['dex_metadata'] = DexMetadataAnalyzer.analyze(dp, max_classes=100)
+    except Exception as e:
+        results['dex_error'] = str(e)
+
+    fmt = args.format
+    output_path = args.output
+
+    report = ReportGenerator.generate(results, apk_name, output_path, fmt)
+    console.print(f"[green]✅ 报告已生成[/] ({fmt})")
+    if output_path:
+        console.print(f"[dim]输出: {output_path}[/]")
+    else:
+        console.print(report[:500] + '...' if len(report) > 500 else report)
 
 
 # ── 主入口 ──────────────────────────────────────────────────
@@ -3975,6 +4136,33 @@ def main():
     p.add_argument("--bypass-emulator", action="store_true", help="生成反模拟器绕过代码")
     p.add_argument("--output", "-o", help="输出文件路径")
     p.set_defaults(func=cmd_hook)
+
+    # metadata - DEX 元数据深度分析
+    p = sub.add_parser("metadata", help="🏷️ DEX 元数据分析 (Annotation/Debug/Hidden API)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("--max-classes", type=int, default=200, help="最大分析类数")
+    p.add_argument("--only", choices=['annotations', 'debug', 'hidden_api', 'processors', 'serialization'], help="仅输出指定分析项")
+    p.set_defaults(func=cmd_metadata)
+
+    # multidex - 多 DEX 关联分析
+    p = sub.add_parser("multidex", help="🔀 多 DEX 关联分析 (跨DEX引用/类分布/重复检测)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("--only", choices=['distribution', 'cross_refs', 'duplicates'], help="仅输出指定分析项")
+    p.set_defaults(func=cmd_multidex)
+
+    # native-xref - Native-Java 交叉引用分析
+    p = sub.add_parser("native-xref", help="🔗 Native-Java 交叉引用 (JNI函数/SO符号匹配)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("--so", help="指定 SO 文件路径（可选，默认自动提取 APK 中所有 SO）")
+    p.set_defaults(func=cmd_native_xref)
+
+    # report - 生成分析报告
+    p = sub.add_parser("report", help="📄 生成分析报告 (JSON/HTML/Markdown)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("--format", "-f", choices=['json', 'html', 'markdown'], default='html', help="输出格式")
+    p.add_argument("--output", "-o", help="输出文件路径")
+    p.add_argument("--full", action="store_true", help="完整报告（包含所有分析项）")
+    p.set_defaults(func=cmd_report)
 
     args = parser.parse_args()
 
