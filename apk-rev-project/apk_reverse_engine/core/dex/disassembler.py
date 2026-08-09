@@ -427,3 +427,125 @@ class Disassembler:
             stats['switches'] * 4 + stats['fields'] + stats['consts']
         )
         return stats
+
+    @staticmethod
+    def build_cfg(instructions):
+        """构建控制流图（CFG）。
+
+        返回 dict：
+        - 'blocks': [{'start', 'end', 'instructions', 'successors', 'predecessors'}]
+        - 'entry': 起始基本块 start 地址
+        - 'edges': [(from_start, to_start)]
+        """
+        if not instructions:
+            return {'blocks': [], 'entry': None, 'edges': []}
+
+        # 指令按地址索引
+        by_addr = {inst.address: inst for inst in instructions}
+        addresses = sorted(by_addr.keys())
+        addr_index = {a: i for i, a in enumerate(addresses)}
+
+        # 收集所有基本块起点：函数入口 + 分支目标
+        leaders = {addresses[0]}
+        for inst in instructions:
+            target = inst.get_branch_target()
+            if target is not None and target in by_addr:
+                leaders.add(target)
+            # 终结指令的下一条是 leader
+            if inst.is_terminator():
+                i = addr_index[inst.address]
+                if i + 1 < len(addresses):
+                    leaders.add(addresses[i + 1])
+
+        # 构建基本块
+        blocks = []
+        cur_start = None
+        cur_insts = []
+        block_map = {}  # start -> block index
+
+        def flush():
+            nonlocal cur_start, cur_insts
+            if cur_insts:
+                idx = len(blocks)
+                blocks.append({
+                    'start': cur_start,
+                    'end': cur_insts[-1].address,
+                    'instructions': cur_insts,
+                    'successors': [],
+                    'predecessors': [],
+                })
+                block_map[cur_start] = idx
+                cur_insts = []
+
+        for inst in instructions:
+            if inst.address in leaders and cur_insts:
+                flush()
+            if not cur_insts:
+                cur_start = inst.address
+            cur_insts.append(inst)
+            if inst.is_terminator() or inst.is_branch() or inst.is_switch():
+                flush()
+        flush()
+
+        # 连接边
+        for i, blk in enumerate(blocks):
+            last = blk['instructions'][-1]
+            nxt_i = addr_index[blk['end']] + 1
+            nxt_addr = addresses[nxt_i] if nxt_i < len(addresses) else None
+
+            succ = []
+            if last.is_switch():
+                # switch 仅能解析 packed/sparse 数据，偏移即目标
+                t = last.get_branch_target()
+                if t is not None and t in block_map:
+                    succ.append(t)
+                if nxt_addr is not None and nxt_addr in block_map:
+                    succ.append(nxt_addr)
+            elif last.is_branch():
+                t = last.get_branch_target()
+                if t is not None and t in block_map:
+                    succ.append(t)
+                if nxt_addr is not None and nxt_addr in block_map:
+                    succ.append(nxt_addr)
+            elif last.is_terminator():
+                if last.name == 'throw':
+                    # 异常可被 catch 捕获，此处不连边
+                    pass
+                else:
+                    # goto/goto/16/goto/32 连到目标
+                    t = last.get_branch_target()
+                    if t is not None and t in block_map:
+                        succ.append(t)
+            else:
+                if nxt_addr is not None and nxt_addr in block_map:
+                    succ.append(nxt_addr)
+            blk['successors'] = succ
+
+        for blk in blocks:
+            for s in blk['successors']:
+                blocks[block_map[s]]['predecessors'].append(blk['start'])
+
+        edges = [(b['start'], s) for b in blocks for s in b['successors']]
+        entry = blocks[0]['start'] if blocks else None
+        return {'blocks': blocks, 'entry': entry, 'edges': edges}
+
+    @staticmethod
+    def get_reachable_instructions(instructions):
+        """返回从入口可达的指令集合（用于裁剪死代码分析）"""
+        cfg = Disassembler.build_cfg(instructions)
+        if not cfg['blocks']:
+            return set()
+        reachable = set()
+        stack = [cfg['entry']]
+        seen = set()
+        while stack:
+            start = stack.pop()
+            if start in seen:
+                continue
+            seen.add(start)
+            blk = next(b for b in cfg['blocks'] if b['start'] == start)
+            for inst in blk['instructions']:
+                reachable.add(inst.address)
+            for s in blk['successors']:
+                stack.append(s)
+        return reachable

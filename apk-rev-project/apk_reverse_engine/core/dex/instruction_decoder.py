@@ -40,9 +40,35 @@ class Instruction:
     def __repr__(self):
         return f'{self.address:04x}: {self.name} {self.operands}'
     
+    def get_branch_target(self):
+        """返回分支目标地址（无条件/条件跳转、switch），非分支返回 None"""
+        ops = self.operands
+        if 'offset' in ops:
+            return self.address + ops['offset']
+        return None
+    
+    def is_terminator(self):
+        """是否为基本块终止指令"""
+        return self.name in ('return-void', 'return', 'return-wide', 'return-object',
+                              'throw', 'goto', 'goto/16', 'goto/32')
+    
+    def is_branch(self):
+        """是否为条件分支"""
+        return self.name.startswith('if-')
+    
+    def is_switch(self):
+        """是否为 switch 指令"""
+        return self.name in ('packed-switch', 'sparse-switch')
+    
     def to_string(self, strings=None, types=None, fields=None, methods=None):
         """格式化为可读指令字符串"""
         ops = self.operands
+        if self.name == 'const-string/jumbo' and self.format == '31c':
+            idx = ops.get('ref', 0)
+            ref_str = ''
+            if strings and idx < len(strings):
+                ref_str = f' // {strings[idx]}'
+            return f'{self.address:04x}: {self.name} v{ops.get("vA")}, type@0x{idx:x}{ref_str}'
         if self.format == '10x':
             return f'{self.address:04x}: {self.name}'
         elif self.format == '11n':
@@ -61,6 +87,10 @@ class Instruction:
             elif self.name.startswith('sget') or self.name.startswith('sput'):
                 if fields and idx < len(fields):
                     ref_str = f' // {fields[idx]}'
+            elif self.name == 'check-cast' and types and idx < len(types):
+                ref_str = f' // {types[idx]}'
+            elif self.name == 'new-instance' and types and idx < len(types):
+                ref_str = f' // {types[idx]}'
             return f'{self.address:04x}: {self.name} v{ops.get("vA")}, type@0x{idx:x}{ref_str}'
         elif self.format == '21s':
             return f'{self.address:04x}: {self.name} v{ops.get("vA")}, #{ops.get("litB")}'
@@ -73,6 +103,10 @@ class Instruction:
             ref_str = ''
             if (self.name.startswith('iget') or self.name.startswith('iput')) and fields and idx < len(fields):
                 ref_str = f' // {fields[idx]}'
+            elif self.name == 'instance-of' and types and idx < len(types):
+                ref_str = f' // {types[idx]}'
+            elif self.name == 'new-array' and types and idx < len(types):
+                ref_str = f' // {types[idx]}'
             elif types and idx < len(types):
                 ref_str = f' // {types[idx]}'
             return f'{self.address:04x}: {self.name} v{ops.get("vA")}, v{ops.get("vB")}, type@0x{idx:x}{ref_str}'
@@ -118,9 +152,7 @@ class Instruction:
             return f'{self.address:04x}: {self.name} {{v{start} .. v{start+count-1}}}, type@0x{idx:x}{ref_str}'
         elif self.format == '51l':
             return f'{self.address:04x}: {self.name} v{ops.get("vA")}, #{ops.get("litB"):#018x}'
-        elif self.format == '10t':
-            return f'{self.address:04x}: {self.name} :{self.address + ops.get("offset", 0):04x}'
-        elif self.format == '20t':
+        elif self.format in ('10t', '20t'):
             return f'{self.address:04x}: {self.name} :{self.address + ops.get("offset", 0):04x}'
         else:
             return f'{self.address:04x}: {self.name} {ops}'

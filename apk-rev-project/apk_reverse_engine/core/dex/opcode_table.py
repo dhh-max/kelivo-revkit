@@ -165,4 +165,7 @@ def is_switch(opcode): return opcode in SWITCH_OPS
 def is_new(opcode): return opcode in NEW_OPS
 def is_array(opcode): return opcode in ARRAY_OPS
 def is_branch(opcode): return opcode in IF_OPS | GOTO_OPS | SWITCH_OPS
+def is_terminator(opcode):
+    """是否为基本块终结指令"""
+    return opcode in RETURN_OPS or opcode == 0x27 or opcode in GOTO_OPS
 
