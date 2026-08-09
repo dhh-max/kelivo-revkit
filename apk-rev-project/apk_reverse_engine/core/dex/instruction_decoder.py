@@ -290,3 +290,132 @@ class InstructionDecoder:
             instructions.append(inst)
             offset += inst.size * 2
         return instructions
+
+    # ── Switch Payload 解码 ──────────────────────────────────────
+
+    @staticmethod
+    def decode_packed_switch(data, offset):
+        """解析 packed-switch-payload 表。
+
+        格式: ident(2) size(2) first_key(4) targets[size](4)
+        返回: {'first_key', 'targets': [relative_offset, ...], 'absolute_targets': [abs_addr, ...]}
+        """
+        try:
+            ident = _u2(data, offset)
+            if ident != 0x0100:
+                return {'error': f'not packed-switch payload (ident=0x{ident:04x})'}
+            size = _u2(data, offset + 2)
+            first_key = _i4(data, offset + 4)
+            targets = []
+            pos = offset + 8
+            for _ in range(size):
+                targets.append(_i4(data, pos))
+                pos += 4
+            return {
+                'type': 'packed',
+                'first_key': first_key,
+                'targets': targets,
+                'size': size,
+            }
+        except Exception as e:
+            return {'error': str(e)}
+
+    @staticmethod
+    def decode_sparse_switch(data, offset):
+        """解析 sparse-switch-payload 表。
+
+        格式: ident(2) size(2) keys[size](4) targets[size](4)
+        返回: {'keys': [...], 'targets': [relative_offset, ...], 'size': size}
+        """
+        try:
+            ident = _u2(data, offset)
+            if ident != 0x0200:
+                return {'error': f'not sparse-switch payload (ident=0x{ident:04x})'}
+            size = _u2(data, offset + 2)
+            keys = []
+            targets = []
+            pos = offset + 4
+            for _ in range(size):
+                keys.append(_i4(data, pos))
+                pos += 4
+            for _ in range(size):
+                targets.append(_i4(data, pos))
+                pos += 4
+            return {
+                'type': 'sparse',
+                'keys': keys,
+                'targets': targets,
+                'size': size,
+            }
+        except Exception as e:
+            return {'error': str(e)}
+
+    @staticmethod
+    def decode_array_data(data, offset):
+        """解析 fill-array-data-payload 表。
+
+        格式: ident(2) element_width(2) size(4) data[element_width * size]
+        返回: {'element_width', 'size', 'values': [...]}
+        """
+        try:
+            ident = _u2(data, offset)
+            if ident != 0x0300:
+                return {'error': f'not array-data payload (ident=0x{ident:04x})'}
+            element_width = _u2(data, offset + 2)
+            size = _u4(data, offset + 4)
+            values = []
+            pos = offset + 8
+            for _ in range(size):
+                raw = data[pos:pos + element_width]
+                if element_width == 1:
+                    values.append(raw[0])
+                elif element_width == 2:
+                    values.append(struct.unpack_from('<h', data, pos)[0])
+                elif element_width == 4:
+                    values.append(struct.unpack_from('<i', data, pos)[0])
+                elif element_width == 8:
+                    values.append(struct.unpack_from('<q', data, pos)[0])
+                else:
+                    values.append(raw.hex())
+                pos += element_width
+            return {
+                'element_width': element_width,
+                'size': size,
+                'values': values,
+                'raw_hex': data[offset + 8:offset + 8 + element_width * size].hex() if size <= 256 else None,
+            }
+        except Exception as e:
+            return {'error': str(e)}
+
+    @staticmethod
+    def resolve_switch_targets(data, switch_inst):
+        """给定一条 packed-switch/sparse-switch 指令，解析其 payload 表
+        并返回所有绝对跳转目标地址列表。
+
+        Args:
+            data: DEX 文件字节
+            switch_inst: Instruction 对象（packed-switch 或 sparse-switch）
+
+        Returns:
+            list of int: 绝对目标地址列表
+        """
+        if not switch_inst or not switch_inst.is_switch():
+            return []
+
+        payload_off = switch_inst.operands.get('offset', 0)
+        if payload_off == 0:
+            return []
+
+        abs_payload = switch_inst.address + payload_off
+        if abs_payload < 0 or abs_payload >= len(data):
+            return []
+
+        if switch_inst.name == 'packed-switch':
+            payload = InstructionDecoder.decode_packed_switch(data, abs_payload)
+            targets = payload.get('targets', [])
+        else:
+            payload = InstructionDecoder.decode_sparse_switch(data, abs_payload)
+            targets = payload.get('targets', [])
+
+        # targets 是相对 switch 指令地址的偏移
+        return [switch_inst.address + t for t in targets if t is not None]
