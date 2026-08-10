@@ -26,7 +26,8 @@ class LiteDexParser:
             if len(raw) > 4096:  # 单条超长字符串截断，防异常
                 raw = raw[:4096]
             return raw.decode('utf-8', errors='replace')
-        except Exception:
+        except Exception as e:
+            from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/lite/dex_parser.py:29 suppressed: %s", e)
             return ''
 
     def parse_strings(self):

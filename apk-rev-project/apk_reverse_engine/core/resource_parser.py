@@ -154,7 +154,8 @@ class ResourceParser:
                     return ''
                 raw = self.data[off:off + cc * 2]
                 return raw.decode('utf-16-le', errors='replace')
-        except Exception:
+        except Exception as e:
+            from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/core/resource_parser.py:157 suppressed: %s", e)
             return ''
 
     def get_string(self, idx):
@@ -429,7 +430,8 @@ class ResourceParser:
                 if cc == 0:
                     return ''
                 return self.data[off:off + cc * 2].decode('utf-16-le', errors='replace')
-        except Exception:
+        except Exception as e:
+            from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/core/resource_parser.py:432 suppressed: %s", e)
             return ''
 
     def _parse_type_spec(self, off):

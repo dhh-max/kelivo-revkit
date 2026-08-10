@@ -115,7 +115,8 @@ def _parse_axml_tags(data, offsets=False):
                     return ''
                 raw = data[off:off + char_count * 2]
                 return raw.decode('utf-16-le', errors='replace')
-        except Exception:
+        except Exception as e:
+            from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/core/manifest_ops.py:118 suppressed: %s", e)
             return ''
 
     for o in str_offsets:

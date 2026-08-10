@@ -110,7 +110,8 @@ def _(text, *args, **kwargs):
     if args or kwargs:
         try:
             return translated % args if args else translated % kwargs
-        except Exception:
+        except Exception as e:
+            from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/utils/i18n.py:113 suppressed: %s", e)
             return translated
     return translated
 

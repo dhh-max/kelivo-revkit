@@ -40,7 +40,8 @@ class AXMLParser:
                     return ""
                 raw = self.data[off:off + char_count * 2]
                 return raw.decode('utf-16-le', errors='replace')
-        except Exception:
+        except Exception as e:
+            from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/utils/axml_parser.py:43 suppressed: %s", e)
             return ""
     def parse(self):
         magic = self._r32()
