@@ -17,7 +17,6 @@ logger = get_logger(__name__)
 
 import os, subprocess, zipfile, hashlib, re, shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
 from ..core.archive_context import ArchiveContext, detect_file_type
 # 兼容别名：APKContext → ArchiveContext
 # 所有原本使用 APKContext 的方法现在统一使用 ArchiveContext

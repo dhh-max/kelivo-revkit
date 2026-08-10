@@ -18,7 +18,7 @@ class Logger:
             ts = datetime.now().strftime('%H:%M:%S.%f')[:-3]
             line = f'[{ts}][{level:5s}][{self.name}] {msg}'
             self.logs.append(line)
-            print(line, file=sys.stderr)
+            print(line, file=sys.stderr)  # fallback before logging is ready
             if level == 'ERROR': self.errors += 1
             if level == 'WARN': self.warnings += 1
 

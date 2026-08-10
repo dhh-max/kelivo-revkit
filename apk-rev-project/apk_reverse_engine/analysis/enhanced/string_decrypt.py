@@ -5,7 +5,6 @@ logger = get_logger(__name__)
 
 import re
 import base64
-import struct
 class StringDecryptor:
     """多策略字符串自动解密引擎"""
 

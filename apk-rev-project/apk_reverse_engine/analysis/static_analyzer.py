@@ -2,7 +2,6 @@ from ..core.archive_context import ArchiveContext as APKContext
 from ..core.manifest_parser import ManifestParser
 from ..core.dex_parser import DexParser
 from ..core.sign_verifier import SignVerifier
-from ..core.native_analyzer import NativeAnalyzer
 
 class StaticAnalyzer:
     def __init__(self, apk_path):

@@ -37,7 +37,6 @@ def apk_structure(apk_path):
         return ctx.get_structure_summary()
 
 # --- Manifest解析 ---
-from .core.manifest_parser import ManifestParser as _ManifestParser
 from .utils.axml_parser import AXMLParser as _AXMLParser
 from .utils.axml_converter import AXMLConverter as _AXMLConverter
 AXMLConverter = _AXMLConverter  # 公开别名
@@ -106,7 +105,6 @@ def dex_methods(data):
 
 # --- ELF/SO解析 ---
 from .core.native_analyzer import NativeAnalyzer as _NativeAnalyzer
-from .core.native_analyzer import ElfImage as _ElfImage
 
 def is_elf(data):
     """检查数据是否为ELF文件"""
@@ -176,7 +174,6 @@ def parse_arsc(data):
 # ============================================================
 
 from .analysis.clue_chain import ClueChain as _ClueChain
-from .analysis.core_class_locator import CoreClassLocator as _CoreClassLocator
 
 from .analysis.static_analyzer import StaticAnalyzer as _StaticAnalyzer
 from .analysis.permission_analyzer import PermissionAnalyzer as _PermissionAnalyzer
@@ -198,6 +195,8 @@ from .analysis.ad_remover import AdRemover as _AdRemover
 from .analysis.deobfuscator import Deobfuscator as _Deobfuscator
 from .analysis.social_login_detector import SocialLoginDetector as _SocialLoginDetector
 from .analysis.ad_ai_engine import AdAIEngine as _AdAIEngine
+from .analysis.ad_ai_engine import DEFAULT_MODEL as _DEFAULT_MODEL
+DEFAULT_MODEL = _DEFAULT_MODEL
 from .analysis.ad_ai_engine import analyze_ad_code as _analyze_ad_code
 from .analysis.ad_ai_engine import analyze_ad_code_stream as _analyze_ad_code_stream
 from .analysis.ad_ai_engine import analyze_ad_code_stream_batch as _analyze_ad_code_stream_batch
@@ -689,7 +688,7 @@ def detect_ad_sdks(smali_root):
     """
     return _AdRemover.detect_ad_sdks(smali_root)
 
-def ai_analyze_ad_code(code, api_key, model="Qwen/Qwen2.5-7B-Instruct",
+def ai_analyze_ad_code(code, api_key, model=DEFAULT_MODEL,
                         source_language="smali", question="",
                         question_mode="direct", api_url="", options=None):
     """AI 广告识别分析 - 使用 LLM 智能分析代码中的广告接口（带自动重试和速率限制）
@@ -709,7 +708,7 @@ def ai_analyze_ad_code(code, api_key, model="Qwen/Qwen2.5-7B-Instruct",
     """
     return _analyze_ad_code(code, api_key, model, source_language, question, question_mode, api_url, options)
 
-def ai_analyze_ad_code_stream(code, api_key, model="Qwen/Qwen2.5-7B-Instruct",
+def ai_analyze_ad_code_stream(code, api_key, model=DEFAULT_MODEL,
                                source_language="smali", question="",
                                question_mode="direct", api_url="", options=None):
     """流式 AI 广告分析 - 逐步返回结果片段
@@ -744,7 +743,7 @@ def ai_list_ad_models(api_key="", api_url=""):
     return _list_ai_models(api_key, api_url) or list(_AdAIEngine.FALLBACK_MODELS)
 
 
-def ai_analyze_ad_code_batch(snippets, api_key, model="Qwen/Qwen2.5-7B-Instruct",
+def ai_analyze_ad_code_batch(snippets, api_key, model=DEFAULT_MODEL,
                              source_language="smali", question="",
                              question_mode="direct", api_url="", options=None,
                              max_workers=0, on_complete=None, on_stream=None):
@@ -774,7 +773,7 @@ def ai_analyze_ad_code_batch(snippets, api_key, model="Qwen/Qwen2.5-7B-Instruct"
                                 question_mode, options, max_workers, on_complete, on_stream)
 
 
-def ai_analyze_ad_code_stream_batch(snippets, api_key, model="Qwen/Qwen2.5-7B-Instruct",
+def ai_analyze_ad_code_stream_batch(snippets, api_key, model=DEFAULT_MODEL,
                                     source_language="smali", question="",
                                     question_mode="direct", api_url="", options=None,
                                     max_workers=0):

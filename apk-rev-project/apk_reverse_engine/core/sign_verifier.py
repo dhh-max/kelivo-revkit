@@ -47,7 +47,7 @@ class SignVerifier:
             except Exception as e:
                 cert_info = {'sha256': hashlib.sha256(cert_data).hexdigest(), 'parse_error': str(e)}
             
-            logger.debug(f"e")
+            logger.debug(f"{e}")
             return {
                 'v1': True,
                 'cert_files': rsa_files,
@@ -104,41 +104,6 @@ class SignVerifier:
             return None
 
     @staticmethod
-    def verify_v2(apk_path):
-        """验证APK Signature Scheme v2/v3"""
-        try:
-            with open(apk_path, 'rb') as f:
-                data = f.read()
-            
-            block_info = SignVerifier._find_apk_signing_block(data)
-            if not block_info:
-                return {'v2': False, 'v3': False, 'reason': 'no APK Signing Block found'}
-            
-            block_data = block_info['data']
-            
-            # Parse signing block pairs
-            pos = 8  # Skip first 8 bytes (size prefix)
-            result = {'v2': False, 'v3': False, 'block_present': True}
-            
-            while pos < len(block_data) - 8:
-                id_value = struct.unpack_from('<I', block_data, pos + 8)[0]
-                
-                if id_value == SignVerifier.ID_APK_SIGNATURE_SCHEME_V2:
-                    result['v2'] = True
-                    result['v2_block_size'] = struct.unpack_from('<Q', block_data, pos)[0] + 8
-                elif id_value == SignVerifier.ID_APK_SIGNATURE_SCHEME_V3:
-                    result['v3'] = True
-                    result['v3_block_size'] = struct.unpack_from('<Q', block_data, pos)[0] + 8
-                
-                # Move to next pair
-                pair_size = struct.unpack_from('<Q', block_data, pos)[0]
-                pos += 8 + pair_size
-                if pair_size == 0:
-                    break
-            
-            return result
-        except Exception as e:
-            return {'v2': False, 'v3': False, 'error': str(e)}
 
     @staticmethod
     def _find_signing_block_pairs(data):
@@ -248,7 +213,7 @@ class SignVerifier:
                         result['cert_der_len'] = len(cert)
                         break
             except ValueError as e:
-                logger.debug(f"e")
+                logger.debug(f"{e}")
 
             return result
         except Exception as e:

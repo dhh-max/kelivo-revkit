@@ -11,7 +11,6 @@
 - 指定Activity的导出/权限
 """
 import re
-from copy import deepcopy
 
 # ── AXML 二进制操作辅助 ──────────────────────────────────────
 # 对于纯文本 XML 的修改，支持正则替换

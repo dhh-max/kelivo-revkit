@@ -12,7 +12,6 @@
   8. API 端点模式分析
 """
 import re
-from collections import Counter
 
 
 class NetworkAnalyzer:

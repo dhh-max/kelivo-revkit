@@ -55,7 +55,6 @@ class APKRepacker:
     @staticmethod
     def zip_update(apk_path, file_entries):
         """更新APK中的文件 (file_entries: {arcname: data_bytes})"""
-        import tempfile
         tmp = apk_path + '.tmp'
         with zipfile.ZipFile(apk_path, 'r') as zin:
             with zipfile.ZipFile(tmp, 'w', zipfile.ZIP_DEFLATED) as zout:

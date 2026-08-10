@@ -3,7 +3,6 @@
 from apk_reverse_engine.utils.logutil import get_logger
 logger = get_logger(__name__)
 
-import hashlib
 from datetime import datetime
 class CertDeepAnalyzer:
     """深度证书分析引擎：分析签名证书安全性、异常检测、兼容性评估"""

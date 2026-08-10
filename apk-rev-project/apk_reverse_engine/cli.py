@@ -13,27 +13,18 @@ for p in (_pkg_root, '/home', '/home/kelivo-revkit'):
     if p and p not in sys.path:
         sys.path.insert(0, p)
 
-from apk_reverse_engine import *
-from apk_reverse_engine import open_apk, get_manifest_info, static_analyze, analyze_full
+from apk_reverse_engine import open_apk, list_apk_files, read_apk_file, extract_apk, apk_structure, parse_manifest, get_manifest_info, parse_dex, dex_header, dex_summary, dex_classes, dex_class_names, dex_search_classes, dex_search_methods, dex_strings, dex_methods, is_elf, analyze_elf, parse_elf, elf_imports, elf_exports, elf_find_strings, elf_detect_crypto, elf_detect_packer, verify_signature_v1, verify_signature_v2, verify_signature, extract_cert_sha256, parse_arsc, static_analyze, analyze_permissions, detect_obfuscation, detect_packer, detect_anti_tamper, detect_reflection, detect_string_encryption, security_analyze, analyze_code, analyze_network, analyze_full, clue_chain_analyze, compare_apks, extract_endpoints, scan_keys, detect_weak_crypto, detect_sdks, analyze_sdk_privacy, analyze_cert_deep, analyze_apk_clean, clean_apk, analyze_strings, detect_resource_obfuscation, manifest_edit, manifest_enable_debuggable, manifest_disable_debuggable, manifest_set_exported, detect_ads, detect_social_login, analyze_dataflow, trace_register, propagate_constants, build_call_graph, find_callers, find_callees, find_entry_points, find_hotspots, detect_recursive, auto_decrypt_strings, find_encrypted_strings, analyze_decrypt_pattern, detect_anti_analysis, detect_timing_checks, analyze_crypto, generate_frida_hook, generate_xposed_module, generate_smali_patch, deobfuscate_analyze, analyze_danger_summary, build_cfg, analyze_method, smali_patch_return, smali_patch_condition, smali_bypass_signature, manifest_patch, manifest_set_debuggable, manifest_allow_backup, integrity_patch_debug, integrity_patch_root, native_patch_hex, native_patch_string, native_patch_bytes, native_patch_ret, native_nop_out, native_patch_elf_entry, resource_patch_arsc, resource_patch_package_name, unpack_apk, extract_dex, extract_so, extract_resources, extract_selective, extract_parallel, extract_incremental, extract_by_category, verify_unpack, extract_manifest, apktool_decode, apktool_build, zip_rebuild, zip_update, zipalign, sign_debug, sign_apk, search_apk, jadx_decompile, androguard_analyze, dex2jar, jar2dex, dex2smali, smali2dex, merge_apks, merge_dex, ensure_dir, safe_delete, get_temp_dir, copy_file, human_size, file_sha256, file_md5, safe_write, merge_files, smali_parse_class, smali_find_methods, smali_find_strings, smali_extract_method, smali_find_invokes, smali_analyze_method, cert_parse, cert_info, Logger, AXMLConverter, apk_list_files, delete_files_from_apk, delete_files_by_pattern, update_file_in_apk, add_file_to_apk, find_tags, remove_tags, remove_tags_by_rule, remove_component, replace_attr_value, replace_launcher_activity, get_attr_value, get_all_attr_values, _, set_lang, get_lang, LANGUAGES, LANG_CODES, save_lang, language_name, i18n_register, ResourceLanguageTool, locate_core_classes, locate_core_classes_from_apk, create_knowledge_base, seed_knowledge, get_ad_template, get_ad_sdk_template, format_ad_analysis_prompt, get_ad_blocking_suggestions, get_ad_common_keywords, get_ad_obfuscated_guide, get_all_ad_templates, reload_ad_templates, remove_ads, detect_ad_sdks, ai_analyze_ad_code, ai_analyze_ad_code_stream, ai_prefilter_ad_code, ai_list_ad_models, ai_analyze_ad_code_batch, ai_analyze_ad_code_stream_batch, ai_save_analysis_to_kb, ai_load_analysis_from_kb, remove_share_popup, unpack_apk_lite, analyze_apk_lite, auto_find_apks, analyze_reaching_defs, analyze_live_variables, infer_types, scan_vulnerabilities, scan_vulnerabilities_strings, scan_vulnerabilities_manifest, scan_vulnerabilities_dex, analyze_optimization_patterns, analyze_method_optimization, analyze_dex_metadata, analyze_annotations, analyze_debug_info, detect_hidden_api, detect_annotation_processors, detect_serialization, analyze_multidex, analyze_multidex_distribution, analyze_cross_dex_references, detect_duplicate_classes, analyze_native_crossref, analyze_native_methods, analyze_so_exports, analyze_jni_callbacks, cross_reference_native, generate_report, generate_json_report, generate_html_report, generate_markdown_report
 from apk_reverse_engine.tools.unpacker import APKUnpacker as _APKUnpacker
 from apk_reverse_engine.tools.standalone_unpacker import unpack_apk_standalone as _standalone_unpack
-from apk_reverse_engine.tools.info_extractor import APKInfoExtractor as _APKInfoExtractor
-from apk_reverse_engine.tools.validator import APKValidator as _APKValidator
-from apk_reverse_engine.tools.batch import APKBatchProcessor as _APKBatchProcessor
 
 # ── Rich UI ──────────────────────────────────────────────────
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
-from rich.syntax import Syntax
-from rich.tree import Tree
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
-from rich.columns import Columns
-from rich.layout import Layout
 from rich.text import Text
 from rich import box
 from rich.markdown import Markdown
-from datetime import datetime
 
 console = Console()
 
@@ -3639,7 +3630,6 @@ def cmd_native_xref(args):
 
 def cmd_report(args):
     """生成分析报告"""
-    import json as json_mod
     from apk_reverse_engine.core.apk_file_ops import ApkFileOps
     from apk_reverse_engine.core.dex_parser import DexParser
     from apk_reverse_engine.analysis.enhanced.report_generator import ReportGenerator

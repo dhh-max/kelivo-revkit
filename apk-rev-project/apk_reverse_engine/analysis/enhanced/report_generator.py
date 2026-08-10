@@ -8,7 +8,6 @@
 import json
 import os
 import time
-from collections import defaultdict
 from html import escape
 
 

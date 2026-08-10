@@ -2,4 +2,3 @@ from .opcode_table import Opcode, OPCODE_FORMAT, OPCODE_NAMES, is_terminator, is
 from .instruction_decoder import InstructionDecoder, Instruction
 from .disassembler import Disassembler, DebugInfoParser, TryCatchParser
 from .reaching_defs import ReachingDefinitions, LiveVariables
-from .type_inference import TypeInference

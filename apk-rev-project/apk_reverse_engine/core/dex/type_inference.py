@@ -6,7 +6,6 @@
 - 类型一致性检查：检测类型不匹配的指令
 - 精确类型 vs 宽松类型推断
 """
-from collections import defaultdict
 
 
 # Dalvik 类型分类

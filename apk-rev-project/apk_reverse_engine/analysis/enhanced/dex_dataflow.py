@@ -1,6 +1,5 @@
 """DEX 数据流分析器 - 寄存器追踪、污点分析、常量传播"""
 import struct
-from collections import defaultdict
 from ..code_analyzer import CFGBuilder
 
 class TaintTracker:

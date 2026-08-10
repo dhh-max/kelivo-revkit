@@ -10,7 +10,6 @@
 - 综合评分: 给出资源混淆程度评分
 """
 import re
-import os
 from collections import Counter, defaultdict
 
 

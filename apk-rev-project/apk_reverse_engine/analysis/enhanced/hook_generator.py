@@ -1,6 +1,5 @@
 """Hook生成器 - 自动生成Frida/Xposed hook脚本"""
 import re
-import json
 
 class HookGenerator:
     """根据分析结果自动生成Hook脚本"""

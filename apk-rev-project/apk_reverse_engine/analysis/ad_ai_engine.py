@@ -36,6 +36,9 @@ Author: APK Reverse Engine
 from apk_reverse_engine.utils.logutil import get_logger
 logger = get_logger(__name__)
 
+# Default model name
+DEFAULT_MODEL = "Qwen/Qwen2.5-7B-Instruct"
+
 import os
 import json
 import time
@@ -135,7 +138,7 @@ class AdAIEngine:
         "Qwen/Qwen3-8B": "通义千问3-8B",
         "THUDM/GLM-Z1-9B-0414": "智谱GLM-Z1-9B",
         "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B": "DeepSeek-R1-Distill",
-        "Qwen/Qwen2.5-7B-Instruct": "通义千问2.5-7B",
+        DEFAULT_MODEL: "通义千问2.5-7B",
         "THUDM/glm-4-9b-chat": "智谱GLM-4-9B",
         "Qwen/Qwen2.5-Coder-7B-Instruct": "通义千问2.5-代码专家",
     }
@@ -638,7 +641,7 @@ class AdAIEngine:
     # ================================================================
 
     def analyze(self, code: str, source_language: str = "smali",
-                model: str = "Qwen/Qwen2.5-7B-Instruct",
+                model: str = DEFAULT_MODEL,
                 question: str = "",
                 question_mode: str = "direct",
                 options: Optional[Dict] = None,
@@ -768,7 +771,7 @@ class AdAIEngine:
         cls._rate_limit_enabled = enabled
 
     def analyze_stream(self, code: str, source_language: str = "smali",
-                       model: str = "Qwen/Qwen2.5-7B-Instruct",
+                       model: str = DEFAULT_MODEL,
                        question: str = "",
                        question_mode: str = "direct",
                        options: Optional[Dict] = None,
@@ -1158,7 +1161,7 @@ class AdAIEngine:
     # ================================================================
 
     def analyze_batch(self, snippets: List[Dict], source_language: str = "smali",
-                      model: str = "Qwen/Qwen2.5-7B-Instruct",
+                      model: str = DEFAULT_MODEL,
                       question: str = "",
                       question_mode: str = "direct",
                       options: Optional[Dict] = None,
@@ -1267,7 +1270,7 @@ class AdAIEngine:
         return results  # type: ignore[return-value]
 
     def analyze_stream_batch(self, snippets: List[Dict], source_language: str = "smali",
-                             model: str = "Qwen/Qwen2.5-7B-Instruct",
+                             model: str = DEFAULT_MODEL,
                              question: str = "",
                              question_mode: str = "direct",
                              options: Optional[Dict] = None,
@@ -1325,7 +1328,7 @@ class AdAIEngine:
 
 # ── 快捷函数 ──────────────────────────────────────────────────
 
-def analyze_ad_code(code: str, api_key: str, model: str = "Qwen/Qwen2.5-7B-Instruct",
+def analyze_ad_code(code: str, api_key: str, model: str = DEFAULT_MODEL,
                     source_language: str = "smali", question: str = "",
                     question_mode: str = "direct", api_url: str = "",
                     options: Optional[Dict] = None) -> str:
@@ -1334,7 +1337,7 @@ def analyze_ad_code(code: str, api_key: str, model: str = "Qwen/Qwen2.5-7B-Instr
     return engine.analyze(code, source_language, model, question, question_mode, options)
 
 
-def analyze_ad_code_stream(code: str, api_key: str, model: str = "Qwen/Qwen2.5-7B-Instruct",
+def analyze_ad_code_stream(code: str, api_key: str, model: str = DEFAULT_MODEL,
                            source_language: str = "smali", question: str = "",
                            question_mode: str = "direct", api_url: str = "",
                            options: Optional[Dict] = None) -> Iterator[str]:
@@ -1355,7 +1358,7 @@ def list_ai_models(api_key: str, api_url: str = "") -> List[str]:
 
 
 def analyze_ad_code_batch(snippets: List[Dict], api_key: str,
-                          model: str = "Qwen/Qwen2.5-7B-Instruct",
+                          model: str = DEFAULT_MODEL,
                           source_language: str = "smali",
                           question: str = "",
                           question_mode: str = "direct",
@@ -1374,7 +1377,7 @@ def analyze_ad_code_batch(snippets: List[Dict], api_key: str,
 
 
 def analyze_ad_code_stream_batch(snippets: List[Dict], api_key: str,
-                                 model: str = "Qwen/Qwen2.5-7B-Instruct",
+                                 model: str = DEFAULT_MODEL,
                                  source_language: str = "smali",
                                  question: str = "",
                                  question_mode: str = "direct",
