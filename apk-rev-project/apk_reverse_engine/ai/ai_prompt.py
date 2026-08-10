@@ -19,6 +19,7 @@ class AiPrompt:
         sb.append("本工具是一个全功能 APK 逆向分析 CLI 工具集，支持静态分析、动态 Hook、脱壳、修补、重打包等。\n")
 
         sb.append("当你根据用户需求分析出结果后，可以直接输出分析结论或操作建议。\n")
+        sb.append("你必须始终使用简体中文进行回复和输出，禁止使用英文回复。\n")
 
         if mcp_enabled:
             sb.append("【工具后端（MCP）】\n")
