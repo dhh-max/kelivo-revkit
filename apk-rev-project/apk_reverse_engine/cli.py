@@ -3696,6 +3696,91 @@ def cmd_clone(args):
         console.print(json.dumps(all_results, ensure_ascii=False, indent=2, default=str))
 
 
+def cmd_size(args):
+    """APK 体积分析"""
+    import json
+    from apk_reverse_engine.analysis.apk_size_analyzer import ApkSizeAnalyzer
+    result = ApkSizeAnalyzer.analyze(args.apk)
+    if 'error' in result:
+        console.print(f"[red]{result['error']}[/]")
+        return
+    if args.summary:
+        result = ApkSizeAnalyzer.get_summary(result)
+    console.print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+
+
+def cmd_fields(args):
+    """DEX 字段分析 (静态字段/实例字段/常量/敏感字段)"""
+    import json
+    from apk_reverse_engine.core.apk_file_ops import ApkFileOps
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.analysis.dex_field_analyzer import DexFieldAnalyzer
+    ops = ApkFileOps(args.apk)
+    dex_datas = ops.get_dex_data()
+    if not dex_datas:
+        console.print("[red]未找到 DEX 文件[/]")
+        return
+    all_results = []
+    for i, dex_data in enumerate(dex_datas):
+        dp = DexParser(dex_data)
+        result = DexFieldAnalyzer.analyze(dp)
+        if args.summary:
+            result = DexFieldAnalyzer.get_summary(result)
+            result['dex_index'] = i
+        all_results.append(result)
+    if len(all_results) == 1:
+        console.print(json.dumps(all_results[0], ensure_ascii=False, indent=2, default=str))
+    else:
+        console.print(json.dumps(all_results, ensure_ascii=False, indent=2, default=str))
+
+
+def cmd_privacy(args):
+    """隐私审计 (数据收集行为/外传风险/综合评分)"""
+    import json
+    from apk_reverse_engine.core.apk_file_ops import ApkFileOps
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.core.manifest_parser import ManifestParser
+    from apk_reverse_engine.utils.axml_converter import AxmlConverter
+    from apk_reverse_engine.analysis.privacy_auditor import PrivacyAuditor
+    from apk_reverse_engine.analysis.component_explorer import ComponentExplorer
+    ops = ApkFileOps(args.apk)
+    # 获取权限
+    manifest_data = ops.get_manifest()
+    permissions = []
+    component_analysis = None
+    if manifest_data:
+        manifest_xml = AxmlConverter.decode(manifest_data)
+        permissions = ManifestParser.extract_permissions(manifest_xml) if hasattr(ManifestParser, 'extract_permissions') else []
+        # 尝试组件分析
+        try:
+            component_analysis = ComponentExplorer.analyze(manifest_xml)
+        except Exception:
+            pass
+    # 获取 DEX
+    dex_datas = ops.get_dex_data()
+    all_results = []
+    for i, dex_data in enumerate(dex_datas):
+        dp = DexParser(dex_data)
+        result = PrivacyAuditor.audit(
+            dex_parser=dp,
+            permissions=permissions,
+            component_analysis=component_analysis if i == 0 else None,
+        )
+        result['dex_index'] = i
+        all_results.append(result)
+    if len(all_results) == 1:
+        console.print(json.dumps(all_results[0], ensure_ascii=False, indent=2, default=str))
+    else:
+        # 合并结果
+        merged = {
+            'privacy_risk_score': max(r['privacy_risk_score'] for r in all_results),
+            'privacy_risk_level': max(all_results, key=lambda r: r['privacy_risk_score'])['privacy_risk_level'],
+            'all_dex_results': all_results,
+            'recommendations': all_results[0]['recommendations'] if all_results else [],
+        }
+        console.print(json.dumps(merged, ensure_ascii=False, indent=2, default=str))
+
+
 def cmd_report(args):
     """生成分析报告"""
     from apk_reverse_engine.core.apk_file_ops import ApkFileOps
@@ -4238,6 +4323,18 @@ def main():
     p.add_argument("--summary", action="store_true", help="输出摘要信息（Top5克隆组）")
     p.set_defaults(func=cmd_clone)
 
+    p = sub.add_parser("size", help="📦 APK 体积分析 (各组成大小/优化建议/冗余检测)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("--summary", action="store_true", help="输出摘要信息")
+    p.set_defaults(func=cmd_size)
+    p = sub.add_parser("fields", help="🗂️ DEX 字段分析 (静态字段/实例字段/常量/敏感字段)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("--summary", action="store_true", help="输出摘要信息")
+    p.set_defaults(func=cmd_fields)
+    p = sub.add_parser("privacy", help="🔒 隐私审计 (数据收集行为/外传风险/综合评分)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("--summary", action="store_true", help="输出摘要信息")
+    p.set_defaults(func=cmd_privacy)
     p = sub.add_parser("report", help="📄 生成分析报告 (JSON/HTML/Markdown)")
     p.add_argument("apk", help="APK 文件路径")
     p.add_argument("--format", "-f", choices=['json', 'html', 'markdown'], default='html', help="输出格式")
@@ -4257,7 +4354,7 @@ def main():
         console.print()
         console.print(Panel.fit(
             "[bold cyan]⚡ APK Reverse Engineering Engine v2[/]\n"
-            "[dim]  全功能 APK 逆向工具集  |  49 命令  |  16,000+ 行核心引擎  [/]",
+            "[dim]  全功能 APK 逆向工具集  |  52 命令  |  16,000+ 行核心引擎  [/]",
             border_style="cyan", box=box.DOUBLE_EDGE
         ))
         console.print()

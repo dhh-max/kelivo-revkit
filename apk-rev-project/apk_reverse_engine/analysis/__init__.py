@@ -30,6 +30,9 @@ from .ad_ai_engine import (
 )
 from .component_explorer import ComponentExplorer
 from .dex_clone_detector import DexCloneDetector
+from .apk_size_analyzer import ApkSizeAnalyzer
+from .dex_field_analyzer import DexFieldAnalyzer
+from .privacy_auditor import PrivacyAuditor
 from .enhanced import (
     DexDataFlowAnalyzer,
     TaintTracker,
@@ -52,4 +55,5 @@ __all__ = [
     'DexDataFlowAnalyzer', 'TaintTracker', 'CallGraphBuilder', 'StringDecryptor',
     'AntiAnalysisDetector', 'CryptoAnalyzer', 'HookGenerator',
     'ComponentExplorer', 'DexCloneDetector',
+    'ApkSizeAnalyzer', 'DexFieldAnalyzer', 'PrivacyAuditor',
 ]
