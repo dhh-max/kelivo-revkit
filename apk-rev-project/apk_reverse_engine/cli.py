@@ -3833,6 +3833,108 @@ def cmd_report(args):
     else:
         console.print(report[:500] + '...' if len(report) > 500 else report)
 
+def cmd_permtrace(args):
+    """权限使用追溯分析 (追踪权限在DEX中的实际API调用路径)"""
+    import json
+    from apk_reverse_engine.core.apk_file_ops import ApkFileOps
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.core.manifest_parser import ManifestParser
+    from apk_reverse_engine.utils.axml_converter import AxmlConverter
+    from apk_reverse_engine.analysis.permission_tracer import PermissionTracer
+
+    ops = ApkFileOps(args.apk)
+    manifest_data = ops.get_manifest()
+    permissions = []
+    if manifest_data:
+        manifest_xml = AxmlConverter.decode(manifest_data)
+        permissions = ManifestParser.extract_permissions(manifest_xml) if hasattr(ManifestParser, 'extract_permissions') else []
+
+    dex_datas = ops.get_dex_data()
+    if not dex_datas:
+        console.print("[red]未找到 DEX 文件[/]")
+        return
+
+    all_results = []
+    for i, dex_data in enumerate(dex_datas):
+        dp = DexParser(dex_data)
+        strings = dp.get_strings()
+        result = PermissionTracer.analyze(
+            manifest_info={'permissions': permissions},
+            dex_strings_list=strings,
+        )
+        result['dex_index'] = i
+        all_results.append(result)
+
+    if len(all_results) == 1:
+        console.print(json.dumps(all_results[0], ensure_ascii=False, indent=2, default=str))
+    else:
+        console.print(json.dumps(all_results, ensure_ascii=False, indent=2, default=str))
+
+
+def cmd_apistats(args):
+    """API调用统计 (DEX中API使用频率/分布)"""
+    import json
+    from apk_reverse_engine.core.apk_file_ops import ApkFileOps
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.analysis.api_usage_analyzer import ApiUsageAnalyzer
+
+    ops = ApkFileOps(args.apk)
+    dex_datas = ops.get_dex_data()
+    if not dex_datas:
+        console.print("[red]未找到 DEX 文件[/]")
+        return
+
+    all_results = []
+    for i, dex_data in enumerate(dex_datas):
+        dp = DexParser(dex_data)
+        strings = dp.get_strings()
+        result = ApiUsageAnalyzer.analyze(strings)
+        result['dex_index'] = i
+        all_results.append(result)
+
+    if len(all_results) == 1:
+        console.print(json.dumps(all_results[0], ensure_ascii=False, indent=2, default=str))
+    else:
+        console.print(json.dumps(all_results, ensure_ascii=False, indent=2, default=str))
+
+
+def cmd_sigcheck(args):
+    """APK签名方案检测 (V1/V2/V3/V4签名方案)"""
+    import json
+    from apk_reverse_engine.analysis.signature_scheme_detector import SignatureSchemeDetector
+
+    result = SignatureSchemeDetector.detect(args.apk)
+    if 'error' in result:
+        console.print(f"[red]{result['error']}[/]")
+        return
+    console.print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+
+
+def cmd_certdeep(args):
+    """证书深度分析 (调试证书/有效期/CA/异常检测)"""
+    import json
+    from apk_reverse_engine.core.apk_file_ops import ApkFileOps
+    from apk_reverse_engine.analysis.cert_deep_analyzer import CertDeepAnalyzer
+
+    ops = ApkFileOps(args.apk)
+    cert_info = ops.get_cert_info() if hasattr(ops, 'get_cert_info') else None
+    if not cert_info:
+        # 尝试从META-INF提取证书
+        try:
+            import zipfile
+            with zipfile.ZipFile(args.apk) as zf:
+                cert_files = [f for f in zf.namelist() if f.startswith('META-INF/') and (f.endswith('.RSA') or f.endswith('.DSA'))]
+                if cert_files:
+                    cert_info = {'cert_files': cert_files}
+        except Exception as e:
+            console.print(f"[red]无法提取证书信息: {e}[/]")
+            return
+
+    result = CertDeepAnalyzer.analyze(cert_info or {})
+    summary = CertDeepAnalyzer.format_cert_summary(result)
+    console.print(json.dumps(summary, ensure_ascii=False, indent=2, default=str))
+
+
 def cmd_device(args):
     """设备集成 - ADB 真机/模拟器操作"""
     from apk_reverse_engine.device.adb import ADB
@@ -4509,7 +4611,7 @@ def main():
   reng patch app.apk out --type hex --old 9090 --new 9091  SO 补丁
         """
     )
-    parser.add_argument('--version', action='version', version='APK Reverse Engine v2.4.0')
+    parser.add_argument('--version', action='version', version='APK Reverse Engine v2.5.0')
     parser.add_argument('--interactive', '-i', action='store_true', help='🎮 进入交互式菜单模式')
     sub = parser.add_subparsers(dest="command")
 
@@ -5139,6 +5241,26 @@ def main():
     p.add_argument("target", help="目标方法/类全名")
     p.set_defaults(func=cmd_xref)
 
+    # ── permtrace: 权限使用追溯 ──
+    p = sub.add_parser("permtrace", help="🔍 权限使用追溯 (追踪权限在DEX中的API调用路径)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.set_defaults(func=cmd_permtrace)
+
+    # ── apistats: API调用统计 ──
+    p = sub.add_parser("apistats", help="📊 API调用统计 (DEX中API使用频率/分布)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.set_defaults(func=cmd_apistats)
+
+    # ── sigcheck: 签名方案检测 ──
+    p = sub.add_parser("sigcheck", help="🔑 APK签名方案检测 (V1/V2/V3/V4)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.set_defaults(func=cmd_sigcheck)
+
+    # ── certdeep: 证书深度分析 ──
+    p = sub.add_parser("certdeep", help="📜 证书深度分析 (调试证书/有效期/CA/异常)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.set_defaults(func=cmd_certdeep)
+
     # ── optcheck: 优化模式检测 ──
     p = sub.add_parser("optcheck", help="⚙️ 优化模式检测 (编译器优化/设计模式/代码特征)")
     p.add_argument("apk")
@@ -5156,7 +5278,7 @@ def main():
         console.print()
         console.print(Panel.fit(
             "[bold cyan]⚡ APK Reverse Engineering Engine v2[/]\n"
-            "[dim]  全功能 APK 逆向工具集  |  60 命令  |  17,000+ 行核心引擎  [/]",
+            "[dim]  全功能 APK 逆向工具集  |  64 命令  |  18,000+ 行核心引擎  [/]",
             border_style="cyan", box=box.DOUBLE_EDGE
         ))
         console.print()
@@ -5249,6 +5371,10 @@ def main():
                 ("apkinfo", "📊 APK 深度信息 (包名/版本/权限/签名)"),
                 ("xref", "🔗 交叉引用分析 (调用者/被调用者)"),
                 ("optcheck", "⚙️ 优化模式检测 (编译器/设计模式)"),
+                ("permtrace", "🔍 权限使用追溯 (DEX中权限API路径)"),
+                ("apistats", "📊 API调用统计 (使用频率/分布)"),
+                ("sigcheck", "🔑 APK签名方案检测 (V1/V2/V3/V4)"),
+                ("certdeep", "📜 证书深度分析 (调试/有效期/CA)"),
             ]),
         ]
 
