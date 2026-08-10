@@ -33,7 +33,8 @@ class APKSearch:
                                     'content': line.strip()[:200],
                                 })
                                 count += 1
-                except Exception:
+                except Exception as e:
+                    from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/tools/searcher.py:36 suppressed: %s", e)
                     pass
         return {'results': results, 'total': len(results)}
     
@@ -77,7 +78,8 @@ class APKSearch:
                     for m in methods[:max_results - len(results)]:
                         results.append({'file': f, 'content': f'method: {m["class"]}->{m["name"]}'})
                         count += 1
-            except Exception:
+            except Exception as e:
+                from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/tools/searcher.py:80 suppressed: %s", e)
                 pass
         ctx.close()
         return {'results': results, 'total': len(results)}
@@ -105,7 +107,8 @@ class APKSearch:
                     results.append({'file': f, 'offset': idx, 'hex': context_hex})
                     count += 1
                     start = idx + 1
-            except Exception:
+            except Exception as e:
+                from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/tools/searcher.py:108 suppressed: %s", e)
                 pass
         ctx.close()
         return {'results': results, 'total': len(results)}
@@ -215,7 +218,8 @@ class APKSearch:
                             'content': text[line_start:line_end].strip()[:200],
                         })
                         count += 1
-            except Exception:
+            except Exception as e:
+                from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/tools/searcher.py:218 suppressed: %s", e)
                 pass
         ctx.close()
         return {'results': results, 'total': len(results)}

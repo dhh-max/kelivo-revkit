@@ -108,7 +108,8 @@ class APKCleaner:
                     try:
                         data = z.read(name)
                         file_contents[name] = data
-                    except Exception:
+                    except Exception as e:
+                        from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/analysis/apk_cleaner.py:111 suppressed: %s", e)
                         pass
 
             # 5. 重复文件检测

@@ -154,7 +154,8 @@ class APKContext:
                         for chunk in iter(lambda: fh.read(65536), b''):
                             sha.update(chunk)
                     sha_ok = True
-                except Exception:
+                except Exception as e:
+                    from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/core/apk_context.py:157 suppressed: %s", e)
                     pass
 
         return {

@@ -581,7 +581,8 @@ def locate_core_classes_from_apk(apk_path, top_n=20, min_score=10, include_sdk=F
             try:
                 manifest_data = zf.read('AndroidManifest.xml')
                 manifest_info = ManifestParser.get_simple(manifest_data)
-            except Exception:
+            except Exception as e:
+                from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/analysis/core_class_locator.py:584 suppressed: %s", e)
                 pass
 
         # 处理所有 DEX 文件

@@ -32,7 +32,8 @@ def get_saved_lang():
         try:
             with open(_lang_file, 'r', encoding='utf-8') as f:
                 return json.load(f).get("lang", "zh_CN")
-        except Exception:
+        except Exception as e:
+            from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/utils/i18n.py:35 suppressed: %s", e)
             pass
     return os.environ.get("RENG_LANG", "zh_CN")
 
@@ -46,7 +47,9 @@ def save_lang(lang):
             with open(_lang_file, 'w', encoding='utf-8') as f:
                 json.dump({"lang": lang}, f, ensure_ascii=False)
             return True
-        except Exception:
+        except Exception as e:
+            from apk_reverse_engine.utils.logutil import get_logger
+            get_logger(__name__).warning("save_lang failed: %s", e)
             return False
     return False
 
@@ -534,7 +537,8 @@ for _d in [os.path.join(_home, ".config", "reng"),
                     _current_lang = _data["lang"]
                     _lang_file = _f
                     break
-        except Exception:
+        except Exception as e:
+            from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/utils/i18n.py:539 suppressed: %s", e)
             pass
 
 # 如果没有找到持久化配置，设置默认路径

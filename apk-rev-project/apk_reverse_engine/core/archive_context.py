@@ -54,12 +54,14 @@ def detect_file_type(path):
                 f.close()
                 if len(inner) > 262 and inner[257:262] == b'ustar':
                     return 'tar', '.tar.gz'
-            except Exception:
+            except Exception as e:
+                from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/core/archive_context.py:57 suppressed: %s", e)
                 pass
             return 'gzip', '.gz'
         if magic[:5] == b'ustar' or (len(magic) >= 6 and magic[257:262] == b'ustar'):
             return 'tar', '.tar'
-    except Exception:
+    except Exception as e:
+        from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/core/archive_context.py:62 suppressed: %s", e)
         pass
 
     return 'file', os.path.splitext(path)[1]
@@ -404,7 +406,8 @@ class ArchiveContext:
                     # 保留权限
                     try:
                         os.chmod(dest_path, member.mode)
-                    except Exception:
+                    except Exception as e:
+                        from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/core/archive_context.py:407 suppressed: %s", e)
                         pass
 
                 elif self._file_type == 'dir':
@@ -450,7 +453,8 @@ class ArchiveContext:
                         for chunk in iter(lambda: fh.read(65536), b''):
                             sha.update(chunk)
                     sha_ok = True
-                except Exception:
+                except Exception as e:
+                    from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/core/archive_context.py:453 suppressed: %s", e)
                     pass
 
         return {

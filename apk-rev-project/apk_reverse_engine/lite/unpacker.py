@@ -588,7 +588,8 @@ def unpack_apk_standalone(apk_path, output_dir=None, mode='analyze', compact=Tru
                     if name.endswith('.so'):
                         os.chmod(dest, os.stat(dest).st_mode | 0o111)
                     extracted += 1
-                except Exception:
+                except Exception as e:
+                    from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/lite/unpacker.py:591 suppressed: %s", e)
                     pass
             result['extracted'] = extracted
             result['output_dir'] = output_dir
@@ -1344,7 +1345,8 @@ def unpack_apk_lite(apk_path, output_dir=None, mode='analyze', compact=True):
                     if name.endswith('.so'):
                         os.chmod(dest, os.stat(dest).st_mode | 0o111)
                     extracted += 1
-                except Exception:
+                except Exception as e:
+                    from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/lite/unpacker.py:1347 suppressed: %s", e)
                     pass
             result['extracted'] = extracted
             result['output_dir'] = output_dir

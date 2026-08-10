@@ -156,7 +156,8 @@ class SecurityAnalyzer:
                     'cwe': 'CWE-1104', 'cvss': 6.0
                 })
                 score += 2
-        except Exception:
+        except Exception as e:
+            from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/analysis/security_analyzer.py:159 suppressed: %s", e)
             pass
 
         # 6. 自定义权限

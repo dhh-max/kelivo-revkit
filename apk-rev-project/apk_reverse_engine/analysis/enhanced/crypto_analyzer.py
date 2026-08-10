@@ -275,7 +275,8 @@ class CryptoAnalyzer:
             if aes_sbox in data:
                 results['crypto_strings'].append('AES S-box detected')
 
-        except Exception:
+        except Exception as e:
+            from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/analysis/enhanced/crypto_analyzer.py:278 suppressed: %s", e)
             pass
 
         return results

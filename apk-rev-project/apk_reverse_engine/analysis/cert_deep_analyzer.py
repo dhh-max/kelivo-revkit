@@ -100,7 +100,8 @@ class CertDeepAnalyzer:
                     if total_days > 365 * 5:  # 超过5年
                         issues.append(f'⚠️ 证书有效期过长 ({total_days} 天)，建议不超过3年')
                         risk_score += 5
-            except Exception:
+            except Exception as e:
+                from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/analysis/cert_deep_analyzer.py:103 suppressed: %s", e)
                 pass
 
         # 3. 哈希算法强度
@@ -123,7 +124,8 @@ class CertDeepAnalyzer:
                 if serial_int < 16:  # 序列号太短
                     issues.append('⚠️ 证书序列号过短，可能是自签名')
                     risk_score += 5
-            except Exception:
+            except Exception as e:
+                from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/analysis/cert_deep_analyzer.py:126 suppressed: %s", e)
                 pass
 
         # 5. 签名方案兼容性

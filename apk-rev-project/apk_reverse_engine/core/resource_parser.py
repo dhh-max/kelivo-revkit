@@ -202,7 +202,9 @@ class ResourceParser:
                 if lang or reg:
                     cfg['locale'] = f'{lang}-{reg}'.strip('-')
             return cfg, size
-        except Exception:
+        except Exception as e:
+            from apk_reverse_engine.utils.logutil import get_logger
+            get_logger(__name__).warning("resource config parse failed: %s", e)
             return {}, 0
 
     def _config_desc(self, cfg):

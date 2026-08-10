@@ -535,7 +535,8 @@ class ClueChain:
             for u in urls:
                 try:
                     domains[u.split('/')[2]] += 1
-                except Exception:
+                except Exception as e:
+                    from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/analysis/clue_chain.py:538 suppressed: %s", e)
                     pass
             top = domains.most_common(5)
             clues.append({

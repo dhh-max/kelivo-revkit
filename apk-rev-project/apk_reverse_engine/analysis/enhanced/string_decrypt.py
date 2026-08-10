@@ -78,7 +78,8 @@ class StringDecryptor:
                     'result': text[:200],
                     'confidence': StringDecryptor._confidence_score(text),
                 })
-        except Exception:
+        except Exception as e:
+            from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/analysis/enhanced/string_decrypt.py:81 suppressed: %s", e)
             pass
 
         # 4. ROT13
@@ -90,7 +91,8 @@ class StringDecryptor:
                     'result': text[:200],
                     'confidence': StringDecryptor._confidence_score(text),
                 })
-        except Exception:
+        except Exception as e:
+            from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/analysis/enhanced/string_decrypt.py:93 suppressed: %s", e)
             pass
 
         # 5. Add/Sub constant
@@ -169,7 +171,8 @@ class StringDecryptor:
                             'decrypted': decrypted[:3],
                             'address': m.start(),
                         })
-                except Exception:
+                except Exception as e:
+                    from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/analysis/enhanced/string_decrypt.py:172 suppressed: %s", e)
                     pass
 
         # Pattern 2: const-string with encoded value
@@ -187,7 +190,8 @@ class StringDecryptor:
                                            'confidence': StringDecryptor._confidence_score(decoded)}],
                             'address': m.start(),
                         })
-                except Exception:
+                except Exception as e:
+                    from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/analysis/enhanced/string_decrypt.py:190 suppressed: %s", e)
                     pass
 
         # Pattern 3: invoke decrypt method with const
@@ -241,7 +245,8 @@ class StringDecryptor:
                                 'decoded': decoded[:100],
                                 'method': 'hex_decode',
                             })
-                    except Exception:
+                    except Exception as e:
+                        from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/analysis/enhanced/string_decrypt.py:244 suppressed: %s", e)
                         pass
                 # Check for base64
                 if re.match(r'^[A-Za-z0-9+/=]+$', s) and len(s) >= 8:
@@ -254,7 +259,8 @@ class StringDecryptor:
                                 'decoded': decoded[:100],
                                 'method': 'base64',
                             })
-                    except Exception:
+                    except Exception as e:
+                        from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/analysis/enhanced/string_decrypt.py:257 suppressed: %s", e)
                         pass
 
         return results

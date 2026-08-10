@@ -148,7 +148,8 @@ class DexParser:
                     for j in range(param_count):
                         pt = self._u4(pi + 4 + j * 4)
                         param_types.append(self._types[pt]['descriptor'] if 0 <= pt < len(self._types) else f'?{pt}')
-                except Exception:
+                except Exception as e:
+                    from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/core/dex_parser.py:151 suppressed: %s", e)
                     pass
             
             self._protos.append({
@@ -222,7 +223,8 @@ class DexParser:
                     for j in range(ic):
                         itf = self._u4(ii + 4 + j * 4)
                         interfaces.append(self._types[itf]['descriptor'] if 0 <= itf < len(self._types) else f'?{itf}')
-                except Exception:
+                except Exception as e:
+                    from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/core/dex_parser.py:225 suppressed: %s", e)
                     pass
 
             # Class data (methods + fields)
@@ -302,6 +304,7 @@ class DexParser:
                             mi['code'] = self._parse_code_item(code_off)
                         virtual_methods.append(mi)
                 except Exception as e:
+                    from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/core/dex_parser.py:304 suppressed: %s", e)
                     pass
 
             self._class_defs.append({
@@ -444,7 +447,9 @@ class DexParser:
                 })
                 pos += 8
             return result
-        except Exception:
+        except Exception as e:
+            from apk_reverse_engine.utils.logutil import get_logger
+            get_logger(__name__).warning("annotation dir parse failed: %s", e)
             return None
 
     def get_annotations(self, class_def):
@@ -468,7 +473,8 @@ class DexParser:
                 ao = self._u4(off + 4 + i * 4)
                 annotations.append(self._get_annotation_off(ao))
             return annotations
-        except Exception:
+        except Exception as e:
+            from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/core/dex_parser.py:473 suppressed: %s", e)
             return []
 
     def _get_annotation_off(self, off):

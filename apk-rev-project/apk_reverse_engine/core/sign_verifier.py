@@ -94,7 +94,9 @@ class SignVerifier:
                 'size': block_size + 16,
                 'data': data[block_start:magic_pos + 16],
             }
-        except Exception:
+        except Exception as e:
+            from apk_reverse_engine.utils.logutil import get_logger
+            get_logger(__name__).warning("sign v1 block parse failed: %s", e)
             return None
 
     @staticmethod

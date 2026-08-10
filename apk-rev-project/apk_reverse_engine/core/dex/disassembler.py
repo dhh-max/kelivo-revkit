@@ -182,6 +182,7 @@ class TryCatchParser:
                     else:
                         handlers.append({'catch_handlers': catch_handlers, 'catch_all_addr': None})
             except Exception as e:
+                from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/core/dex/disassembler.py:184 suppressed: %s", e)
                 pass
         
         return {'tries': tries, 'handlers': handlers}
@@ -224,6 +225,8 @@ class Disassembler:
                 'handlers_off': handlers_off,
             }
         except Exception as e:
+            from apk_reverse_engine.utils.logutil import get_logger
+            get_logger(__name__).warning("code_item parse failed: %s", e)
             return None
     
     @staticmethod
