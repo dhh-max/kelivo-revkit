@@ -1,6 +1,9 @@
 """APK清理优化器 - 移除无用文件、冗余资源，优化APK尺寸"""
-import os, zipfile, re
 
+from apk_reverse_engine.utils.logutil import get_logger
+logger = get_logger(__name__)
+
+import os, zipfile, re
 class APKCleaner:
     """APK清理优化引擎：分析冗余文件、建议删除项，执行清理"""
 
@@ -109,8 +112,8 @@ class APKCleaner:
                         data = z.read(name)
                         file_contents[name] = data
                     except Exception as e:
-                        from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/analysis/apk_cleaner.py:111 suppressed: %s", e)
-                        pass
+                        logger.debug("apk_reverse_engine/analysis/apk_cleaner.py:111 suppressed: %s", e)
+                        logger.debug(f"e")
 
             # 5. 重复文件检测
             seen = {}

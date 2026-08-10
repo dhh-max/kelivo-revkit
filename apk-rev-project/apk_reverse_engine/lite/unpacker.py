@@ -1,10 +1,12 @@
 """Lite 解包器 - 纯 Python 标准库解包 APK 提取关键信息
 """
+
+from apk_reverse_engine.utils.logutil import get_logger
+logger = get_logger(__name__)
+
 import os, json, zipfile, hashlib, struct, re
 from collections import Counter
 from .dex_parser import LiteDexParser
-
-
 def _fmt_size(s):
     for u in ('B','KB','MB','GB'):
         if s < 1024: return f"{s:.1f}{u}"
@@ -589,8 +591,8 @@ def unpack_apk_standalone(apk_path, output_dir=None, mode='analyze', compact=Tru
                         os.chmod(dest, os.stat(dest).st_mode | 0o111)
                     extracted += 1
                 except Exception as e:
-                    from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/lite/unpacker.py:591 suppressed: %s", e)
-                    pass
+                    logger.debug("apk_reverse_engine/lite/unpacker.py:591 suppressed: %s", e)
+                    logger.debug(f"e")
             result['extracted'] = extracted
             result['output_dir'] = output_dir
 
@@ -1346,8 +1348,8 @@ def unpack_apk_lite(apk_path, output_dir=None, mode='analyze', compact=True):
                         os.chmod(dest, os.stat(dest).st_mode | 0o111)
                     extracted += 1
                 except Exception as e:
-                    from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/lite/unpacker.py:1347 suppressed: %s", e)
-                    pass
+                    logger.debug("apk_reverse_engine/lite/unpacker.py:1347 suppressed: %s", e)
+                    logger.debug(f"e")
             result['extracted'] = extracted
             result['output_dir'] = output_dir
         result['success'] = True

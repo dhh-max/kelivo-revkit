@@ -10,11 +10,14 @@
   reng axml decode-apk app.apk [output.xml]     # 从APK中提取并解码Manifest
   reng axml encode-apk app.apk output.apk input.xml  # 替换APK中的Manifest
 """
+
+from apk_reverse_engine.utils.logutil import get_logger
+logger = get_logger(__name__)
+
 import os, struct, re, zipfile, copy
 from xml.etree.ElementTree import ElementTree, Element, SubElement, tostring, fromstring
 from xml.parsers.expat import ExpatError
 from xml.sax.saxutils import escape as xml_escape, unescape as xml_unescape
-
 # ============================================================
 # AXML 常量
 # ============================================================
@@ -162,8 +165,8 @@ class AXMLEncoder:
                 vt = (TYPE_INTEGER << 24) | 0x08
                 vd = v & 0xFFFFFFFF
                 return vi, vt, vd
-            except ValueError:
-                pass
+            except ValueError as e:
+                logger.debug(f"e")
 
         # 引用
         if value.startswith('@'):

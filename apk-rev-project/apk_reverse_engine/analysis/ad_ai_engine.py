@@ -32,6 +32,10 @@
 Author: APK Reverse Engine
 """
 
+
+from apk_reverse_engine.utils.logutil import get_logger
+logger = get_logger(__name__)
+
 import os
 import json
 import time
@@ -45,7 +49,6 @@ import ssl
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict, Optional, Tuple, Iterator, Callable
-
 __all__ = [
     "AdAIEngine",
     "analyze_ad_code",
@@ -498,8 +501,8 @@ class AdAIEngine:
             if common_kws:
                 template_hints = f"\n### 参考广告关键词库\n{', '.join(common_kws[:30])}\n"
         except Exception as e:
-            from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/analysis/ad_ai_engine.py:500 suppressed: %s", e)
-            pass
+            logger.debug("apk_reverse_engine/analysis/ad_ai_engine.py:500 suppressed: %s", e)
+            logger.debug(f"e")
 
         safe_code = self.truncate_to_token_limit(code)
 
@@ -1218,8 +1221,8 @@ class AdAIEngine:
                         try:
                             on_stream(idx, chunk)
                         except Exception as e:
-                            from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/analysis/ad_ai_engine.py:1219 suppressed: %s", e)
-                            pass
+                            logger.debug("apk_reverse_engine/analysis/ad_ai_engine.py:1219 suppressed: %s", e)
+                            logger.debug(f"e")
                     result['analysis'] = ''.join(full)
                 else:
                     result['analysis'] = self.analyze(
@@ -1258,8 +1261,8 @@ class AdAIEngine:
                     try:
                         on_complete(idx, result)
                     except Exception as e:
-                        from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/analysis/ad_ai_engine.py:1258 suppressed: %s", e)
-                        pass
+                        logger.debug("apk_reverse_engine/analysis/ad_ai_engine.py:1258 suppressed: %s", e)
+                        logger.debug(f"e")
 
         return results  # type: ignore[return-value]
 

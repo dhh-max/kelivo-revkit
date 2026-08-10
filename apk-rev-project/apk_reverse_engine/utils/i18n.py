@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+
+from apk_reverse_engine.utils.logutil import get_logger
+logger = get_logger(__name__)
+
 """多语言国际化 (i18n) 支持 - 7种语言
 
 支持语言:
@@ -33,8 +37,8 @@ def get_saved_lang():
             with open(_lang_file, 'r', encoding='utf-8') as f:
                 return json.load(f).get("lang", "zh_CN")
         except Exception as e:
-            from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/utils/i18n.py:35 suppressed: %s", e)
-            pass
+            logger.debug("apk_reverse_engine/utils/i18n.py:35 suppressed: %s", e)
+            logger.debug(f"e")
     return os.environ.get("RENG_LANG", "zh_CN")
 
 def save_lang(lang):
@@ -111,7 +115,7 @@ def _(text, *args, **kwargs):
         try:
             return translated % args if args else translated % kwargs
         except Exception as e:
-            from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/utils/i18n.py:113 suppressed: %s", e)
+            logger.debug("apk_reverse_engine/utils/i18n.py:113 suppressed: %s", e)
             return translated
     return translated
 
@@ -539,8 +543,8 @@ for _d in [os.path.join(_home, ".config", "reng"),
                     _lang_file = _f
                     break
         except Exception as e:
-            from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/utils/i18n.py:539 suppressed: %s", e)
-            pass
+            logger.debug("apk_reverse_engine/utils/i18n.py:539 suppressed: %s", e)
+            logger.debug(f"e")
 
 # 如果没有找到持久化配置，设置默认路径
 if _lang_file is None:

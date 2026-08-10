@@ -1,8 +1,11 @@
 """DEX 反汇编器 - 完整方法体解析、try/catch、调试信息、Smali输出"""
+
+from apk_reverse_engine.utils.logutil import get_logger
+logger = get_logger(__name__)
+
 import struct
 from .opcode_table import get_opcode_name, get_opcode_size, OPCODE_FORMAT, OPCODE_NAMES
 from .instruction_decoder import InstructionDecoder, Instruction
-
 class DebugInfoParser:
     """DEX debug_info 解析器 - 行号/局部变量"""
     
@@ -182,8 +185,8 @@ class TryCatchParser:
                     else:
                         handlers.append({'catch_handlers': catch_handlers, 'catch_all_addr': None})
             except Exception as e:
-                from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/core/dex/disassembler.py:184 suppressed: %s", e)
-                pass
+                logger.debug("apk_reverse_engine/core/dex/disassembler.py:184 suppressed: %s", e)
+                logger.debug(f"e")
         
         return {'tries': tries, 'handlers': handlers}
 

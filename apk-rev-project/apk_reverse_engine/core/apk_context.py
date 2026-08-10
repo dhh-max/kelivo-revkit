@@ -1,6 +1,9 @@
 import zipfile, os, hashlib, tempfile, shutil, re
 from datetime import datetime
 
+from apk_reverse_engine.utils.logutil import get_logger
+logger = get_logger(__name__)
+
 class APKContext:
     def __init__(self, apk_path):
         self.apk_path = os.path.abspath(apk_path)
@@ -124,15 +127,15 @@ class APKContext:
                     try:
                         ts = datetime(*date_time).timestamp()
                         os.utime(dest_path, (ts, ts))
-                    except (ValueError, OSError):
-                        pass
+                    except Exception as e:
+                        logger.debug(f"e")
 
                 # SO文件加执行权限
                 if name.endswith('.so'):
                     try:
                         os.chmod(dest_path, os.stat(dest_path).st_mode | 0o111)
-                    except OSError:
-                        pass
+                    except OSError as e:
+                        logger.debug(f"e")
 
                 extracted += 1
                 if progress_callback:
@@ -155,8 +158,8 @@ class APKContext:
                             sha.update(chunk)
                     sha_ok = True
                 except Exception as e:
-                    from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/core/apk_context.py:157 suppressed: %s", e)
-                    pass
+                    logger.debug("apk_reverse_engine/core/apk_context.py:157 suppressed: %s", e)
+                    logger.debug(f"e")
 
         return {
             'extracted': extracted, 'total': total, 'errors': errors,

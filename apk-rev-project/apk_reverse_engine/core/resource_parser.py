@@ -10,6 +10,10 @@
 
 参考格式: https://justanapplication.wordpress.com/tag/resources-arsc/
 """
+
+from apk_reverse_engine.utils.logutil import get_logger
+logger = get_logger(__name__)
+
 import struct
 
 
@@ -155,7 +159,7 @@ class ResourceParser:
                 raw = self.data[off:off + cc * 2]
                 return raw.decode('utf-16-le', errors='replace')
         except Exception as e:
-            from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/core/resource_parser.py:157 suppressed: %s", e)
+            logger.debug("apk_reverse_engine/core/resource_parser.py:157 suppressed: %s", e)
             return ''
 
     def get_string(self, idx):
@@ -431,7 +435,7 @@ class ResourceParser:
                     return ''
                 return self.data[off:off + cc * 2].decode('utf-16-le', errors='replace')
         except Exception as e:
-            from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/core/resource_parser.py:432 suppressed: %s", e)
+            logger.debug("apk_reverse_engine/core/resource_parser.py:432 suppressed: %s", e)
             return ''
 
     def _parse_type_spec(self, off):

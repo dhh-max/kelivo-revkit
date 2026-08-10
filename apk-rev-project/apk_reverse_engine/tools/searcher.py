@@ -1,7 +1,10 @@
 """APK 高级搜索工具 - 支持正则/十六进制/类名/方法/字符串"""
+
+from apk_reverse_engine.utils.logutil import get_logger
+logger = get_logger(__name__)
+
 import os, re
 from ..core.archive_context import ArchiveContext as APKContext
-
 class APKSearch:
     """APK 高级搜索引擎"""
     
@@ -34,8 +37,8 @@ class APKSearch:
                                 })
                                 count += 1
                 except Exception as e:
-                    from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/tools/searcher.py:36 suppressed: %s", e)
-                    pass
+                    logger.debug("apk_reverse_engine/tools/searcher.py:36 suppressed: %s", e)
+                    logger.debug(f"e")
         return {'results': results, 'total': len(results)}
     
     @staticmethod
@@ -79,8 +82,8 @@ class APKSearch:
                         results.append({'file': f, 'content': f'method: {m["class"]}->{m["name"]}'})
                         count += 1
             except Exception as e:
-                from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/tools/searcher.py:80 suppressed: %s", e)
-                pass
+                logger.debug("apk_reverse_engine/tools/searcher.py:80 suppressed: %s", e)
+                logger.debug(f"e")
         ctx.close()
         return {'results': results, 'total': len(results)}
     
@@ -108,8 +111,8 @@ class APKSearch:
                     count += 1
                     start = idx + 1
             except Exception as e:
-                from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/tools/searcher.py:108 suppressed: %s", e)
-                pass
+                logger.debug("apk_reverse_engine/tools/searcher.py:108 suppressed: %s", e)
+                logger.debug(f"e")
         ctx.close()
         return {'results': results, 'total': len(results)}
     
@@ -219,8 +222,8 @@ class APKSearch:
                         })
                         count += 1
             except Exception as e:
-                from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/tools/searcher.py:218 suppressed: %s", e)
-                pass
+                logger.debug("apk_reverse_engine/tools/searcher.py:218 suppressed: %s", e)
+                logger.debug(f"e")
         ctx.close()
         return {'results': results, 'total': len(results)}
     

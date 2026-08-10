@@ -1,8 +1,11 @@
 """字符串解密器 - 多模式自动解密 DEX/smali 中的加密字符串"""
+
+from apk_reverse_engine.utils.logutil import get_logger
+logger = get_logger(__name__)
+
 import re
 import base64
 import struct
-
 class StringDecryptor:
     """多策略字符串自动解密引擎"""
 
@@ -79,8 +82,8 @@ class StringDecryptor:
                     'confidence': StringDecryptor._confidence_score(text),
                 })
         except Exception as e:
-            from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/analysis/enhanced/string_decrypt.py:81 suppressed: %s", e)
-            pass
+            logger.debug("apk_reverse_engine/analysis/enhanced/string_decrypt.py:81 suppressed: %s", e)
+            logger.debug(f"e")
 
         # 4. ROT13
         try:
@@ -92,8 +95,8 @@ class StringDecryptor:
                     'confidence': StringDecryptor._confidence_score(text),
                 })
         except Exception as e:
-            from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/analysis/enhanced/string_decrypt.py:93 suppressed: %s", e)
-            pass
+            logger.debug("apk_reverse_engine/analysis/enhanced/string_decrypt.py:93 suppressed: %s", e)
+            logger.debug(f"e")
 
         # 5. Add/Sub constant
         for shift in range(1, 256):
@@ -172,8 +175,8 @@ class StringDecryptor:
                             'address': m.start(),
                         })
                 except Exception as e:
-                    from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/analysis/enhanced/string_decrypt.py:172 suppressed: %s", e)
-                    pass
+                    logger.debug("apk_reverse_engine/analysis/enhanced/string_decrypt.py:172 suppressed: %s", e)
+                    logger.debug(f"e")
 
         # Pattern 2: const-string with encoded value
         for m in re.finditer(r'const-string\s+v\d+,\s*"([^"]*)"', smali_text):
@@ -191,8 +194,8 @@ class StringDecryptor:
                             'address': m.start(),
                         })
                 except Exception as e:
-                    from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/analysis/enhanced/string_decrypt.py:190 suppressed: %s", e)
-                    pass
+                    logger.debug("apk_reverse_engine/analysis/enhanced/string_decrypt.py:190 suppressed: %s", e)
+                    logger.debug(f"e")
 
         # Pattern 3: invoke decrypt method with const
         for m in re.finditer(r'invoke-\w+\s+\{.*?\},\s+L[\w/]+;->(\w+)\(.*?\)Ljava/lang/String;', smali_text):
@@ -246,8 +249,8 @@ class StringDecryptor:
                                 'method': 'hex_decode',
                             })
                     except Exception as e:
-                        from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/analysis/enhanced/string_decrypt.py:244 suppressed: %s", e)
-                        pass
+                        logger.debug("apk_reverse_engine/analysis/enhanced/string_decrypt.py:244 suppressed: %s", e)
+                        logger.debug(f"e")
                 # Check for base64
                 if re.match(r'^[A-Za-z0-9+/=]+$', s) and len(s) >= 8:
                     try:
@@ -260,7 +263,7 @@ class StringDecryptor:
                                 'method': 'base64',
                             })
                     except Exception as e:
-                        from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/analysis/enhanced/string_decrypt.py:257 suppressed: %s", e)
-                        pass
+                        logger.debug("apk_reverse_engine/analysis/enhanced/string_decrypt.py:257 suppressed: %s", e)
+                        logger.debug(f"e")
 
         return results

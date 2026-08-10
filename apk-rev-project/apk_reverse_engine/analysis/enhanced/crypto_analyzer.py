@@ -1,8 +1,11 @@
 """加密分析器 - 深度检测加密算法、密钥管理、加密模式、自定义加密"""
+
+from apk_reverse_engine.utils.logutil import get_logger
+logger = get_logger(__name__)
+
 import re
 import struct
 from collections import defaultdict
-
 class CryptoAnalyzer:
     """加密/密码学深度分析器"""
 
@@ -276,8 +279,8 @@ class CryptoAnalyzer:
                 results['crypto_strings'].append('AES S-box detected')
 
         except Exception as e:
-            from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/analysis/enhanced/crypto_analyzer.py:278 suppressed: %s", e)
-            pass
+            logger.debug("apk_reverse_engine/analysis/enhanced/crypto_analyzer.py:278 suppressed: %s", e)
+            logger.debug(f"e")
 
         return results
 

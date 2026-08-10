@@ -9,10 +9,12 @@
 用法与 APKContext 一致，但不依赖 APK 特有结构。
 """
 
+
+from apk_reverse_engine.utils.logutil import get_logger
+logger = get_logger(__name__)
+
 import os, zipfile, hashlib, tempfile, shutil, re, tarfile, gzip, bz2
 from datetime import datetime
-
-
 # 支持的归档扩展名
 ZIP_EXTS = {'.apk', '.zip', '.jar', '.war', '.ear', '.aar', '.xpi', '.whl', '.egg'}
 TAR_EXTS = {'.tar', '.tar.gz', '.tgz', '.tar.bz2', '.tbz2', '.tar.xz', '.txz'}
@@ -55,14 +57,14 @@ def detect_file_type(path):
                 if len(inner) > 262 and inner[257:262] == b'ustar':
                     return 'tar', '.tar.gz'
             except Exception as e:
-                from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/core/archive_context.py:57 suppressed: %s", e)
-                pass
+                logger.debug("apk_reverse_engine/core/archive_context.py:57 suppressed: %s", e)
+                logger.debug(f"e")
             return 'gzip', '.gz'
         if magic[:5] == b'ustar' or (len(magic) >= 6 and magic[257:262] == b'ustar'):
             return 'tar', '.tar'
     except Exception as e:
-        from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/core/archive_context.py:62 suppressed: %s", e)
-        pass
+        logger.debug("apk_reverse_engine/core/archive_context.py:62 suppressed: %s", e)
+        logger.debug(f"e")
 
     return 'file', os.path.splitext(path)[1]
 
@@ -390,8 +392,8 @@ class ArchiveContext:
                         try:
                             ts = datetime(*date_time).timestamp()
                             os.utime(dest_path, (ts, ts))
-                        except (ValueError, OSError):
-                            pass
+                        except Exception as e:
+                            logger.debug(f"e")
 
                 elif self._file_type == 'tar':
                     member = self._tar.getmember(name)
@@ -407,8 +409,8 @@ class ArchiveContext:
                     try:
                         os.chmod(dest_path, member.mode)
                     except Exception as e:
-                        from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/core/archive_context.py:407 suppressed: %s", e)
-                        pass
+                        logger.debug("apk_reverse_engine/core/archive_context.py:407 suppressed: %s", e)
+                        logger.debug(f"e")
 
                 elif self._file_type == 'dir':
                     src_path = os.path.join(self.path, name)
@@ -430,8 +432,8 @@ class ArchiveContext:
                 if name.endswith('.so'):
                     try:
                         os.chmod(dest_path, os.stat(dest_path).st_mode | 0o111)
-                    except OSError:
-                        pass
+                    except OSError as e:
+                        logger.debug(f"e")
 
                 extracted += 1
                 if progress_callback:
@@ -454,8 +456,8 @@ class ArchiveContext:
                             sha.update(chunk)
                     sha_ok = True
                 except Exception as e:
-                    from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/core/archive_context.py:453 suppressed: %s", e)
-                    pass
+                    logger.debug("apk_reverse_engine/core/archive_context.py:453 suppressed: %s", e)
+                    logger.debug(f"e")
 
         return {
             'extracted': extracted, 'total': total, 'errors': errors,

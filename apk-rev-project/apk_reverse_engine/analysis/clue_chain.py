@@ -9,10 +9,12 @@
   线索串联   → 告诉你"这意味着什么"
 """
 
+
+from apk_reverse_engine.utils.logutil import get_logger
+logger = get_logger(__name__)
+
 import re
 from collections import Counter
-
-
 class ClueChain:
     """串联线索分析器"""
 
@@ -536,8 +538,8 @@ class ClueChain:
                 try:
                     domains[u.split('/')[2]] += 1
                 except Exception as e:
-                    from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/analysis/clue_chain.py:538 suppressed: %s", e)
-                    pass
+                    logger.debug("apk_reverse_engine/analysis/clue_chain.py:538 suppressed: %s", e)
+                    logger.debug(f"e")
             top = domains.most_common(5)
             clues.append({
                 'type': 'network_urls', 'severity': 'info',

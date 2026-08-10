@@ -1,7 +1,10 @@
 """证书深度分析器 - 增强版证书/签名分析与异常检测"""
+
+from apk_reverse_engine.utils.logutil import get_logger
+logger = get_logger(__name__)
+
 import hashlib
 from datetime import datetime
-
 class CertDeepAnalyzer:
     """深度证书分析引擎：分析签名证书安全性、异常检测、兼容性评估"""
 
@@ -101,8 +104,8 @@ class CertDeepAnalyzer:
                         issues.append(f'⚠️ 证书有效期过长 ({total_days} 天)，建议不超过3年')
                         risk_score += 5
             except Exception as e:
-                from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/analysis/cert_deep_analyzer.py:103 suppressed: %s", e)
-                pass
+                logger.debug("apk_reverse_engine/analysis/cert_deep_analyzer.py:103 suppressed: %s", e)
+                logger.debug(f"e")
 
         # 3. 哈希算法强度
         sha256 = cert_info.get('sha256', '')
@@ -125,8 +128,8 @@ class CertDeepAnalyzer:
                     issues.append('⚠️ 证书序列号过短，可能是自签名')
                     risk_score += 5
             except Exception as e:
-                from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/analysis/cert_deep_analyzer.py:126 suppressed: %s", e)
-                pass
+                logger.debug("apk_reverse_engine/analysis/cert_deep_analyzer.py:126 suppressed: %s", e)
+                logger.debug(f"e")
 
         # 5. 签名方案兼容性
         findings.append('ℹ️ 建议使用v2/v3签名方案以确保Android 7.0+兼容性')

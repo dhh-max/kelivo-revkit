@@ -1,8 +1,11 @@
 """自动化去混淆引擎 - 字符串解密、方法名还原、控制流平坦化检测"""
+
+from apk_reverse_engine.utils.logutil import get_logger
+logger = get_logger(__name__)
+
 import re
 import base64
 from collections import defaultdict
-
 class Deobfuscator:
     """自动化去混淆引擎"""
 
@@ -33,8 +36,8 @@ class Deobfuscator:
                     else:
                         keys.add(int(val))
                 except Exception as e:
-                    from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/analysis/deobfuscator.py:35 suppressed: %s", e)
-                    pass
+                    logger.debug("apk_reverse_engine/analysis/deobfuscator.py:35 suppressed: %s", e)
+                    logger.debug(f"e")
         return sorted(keys)[:20]
 
     @staticmethod
@@ -63,8 +66,8 @@ class Deobfuscator:
                         'hex': ' '.join(f'{b:02x}' for b in bytes_list[:20]),
                     })
             except Exception as e:
-                from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/analysis/deobfuscator.py:64 suppressed: %s", e)
-                pass
+                logger.debug("apk_reverse_engine/analysis/deobfuscator.py:64 suppressed: %s", e)
+                logger.debug(f"e")
         return arrays
 
     @staticmethod
@@ -202,8 +205,8 @@ class Deobfuscator:
                         'method': 'base64',
                     })
             except Exception as e:
-                from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/analysis/deobfuscator.py:202 suppressed: %s", e)
-                pass
+                logger.debug("apk_reverse_engine/analysis/deobfuscator.py:202 suppressed: %s", e)
+                logger.debug(f"e")
             
             # 尝试Hex解码
             if all(c in '0123456789abcdefABCDEF' for c in s) and len(s) % 2 == 0:
@@ -216,8 +219,8 @@ class Deobfuscator:
                             'method': 'hex',
                         })
                 except Exception as e:
-                    from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/analysis/deobfuscator.py:215 suppressed: %s", e)
-                    pass
+                    logger.debug("apk_reverse_engine/analysis/deobfuscator.py:215 suppressed: %s", e)
+                    logger.debug(f"e")
             
             # 尝试Unicode转义
             unicode_match = re.match(r'^\\u[0-9a-fA-F]{4}', s)
@@ -230,8 +233,8 @@ class Deobfuscator:
                         'method': 'unicode_escape',
                     })
                 except Exception as e:
-                    from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/analysis/deobfuscator.py:228 suppressed: %s", e)
-                    pass
+                    logger.debug("apk_reverse_engine/analysis/deobfuscator.py:228 suppressed: %s", e)
+                    logger.debug(f"e")
         
         return results[:20]
 

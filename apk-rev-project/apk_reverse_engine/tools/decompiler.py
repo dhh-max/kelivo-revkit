@@ -1,5 +1,8 @@
 import subprocess, os, json
 
+from apk_reverse_engine.utils.logutil import get_logger
+logger = get_logger(__name__)
+
 class APKDecompiler:
     """APK反编译工具集"""
 
@@ -158,8 +161,8 @@ class APKDecompiler:
                         with open(fp, 'r', errors='replace') as fh:
                             total_lines += sum(1 for _ in fh)
                     except Exception as e:
-                        from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/tools/decompiler.py:160 suppressed: %s", e)
-                        pass
+                        logger.debug("apk_reverse_engine/tools/decompiler.py:160 suppressed: %s", e)
+                        logger.debug(f"e")
                 elif f.endswith('.smali'):
                     smali_files += 1
         

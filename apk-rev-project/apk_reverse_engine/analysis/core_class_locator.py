@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
+
+from apk_reverse_engine.utils.logutil import get_logger
+logger = get_logger(__name__)
+
 """核心类定位器 - 通过多维度启发式算法自动定位 DEX 中的核心入口类"""
 
 import re
 from collections import defaultdict
-
 # ── 核心类名称模式（权重由高到低） ──────────────────────────
 CORE_NAME_PATTERNS = [
     # Application 入口类（最高权重）
@@ -582,8 +585,8 @@ def locate_core_classes_from_apk(apk_path, top_n=20, min_score=10, include_sdk=F
                 manifest_data = zf.read('AndroidManifest.xml')
                 manifest_info = ManifestParser.get_simple(manifest_data)
             except Exception as e:
-                from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/analysis/core_class_locator.py:584 suppressed: %s", e)
-                pass
+                logger.debug("apk_reverse_engine/analysis/core_class_locator.py:584 suppressed: %s", e)
+                logger.debug(f"e")
 
         # 处理所有 DEX 文件
         dex_files = sorted([n for n in zf.namelist() if n.startswith('classes') and n.endswith('.dex')])

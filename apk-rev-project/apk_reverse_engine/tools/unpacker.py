@@ -11,11 +11,14 @@
   8. 通用支持 → 支持 APK/ZIP/JAR/WAR/TAR/单文件/目录等任意文件
 """
 
+
+from apk_reverse_engine.utils.logutil import get_logger
+logger = get_logger(__name__)
+
 import os, subprocess, zipfile, hashlib, re, shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from ..core.archive_context import ArchiveContext, detect_file_type
-
 # 兼容别名：APKContext → ArchiveContext
 # 所有原本使用 APKContext 的方法现在统一使用 ArchiveContext
 # ArchiveContext 完全兼容 APKContext 的接口，同时支持任意文件类型
@@ -235,8 +238,8 @@ class APKUnpacker:
                 if arcname.endswith('.so'):
                     try:
                         os.chmod(dest, os.stat(dest).st_mode | 0o111)
-                    except OSError:
-                        pass
+                    except OSError as e:
+                        logger.debug(f"e")
                 with lock:
                     extracted[0] += 1
                     categories[cat] = categories.get(cat, 0) + 1

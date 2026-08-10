@@ -1,5 +1,9 @@
 import struct, re
 
+from apk_reverse_engine.utils.logutil import get_logger
+logger = get_logger(__name__)
+
+
 class ElfSection:
     def __init__(self, name_offset, type_, addr, offset, size, link, info, entsize):
         self.name_offset = name_offset
@@ -387,7 +391,7 @@ class NativeAnalyzer:
             return [s.name for s in elf.read_symbols(dynsym, dynstr)
                     if s.is_undefined and s.name and s.is_func_or_object][:100]
         except Exception as e:
-            from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/core/native_analyzer.py:389 suppressed: %s", e)
+            logger.debug("apk_reverse_engine/core/native_analyzer.py:389 suppressed: %s", e)
             return []
 
     @staticmethod
@@ -400,7 +404,7 @@ class NativeAnalyzer:
             return [s.name for s in elf.read_symbols(dynsym, dynstr)
                     if not s.is_undefined and s.is_global and s.name and s.is_func_or_object][:100]
         except Exception as e:
-            from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/core/native_analyzer.py:401 suppressed: %s", e)
+            logger.debug("apk_reverse_engine/core/native_analyzer.py:401 suppressed: %s", e)
             return []
 
     @staticmethod

@@ -1,6 +1,9 @@
 """APK签名验证器 - 支持v1/v2/v3签名验证"""
-import struct, hashlib, io
 
+from apk_reverse_engine.utils.logutil import get_logger
+logger = get_logger(__name__)
+
+import struct, hashlib, io
 class SignVerifier:
     """APK签名方案验证器，支持v1(JAR签名)、v2(APK方案)、v3(APK方案)"""
     
@@ -44,6 +47,7 @@ class SignVerifier:
             except Exception as e:
                 cert_info = {'sha256': hashlib.sha256(cert_data).hexdigest(), 'parse_error': str(e)}
             
+            logger.debug(f"e")
             return {
                 'v1': True,
                 'cert_files': rsa_files,
@@ -243,8 +247,8 @@ class SignVerifier:
                         result['cert_sha256'] = hashlib.sha256(cert).hexdigest()
                         result['cert_der_len'] = len(cert)
                         break
-            except ValueError:
-                pass
+            except ValueError as e:
+                logger.debug(f"e")
 
             return result
         except Exception as e:

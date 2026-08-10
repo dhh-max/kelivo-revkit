@@ -1,5 +1,9 @@
 """Lite DEX 解析器 - 纯 Python 标准库
 """
+
+from apk_reverse_engine.utils.logutil import get_logger
+logger = get_logger(__name__)
+
 import struct
 
 class LiteDexParser:
@@ -27,7 +31,7 @@ class LiteDexParser:
                 raw = raw[:4096]
             return raw.decode('utf-8', errors='replace')
         except Exception as e:
-            from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/lite/dex_parser.py:29 suppressed: %s", e)
+            logger.debug("apk_reverse_engine/lite/dex_parser.py:29 suppressed: %s", e)
             return ''
 
     def parse_strings(self):

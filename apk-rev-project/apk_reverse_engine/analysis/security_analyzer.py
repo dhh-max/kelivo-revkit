@@ -1,5 +1,8 @@
 """安全分析器 - 综合安全风险评估"""
 
+from apk_reverse_engine.utils.logutil import get_logger
+logger = get_logger(__name__)
+
 class SecurityAnalyzer:
     """综合安全分析引擎，基于多项指标评估APK安全风险等级"""
     
@@ -157,8 +160,7 @@ class SecurityAnalyzer:
                 })
                 score += 2
         except Exception as e:
-            from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/analysis/security_analyzer.py:159 suppressed: %s", e)
-            pass
+            logger.debug(f"e")
 
         # 6. 自定义权限
         custom_perms = permissions.get('custom', [])

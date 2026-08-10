@@ -3,12 +3,15 @@
 支持7大广告SDK定向移除 + 9组正则通杀 + assets清理 + manifest清理
 工作流程: 解码APK → 补丁smali → 清理assets → 清理manifest → 重打包签名
 """
+
+from apk_reverse_engine.utils.logutil import get_logger
+logger = get_logger(__name__)
+
 import os
 import re
 import glob
 import logging
 from typing import Optional, List, Dict, Tuple, Set
-
 logger = logging.getLogger(__name__)
 
 
@@ -617,8 +620,8 @@ class AdRemover:
                         os.remove(full_path)
                         r['deleted'].append(os.path.relpath(full_path, assets_dir))
                         r['count'] += 1
-                    except OSError:
-                        pass
+                    except OSError as e:
+                        logger.debug(f"e")
         return r
 
     # ============================================================

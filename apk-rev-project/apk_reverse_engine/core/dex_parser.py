@@ -1,6 +1,9 @@
 """DEX文件解析器 - 完整DEX结构解析"""
-import struct, hashlib
 
+from apk_reverse_engine.utils.logutil import get_logger
+logger = get_logger(__name__)
+
+import struct, hashlib
 class DexParser:
     """完整DEX文件解析器，支持header/string/type/proto/field/method/class/annotation/code"""
     
@@ -149,8 +152,8 @@ class DexParser:
                         pt = self._u4(pi + 4 + j * 4)
                         param_types.append(self._types[pt]['descriptor'] if 0 <= pt < len(self._types) else f'?{pt}')
                 except Exception as e:
-                    from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/core/dex_parser.py:151 suppressed: %s", e)
-                    pass
+                    logger.debug("apk_reverse_engine/core/dex_parser.py:151 suppressed: %s", e)
+                    logger.debug(f"e")
             
             self._protos.append({
                 'id': i,
@@ -224,8 +227,8 @@ class DexParser:
                         itf = self._u4(ii + 4 + j * 4)
                         interfaces.append(self._types[itf]['descriptor'] if 0 <= itf < len(self._types) else f'?{itf}')
                 except Exception as e:
-                    from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/core/dex_parser.py:225 suppressed: %s", e)
-                    pass
+                    logger.debug("apk_reverse_engine/core/dex_parser.py:225 suppressed: %s", e)
+                    logger.debug(f"e")
 
             # Class data (methods + fields)
             static_fields = []
@@ -304,8 +307,8 @@ class DexParser:
                             mi['code'] = self._parse_code_item(code_off)
                         virtual_methods.append(mi)
                 except Exception as e:
-                    from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/core/dex_parser.py:304 suppressed: %s", e)
-                    pass
+                    logger.debug("apk_reverse_engine/core/dex_parser.py:304 suppressed: %s", e)
+                    logger.debug(f"e")
 
             self._class_defs.append({
                 'class_idx': ci,
@@ -474,7 +477,7 @@ class DexParser:
                 annotations.append(self._get_annotation_off(ao))
             return annotations
         except Exception as e:
-            from apk_reverse_engine.utils.logutil import get_logger; get_logger(__name__).debug("apk_reverse_engine/core/dex_parser.py:473 suppressed: %s", e)
+            logger.debug("apk_reverse_engine/core/dex_parser.py:473 suppressed: %s", e)
             return []
 
     def _get_annotation_off(self, off):
