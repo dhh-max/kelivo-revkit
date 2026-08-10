@@ -3640,6 +3640,62 @@ def cmd_native_xref(args):
     console.print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
 
 
+def cmd_components(args):
+    """四大组件分析 (Activity/Service/Receiver/Provider)"""
+    import json
+    from apk_reverse_engine.core.apk_file_ops import ApkFileOps
+    from apk_reverse_engine.utils.axml_converter import AxmlConverter
+    from apk_reverse_engine.analysis.component_explorer import ComponentExplorer
+    ops = ApkFileOps(args.apk)
+    manifest_data = ops.get_manifest()
+    if not manifest_data:
+        console.print("[red]未找到 AndroidManifest.xml[/]")
+        return
+    manifest_xml = AxmlConverter.decode(manifest_data)
+    result = ComponentExplorer.analyze(manifest_xml)
+    if args.security:
+        issues = ComponentExplorer.get_security_issues(result)
+        console.print(json.dumps(issues, ensure_ascii=False, indent=2, default=str))
+        return
+    if args.summary:
+        summary = {
+            'total_components': sum(len(v) for v in result['components'].values()),
+            'by_type': {k: len(v) for k, v in result['components'].items()},
+            'exported_summary': result['exported_summary'],
+            'deep_links_count': len(result['deep_links']),
+            'intent_filters_count': len(result['intent_filters']),
+            'permission_gates_count': len(result['permission_gates']),
+        }
+        console.print(json.dumps(summary, ensure_ascii=False, indent=2, default=str))
+        return
+    console.print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+
+
+def cmd_clone(args):
+    """DEX 方法克隆检测 (重复代码/相似方法)"""
+    import json
+    from apk_reverse_engine.core.apk_file_ops import ApkFileOps
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.analysis.dex_clone_detector import DexCloneDetector
+    ops = ApkFileOps(args.apk)
+    dex_datas = ops.get_dex_data()
+    if not dex_datas:
+        console.print("[red]未找到 DEX 文件[/]")
+        return
+    all_results = []
+    for i, dex_data in enumerate(dex_datas):
+        dp = DexParser(dex_data)
+        result = DexCloneDetector.detect(dp)
+        if args.summary:
+            result = DexCloneDetector.get_summary(result)
+            result['dex_index'] = i
+        all_results.append(result)
+    if len(all_results) == 1:
+        console.print(json.dumps(all_results[0], ensure_ascii=False, indent=2, default=str))
+    else:
+        console.print(json.dumps(all_results, ensure_ascii=False, indent=2, default=str))
+
+
 def cmd_report(args):
     """生成分析报告"""
     from apk_reverse_engine.core.apk_file_ops import ApkFileOps
@@ -4171,6 +4227,17 @@ def main():
     p.set_defaults(func=cmd_native_xref)
 
     # report - 生成分析报告
+    p = sub.add_parser("components", help="🧩 四大组件分析 (Activity/Service/Receiver/Provider/IntentFilter/DeepLink/权限)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("--security", action="store_true", help="只输出安全问题（导出组件/权限缺失等）")
+    p.add_argument("--summary", action="store_true", help="输出摘要信息")
+    p.set_defaults(func=cmd_components)
+
+    p = sub.add_parser("clone", help="🔁 DEX 方法克隆检测 (精确重复/操作码相似)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("--summary", action="store_true", help="输出摘要信息（Top5克隆组）")
+    p.set_defaults(func=cmd_clone)
+
     p = sub.add_parser("report", help="📄 生成分析报告 (JSON/HTML/Markdown)")
     p.add_argument("apk", help="APK 文件路径")
     p.add_argument("--format", "-f", choices=['json', 'html', 'markdown'], default='html', help="输出格式")
@@ -4190,7 +4257,7 @@ def main():
         console.print()
         console.print(Panel.fit(
             "[bold cyan]⚡ APK Reverse Engineering Engine v2[/]\n"
-            "[dim]  全功能 APK 逆向工具集  |  47 命令  |  16,000+ 行核心引擎  [/]",
+            "[dim]  全功能 APK 逆向工具集  |  49 命令  |  16,000+ 行核心引擎  [/]",
             border_style="cyan", box=box.DOUBLE_EDGE
         ))
         console.print()
@@ -4256,6 +4323,8 @@ def main():
                 ("medit", "Manifest 属性编辑 (调试/备份等)"),
                 ("lang", "CLI 界面语言切换 (i18n)"),
                 ("reslang", "APK 资源语言处理 (多语言)"),
+                ("components", "🧩 四大组件分析 (导出/IntentFilter/DeepLink)"),
+                ("clone", "🔁 DEX 方法克隆检测 (重复代码/相似方法)"),
             ]),
         ]
 

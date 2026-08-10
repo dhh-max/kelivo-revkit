@@ -28,6 +28,8 @@ from .ad_ai_engine import (
     analyze_ad_code_batch,
     analyze_ad_code_stream_batch,
 )
+from .component_explorer import ComponentExplorer
+from .dex_clone_detector import DexCloneDetector
 from .enhanced import (
     DexDataFlowAnalyzer,
     TaintTracker,
@@ -49,4 +51,5 @@ __all__ = [
     'list_ai_models', 'analyze_ad_code_batch', 'analyze_ad_code_stream_batch',
     'DexDataFlowAnalyzer', 'TaintTracker', 'CallGraphBuilder', 'StringDecryptor',
     'AntiAnalysisDetector', 'CryptoAnalyzer', 'HookGenerator',
+    'ComponentExplorer', 'DexCloneDetector',
 ]
