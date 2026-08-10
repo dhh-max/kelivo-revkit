@@ -11,16 +11,14 @@
 工作流程: 解码APK → 补丁smali → VIP解锁 → 清理assets → 清理manifest → 重打包签名
 """
 
-from apk_reverse_engine.utils.logutil import get_logger
-logger = get_logger(__name__)
-
 import os
 import re
 import json
 import glob
-import logging
-from typing import Optional, List, Dict, Tuple, Set
-logger = logging.getLogger(__name__)
+from typing import Optional, List, Dict, Tuple
+
+from apk_reverse_engine.utils.logutil import get_logger
+logger = get_logger(__name__)
 
 
 class AdRemover:
@@ -96,6 +94,20 @@ class AdRemover:
         'pangle_adsdk',
         'baidu_ad',
         'baidumobads',
+        'admob_adsdk',
+        'sigmob_ad',
+        'unity_ads',
+        'vungle_ad',
+        'applovin_ad',
+        'ironsource_ad',
+        'mintegral_ad',
+        'adcolony_ad',
+        'chartboost_ad',
+        'mbridge_ad',
+        'anythink_ad',
+        'topon_ad',
+        'fyber_ad',
+        'bidmachine_ad',
     ]
 
     # ============================================================
@@ -155,6 +167,12 @@ class AdRemover:
             r'(\.method[^\n]*(?:loadAd|requestNativeAd|showInterstitial|fetchad|fetchads|onadloaded|requestInterstitialAd|showAd|loadAds|AdRequest|requestBannerAd|loadNextAd|createInterstitialAd|setNativeAd|loadBannerAd|loadNativeAd|loadRewardedAd|loadRewardedInterstitialAd|loadAdViewAd|showInterstitialAd|shownativead|showbannerad|showvideoad|onAdFailedToLoad)\([^\n]*\)V\n\s*\.registers\s+\d+)[\s\S]*?(\.end method)',
             r'\1\n    return-void\n\2',
             '清空广告方法体'
+        ),
+        # ⑩ 清空广告初始化和展示方法（扩展）
+        (
+            r'(\.method[^\n]*(?:initAd|initAds|initSdk|destroyAd|pauseAd|resumeAd|showAppOpenAd|loadAppOpenAd|onAdOpened|onAdLeftApplication|onAdDismiss|onRewarded|setAdListener|setAdUnitId|setAdSize|setAdId|getAdPosition|getAdSlot|getAdConfig)\([^\n]*\)V\n\s*\.registers\s+\d+)[\s\S]*?(\.end method)',
+            r'\1\n    return-void\n\2',
+            '清空广告初始化/回调方法体'
         ),
     ]
 
@@ -873,7 +891,12 @@ class AdRemover:
         # 默认全部开启
         for k in ['tencent', 'kuaishou', 'pangle', 'baidu', 'toutiao', 'sigmob',
                    'google', 'miads', 'regex', 'assets', 'manifest',
-                   'vip_unlock', 'url_replace', 'manifest_config']:
+                   'vip_unlock', 'url_replace', 'manifest_config',
+                   'unity', 'mintegral', 'vungle', 'chartboost',
+                   'applovin', 'ironsource', 'facebook', 'huawei',
+                   'oppo', 'vivo', 'startapp', 'inmobi', 'adcolony',
+                   'anythink', 'topon', 'fyber', 'mbridge', 'bidmachine',
+                   'pubnative', 'pollfish', 'smaato', 'amazon', 'yandex', 'mytarget']:
             options.setdefault(k, True)
 
         report = {
@@ -886,15 +909,16 @@ class AdRemover:
             'assets': {},
             'manifest': {},
             'manifest_config': {},
+            'generic_sdks': {},
         }
 
-        # SDK 定向移除
+        # SDK 定向移除（有精确移除策略的SDK）
         sdk_map = {
             'tencent':  ('_remove_tencent',  smali_root),
             'kuaishou': ('_remove_kuaishou', smali_root),
             'pangle':   ('_remove_pangle',   smali_root),
             'baidu':    ('_remove_baidu',    smali_root),
-            'toutiao': ('_remove_toutiao', smali_root),
+            'toutiao':  ('_remove_toutiao',  smali_root),
             'sigmob':   ('_remove_sigmob',   smali_root),
             'google':   ('_remove_google',   smali_root),
             'miads':    ('_remove_miads',    smali_root),
@@ -911,6 +935,25 @@ class AdRemover:
             else:
                 r = method(smali_root)
             report['sdks'][sdk_key] = r
+            report['total_patched'] += r.get('patched', 0)
+            report['total_files'] += r.get('files', 0)
+
+        # 通用SDK移除（通过包名匹配清空广告方法 + 清除字符串）
+        generic_sdks = [
+            'unity', 'mintegral', 'vungle', 'chartboost',
+            'applovin', 'ironsource', 'facebook', 'huawei',
+            'oppo', 'vivo', 'startapp', 'inmobi', 'adcolony',
+            'anythink', 'topon', 'fyber', 'mbridge', 'bidmachine',
+            'pubnative', 'pollfish', 'smaato', 'amazon', 'yandex', 'mytarget',
+        ]
+        for sdk_key in generic_sdks:
+            if not options.get(sdk_key, True):
+                continue
+            sdk_config = AdRemover.AD_SDKS.get(sdk_key)
+            if not sdk_config:
+                continue
+            r = AdRemover._remove_generic_sdk(smali_root, sdk_config['packages'])
+            report['generic_sdks'][sdk_key] = r
             report['total_patched'] += r.get('patched', 0)
             report['total_files'] += r.get('files', 0)
 
@@ -948,6 +991,60 @@ class AdRemover:
             report['manifest_config'] = AdRemover._remove_manifest_by_config(manifest_path)
 
         return report
+
+    # ============================================================
+    # 通用SDK移除（包名匹配模式）
+    # ============================================================
+
+    @staticmethod
+    def _remove_generic_sdk(smali_root: str, packages: List[str]) -> Dict:
+        """通用SDK移除：通过包名前缀匹配，清空广告方法体 + 清除字符串常量
+
+        Args:
+            smali_root: smali根目录
+            packages: SDK包名列表（如 ['com/unity3d/ads', 'com/unity3d/services/ads']）
+
+        Returns:
+            操作报告
+        """
+        r = {'patched': 0, 'files': 0}
+        ad_method_patterns = [
+            'loadAd', 'showAd', 'requestAd', 'initAd', 'destroyAd',
+            'onAdLoaded', 'onAdFailed', 'onAdClosed', 'onAdClicked',
+            'onAdShow', 'onAdImpression', 'loadAds', 'showAds',
+            'fetchAd', 'preloadAd', 'cacheAd',
+            'showInterstitial', 'showRewarded', 'showBanner',
+            'showSplash', 'showNative', 'showExpress',
+            'loadInterstitial', 'loadRewarded', 'loadBanner',
+            'loadNative', 'loadSplash', 'loadExpress',
+        ]
+        for sf in AdRemover._iter_smali_files(smali_root):
+            sf_lower = sf.lower()
+            matched = False
+            for pkg in packages:
+                pkg_path = pkg.replace('.', '/').lower()
+                if pkg_path in sf_lower:
+                    matched = True
+                    break
+            if not matched:
+                continue
+            c = AdRemover._read_file(sf)
+            total = 0
+            for method_pat in ad_method_patterns:
+                nc, n = AdRemover._clear_methods_by_pattern(c, method_pat)
+                total += n
+                c = nc
+            # 清除SDK相关字符串常量
+            for pkg in packages:
+                pkg_str = pkg.replace('/', '.')
+                nc, n = AdRemover._clear_string_constants(c, pkg_str, exact_match=False)
+                total += n
+                c = nc
+            if total > 0:
+                AdRemover._write_file(sf, c)
+                r['patched'] += total
+                r['files'] += 1
+        return r
 
     @staticmethod
     def detect_ad_sdks(smali_root: str) -> List[str]:

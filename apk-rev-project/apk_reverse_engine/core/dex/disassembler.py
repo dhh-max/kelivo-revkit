@@ -186,7 +186,6 @@ class TryCatchParser:
                         handlers.append({'catch_handlers': catch_handlers, 'catch_all_addr': None})
             except Exception as e:
                 logger.debug("apk_reverse_engine/core/dex/disassembler.py:184 suppressed: %s", e)
-                logger.debug(f"e")
         
         return {'tries': tries, 'handlers': handlers}
 

@@ -564,7 +564,6 @@ def unpack_apk_standalone(apk_path, output_dir=None, mode='analyze', compact=Tru
                     extracted += 1
                 except Exception as e:
                     logger.debug("apk_reverse_engine/lite/unpacker.py:591 suppressed: %s", e)
-                    logger.debug(f"e")
             result['extracted'] = extracted
             result['output_dir'] = output_dir
 
@@ -1101,7 +1100,6 @@ def unpack_apk_lite(apk_path, output_dir=None, mode='analyze', compact=True):
                     extracted += 1
                 except Exception as e:
                     logger.debug("apk_reverse_engine/lite/unpacker.py:1347 suppressed: %s", e)
-                    logger.debug(f"e")
             result['extracted'] = extracted
             result['output_dir'] = output_dir
         result['success'] = True

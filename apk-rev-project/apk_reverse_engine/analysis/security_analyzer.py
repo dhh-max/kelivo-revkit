@@ -159,8 +159,8 @@ class SecurityAnalyzer:
                     'cwe': 'CWE-1104', 'cvss': 6.0
                 })
                 score += 2
-        except Exception as e:
-            logger.debug(f"e")
+        except Exception:
+            pass
 
         # 6. 自定义权限
         custom_perms = permissions.get('custom', [])

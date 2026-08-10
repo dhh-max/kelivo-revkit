@@ -237,8 +237,8 @@ class APKUnpacker:
                 if arcname.endswith('.so'):
                     try:
                         os.chmod(dest, os.stat(dest).st_mode | 0o111)
-                    except OSError as e:
-                        logger.debug(f"e")
+                    except OSError:
+                        pass
                 with lock:
                     extracted[0] += 1
                     categories[cat] = categories.get(cat, 0) + 1

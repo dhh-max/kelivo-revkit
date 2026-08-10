@@ -1282,7 +1282,6 @@ def cmd_core(args):
                     app_package = man_info.get('package', '')
                 except Exception as e:
                     logger.debug("apk_reverse_engine/cli.py:1289 suppressed: %s", e)
-                    logger.debug(f"e")
 
             dex_files = ctx.get_dex_files()
             all_results = []
@@ -1339,7 +1338,6 @@ def cmd_core(args):
                                         break
                     except Exception as e:
                         logger.debug("apk_reverse_engine/cli.py:1345 suppressed: %s", e)
-                        logger.debug(f"e")
                     if is_manifest_match or count > 10:
                         auto_package = pkg_dot
                         break
@@ -2445,7 +2443,6 @@ def cmd_disasm(args):
                                     total_instructions += len(instructions)
                             except Exception as e:
                                 logger.debug("apk_reverse_engine/cli.py:2430 suppressed: %s", e)
-                                logger.debug(f"e")
                             
                             # 显示方法头
                             access_flags = m.get('access_flags', '')
@@ -2642,7 +2639,6 @@ def cmd_cfg(args):
                                     instructions = disasm.disassemble()
                             except Exception as e:
                                 logger.debug("apk_reverse_engine/cli.py:2626 suppressed: %s", e)
-                                logger.debug(f"e")
                             
                             if not instructions:
                                 continue
@@ -3146,7 +3142,6 @@ def _load_history():
                 return [l.strip() for l in f if l.strip()]
     except Exception as e:
         logger.debug("apk_reverse_engine/cli.py:3129 suppressed: %s", e)
-        logger.debug(f"e")
     return []
 
 def _save_history(apk):
@@ -3160,7 +3155,6 @@ def _save_history(apk):
             f.write('\n'.join(hist))
     except Exception as e:
         logger.debug("apk_reverse_engine/cli.py:3142 suppressed: %s", e)
-        logger.debug(f"e")
 
 # 交互式命令注册表: 名称 -> (分类, 说明, 需要的输入字段)
 _INTERACTIVE_COMMANDS = {
@@ -3200,7 +3194,6 @@ def _interactive_prompt(prompt, default=''):
         else:
             val = input(f"  {prompt}: ")
     except Exception as e:
-        logger.debug(f"e")
         return None
     return val.strip()
 
@@ -3236,7 +3229,6 @@ def _interactive_choose_apk():
                 os.remove(_HIST_FILE)
             except Exception as e:
                 logger.debug("apk_reverse_engine/cli.py:3216 suppressed: %s", e)
-                logger.debug(f"e")
             hist = []
             _success("历史已清除")
             continue

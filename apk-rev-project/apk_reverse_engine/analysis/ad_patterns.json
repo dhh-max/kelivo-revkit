@@ -253,6 +253,20 @@
     "hasMember", "hasLicense", "isAuthorized", "isVerifiedUser",
     "isFreeUser", "checkPro", "checkPremium", "checkMember", "checkActivated",
     "isVipActiveNow", "isVipUserNow", "vipEnabled", "proEnabled",
-    "premiumEnabled", "isUnlockPro", "isUnlockVip"
+    "premiumEnabled", "isUnlockPro", "isUnlockVip",
+    "isNoAdsEnabled", "hasNoAds", "isAdFreeMode", "isAdsFree",
+    "isPremiumUnlocked", "isProUnlockedNow", "isVipUnlocked",
+    "checkSubscription", "validateSubscription", "isSubscriptionActive",
+    "isGoldMember", "isDiamondMember", "isPlatinumMember",
+    "isElite", "isEliteUser", "isEliteMember",
+    "isUltimate", "isUltimateUser", "isUltimateMember",
+    "hasUnlockedAll", "isAllUnlocked", "isEverythingUnlocked",
+    "isPatron", "isPatronUser", "isSupporter", "isDonor",
+    "isBetaTester", "isBetaUser", "isEarlyAccess",
+    "hasCredits", "getCreditStatus", "isCreditValid",
+    "isDeveloper", "isDev", "isDebugMode",
+    "getAccountType", "getMembershipLevel", "getTier",
+    "isEnterprise", "isBusiness", "isTeam",
+    "isStudio", "isStudioUser", "isStudioMember"
   ]
 }

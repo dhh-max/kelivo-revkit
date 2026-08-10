@@ -82,7 +82,6 @@ class StringDecryptor:
                 })
         except Exception as e:
             logger.debug("apk_reverse_engine/analysis/enhanced/string_decrypt.py:81 suppressed: %s", e)
-            logger.debug(f"e")
 
         # 4. ROT13
         try:
@@ -95,7 +94,6 @@ class StringDecryptor:
                 })
         except Exception as e:
             logger.debug("apk_reverse_engine/analysis/enhanced/string_decrypt.py:93 suppressed: %s", e)
-            logger.debug(f"e")
 
         # 5. Add/Sub constant
         for shift in range(1, 256):
@@ -175,7 +173,6 @@ class StringDecryptor:
                         })
                 except Exception as e:
                     logger.debug("apk_reverse_engine/analysis/enhanced/string_decrypt.py:172 suppressed: %s", e)
-                    logger.debug(f"e")
 
         # Pattern 2: const-string with encoded value
         for m in re.finditer(r'const-string\s+v\d+,\s*"([^"]*)"', smali_text):
@@ -194,7 +191,6 @@ class StringDecryptor:
                         })
                 except Exception as e:
                     logger.debug("apk_reverse_engine/analysis/enhanced/string_decrypt.py:190 suppressed: %s", e)
-                    logger.debug(f"e")
 
         # Pattern 3: invoke decrypt method with const
         for m in re.finditer(r'invoke-\w+\s+\{.*?\},\s+L[\w/]+;->(\w+)\(.*?\)Ljava/lang/String;', smali_text):
@@ -249,7 +245,6 @@ class StringDecryptor:
                             })
                     except Exception as e:
                         logger.debug("apk_reverse_engine/analysis/enhanced/string_decrypt.py:244 suppressed: %s", e)
-                        logger.debug(f"e")
                 # Check for base64
                 if re.match(r'^[A-Za-z0-9+/=]+$', s) and len(s) >= 8:
                     try:
@@ -263,6 +258,5 @@ class StringDecryptor:
                             })
                     except Exception as e:
                         logger.debug("apk_reverse_engine/analysis/enhanced/string_decrypt.py:257 suppressed: %s", e)
-                        logger.debug(f"e")
 
         return results

@@ -165,8 +165,8 @@ class AXMLEncoder:
                 vt = (TYPE_INTEGER << 24) | 0x08
                 vd = v & 0xFFFFFFFF
                 return vi, vt, vd
-            except ValueError as e:
-                logger.debug(f"e")
+            except ValueError:
+                pass
 
         # 引用
         if value.startswith('@'):

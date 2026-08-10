@@ -38,7 +38,6 @@ class APKSearch:
                                 count += 1
                 except Exception as e:
                     logger.debug("apk_reverse_engine/tools/searcher.py:36 suppressed: %s", e)
-                    logger.debug(f"e")
         return {'results': results, 'total': len(results)}
     
     @staticmethod
@@ -83,7 +82,6 @@ class APKSearch:
                         count += 1
             except Exception as e:
                 logger.debug("apk_reverse_engine/tools/searcher.py:80 suppressed: %s", e)
-                logger.debug(f"e")
         ctx.close()
         return {'results': results, 'total': len(results)}
     
@@ -112,7 +110,6 @@ class APKSearch:
                     start = idx + 1
             except Exception as e:
                 logger.debug("apk_reverse_engine/tools/searcher.py:108 suppressed: %s", e)
-                logger.debug(f"e")
         ctx.close()
         return {'results': results, 'total': len(results)}
     
@@ -223,7 +220,6 @@ class APKSearch:
                         count += 1
             except Exception as e:
                 logger.debug("apk_reverse_engine/tools/searcher.py:218 suppressed: %s", e)
-                logger.debug(f"e")
         ctx.close()
         return {'results': results, 'total': len(results)}
     

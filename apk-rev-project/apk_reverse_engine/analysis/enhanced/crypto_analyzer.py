@@ -280,7 +280,6 @@ class CryptoAnalyzer:
 
         except Exception as e:
             logger.debug("apk_reverse_engine/analysis/enhanced/crypto_analyzer.py:278 suppressed: %s", e)
-            logger.debug(f"e")
 
         return results
 

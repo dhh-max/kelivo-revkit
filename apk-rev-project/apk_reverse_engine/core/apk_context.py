@@ -127,15 +127,15 @@ class APKContext:
                     try:
                         ts = datetime(*date_time).timestamp()
                         os.utime(dest_path, (ts, ts))
-                    except Exception as e:
-                        logger.debug(f"e")
+                    except Exception:
+                        pass
 
                 # SO文件加执行权限
                 if name.endswith('.so'):
                     try:
                         os.chmod(dest_path, os.stat(dest_path).st_mode | 0o111)
-                    except OSError as e:
-                        logger.debug(f"e")
+                    except OSError:
+                        pass
 
                 extracted += 1
                 if progress_callback:
@@ -159,7 +159,6 @@ class APKContext:
                     sha_ok = True
                 except Exception as e:
                     logger.debug("apk_reverse_engine/core/apk_context.py:157 suppressed: %s", e)
-                    logger.debug(f"e")
 
         return {
             'extracted': extracted, 'total': total, 'errors': errors,

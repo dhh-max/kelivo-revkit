@@ -58,13 +58,11 @@ def detect_file_type(path):
                     return 'tar', '.tar.gz'
             except Exception as e:
                 logger.debug("apk_reverse_engine/core/archive_context.py:57 suppressed: %s", e)
-                logger.debug(f"e")
             return 'gzip', '.gz'
         if magic[:5] == b'ustar' or (len(magic) >= 6 and magic[257:262] == b'ustar'):
             return 'tar', '.tar'
     except Exception as e:
         logger.debug("apk_reverse_engine/core/archive_context.py:62 suppressed: %s", e)
-        logger.debug(f"e")
 
     return 'file', os.path.splitext(path)[1]
 
@@ -392,8 +390,8 @@ class ArchiveContext:
                         try:
                             ts = datetime(*date_time).timestamp()
                             os.utime(dest_path, (ts, ts))
-                        except Exception as e:
-                            logger.debug(f"e")
+                        except Exception:
+                            pass
 
                 elif self._file_type == 'tar':
                     member = self._tar.getmember(name)
@@ -410,7 +408,6 @@ class ArchiveContext:
                         os.chmod(dest_path, member.mode)
                     except Exception as e:
                         logger.debug("apk_reverse_engine/core/archive_context.py:407 suppressed: %s", e)
-                        logger.debug(f"e")
 
                 elif self._file_type == 'dir':
                     src_path = os.path.join(self.path, name)
@@ -432,8 +429,8 @@ class ArchiveContext:
                 if name.endswith('.so'):
                     try:
                         os.chmod(dest_path, os.stat(dest_path).st_mode | 0o111)
-                    except OSError as e:
-                        logger.debug(f"e")
+                    except OSError:
+                        pass
 
                 extracted += 1
                 if progress_callback:
@@ -457,7 +454,6 @@ class ArchiveContext:
                     sha_ok = True
                 except Exception as e:
                     logger.debug("apk_reverse_engine/core/archive_context.py:453 suppressed: %s", e)
-                    logger.debug(f"e")
 
         return {
             'extracted': extracted, 'total': total, 'errors': errors,

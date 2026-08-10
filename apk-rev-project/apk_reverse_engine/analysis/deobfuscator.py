@@ -37,7 +37,6 @@ class Deobfuscator:
                         keys.add(int(val))
                 except Exception as e:
                     logger.debug("apk_reverse_engine/analysis/deobfuscator.py:35 suppressed: %s", e)
-                    logger.debug(f"e")
         return sorted(keys)[:20]
 
     @staticmethod
@@ -67,7 +66,6 @@ class Deobfuscator:
                     })
             except Exception as e:
                 logger.debug("apk_reverse_engine/analysis/deobfuscator.py:64 suppressed: %s", e)
-                logger.debug(f"e")
         return arrays
 
     @staticmethod
@@ -206,7 +204,6 @@ class Deobfuscator:
                     })
             except Exception as e:
                 logger.debug("apk_reverse_engine/analysis/deobfuscator.py:202 suppressed: %s", e)
-                logger.debug(f"e")
             
             # 尝试Hex解码
             if all(c in '0123456789abcdefABCDEF' for c in s) and len(s) % 2 == 0:
@@ -220,7 +217,6 @@ class Deobfuscator:
                         })
                 except Exception as e:
                     logger.debug("apk_reverse_engine/analysis/deobfuscator.py:215 suppressed: %s", e)
-                    logger.debug(f"e")
             
             # 尝试Unicode转义
             unicode_match = re.match(r'^\\u[0-9a-fA-F]{4}', s)
@@ -234,7 +230,6 @@ class Deobfuscator:
                     })
                 except Exception as e:
                     logger.debug("apk_reverse_engine/analysis/deobfuscator.py:228 suppressed: %s", e)
-                    logger.debug(f"e")
         
         return results[:20]
 

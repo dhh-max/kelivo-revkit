@@ -39,7 +39,6 @@ logger = get_logger(__name__)
 # Default model name
 DEFAULT_MODEL = "Qwen/Qwen2.5-7B-Instruct"
 
-import os
 import json
 import time
 import re
@@ -290,8 +289,7 @@ class AdAIEngine:
                 cls._last_model_fetch = now
                 return models
             except Exception as e:
-                from apk_reverse_engine.utils.logutil import get_logger
-                get_logger(__name__).warning("fetch_available_models failed: %s", e)
+                logger.warning("fetch_available_models failed: %s", e)
                 return None
 
     @staticmethod
@@ -505,7 +503,6 @@ class AdAIEngine:
                 template_hints = f"\n### 参考广告关键词库\n{', '.join(common_kws[:30])}\n"
         except Exception as e:
             logger.debug("apk_reverse_engine/analysis/ad_ai_engine.py:500 suppressed: %s", e)
-            logger.debug(f"e")
 
         safe_code = self.truncate_to_token_limit(code)
 
@@ -1225,7 +1222,6 @@ class AdAIEngine:
                             on_stream(idx, chunk)
                         except Exception as e:
                             logger.debug("apk_reverse_engine/analysis/ad_ai_engine.py:1219 suppressed: %s", e)
-                            logger.debug(f"e")
                     result['analysis'] = ''.join(full)
                 else:
                     result['analysis'] = self.analyze(
@@ -1265,7 +1261,6 @@ class AdAIEngine:
                         on_complete(idx, result)
                     except Exception as e:
                         logger.debug("apk_reverse_engine/analysis/ad_ai_engine.py:1258 suppressed: %s", e)
-                        logger.debug(f"e")
 
         return results  # type: ignore[return-value]
 

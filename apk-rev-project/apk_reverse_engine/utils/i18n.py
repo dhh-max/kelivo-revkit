@@ -38,7 +38,6 @@ def get_saved_lang():
                 return json.load(f).get("lang", "zh_CN")
         except Exception as e:
             logger.debug("apk_reverse_engine/utils/i18n.py:35 suppressed: %s", e)
-            logger.debug(f"e")
     return os.environ.get("RENG_LANG", "zh_CN")
 
 def save_lang(lang):
@@ -544,7 +543,6 @@ for _d in [os.path.join(_home, ".config", "reng"),
                     break
         except Exception as e:
             logger.debug("apk_reverse_engine/utils/i18n.py:539 suppressed: %s", e)
-            logger.debug(f"e")
 
 # 如果没有找到持久化配置，设置默认路径
 if _lang_file is None:

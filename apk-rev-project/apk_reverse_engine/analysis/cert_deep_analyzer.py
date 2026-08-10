@@ -104,7 +104,6 @@ class CertDeepAnalyzer:
                         risk_score += 5
             except Exception as e:
                 logger.debug("apk_reverse_engine/analysis/cert_deep_analyzer.py:103 suppressed: %s", e)
-                logger.debug(f"e")
 
         # 3. 哈希算法强度
         sha256 = cert_info.get('sha256', '')
@@ -128,7 +127,6 @@ class CertDeepAnalyzer:
                     risk_score += 5
             except Exception as e:
                 logger.debug("apk_reverse_engine/analysis/cert_deep_analyzer.py:126 suppressed: %s", e)
-                logger.debug(f"e")
 
         # 5. 签名方案兼容性
         findings.append('ℹ️ 建议使用v2/v3签名方案以确保Android 7.0+兼容性')

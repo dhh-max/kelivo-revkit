@@ -113,7 +113,6 @@ class APKCleaner:
                         file_contents[name] = data
                     except Exception as e:
                         logger.debug("apk_reverse_engine/analysis/apk_cleaner.py:111 suppressed: %s", e)
-                        logger.debug(f"e")
 
             # 5. 重复文件检测
             seen = {}

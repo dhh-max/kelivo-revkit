@@ -162,7 +162,6 @@ class APKDecompiler:
                             total_lines += sum(1 for _ in fh)
                     except Exception as e:
                         logger.debug("apk_reverse_engine/tools/decompiler.py:160 suppressed: %s", e)
-                        logger.debug(f"e")
                 elif f.endswith('.smali'):
                     smali_files += 1
         

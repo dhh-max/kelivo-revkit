@@ -153,7 +153,6 @@ class DexParser:
                         param_types.append(self._types[pt]['descriptor'] if 0 <= pt < len(self._types) else f'?{pt}')
                 except Exception as e:
                     logger.debug("apk_reverse_engine/core/dex_parser.py:151 suppressed: %s", e)
-                    logger.debug(f"e")
             
             self._protos.append({
                 'id': i,
@@ -228,7 +227,6 @@ class DexParser:
                         interfaces.append(self._types[itf]['descriptor'] if 0 <= itf < len(self._types) else f'?{itf}')
                 except Exception as e:
                     logger.debug("apk_reverse_engine/core/dex_parser.py:225 suppressed: %s", e)
-                    logger.debug(f"e")
 
             # Class data (methods + fields)
             static_fields = []
@@ -308,7 +306,6 @@ class DexParser:
                         virtual_methods.append(mi)
                 except Exception as e:
                     logger.debug("apk_reverse_engine/core/dex_parser.py:304 suppressed: %s", e)
-                    logger.debug(f"e")
 
             self._class_defs.append({
                 'class_idx': ci,
