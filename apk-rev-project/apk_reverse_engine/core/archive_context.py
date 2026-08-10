@@ -81,7 +81,7 @@ class ArchiveContext:
     def __init__(self, path):
         self.path = os.path.abspath(path)
         if not os.path.exists(self.path):
-            raise FileNotFoundError(f"File not found: {self.path}")
+            raise FileNotFoundError(f"文件未找到: {self.path}")
 
         self._file_type, self._ext = detect_file_type(self.path)
         self._temp_dir = None
@@ -169,7 +169,7 @@ class ArchiveContext:
         elif self._file_type == 'tar':
             f = self._tar.extractfile(path)
             if f is None:
-                raise KeyError(f"Cannot read: {path}")
+                raise KeyError(f"无法读取: {path}")
             return f.read()
         elif self._file_type == 'dir':
             fp = os.path.join(self.path, path)
@@ -189,7 +189,7 @@ class ArchiveContext:
         """兼容属性：返回 zipfile 对象（仅 zip 类型时可用）"""
         if self._file_type == 'zip':
             return self._zip
-        raise AttributeError("zip property only available for zip-type archives")
+        raise AttributeError("zip 属性仅适用于 zip 类型归档")
 
     # ── 通用过滤方法 ──
     def get_files_by_ext(self, *exts):
@@ -244,7 +244,7 @@ class ArchiveContext:
             elif self._file_type == 'dir':
                 with open(os.path.join(self.path, 'AndroidManifest.xml'), 'rb') as f:
                     return f.read()
-        raise KeyError("AndroidManifest.xml not found (not an APK?)")
+        raise KeyError("未找到 AndroidManifest.xml (非 APK 文件?)")
 
     def get_structure_summary(self):
         return {'total_files': len(self.file_list),

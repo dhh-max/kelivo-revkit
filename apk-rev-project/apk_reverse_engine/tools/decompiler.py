@@ -145,7 +145,7 @@ class APKDecompiler:
     def get_decompiled_source_summary(output_dir):
         """统计反编译结果"""
         if not os.path.exists(output_dir):
-            return {'error': 'directory not found'}
+            return {'error': '目录未找到'}
         
         java_files = 0
         smali_files = 0

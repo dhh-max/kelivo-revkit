@@ -134,10 +134,10 @@ def _run(cmd, timeout=30):
     try:
         r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
         if r.returncode != 0:
-            raise RuntimeError(f'ADB error: {r.stderr.strip() or r.stdout.strip()}')
+            raise RuntimeError(f'ADB 错误: {r.stderr.strip() or r.stdout.strip()}')
         return r.stdout.strip()
     except FileNotFoundError:
-        raise RuntimeError('adb not found in PATH. Install Android SDK platform-tools.')
+        raise RuntimeError('PATH 中未找到 adb, 请安装 Android SDK platform-tools')
 
 
 def _shell_escape(s):

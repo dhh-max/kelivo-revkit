@@ -124,12 +124,12 @@ class DexDataFlowAnalyzer:
     def analyze_method_dataflow(self, class_name, method_name=None):
         """分析指定类/方法的数据流"""
         if not self.dp:
-            return {'error': 'No DEX parser provided'}
+            return {'error': '未提供 DEX 解析器'}
 
         self.dp._ensure_parsed()
         cls = self.dp.get_class_by_name(class_name)
         if not cls:
-            return {'error': f'Class not found: {class_name}'}
+            return {'error': f'类未找到: {class_name}'}
 
         results = {
             'class': class_name,
@@ -200,12 +200,12 @@ class DexDataFlowAnalyzer:
     def trace_register(self, class_name, method_name, target_reg):
         """追踪指定寄存器的所有读写位置"""
         if not self.dp:
-            return {'error': 'No DEX parser provided'}
+            return {'error': '未提供 DEX 解析器'}
 
         self.dp._ensure_parsed()
         cls = self.dp.get_class_by_name(class_name)
         if not cls:
-            return {'error': f'Class not found: {class_name}'}
+            return {'error': f'类未找到: {class_name}'}
 
         for m in cls.get('direct_methods', []) + cls.get('virtual_methods', []):
             if m.get('name') != method_name:
@@ -251,17 +251,17 @@ class DexDataFlowAnalyzer:
                 'write_count': len(writes),
             }
 
-        return {'error': f'Method not found: {method_name}'}
+        return {'error': f'方法未找到: {method_name}'}
 
     def propagate_constants(self, class_name, method_name):
         """常量传播分析 - 追踪方法内所有常量值的流动"""
         if not self.dp:
-            return {'error': 'No DEX parser provided'}
+            return {'error': '未提供 DEX 解析器'}
 
         self.dp._ensure_parsed()
         cls = self.dp.get_class_by_name(class_name)
         if not cls:
-            return {'error': f'Class not found: {class_name}'}
+            return {'error': f'类未找到: {class_name}'}
 
         for m in cls.get('direct_methods', []) + cls.get('virtual_methods', []):
             if m.get('name') != method_name:
@@ -314,4 +314,4 @@ class DexDataFlowAnalyzer:
                 'total_constants': len(const_map),
             }
 
-        return {'error': f'Method not found: {method_name}'}
+        return {'error': f'方法未找到: {method_name}'}

@@ -337,7 +337,7 @@ class CFGBuilder:
     def analyze_method(instructions):
         """完整分析方法：指令统计 + 基本块 + CFG"""
         if not instructions:
-            return {'error': 'no instructions'}
+            return {'error': '无指令'}
 
         blocks = CFGBuilder.build_basic_blocks(instructions)
         edges = CFGBuilder.build_cfg(blocks)

@@ -55,7 +55,7 @@ class FileUtils:
     def get_file_info(filepath):
         """获取文件信息"""
         if not os.path.exists(filepath):
-            return {'error': 'file not found'}
+            return {'error': '文件未找到'}
         stat = os.stat(filepath)
         return {
             'path': filepath,

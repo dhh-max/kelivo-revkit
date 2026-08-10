@@ -68,7 +68,7 @@ def _parse_axml_tags(data, offsets=False):
 
     magic = r32()
     if magic != AXML_MAGIC:
-        return {'error': f'Invalid AXML magic: 0x{magic:08x}'}
+        return {'error': f'无效 AXML magic: 0x{magic:08x}'}
     _ = r32()  # file_size
 
     # ── 解析字符串池 ──

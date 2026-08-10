@@ -303,7 +303,7 @@ class InstructionDecoder:
         try:
             ident = _u2(data, offset)
             if ident != 0x0100:
-                return {'error': f'not packed-switch payload (ident=0x{ident:04x})'}
+                return {'error': f'非 packed-switch 负载 (ident=0x{ident:04x})'}
             size = _u2(data, offset + 2)
             first_key = _i4(data, offset + 4)
             targets = []
@@ -330,7 +330,7 @@ class InstructionDecoder:
         try:
             ident = _u2(data, offset)
             if ident != 0x0200:
-                return {'error': f'not sparse-switch payload (ident=0x{ident:04x})'}
+                return {'error': f'非 sparse-switch 负载 (ident=0x{ident:04x})'}
             size = _u2(data, offset + 2)
             keys = []
             targets = []
@@ -360,7 +360,7 @@ class InstructionDecoder:
         try:
             ident = _u2(data, offset)
             if ident != 0x0300:
-                return {'error': f'not array-data payload (ident=0x{ident:04x})'}
+                return {'error': f'非 array-data 负载 (ident=0x{ident:04x})'}
             element_width = _u2(data, offset + 2)
             size = _u4(data, offset + 4)
             values = []

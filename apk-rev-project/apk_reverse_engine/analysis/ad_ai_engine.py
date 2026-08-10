@@ -289,7 +289,7 @@ class AdAIEngine:
                 cls._last_model_fetch = now
                 return models
             except Exception as e:
-                logger.warning("fetch_available_models failed: %s", e)
+                logger.warning("获取可用模型列表失败: %s", e)
                 return None
 
     @staticmethod

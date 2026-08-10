@@ -37,7 +37,7 @@ class LiteManifestParser:
 
     def _safe(self, n):
         if self.pos + n > len(self.data):
-            raise IndexError(f'LiteManifestParser: pos={self.pos}+{n} > len={len(self.data)}')
+            raise IndexError(f'LiteManifestParser: 位置={self.pos}+{n} > 长度={len(self.data)}')
     def _u2(self):
         self._safe(2)
         v = struct.unpack_from('<H', self.data, self.pos)[0]
@@ -61,18 +61,18 @@ class LiteManifestParser:
 
     def parse(self):
         if len(self.data) < 8:
-            return {'error': 'data too small'}
+            return {'error': '数据过小'}
         magic = self._u4()
         size = self._u4()
         if magic != 0x00080003:
-            return {'error': f'not AXML: magic=0x{magic:08x}'}
+            return {'error': f'非 AXML: magic=0x{magic:08x}'}
 
         # 解析StringChunk
         self.pos = 8
         string_chunk_type = self._u4()
         string_chunk_size = self._u4()
         if string_chunk_type != 0x001C0001:
-            return {'error': f'not string chunk: 0x{string_chunk_type:08x}'}
+            return {'error': f'非字符串块: 0x{string_chunk_type:08x}'}
 
         # stringsStart 字段是相对于 chunk 头部（文件偏移 8）的偏移
         string_start = 8  # chunk 在文件中的起始位置

@@ -6,7 +6,7 @@ logger = get_logger(__name__)
 class APKContext:
     def __init__(self, apk_path):
         self.apk_path = os.path.abspath(apk_path)
-        if not os.path.exists(self.apk_path): raise FileNotFoundError(f"APK not found: {self.apk_path}")
+        if not os.path.exists(self.apk_path): raise FileNotFoundError(f"APK 未找到: {self.apk_path}")
         self._temp_dir = None; self._zip = None; self._digest = None; self._file_list = None
 
     @property

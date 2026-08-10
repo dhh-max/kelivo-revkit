@@ -29,7 +29,7 @@ class ApkSizeAnalyzer:
             dict: {total_size, categories, top_files, dex_details, native_details, recommendations}
         """
         if not os.path.isfile(apk_path):
-            return {'error': f'File not found: {apk_path}'}
+            return {'error': f'文件未找到: {apk_path}'}
 
         total_apk_size = os.path.getsize(apk_path)
         categories = defaultdict(lambda: {'count': 0, 'size': 0, 'files': []})
@@ -37,7 +37,7 @@ class ApkSizeAnalyzer:
         try:
             zf = zipfile.ZipFile(apk_path)
         except zipfile.BadZipFile:
-            return {'error': 'Invalid ZIP/APK file'}
+            return {'error': '无效的 ZIP/APK 文件'}
 
         all_files = []
         for info in zf.infolist():

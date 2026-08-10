@@ -51,7 +51,7 @@ class APKSigner:
                         'apk': output_path if r.returncode == 0 else None}
             except Exception as e:
                 return {'success': False, 'error': str(e)}
-        return {'success': False, 'error': 'No signing tool found (apksigner or uber-apk-signer.jar)'}
+        return {'success': False, 'error': '未找到签名工具 (apksigner 或 uber-apk-signer.jar)'}
 
     @staticmethod
     def sign_keystore(apk_path, output_path, keystore, storepass, alias, keypass=None):

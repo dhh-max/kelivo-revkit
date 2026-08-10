@@ -115,11 +115,11 @@ class SignVerifier:
         """
         eocd = data.rfind(b'PK\x05\x06')
         if eocd < 0:
-            raise ValueError('not a zip/apk: no End Of Central Directory record')
+            raise ValueError('非 ZIP/APK 文件: 缺少 End Of Central Directory 记录')
         cd_offset = struct.unpack_from('<I', data, eocd + 16)[0]
 
         if data[cd_offset - 16:cd_offset] != SignVerifier.APK_SIG_BLOCK_MAGIC:
-            raise ValueError('no APK Signing Block (unsigned, or v1/JAR-signed only)')
+            raise ValueError('无 APK 签名块 (未签名, 或仅 v1/JAR 签名)')
 
         footer_size = struct.unpack_from('<Q', data, cd_offset - 24)[0]
         block_start = cd_offset - footer_size - 8
@@ -154,7 +154,7 @@ class SignVerifier:
         cert = signed_data[certs_off + 8:certs_off + 8 + cert_len]
 
         if not cert.startswith(b'\x30\x82'):
-            raise ValueError('parsed bytes are not a DER certificate — layout changed?')
+            raise ValueError('解析的字节不是 DER 证书 — 结构可能已变更')
         return cert
 
     @staticmethod
@@ -179,7 +179,7 @@ class SignVerifier:
                     return cert
                 return hashlib.sha256(cert).hexdigest()
 
-        raise ValueError('APK has a signing block but no v2/v3 signature')
+        raise ValueError('APK 含签名块但无 v2/v3 签名')
 
     @staticmethod
     def verify_v2(apk_path):

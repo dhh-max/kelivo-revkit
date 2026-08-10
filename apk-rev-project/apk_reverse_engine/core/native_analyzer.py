@@ -75,9 +75,9 @@ class ElfImage:
     @staticmethod
     def parse(data):
         if len(data) < 20:
-            raise ValueError('Not an ELF file: too short')
+            raise ValueError('非 ELF 文件: 文件过短')
         if data[0:4] != b'\x7fELF':
-            raise ValueError('Not an ELF file: bad magic')
+            raise ValueError('非 ELF 文件: magic 错误')
         img = ElfImage(data)
         img.is64 = data[4] == 2
         img.endian = '>' if data[5] == 2 else '<'
@@ -358,7 +358,7 @@ class NativeAnalyzer:
     @staticmethod
     def analyze(data):
         if not NativeAnalyzer.is_elf(data):
-            return {'error': 'not ELF file'}
+            return {'error': '非 ELF 文件'}
         try:
             elf = ElfImage.parse(data)
             return elf.get_summary()

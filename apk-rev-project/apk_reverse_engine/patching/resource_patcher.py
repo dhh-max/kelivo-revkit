@@ -21,7 +21,7 @@ class ResourcePatcher:
         old = bytes.fromhex(old_hex.replace(' ', ''))
         new = bytes.fromhex(new_hex.replace(' ', ''))
         if len(old) != len(new):
-            raise ValueError('old_hex and new_hex must have same length')
+            raise ValueError('old_hex 和 new_hex 长度必须一致')
         return data.replace(old, new, 1)
 
     @staticmethod

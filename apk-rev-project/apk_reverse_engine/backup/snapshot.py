@@ -22,7 +22,7 @@ class Snapshot:
             include_artifacts: 是否包含中间产物（base64 编码，可能很大）
         """
         if not os.path.isdir(workspace_dir):
-            raise FileNotFoundError(f'workspace not found: {workspace_dir}')
+            raise FileNotFoundError(f'工作区未找到: {workspace_dir}')
         ws_name = os.path.basename(workspace_dir)
 
         snapshot = {
@@ -82,7 +82,7 @@ class Snapshot:
             snap = json.load(f)
 
         if snap.get('type') != 'apk-rev-workspace':
-            raise ValueError('invalid snapshot file')
+            raise ValueError('无效的快照文件')
 
         ws_name = snap.get('workspace', 'imported')
         if not target_dir:

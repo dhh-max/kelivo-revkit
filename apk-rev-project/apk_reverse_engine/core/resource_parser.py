@@ -288,7 +288,7 @@ class ResourceParser:
     # ── 主解析入口 ──
     def parse(self):
         if self.n < 12:
-            return {'error': 'data too small', 'package_count': 0, 'packages': []}
+            return {'error': '数据过小', 'package_count': 0, 'packages': []}
 
         pos = 0
         chunk_type = struct.unpack_from('<H', self.data, pos)[0]

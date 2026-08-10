@@ -97,13 +97,13 @@ class CertUtils:
         """解析X.509 DER证书 (basic)"""
         try:
             if data[0] != 0x30:  # SEQUENCE
-                return {'error': 'not a DER SEQUENCE'}
+                return {'error': '非 DER SEQUENCE'}
             length, len_len = CertUtils._parse_der_length(data, 1)
             pos = 1 + len_len
 
             # TBSCertificate
             if data[pos] != 0x30:
-                return {'error': 'no TBSCertificate'}
+                return {'error': '缺少 TBSCertificate'}
             tbs_len, tbs_len_len = CertUtils._parse_der_length(data, pos + 1)
             tbs_start = pos + 1 + tbs_len_len
             tbs_end = tbs_start + tbs_len

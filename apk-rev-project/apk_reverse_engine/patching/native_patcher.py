@@ -86,7 +86,7 @@ class NativePatcher:
         """在指定偏移处写入十六进制字节"""
         new_bytes = bytes.fromhex(hex_str.replace(' ', ''))
         if offset < 0 or offset + len(new_bytes) > len(data):
-            raise ValueError(f'Invalid offset {offset} or size {len(new_bytes)}')
+            raise ValueError(f'无效偏移 {offset} 或大小 {len(new_bytes)}')
         return data[:offset] + new_bytes + data[offset + len(new_bytes):]
 
     @staticmethod
@@ -110,7 +110,7 @@ class NativePatcher:
     def patch_bytes(data, offset, new_bytes):
         """在指定偏移处写入字节"""
         if offset < 0 or offset + len(new_bytes) > len(data):
-            raise ValueError(f'Invalid offset {offset} or size {len(new_bytes)}')
+            raise ValueError(f'无效偏移 {offset} 或大小 {len(new_bytes)}')
         return data[:offset] + new_bytes + data[offset + len(new_bytes):]
 
     @staticmethod

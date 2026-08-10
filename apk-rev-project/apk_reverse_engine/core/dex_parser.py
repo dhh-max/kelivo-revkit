@@ -58,7 +58,7 @@ class DexParser:
 
     def parse_header(self):
         if len(self.data) < 112:
-            return {'error': 'data too small'}
+            return {'error': '数据过小'}
         magic = self.data[0:8]
         version = self.data[4:8].decode('utf-8', errors='replace')
         checksum = self._u4(8)
@@ -351,7 +351,7 @@ class DexParser:
         try:
             n = len(self.data)
             if off + 16 > n:
-                return {'error': 'code_item too small'}
+                return {'error': 'code_item 过小'}
             registers_size = self._u2(off)
             ins_size = self._u2(off + 2)
             outs_size = self._u2(off + 4)
@@ -481,7 +481,7 @@ class DexParser:
         """解析 annotation_item（简化）"""
         try:
             if off <= 0 or off + 4 > len(self.data):
-                return {'error': 'invalid offset'}
+                return {'error': '无效偏移'}
             visibility = self._u1(off)
             vis_map = {0: 'build', 1: 'runtime', 2: 'system'}
             type_idx = self._uleb(off + 1)[0]
@@ -628,7 +628,7 @@ class DexParser:
         self._ensure_parsed()
         cls = self.get_class_by_name(class_name)
         if not cls:
-            return {'error': f'Class not found: {class_name}'}
+            return {'error': f'类未找到: {class_name}'}
         type_desc = set()
         # 收集方法 proto 与字段类型中的引用描述符
         for m in cls.get('direct_methods', []) + cls.get('virtual_methods', []):
