@@ -3833,6 +3833,647 @@ def cmd_report(args):
     else:
         console.print(report[:500] + '...' if len(report) > 500 else report)
 
+def cmd_device(args):
+    """设备集成 - ADB 真机/模拟器操作"""
+    from apk_reverse_engine.device.adb import ADB
+    sub_cmd = getattr(args, 'device_sub', None)
+    if sub_cmd == 'list' or sub_cmd is None:
+        devs = ADB.devices()
+        if not devs:
+            _info("未检测到已连接的 Android 设备")
+            console.print("  [dim]使用 reng device connect --host <ip> --port <port> 连接远程设备[/]")
+            return
+        t = Table(box=box.ROUNDED, border_style='cyan', show_header=True)
+        t.add_column("设备ID", style="cyan")
+        t.add_column("描述", style="dim")
+        for d in devs:
+            t.add_row(d['id'], d.get('desc', ''))
+        console.print(t)
+        return
+    if sub_cmd == 'connect':
+        host = getattr(args, 'host', '127.0.0.1')
+        port = getattr(args, 'port', 5555)
+        result = ADB().connect(host, port)
+        console.print(f"  {result}")
+        return
+    if sub_cmd == 'info':
+        dev = ADB(getattr(args, 'device_id', None))
+        info = dev.info()
+        _kv_table([(k, v) for k, v in info.items()], title="设备信息", style='cyan')
+        console.print()
+        return
+    if sub_cmd == 'install':
+        dev = ADB(getattr(args, 'device_id', None))
+        result = dev.install(args.apk, reinstall=getattr(args, 'reinstall', False),
+                             grant_permissions=getattr(args, 'grant', False))
+        console.print(f"  {result}")
+        return
+    if sub_cmd == 'uninstall':
+        dev = ADB(getattr(args, 'device_id', None))
+        result = dev.uninstall(args.package, keep_data=getattr(args, 'keep_data', False))
+        console.print(f"  {result}")
+        return
+    if sub_cmd == 'packages':
+        dev = ADB(getattr(args, 'device_id', None))
+        pkgs = dev.list_packages(filter_str=getattr(args, 'filter', None))
+        _info(f"已安装应用 ({len(pkgs)} 个):")
+        for p in pkgs[:100]:
+            console.print(f"  [dim]•[/] {p}")
+        if len(pkgs) > 100:
+            console.print(f"  [dim]... 共 {len(pkgs)} 个[/]")
+        return
+    if sub_cmd == 'screenshot':
+        dev = ADB(getattr(args, 'device_id', None))
+        output = getattr(args, 'output', 'screenshot.png')
+        dev.screenshot(output)
+        _success(f"截图已保存: {output}")
+        return
+    if sub_cmd == 'logcat':
+        dev = ADB(getattr(args, 'device_id', None))
+        lines = getattr(args, 'lines', 50)
+        log = dev.logcat(filter_spec=getattr(args, 'filter', None), lines=lines)
+        console.print(log)
+        return
+    if sub_cmd == 'pull':
+        dev = ADB(getattr(args, 'device_id', None))
+        dev.pull(args.remote, args.local)
+        _success(f"已拉取: {args.remote} → {args.local}")
+        return
+    if sub_cmd == 'push':
+        dev = ADB(getattr(args, 'device_id', None))
+        dev.push(args.local, args.remote)
+        _success(f"已推送: {args.local} → {args.remote}")
+        return
+    if sub_cmd is None:
+        _info("设备操作模块\n")
+        console.print("  [cyan]reng device list[/]                   列出已连接设备")
+        console.print("  [cyan]reng device connect --host H --port P[/]  连接远程设备")
+        console.print("  [cyan]reng device info[/]                   设备信息")
+        console.print("  [cyan]reng device install app.apk[/]        安装 APK")
+        console.print("  [cyan]reng device uninstall <pkg>[/]        卸载应用")
+        console.print("  [cyan]reng device packages[/]              列出已安装应用")
+        console.print("  [cyan]reng device screenshot -o out.png[/]  截图")
+        console.print("  [cyan]reng device logcat -n 100[/]         日志")
+        console.print("  [cyan]reng device pull <remote> <local>[/]  拉取文件")
+        console.print("  [cyan]reng device push <local> <remote>[/]  推送文件")
+        return
+
+def cmd_workspace(args):
+    """工作区管理 - 多项目分析上下文隔离"""
+    from apk_reverse_engine.workspace.manager import Workspace
+    sub_cmd = getattr(args, 'workspace_sub', None)
+    if sub_cmd == 'list' or sub_cmd is None:
+        workspaces = Workspace.list()
+        if not workspaces:
+            _info("暂无工作区")
+            console.print("  [dim]使用 reng workspace create <name> 创建工作区[/]")
+            return
+        t = Table(box=box.ROUNDED, border_style='cyan', show_header=True)
+        t.add_column("名称", style="cyan")
+        t.add_column("创建时间", style="dim")
+        t.add_column("APK", style="dim")
+        t.add_column("说明", style="dim")
+        for ws in workspaces:
+            meta = ws.get('meta', {})
+            t.add_row(
+                ws.get('name', ''),
+                meta.get('created', '')[:19],
+                meta.get('apk', {}).get('path', '').split('/')[-1] if meta.get('apk', {}).get('path') else '-',
+                meta.get('description', '')[:40],
+            )
+        console.print(t)
+        return
+    if sub_cmd == 'create':
+        ws = Workspace.create(args.name, description=getattr(args, 'description', '') or '',
+                              apk_path=getattr(args, 'apk', None))
+        _success(f"工作区已创建: {args.name}")
+        console.print(f"  [dim]路径: {ws.dir}[/]")
+        return
+    if sub_cmd == 'delete':
+        ws = Workspace.open(args.name)
+        ws.delete()
+        _success(f"工作区已删除: {args.name}")
+        return
+    if sub_cmd == 'save':
+        ws = Workspace.open(args.name)
+        import json as _json
+        data = _json.loads(args.data) if args.data.startswith('{') else {'value': args.data}
+        ws.save_result(args.key, data)
+        _success(f"结果已保存: {args.key}")
+        return
+    if sub_cmd == 'load':
+        ws = Workspace.open(args.name)
+        data = ws.load_result(args.key)
+        if data is None:
+            _warn(f"未找到结果: {args.key}")
+            return
+        console.print(json.dumps(data, ensure_ascii=False, indent=2, default=str))
+        return
+    if sub_cmd == 'results':
+        ws = Workspace.open(args.name)
+        results = ws.list_results()
+        if not results:
+            _info("暂无保存的结果")
+            return
+        _info(f"已保存结果 ({len(results)} 个):")
+        for r in results:
+            console.print(f"  • [cyan]{r}[/]")
+        return
+    if sub_cmd is None:
+        _info("工作区管理模块\n")
+        console.print("  [cyan]reng workspace list[/]                       列出所有工作区")
+        console.print("  [cyan]reng workspace create <name>[/]             创建工作区")
+        console.print("  [cyan]reng workspace create <name> -a app.apk[/]  关联 APK")
+        console.print("  [cyan]reng workspace delete <name>[/]            删除工作区")
+        console.print("  [cyan]reng workspace save <name> <key> <data>[/] 保存分析结果")
+        console.print("  [cyan]reng workspace load <name> <key>[/]        读取分析结果")
+        console.print("  [cyan]reng workspace results <name>[/]           列出已保存结果")
+        return
+
+def cmd_backup(args):
+    """备份/恢复 - 分析会话导出/导入"""
+    from apk_reverse_engine.backup.snapshot import Snapshot
+    sub_cmd = getattr(args, 'backup_sub', None)
+    if sub_cmd == 'export' or sub_cmd is None:
+        output = getattr(args, 'output', None)
+        include_artifacts = getattr(args, 'include_artifacts', False)
+        try:
+            path = Snapshot.export(args.workspace, output_path=output, include_artifacts=include_artifacts)
+            _success(f"工作区已导出: {path}")
+            size = os.path.getsize(path)
+            console.print(f"  [dim]大小: {_fmt_size(size)}[/]")
+        except Exception as e:
+            _error(f"导出失败: {e}")
+        return
+    if sub_cmd == 'import':
+        target = getattr(args, 'target', None)
+        extract_artifacts = getattr(args, 'extract_artifacts', False)
+        try:
+            path = Snapshot.import_(args.snapshot, target_dir=target, extract_artifacts=extract_artifacts)
+            _success(f"快照已导入: {path}")
+        except Exception as e:
+            _error(f"导入失败: {e}")
+        return
+    if sub_cmd is None:
+        _info("备份与恢复模块\n")
+        console.print("  [cyan]reng backup export <workspace_dir> -o out.json[/]  导出工作区")
+        console.print("  [cyan]reng backup export <dir> --include-artifacts[/]    含中间产物")
+        console.print("  [cyan]reng backup import snapshot.json[/]                导入快照")
+        return
+
+def cmd_vuln(args):
+    """安全漏洞扫描 - 组件暴露/Intent注入/SSL/WebView/SQLite等"""
+    from apk_reverse_engine.analysis.enhanced.vulnerability_scanner import VulnerabilityScanner
+    from apk_reverse_engine.core.apk_file_ops import ApkFileOps
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.core.manifest_parser import parse_manifest
+    ops = ApkFileOps(args.apk)
+    all_findings = []
+    # 1. 字符串扫描
+    try:
+        dex_datas = ops.get_dex_data()
+        if dex_datas:
+            dp = DexParser(dex_datas[0])
+            strings = dp.get_strings()
+            str_findings = VulnerabilityScanner.scan_strings(strings)
+            all_findings.extend(str_findings)
+    except Exception as e:
+        _warn(f"字符串扫描失败: {e}")
+    # 2. Manifest 扫描
+    try:
+        manifest_data = ops.read_file('AndroidManifest.xml')
+        manifest_xml = parse_manifest(manifest_data)
+        manifest_findings = VulnerabilityScanner.scan_manifest(manifest_xml)
+        all_findings.extend(manifest_findings)
+    except Exception as e:
+        _warn(f"Manifest 扫描失败: {e}")
+    # 3. DEX 方法扫描
+    if getattr(args, 'full', False):
+        try:
+            dex_datas = ops.get_dex_data()
+            if dex_datas:
+                dp = DexParser(dex_datas[0])
+                dex_findings = VulnerabilityScanner.scan_dex_methods(dp)
+                all_findings.extend(dex_findings)
+        except Exception as e:
+            _warn(f"DEX 方法扫描失败: {e}")
+    # 输出
+    if not all_findings:
+        _success("未发现安全漏洞")
+        return
+    # 按严重程度分组
+    severity_order = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3}
+    all_findings.sort(key=lambda x: severity_order.get(x.get('severity', 'low'), 4))
+    t = Table(box=box.ROUNDED, border_style='red', show_header=True, title=f"安全漏洞扫描 ({len(all_findings)} 项)")
+    t.add_column("#", style="dim", width=4)
+    t.add_column("严重度", justify="center", width=8)
+    t.add_column("类型", style="cyan", width=28)
+    t.add_column("描述")
+    for i, f in enumerate(all_findings, 1):
+        sev = f.get('severity', 'low')
+        sev_icon = '🔴' if sev == 'critical' else '🟠' if sev == 'high' else '🟡' if sev == 'medium' else '🟢'
+        t.add_row(str(i), f"{sev_icon} {sev}", f.get('type', ''), f.get('description', ''))
+    console.print(t)
+    # 统计
+    stats = {}
+    for f in all_findings:
+        s = f.get('severity', 'low')
+        stats[s] = stats.get(s, 0) + 1
+    _spacer()
+    summary_parts = []
+    for sev in ('critical', 'high', 'medium', 'low'):
+        if sev in stats:
+            icon = '🔴' if sev == 'critical' else '🟠' if sev == 'high' else '🟡' if sev == 'medium' else '🟢'
+            summary_parts.append(f"{icon} {sev}: {stats[sev]}")
+    console.print(f"  [bold]总计:[/] {len(all_findings)}  |  {'  '.join(summary_parts)}")
+    if getattr(args, 'output', None):
+        import json as _json
+        with open(args.output, 'w') as f:
+            _json.dump(all_findings, f, ensure_ascii=False, indent=2)
+        _success(f"报告已保存: {args.output}")
+
+def cmd_popup(args):
+    """弹窗去除 - 分享弹窗/推广弹窗/更新弹窗"""
+    from apk_reverse_engine.popup_remover.remover import remove_share_popup
+    apk_path = args.apk
+    output = getattr(args, 'output', None) or apk_path.replace('.apk', '_clean.apk')
+    sdk = getattr(args, 'sdk', 'tencent_share')
+    try:
+        result = remove_share_popup(apk_path, output_path=output, sdk_name=sdk)
+        _success(f"弹窗已去除: {output}")
+        if isinstance(result, dict):
+            for k, v in result.items():
+                console.print(f"  [dim]{k}:[/] {v}")
+    except Exception as e:
+        _error(f"弹窗去除失败: {e}")
+
+def cmd_apkinfo(args):
+    """APK 一站式信息提取 (深度版) - 包名/版本/权限/组件/签名/SDK/ABI"""
+    from apk_reverse_engine.tools.info_extractor import InfoExtractor
+    with console.status(f"{ICO['mag']} 正在提取 APK 信息...", spinner="dots"):
+        info = InfoExtractor(args.apk).extract()
+    # 基本信息
+    _section("📦 基本信息")
+    basic_rows = [
+        ("文件名", args.apk.split('/')[-1]),
+        ("文件大小", _fmt_size(os.path.getsize(args.apk))),
+        ("包名", info.get('package_name', info.get('package', '-'))),
+        ("版本名", info.get('version_name', info.get('versionName', '-'))),
+        ("版本号", str(info.get('version_code', info.get('versionCode', '-')))),
+        ("编译SDK", str(info.get('compile_sdk', info.get('compileSdkVersion', '-')))),
+        ("最低SDK", str(info.get('min_sdk', info.get('minSdkVersion', '-')))),
+        ("目标SDK", str(info.get('target_sdk', info.get('targetSdkVersion', '-')))),
+    ]
+    console.print(_kv_table(basic_rows))
+    # 签名
+    _section("📝 签名信息")
+    sig = info.get('signature', info.get('signing', {}))
+    if sig:
+        sig_rows = []
+        for k, v in sig.items() if isinstance(sig, dict) else []:
+            sig_rows.append((k, str(v)))
+        if sig_rows:
+            console.print(_kv_table(sig_rows))
+        else:
+            console.print(f"  [dim]{sig}[/]")
+    else:
+        console.print("  [dim]未检测到签名信息[/]")
+    # DEX/SO
+    _section("📜 DEX & SO")
+    dex_count = info.get('dex_count', len(info.get('dex_files', [])) if isinstance(info.get('dex_files'), list) else 0)
+    so_list = info.get('so_files', info.get('native_libs', []))
+    console.print(_kv_table([
+        ("DEX 文件数", dex_count if dex_count else '-'),
+        ("SO 文件数", len(so_list) if isinstance(so_list, list) else so_list),
+        ("ABI", ', '.join(info.get('abi', info.get('abis', ['-']))) if isinstance(info.get('abi', info.get('abis')), list) else str(info.get('abi', '-'))),
+    ]))
+    # 权限
+    perms = info.get('permissions', [])
+    if perms:
+        _section(f"🔐 权限 ({len(perms)} 个)")
+        for p in perms[:30]:
+            console.print(f"  [dim]•[/] {p}")
+        if len(perms) > 30:
+            console.print(f"  [dim]... 共 {len(perms)} 个[/]")
+    # JSON 输出
+    if getattr(args, 'json', False):
+        console.print()
+        console.print(json.dumps(info, ensure_ascii=False, indent=2, default=str))
+
+def cmd_xref(args):
+    """交叉引用分析 - 查找方法/类的调用者与被调用者"""
+    from apk_reverse_engine.core.apk_file_ops import ApkFileOps
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.analysis.enhanced.callgraph import CallGraphAnalyzer
+    ops = ApkFileOps(args.apk)
+    dex_datas = ops.get_dex_data()
+    if not dex_datas:
+        _error("未找到 DEX 文件")
+        return
+    dp = DexParser(dex_datas[0])
+    target = args.target
+    with console.status(f"{ICO['mag']} 正在构建调用图...", spinner="dots"):
+        cg = CallGraphAnalyzer.build(dp)
+    # 查找调用者
+    callers = CallGraphAnalyzer.find_callers(cg, target)
+    callees = CallGraphAnalyzer.find_callees(cg, target)
+    _section(f"🎯 交叉引用: {target}")
+    if callers:
+        _info(f"调用者 ({len(callers)} 个):")
+        for c in callers[:30]:
+            console.print(f"  [dim]←[/] {c}")
+        if len(callers) > 30:
+            console.print(f"  [dim]... 共 {len(callers)} 个[/]")
+    else:
+        _warn("未找到调用者")
+    if callees:
+        _info(f"被调用者 ({len(callees)} 个):")
+        for c in callees[:30]:
+            console.print(f"  [dim]→[/] {c}")
+        if len(callees) > 30:
+            console.print(f"  [dim]... 共 {len(callees)} 个[/]")
+    else:
+        _warn("未找到被调用者")
+
+def cmd_optcheck(args):
+    """优化模式检测 - 检测编译器优化/设计模式/代码特征"""
+    from apk_reverse_engine.core.apk_file_ops import ApkFileOps
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.analysis.enhanced.dex_optimizer_patterns import OptimizerPatternAnalyzer
+    ops = ApkFileOps(args.apk)
+    dex_datas = ops.get_dex_data()
+    if not dex_datas:
+        _error("未找到 DEX 文件")
+        return
+    dp = DexParser(dex_datas[0])
+    with console.status(f"{ICO['mag']} 正在分析优化模式...", spinner="dots"):
+        patterns = OptimizerPatternAnalyzer.analyze(dp)
+    if not patterns:
+        _info("未检测到特殊优化模式")
+        return
+    _section("⚙️ 优化模式检测结果")
+    t = Table(box=box.ROUNDED, border_style='cyan', show_header=True)
+    t.add_column("#", style="dim", width=4)
+    t.add_column("模式", style="cyan", width=30)
+    t.add_column("数量", justify="right", width=8)
+    t.add_column("说明", style="dim")
+    for i, p in enumerate(patterns if isinstance(patterns, list) else [patterns], 1):
+        if isinstance(p, dict):
+            t.add_row(str(i), p.get('pattern', p.get('name', '')), str(p.get('count', 1)), p.get('description', ''))
+        else:
+            t.add_row(str(i), str(p), '1', '')
+    console.print(t)
+
+def cmd_ai(args):
+    """AI 逆向助手 - 大模型对话 + MCP 工具调用 + 技能库"""
+    from apk_reverse_engine.ai import AiSession, AiSetting, AiPrompt
+
+    sub_cmd = getattr(args, 'ai_sub', None)
+
+    if sub_cmd == 'config':
+        if args.set_key:
+            AiSetting.set(args.set_key, args.set_value)
+            _success(f"已设置 {args.set_key} = {args.set_value}")
+            return
+        if args.set:
+            pairs = args.set
+            for kv in pairs:
+                if '=' in kv:
+                    k, v = kv.split('=', 1)
+                    AiSetting.set(k.strip(), v.strip())
+            _success(f"已更新 {len(pairs)} 项配置")
+            return
+        cfg = AiSetting.all()
+        _info("AI 配置：")
+        for k, v in cfg.items():
+            display = v
+            if k == 'api_key' and v:
+                display = v[:4] + '****' + v[-4:]
+            console.print(f"  [cyan]{k}[/]: {display}")
+        return
+
+    if sub_cmd == 'chat':
+        if not AiSetting.api_key():
+            _fail("未配置 API Key，请先运行: reng ai config --set api_key=<your-key>")
+            return
+        system = AiPrompt.build(getattr(args, 'app_info', '') or '')
+        user = args.prompt
+        if args.apk:
+            from apk_reverse_engine.tools.info_extractor import InfoExtractor
+            try:
+                info = InfoExtractor(args.apk).extract()
+                app_info = json.dumps(info, ensure_ascii=False, indent=2)
+                system = AiPrompt.build(app_info)
+            except Exception as e:
+                _warn(f"提取 APK 信息失败: {e}")
+
+        def on_delta(text):
+            print(text, end='', flush=True)
+
+        def on_tool_event(msg):
+            console.print(f"\n[dim]{msg}[/]")
+
+        def on_done(text):
+            if text:
+                console.print()
+
+        def on_error(e):
+            _fail(f"AI 请求失败: {e}")
+
+        console.print(f"{ICO['mag']} [bold]AI 逆向助手启动[/] [dim](模型: {AiSetting.model()})[/]\n")
+        AiSession.run(system, user, on_delta, on_tool_event, on_done, on_error)
+        return
+
+    if sub_cmd == 'hook':
+        if not AiSetting.api_key():
+            _fail("未配置 API Key，请先运行: reng ai config --set api_key=<your-key>")
+            return
+        if not args.apk:
+            _fail("hook 模式需要指定 APK 文件路径")
+            return
+        from apk_reverse_engine.ai import AiPrompt, AiSession, ResultParser
+        from apk_reverse_engine.tools.info_extractor import InfoExtractor
+        try:
+            info = InfoExtractor(args.apk).extract()
+            app_info = json.dumps(info, ensure_ascii=False, indent=2)
+        except Exception as e:
+            _warn(f"提取 APK 信息失败: {e}")
+            app_info = f"文件: {args.apk}"
+        system = AiPrompt.build_hook_prompt(app_info)
+        user = args.requirement or "分析此 APK，生成 Hook 配置"
+        results = []
+
+        def on_delta(text):
+            print(text, end='', flush=True)
+
+        def on_tool_event(msg):
+            console.print(f"\n[dim]{msg}[/]")
+
+        def on_done(text):
+            if text:
+                results.append(text)
+                console.print()
+
+        def on_error(e):
+            _fail(f"AI 请求失败: {e}")
+
+        console.print(f"{ICO['mag']} [bold]AI Hook 配置生成[/]\n")
+        AiSession.run(system, user, on_delta, on_tool_event, on_done, on_error)
+        if results:
+            try:
+                parsed = ResultParser.parse_and_normalize(results[-1])
+                _success(f"解析到 Hook 配置: {parsed.get('appPkg', '?')} "
+                         f"({len(parsed.get('hooks', []))} 个 hook)")
+                if args.output:
+                    import json as _json
+                    with open(args.output, 'w') as f:
+                        _json.dump(parsed, f, ensure_ascii=False, indent=2)
+                    _success(f"已保存到: {args.output}")
+            except Exception as e:
+                _warn(f"解析 Hook 配置失败: {e}")
+        return
+
+    if sub_cmd is None:
+        _info("AI 逆向助手模块\n")
+        console.print("  [cyan]reng ai config[/]                    查看/设置 AI 配置")
+        console.print("  [cyan]reng ai config --set k=v[/]          设置配置项")
+        console.print("  [cyan]reng ai chat -p \"prompt\"[/]         AI 对话")
+        console.print("  [cyan]reng ai chat -p \"prompt\" apk[/]    带 APK 上下文对话")
+        console.print("  [cyan]reng ai hook apk -r \"需求\"[/]       AI 生成 Hook 配置")
+        return
+
+def cmd_mcp(args):
+    """MCP 服务器管理"""
+    from apk_reverse_engine.ai import McpSetting, McpManager
+
+    sub_cmd = getattr(args, 'mcp_sub', None)
+
+    if sub_cmd == 'list' or sub_cmd is None:
+        servers = McpSetting.get_servers()
+        if not servers:
+            _info("暂无 MCP 服务器配置")
+            console.print("  使用 [cyan]reng mcp add[/] 添加服务器")
+            return
+        t = Table(box=box.ROUNDED, show_header=True)
+        t.add_column("名称", style="cyan")
+        t.add_column("URL", style="dim")
+        t.add_column("Token", style="dim")
+        t.add_column("启用", justify="center")
+        for s in servers:
+            token_display = (s.get('token', '')[:4] + '****') if s.get('token') else '-'
+            enabled = '✅' if s.get('enable') else '❌'
+            t.add_row(s.get('name', ''), s.get('url', ''), token_display, enabled)
+        console.print(t)
+        return
+
+    if sub_cmd == 'add':
+        if not args.name or not args.url:
+            _fail("需要 --name 和 --url 参数")
+            return
+        servers = McpSetting.get_servers()
+        for s in servers:
+            if s.get('name') == args.name:
+                _fail(f"服务器 '{args.name}' 已存在")
+                return
+        servers.append({
+            'name': args.name,
+            'url': args.url,
+            'token': args.token or '',
+            'enable': not getattr(args, 'disable', False),
+        })
+        McpSetting.save_servers(servers)
+        _success(f"已添加 MCP 服务器: {args.name}")
+        return
+
+    if sub_cmd == 'remove':
+        servers = McpSetting.get_servers()
+        new_servers = [s for s in servers if s.get('name') != args.name]
+        if len(new_servers) == len(servers):
+            _warn(f"未找到服务器: {args.name}")
+            return
+        McpSetting.save_servers(new_servers)
+        _success(f"已移除 MCP 服务器: {args.name}")
+        return
+
+    if sub_cmd == 'enable':
+        servers = McpSetting.get_servers()
+        found = False
+        for s in servers:
+            if s.get('name') == args.name:
+                s['enable'] = True
+                found = True
+        if not found:
+            _fail(f"未找到服务器: {args.name}")
+            return
+        McpSetting.save_servers(servers)
+        _success(f"已启用: {args.name}")
+        return
+
+    if sub_cmd == 'disable':
+        servers = McpSetting.get_servers()
+        found = False
+        for s in servers:
+            if s.get('name') == args.name:
+                s['enable'] = False
+                found = True
+        if not found:
+            _fail(f"未找到服务器: {args.name}")
+            return
+        McpSetting.save_servers(servers)
+        _success(f"已禁用: {args.name}")
+        return
+
+    if sub_cmd == 'probe':
+        count = McpManager.probe_and_enable()
+        if count > 0:
+            _success(f"探测并启用了 {count} 个 MCP 服务器")
+        else:
+            _warn("未探测到可用的 MCP 服务器")
+        return
+
+    if sub_cmd == 'tools':
+        errors = []
+        tools = McpManager.collect_tools(errors)
+        if errors:
+            for e in errors:
+                _warn(e)
+        if not tools:
+            _info("暂无可用 MCP 工具")
+            return
+        _info(f"可用 MCP 工具 ({len(tools)} 个):")
+        for t in tools:
+            console.print(f"  [cyan]{t.full_name()}[/] [dim]— {t.description[:60]}[/]")
+        return
+
+def cmd_skill(args):
+    """内置逆向技能库管理"""
+    from apk_reverse_engine.ai import SkillReader
+
+    sub_cmd = getattr(args, 'skill_sub', None)
+
+    if sub_cmd == 'list' or sub_cmd is None:
+        skills = SkillReader.list_skills()
+        if not skills:
+            _info("暂无技能文档")
+            return
+        _info(f"内置逆向技能 ({len(skills)} 个):")
+        for s in skills:
+            console.print(f"  • [cyan]{s}[/]")
+        console.print(f"\n  [dim]使用 reng skill read <name> 查看技能内容[/]")
+        return
+
+    if sub_cmd == 'read':
+        if not args.name:
+            _fail("需要技能名称参数")
+            return
+        content = SkillReader.read_skill(args.name)
+        if content is None:
+            _fail(f"技能不存在: {args.name}")
+            available = SkillReader.list_skills()
+            console.print(f"  [dim]可用: {', '.join(available)}[/]")
+            return
+        console.print(content)
+        return
 
 # ── 主入口 ──────────────────────────────────────────────────
 
@@ -4341,6 +4982,167 @@ def main():
     p.add_argument("--output", "-o", help="输出文件路径")
     p.add_argument("--full", action="store_true", help="完整报告（包含所有分析项）")
     p.set_defaults(func=cmd_report)
+    # ── ai - AI 逆向助手 ────────────────────────────────────────
+    p = sub.add_parser("ai", help="🤖 AI 逆向助手 (大模型对话 + MCP 工具 + 技能库)")
+    ai_sub = p.add_subparsers(dest="ai_sub", metavar="<action>")
+    # ai config
+    ap = ai_sub.add_parser("config", help="查看/设置 AI 配置 (API Key/模型/超时等)")
+    ap.add_argument("--set", "-s", nargs='+', metavar="KEY=VALUE", help="设置配置项 (如 api_key=xxx model=gpt-4)")
+    ap.add_argument("--set-key", metavar="KEY", help="单个键名 (配合 --set-value)")
+    ap.add_argument("--set-value", metavar="VALUE", help="单个键值 (配合 --set-key)")
+    ap.set_defaults(func=cmd_ai)
+    # ai chat
+    ap = ai_sub.add_parser("chat", help="AI 对话 (支持 APK 上下文)")
+    ap.add_argument("-p", "--prompt", required=True, help="对话提示词")
+    ap.add_argument("apk", nargs="?", help="APK 文件路径 (可选，提供则注入 APK 信息)")
+    ap.set_defaults(func=cmd_ai)
+    # ai hook
+    ap = ai_sub.add_parser("hook", help="AI 生成 Hook 配置")
+    ap.add_argument("apk", help="APK 文件路径")
+    ap.add_argument("-r", "--requirement", help="需求描述 (如: 去除广告验证)")
+    ap.add_argument("-o", "--output", help="输出 JSON 文件路径")
+    ap.set_defaults(func=cmd_ai)
+    p.set_defaults(func=cmd_ai)
+    # ── mcp - MCP 服务器管理 ────────────────────────────────────
+    p = sub.add_parser("mcp", help="🔌 MCP 服务器管理 (添加/移除/启用/探测/列出工具)")
+    mcp_sub = p.add_subparsers(dest="mcp_sub", metavar="<action>")
+    mcp_sub.add_parser("list", help="列出所有 MCP 服务器").set_defaults(func=cmd_mcp)
+    mp = mcp_sub.add_parser("add", help="添加 MCP 服务器")
+    mp.add_argument("--name", "-n", required=True, help="服务器名称")
+    mp.add_argument("--url", "-u", required=True, help="服务器 URL (如 http://127.0.0.1:8080/mcp)")
+    mp.add_argument("--token", "-t", help="认证 Token (可选)")
+    mp.add_argument("--disable", action="store_true", help="添加后不启用")
+    mp.set_defaults(func=cmd_mcp)
+    mp = mcp_sub.add_parser("remove", help="移除 MCP 服务器")
+    mp.add_argument("name", help="服务器名称")
+    mp.set_defaults(func=cmd_mcp)
+    mp = mcp_sub.add_parser("enable", help="启用 MCP 服务器")
+    mp.add_argument("name", help="服务器名称")
+    mp.set_defaults(func=cmd_mcp)
+    mp = mcp_sub.add_parser("disable", help="禁用 MCP 服务器")
+    mp.add_argument("name", help="服务器名称")
+    mp.set_defaults(func=cmd_mcp)
+    mcp_sub.add_parser("probe", help="探测端口并自动启用可达服务器").set_defaults(func=cmd_mcp)
+    mcp_sub.add_parser("tools", help="列出可用 MCP 工具").set_defaults(func=cmd_mcp)
+    p.set_defaults(func=cmd_mcp)
+    # ── skill - 内置逆向技能库 ──────────────────────────────────
+    p = sub.add_parser("skill", help="📚 内置逆向技能库 (35+ 专业技能文档)")
+    skill_sub = p.add_subparsers(dest="skill_sub", metavar="<action>")
+    skill_sub.add_parser("list", help="列出所有可用技能").set_defaults(func=cmd_skill)
+    sp = skill_sub.add_parser("read", help="读取技能文档内容")
+    sp.add_argument("name", help="技能名称")
+    sp.set_defaults(func=cmd_skill)
+    p.set_defaults(func=cmd_skill)
+
+    # ── device: 设备集成 ──
+    p = sub.add_parser("device", help="📱 设备集成 (ADB安装/卸载/截图/日志/文件传输)")
+    device_sub = p.add_subparsers(dest="device_sub")
+    device_sub.add_parser("list", help="列出已连接设备").set_defaults(func=cmd_device)
+    dp = device_sub.add_parser("connect", help="连接远程设备")
+    dp.add_argument("--host", default="127.0.0.1")
+    dp.add_argument("--port", type=int, default=5555)
+    dp.set_defaults(func=cmd_device)
+    device_sub.add_parser("info", help="设备信息").set_defaults(func=cmd_device)
+    dp = device_sub.add_parser("install", help="安装 APK")
+    dp.add_argument("apk")
+    dp.add_argument("--reinstall", action="store_true")
+    dp.add_argument("--grant", action="store_true")
+    dp.set_defaults(func=cmd_device)
+    dp = device_sub.add_parser("uninstall", help="卸载应用")
+    dp.add_argument("package")
+    dp.add_argument("--keep-data", action="store_true")
+    dp.set_defaults(func=cmd_device)
+    dp = device_sub.add_parser("packages", help="列出已安装应用")
+    dp.add_argument("--filter", default=None)
+    dp.set_defaults(func=cmd_device)
+    dp = device_sub.add_parser("screenshot", help="截图")
+    dp.add_argument("-o", "--output", default="screenshot.png")
+    dp.set_defaults(func=cmd_device)
+    dp = device_sub.add_parser("logcat", help="查看日志")
+    dp.add_argument("-n", "--lines", type=int, default=50)
+    dp.add_argument("--filter", default=None)
+    dp.set_defaults(func=cmd_device)
+    dp = device_sub.add_parser("pull", help="拉取文件")
+    dp.add_argument("remote")
+    dp.add_argument("local")
+    dp.set_defaults(func=cmd_device)
+    dp = device_sub.add_parser("push", help="推送文件")
+    dp.add_argument("local")
+    dp.add_argument("remote")
+    dp.set_defaults(func=cmd_device)
+    p.set_defaults(func=cmd_device)
+
+    # ── workspace: 工作区管理 ──
+    p = sub.add_parser("workspace", help="🗂️ 工作区管理 (多项目隔离/结果保存/上下文)")
+    ws_sub = p.add_subparsers(dest="workspace_sub")
+    ws_sub.add_parser("list", help="列出所有工作区").set_defaults(func=cmd_workspace)
+    wp = ws_sub.add_parser("create", help="创建工作区")
+    wp.add_argument("name")
+    wp.add_argument("-a", "--apk", default=None)
+    wp.add_argument("-d", "--description", default="")
+    wp.set_defaults(func=cmd_workspace)
+    wp = ws_sub.add_parser("delete", help="删除工作区")
+    wp.add_argument("name")
+    wp.set_defaults(func=cmd_workspace)
+    wp = ws_sub.add_parser("save", help="保存分析结果")
+    wp.add_argument("name")
+    wp.add_argument("key")
+    wp.add_argument("data")
+    wp.set_defaults(func=cmd_workspace)
+    wp = ws_sub.add_parser("load", help="读取分析结果")
+    wp.add_argument("name")
+    wp.add_argument("key")
+    wp.set_defaults(func=cmd_workspace)
+    wp = ws_sub.add_parser("results", help="列出已保存结果")
+    wp.add_argument("name")
+    wp.set_defaults(func=cmd_workspace)
+    p.set_defaults(func=cmd_workspace)
+
+    # ── backup: 备份/恢复 ──
+    p = sub.add_parser("backup", help="💾 备份/恢复 (工作区导出/导入可移植JSON)")
+    bk_sub = p.add_subparsers(dest="backup_sub")
+    bp = bk_sub.add_parser("export", help="导出工作区")
+    bp.add_argument("workspace")
+    bp.add_argument("-o", "--output", default=None)
+    bp.add_argument("--include-artifacts", action="store_true")
+    bp.set_defaults(func=cmd_backup)
+    bp = bk_sub.add_parser("import", help="导入快照")
+    bp.add_argument("snapshot")
+    bp.add_argument("--target", default=None)
+    bp.add_argument("--extract-artifacts", action="store_true")
+    bp.set_defaults(func=cmd_backup)
+    p.set_defaults(func=cmd_backup)
+
+    # ── vuln: 安全漏洞扫描 ──
+    p = sub.add_parser("vuln", help="🔒 安全漏洞扫描 (组件暴露/Intent注入/SSL/WebView/SQLite)")
+    p.add_argument("apk")
+    p.add_argument("--full", action="store_true", help="启用 DEX 方法级深度扫描")
+    p.add_argument("-o", "--output", default=None, help="输出 JSON 报告路径")
+    p.set_defaults(func=cmd_vuln)
+
+    # ── popup: 弹窗去除 ──
+    p = sub.add_parser("popup", help="🧹 弹窗去除 (分享弹窗/推广弹窗SDK)")
+    p.add_argument("apk")
+    p.add_argument("-o", "--output", default=None)
+    p.add_argument("--sdk", default="tencent_share", help="弹窗SDK名称")
+    p.set_defaults(func=cmd_popup)
+
+    # ── apkinfo: 深度信息提取 ──
+    p = sub.add_parser("apkinfo", help="📊 APK 深度信息 (包名/版本/权限/签名/SDK/ABI)")
+    p.add_argument("apk")
+    p.add_argument("--json", action="store_true", help="输出完整 JSON")
+    p.set_defaults(func=cmd_apkinfo)
+
+    # ── xref: 交叉引用分析 ──
+    p = sub.add_parser("xref", help="🔗 交叉引用分析 (方法调用者/被调用者)")
+    p.add_argument("apk")
+    p.add_argument("target", help="目标方法/类全名")
+    p.set_defaults(func=cmd_xref)
+
+    # ── optcheck: 优化模式检测 ──
+    p = sub.add_parser("optcheck", help="⚙️ 优化模式检测 (编译器优化/设计模式/代码特征)")
+    p.add_argument("apk")
+    p.set_defaults(func=cmd_optcheck)
 
     args = parser.parse_args()
 
@@ -4354,7 +5156,7 @@ def main():
         console.print()
         console.print(Panel.fit(
             "[bold cyan]⚡ APK Reverse Engineering Engine v2[/]\n"
-            "[dim]  全功能 APK 逆向工具集  |  52 命令  |  16,000+ 行核心引擎  [/]",
+            "[dim]  全功能 APK 逆向工具集  |  60 命令  |  17,000+ 行核心引擎  [/]",
             border_style="cyan", box=box.DOUBLE_EDGE
         ))
         console.print()
@@ -4422,6 +5224,31 @@ def main():
                 ("reslang", "APK 资源语言处理 (多语言)"),
                 ("components", "🧩 四大组件分析 (导出/IntentFilter/DeepLink)"),
                 ("clone", "🔁 DEX 方法克隆检测 (重复代码/相似方法)"),
+            ]),
+            ("🤖 AI 逆向助手", "magenta", [
+                ("ai", "🤖 AI 逆向助手 (大模型对话 + 工具调用)"),
+                ("ai config", "查看/设置 AI 配置 (API Key/模型)"),
+                ("ai chat", "AI 对话 (支持 APK 上下文)"),
+                ("ai hook", "AI 生成 Hook 配置 (Xposed)"),
+                ("mcp", "🔌 MCP 服务器管理 (添加/移除/探测)"),
+                ("skill", "📚 内置逆向技能库 (35+ 技能文档)"),
+            ]),
+            ("📱 设备与工作区", "blue", [
+                ("device", "📱 设备集成 (ADB安装/卸载/截图/日志)"),
+                ("device list", "列出已连接设备"),
+                ("device install", "安装 APK 到设备"),
+                ("device logcat", "查看设备日志"),
+                ("workspace", "🗂️ 工作区管理 (多项目隔离)"),
+                ("workspace create", "创建工作区"),
+                ("workspace save", "保存分析结果"),
+                ("backup", "💾 备份/恢复 (导出/导入JSON)"),
+            ]),
+            ("🔒 安全与优化", "red", [
+                ("vuln", "🔒 安全漏洞扫描 (10+类漏洞检测)"),
+                ("popup", "🧹 弹窗去除 (分享/推广弹窗SDK)"),
+                ("apkinfo", "📊 APK 深度信息 (包名/版本/权限/签名)"),
+                ("xref", "🔗 交叉引用分析 (调用者/被调用者)"),
+                ("optcheck", "⚙️ 优化模式检测 (编译器/设计模式)"),
             ]),
         ]
 
