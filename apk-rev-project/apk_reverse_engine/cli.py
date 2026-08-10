@@ -2091,6 +2091,10 @@ def cmd_adremove(args):
         options['assets'] = False
     if args.no_manifest:
         options['manifest'] = False
+    if args.no_vip:
+        options['vip_unlock'] = False
+    if args.no_url_replace:
+        options['url_replace'] = False
 
     # 步骤3: 执行广告移除
     console.print(f"{ICO['fix']} [bold]步骤 3/4:[/] 执行广告移除...")
@@ -2137,6 +2141,18 @@ def cmd_adremove(args):
                       f"[dim]替换:[/] {report['regex']['replacements']}  "
                       f"[dim]文件:[/] {report['regex']['files']}")
 
+    # VIP/Pro/Premium 解锁
+    if report.get('vip_unlock', {}).get('patched', 0) > 0:
+        _section("VIP/Pro/Premium 解锁")
+        console.print(f"  [green]✓[/] 补丁: {report['vip_unlock']['patched']}  "
+                      f"[dim]文件:[/] {report['vip_unlock']['files']}")
+
+    # 广告URL替换
+    if report.get('url_replace', {}).get('replacements', 0) > 0:
+        _section("广告URL替换")
+        console.print(f"  [yellow]替换:[/] {report['url_replace']['replacements']}  "
+                      f"[dim]文件:[/] {report['url_replace']['files']}")
+
     # Assets清理
     if report.get('assets', {}).get('count', 0) > 0:
         _section(f"Assets 清理 ({report['assets']['count']}个文件)")
@@ -2148,6 +2164,10 @@ def cmd_adremove(args):
     # Manifest清理
     if report.get('manifest', {}).get('removed', 0) > 0:
         _section(f"Manifest 清理 ({report['manifest']['removed']}个组件)")
+
+    # Manifest清理 (配置模式)
+    if report.get('manifest_config', {}).get('removed', 0) > 0:
+        _section(f"Manifest 配置清理 ({report['manifest_config']['removed']}个组件)")
 
     # 步骤4: 重打包 + 签名
     console.print(f"{ICO['build']} [bold]步骤 4/4:[/] 重打包 & 签名...")
@@ -4021,7 +4041,7 @@ def main():
     p.set_defaults(func=cmd_ads)
 
     # ── adremove - 广告移除 ───────────────────────────────────────
-    p = sub.add_parser("adremove", help="🧹 一键移除广告 (8大SDK定向+正则通杀+assets清理+重打包)")
+    p = sub.add_parser("adremove", help="🧹 一键移除广告 (8大SDK定向+正则通杀+VIP解锁+URL替换+assets清理+重打包)")
     p.add_argument("apk", help="APK 文件路径")
     p.add_argument("output", nargs='?', help="输出 APK 路径 (默认: <name>_noads.apk)")
     p.add_argument("--decode-dir", "-d", help="指定已解包目录 (跳过 apktool 解包)")
@@ -4029,6 +4049,8 @@ def main():
     p.add_argument("--no-regex", action="store_true", help="禁用正则通杀")
     p.add_argument("--no-assets", action="store_true", help="禁用 assets 清理")
     p.add_argument("--no-manifest", action="store_true", help="禁用 manifest 清理")
+    p.add_argument("--no-vip", action="store_true", help="禁用 VIP/Pro/Premium 解锁")
+    p.add_argument("--no-url-replace", action="store_true", help="禁用广告URL替换")
     p.add_argument("--no-sign", action="store_true", help="跳过签名")
     p.add_argument("--keep-decode", action="store_true", help="保留临时解包目录")
     p.set_defaults(func=cmd_adremove)

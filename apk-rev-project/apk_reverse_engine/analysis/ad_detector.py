@@ -2,19 +2,39 @@
 """广告检测模块 - 多维度识别 APK 中的广告集成
 
 检测维度:
-1. SDK检测: 识别已知广告SDK（AdMob/Facebook/Unity Ads等）
-2. 代码模式: 检测广告相关类/方法调用（AdView/Interstitial/Rewarded等）
+1. SDK检测: 识别已知广告SDK（AdMob/Facebook/Unity Ads等）— 内置 + 外部JSON配置
+2. 代码模式: 检测广告相关类/方法调用（AdView/Interstitial/Rewarded等）— 内置 + 外部JSON配置
 3. 权限特征: 广告SDK典型请求权限
 4. URL/域名: 广告网络请求地址
 5. 字符串特征: 广告相关硬编码字符串
-6. 综合评分: 给出广告集成密度评分
+6. 组件检测: 广告 Activity/Service/Receiver
+7. 综合评分: 给出广告集成密度评分
 """
+import os
 import re
+import json
 from collections import Counter, defaultdict
+from typing import Optional
 
 
 class AdDetector:
     """APK 广告检测器 - 多维度识别"""
+
+    # ── 外部配置加载 ──────────────────────────────────────────
+    _CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'ad_patterns.json')
+    _config_cache: Optional[dict] = None
+
+    @classmethod
+    def _load_config(cls) -> dict:
+        """从 ad_patterns.json 加载配置，失败时返回空字典"""
+        if cls._config_cache is not None:
+            return cls._config_cache
+        try:
+            with open(cls._CONFIG_PATH, 'r', encoding='utf-8') as f:
+                cls._config_cache = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            cls._config_cache = {}
+        return cls._config_cache
 
     # ── 广告SDK特征库（包名前缀） ─────────────────────────────
     AD_SDK_SIGNATURES = [
@@ -199,6 +219,20 @@ class AdDetector:
     ]
 
     @classmethod
+    def _get_extended_sdk_patterns(cls):
+        """合并内置签名和外部配置的SDK包名"""
+        signatures = list(cls.AD_SDK_SIGNATURES)
+        config = cls._load_config()
+        for pkg in config.get('sdk_packages', []):
+            if pkg.startswith('.'):
+                continue
+            # 转换为正则
+            regex = re.escape(pkg).replace(r'\.', r'\.')
+            sdk_name = pkg.split('.')[-1].capitalize() + ' SDK'
+            signatures.append((regex, sdk_name))
+        return signatures
+
+    @classmethod
     def detect_from_class_names(cls, class_names):
         """从DEX类名检测广告SDK
 
@@ -209,9 +243,10 @@ class AdDetector:
             list[dict]: 检测到的广告SDK列表
         """
         detected = {}
+        signatures = cls._get_extended_sdk_patterns()
         for name in class_names:
             java_name = name.replace('/', '.').lstrip('L').rstrip(';')
-            for pattern, sdk_name in cls.AD_SDK_SIGNATURES:
+            for pattern, sdk_name in signatures:
                 if re.search(pattern, java_name):
                     if sdk_name not in detected:
                         detected[sdk_name] = {
@@ -245,6 +280,8 @@ class AdDetector:
                 'mediation': bool,     # 广告聚合
                 'patterns_found': int, # 匹配总次数
                 'details': list,       # 详情
+                'ad_activities': list, # 检测到的广告Activity
+                'ad_services': list,   # 检测到的广告Service
             }
         """
         result = {
@@ -256,6 +293,8 @@ class AdDetector:
             'mediation': False,
             'patterns_found': 0,
             'details': [],
+            'ad_activities': [],
+            'ad_services': [],
         }
 
         # 从类名检测
@@ -283,10 +322,33 @@ class AdDetector:
             result['mediation'] = True
             result['details'].append('广告聚合平台(Mediation)')
 
-        # 统计模式匹配次数
+        # 从配置中加载 class_keywords 并检测
+        config = cls._load_config()
+        ext_keywords = config.get('class_keywords', [])
+        if ext_keywords:
+            for kw in ext_keywords:
+                if kw in combined:
+                    if kw not in [d.split('(')[0] if '(' in d else d for d in result['details']]:
+                        result['details'].append(f'广告类关键词: {kw}')
+
+        # 检测广告 Activity/Service（从配置）
+        ad_activities = config.get('ad_activities', [])
+        ad_services = config.get('ad_services', [])
+        for act in ad_activities:
+            if act in combined:
+                result['ad_activities'].append(act)
+        for svc in ad_services:
+            if svc in combined:
+                result['ad_services'].append(svc)
+
+        # 统计模式匹配次数（内置 + 配置）
         count = 0
         for pattern in cls.AD_CODE_PATTERNS:
             count += len(re.findall(pattern, combined))
+        # 配置中的 method_patterns
+        ext_methods = config.get('method_patterns', [])
+        for method in ext_methods:
+            count += len(re.findall(re.escape(method), combined))
         result['patterns_found'] = count
 
         return result
@@ -350,8 +412,15 @@ class AdDetector:
         ad_domains = set()
         ad_urls = set()
 
+        # 合并内置 + 外部配置的URL模式
+        all_patterns = list(cls.AD_DOMAIN_PATTERNS)
+        config = cls._load_config()
+        for url_pat in config.get('url_patterns', []):
+            if not url_pat.startswith('.') and url_pat not in all_patterns:
+                all_patterns.append(re.escape(url_pat))
+
         for s in strings:
-            for pattern in cls.AD_DOMAIN_PATTERNS:
+            for pattern in all_patterns:
                 m = re.search(pattern, s, re.I)
                 if m:
                     domain = m.group()
@@ -422,6 +491,8 @@ class AdDetector:
             'score': 0,
             'level': '无广告',
             'summary': {},
+            'ad_activities': [],
+            'ad_services': [],
         }
 
         # 1. SDK检测
@@ -430,6 +501,8 @@ class AdDetector:
 
         # 2. 代码模式
         result['code_patterns'] = cls.detect_code_patterns(class_names, strings)
+        result['ad_activities'] = result['code_patterns'].get('ad_activities', [])
+        result['ad_services'] = result['code_patterns'].get('ad_services', [])
 
         # 3. 权限检测
         result['permissions'] = cls.detect_ad_permissions(permissions)
@@ -512,6 +585,8 @@ class AdDetector:
             'has_mediation': cp.get('mediation', False),
             'ad_permission_count': perm.get('count', 0),
             'ad_url_count': url_count,
+            'ad_activities': result.get('ad_activities', []),
+            'ad_services': result.get('ad_services', []),
             'details': details,
         }
 

@@ -1,7 +1,14 @@
-"""广告移除模块 - 多SDK广告移除（腾讯/快手/穿山甲/百度/Sigmob/谷歌/米盟）+ 正则通杀
+"""广告移除模块 - 多SDK广告移除 + 正则通杀 + VIP解锁 + assets清理 + manifest清理
 
-支持7大广告SDK定向移除 + 9组正则通杀 + assets清理 + manifest清理
-工作流程: 解码APK → 补丁smali → 清理assets → 清理manifest → 重打包签名
+支持:
+  - 100+ 广告SDK包名检测与定向移除（腾讯/快手/穿山甲/百度/Sigmob/谷歌/米盟等）
+  - 9组正则通杀
+  - VIP/Pro/Premium 方法强制返回 true（180+ 方法名模式）
+  - 广告URL替换（150+ 域名模式）
+  - assets清理 + manifest清理
+  - 外部JSON配置文件支持
+
+工作流程: 解码APK → 补丁smali → VIP解锁 → 清理assets → 清理manifest → 重打包签名
 """
 
 from apk_reverse_engine.utils.logutil import get_logger
@@ -9,6 +16,7 @@ logger = get_logger(__name__)
 
 import os
 import re
+import json
 import glob
 import logging
 from typing import Optional, List, Dict, Tuple, Set
@@ -19,17 +27,62 @@ class AdRemover:
     """APK广告移除引擎"""
 
     # ============================================================
-    # SDK 配置
+    # 外部配置加载
+    # ============================================================
+    _CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'ad_patterns.json')
+    _config_cache: Optional[dict] = None
+
+    @classmethod
+    def _load_config(cls) -> dict:
+        """从 ad_patterns.json 加载配置，失败时使用内置默认"""
+        if cls._config_cache is not None:
+            return cls._config_cache
+        try:
+            with open(cls._CONFIG_PATH, 'r', encoding='utf-8') as f:
+                cls._config_cache = json.load(f)
+                logger.info(f"加载广告模式配置: {cls._CONFIG_PATH}")
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            logger.warning(f"配置加载失败，使用内置默认: {e}")
+            cls._config_cache = {}
+        return cls._config_cache
+
+    # ============================================================
+    # SDK 配置 (内置核心SDK，外部配置提供扩展包名)
     # ============================================================
     AD_SDKS = {
-        'tencent':   {'name': '腾讯广告',   'icon': '🐧', 'packages': ['com/qq/e']},
-        'kuaishou':  {'name': '快手广告',   'icon': '🎬', 'packages': ['com/kwad']},
-        'pangle':    {'name': '穿山甲广告', 'icon': '🐜', 'packages': ['com/bytedance/pangle', 'com/bytedance/sdk/openadsdk']},
-        'baidu':     {'name': '百度广告',   'icon': '🔍', 'packages': ['com/bd', 'com/bytedance/sdk']},
-        'toutiao':   {'name': '头条广告',   'icon': '📰', 'packages': ['toutiao', 'com/bytedance/toutiao']},
-        'sigmob':    {'name': 'Sigmob广告', 'icon': '🎯', 'packages': ['sigmob', 'com/sigmob']},
-        'google':    {'name': '谷歌广告',   'icon': '📱', 'packages': ['com/google/android/gms/ads', 'com/google/ads']},
-        'miads':     {'name': '米盟广告',   'icon': '📲', 'packages': ['com/miui/zeus/mimo']},
+        'tencent':   {'name': '腾讯广告',   'icon': '🐧', 'packages': ['com/qq/e', 'com/gdt/ad', 'com/tencent/qqads']},
+        'kuaishou':  {'name': '快手广告',   'icon': '🎬', 'packages': ['com/kwad', 'com/kuaishou/ad', 'com/kuaishou/sdk/ad']},
+        'pangle':    {'name': '穿山甲广告', 'icon': '🐜', 'packages': ['com/bytedance/pangle', 'com/bytedance/sdk/openadsdk', 'com/pangle/ads']},
+        'baidu':     {'name': '百度广告',   'icon': '🔍', 'packages': ['com/bd', 'com/baidu/mobads', 'com/baidu/mobad', 'com/baidu/mobstat']},
+        'toutiao':   {'name': '头条广告',   'icon': '📰', 'packages': ['toutiao', 'com/bytedance/toutiao', 'com/bytedance/applog']},
+        'sigmob':    {'name': 'Sigmob广告', 'icon': '🎯', 'packages': ['sigmob', 'com/sigmob/sdk', 'com/sigmob/ads']},
+        'google':    {'name': '谷歌广告',   'icon': '📱', 'packages': ['com/google/android/gms/ads', 'com/google/ads', 'com/google/android/ads', 'com/admob/android/ads']},
+        'miads':     {'name': '米盟广告',   'icon': '📲', 'packages': ['com/miui/zeus/mimo', 'com/xiaomi/ad']},
+        'unity':     {'name': 'Unity广告',  'icon': '🎮', 'packages': ['com/unity3d/ads', 'com/unity3d/services/ads']},
+        'mintegral': {'name': 'Mintegral',  'icon': '🌐', 'packages': ['com/mintegral/msdk', 'com/mobvista/msdk', 'com/mobvista/ads']},
+        'vungle':    {'name': 'Vungle',    'icon': '🎥', 'packages': ['com/vungle/warren', 'com/vungle/ads']},
+        'chartboost': {'name': 'Chartboost', 'icon': '📊', 'packages': ['com/chartboost/sdk', 'com/chartboost/mediationsdk']},
+        'applovin':  {'name': 'AppLovin',  'icon': '💚', 'packages': ['com/applovin/sdk', 'com/applovin/adview']},
+        'ironsource': {'name': 'IronSource', 'icon': '⚙️', 'packages': ['com/ironsource/sdk', 'com/ironsource/mediationsdk', 'com/ironsource/adapters']},
+        'inmobi':    {'name': 'InMobi',    'icon': '📱', 'packages': ['com/inmobi/ads', 'com/inmobi/sdk']},
+        'adcolony':  {'name': 'AdColony',  'icon': '🎯', 'packages': ['com/adcolony/sdk']},
+        'facebook':  {'name': 'Facebook广告', 'icon': '📘', 'packages': ['com/facebook/ads', 'com/facebook/ad']},
+        'huawei':    {'name': '华为广告',   'icon': '🔴', 'packages': ['com/huawei/hms/ads']},
+        'oppo':      {'name': 'OPPO广告',   'icon': '🟢', 'packages': ['com/oppo/ads']},
+        'vivo':      {'name': 'vivo广告',   'icon': '🔵', 'packages': ['com/vivo/mobilead']},
+        'startapp':  {'name': 'StartApp',  'icon': '🚀', 'packages': ['com/startapp/sdk', 'com/startapp/android/publish/ads']},
+        'appnext':   {'name': 'AppNext',   'icon': '➡️', 'packages': ['com/appnext/ads']},
+        'smaato':    {'name': 'Smaato',    'icon': '📈', 'packages': ['com/smaato/sdk']},
+        'amazon':    {'name': 'Amazon广告', 'icon': '📦', 'packages': ['com/amazon/device/ads']},
+        'yandex':    {'name': 'Yandex广告', 'icon': '🔍', 'packages': ['com/yandex/mobile/ads']},
+        'mytarget':  {'name': 'myTarget',  'icon': '🎯', 'packages': ['com/my/target/ads', 'com/my/target/core', 'ru/mail/android/mytarget']},
+        'anythink':  {'name': 'AnyThink',  'icon': '🧠', 'packages': ['com/anythink/sdk', 'com/anythink/core']},
+        'topon':     {'name': 'TopOn',     'icon': '🔝', 'packages': ['com/topon/sdk', 'com/topon/ads']},
+        'fyber':     {'name': 'Fyber',     'icon': '💎', 'packages': ['com/fyber/inneractive/sdk', 'com/fyber/ads', 'com/fyber/mobileads']},
+        'mbridge':   {'name': 'MBridge',   'icon': '🌉', 'packages': ['com/mbridge/msdk', 'com/mbridge/msdk/out']},
+        'bidmachine': {'name': 'BidMachine', 'icon': '🏗️', 'packages': ['io/bidmachine']},
+        'pubnative': {'name': 'PubNative', 'icon': '📢', 'packages': ['net/pubnative']},
+        'pollfish':  {'name': 'Pollfish',  'icon': '🐟', 'packages': ['com/pollfish']},
     }
 
     # 需要删除的 assets 文件（前缀/全名匹配）
@@ -588,6 +641,127 @@ class AdRemover:
         return r
 
     # ============================================================
+    # VIP/Pro/Premium 解锁
+    # ============================================================
+
+    @staticmethod
+    def _force_true_methods(smali_root: str) -> Dict:
+        """将 VIP/Pro/Premium 相关方法强制返回 true (const/4 v0, 0x1 + return v0)"""
+        config = AdRemover._load_config()
+        method_names = config.get('force_true_methods', [])
+        if not method_names:
+            method_names = [
+                'isVip', 'isPro', 'isPremium', 'isVipUser', 'isProUser',
+                'isPremiumUser', 'isMember', 'isSubscribed', 'isPurchased',
+                'isPaid', 'isUnlocked', 'isActivated', 'isLifetime',
+            ]
+        
+        r = {'patched': 0, 'files': 0, 'methods': []}
+        for sf in AdRemover._iter_smali_files(smali_root):
+            c = AdRemover._read_file(sf)
+            total = 0
+            changed = False
+            for method_name in method_names:
+                nc, n = AdRemover._patch_method_return(c, method_name, '0x1', '4', 'v0')
+                if n > 0:
+                    total += n
+                    changed = True
+                    c = nc
+            if changed:
+                AdRemover._write_file(sf, c)
+                r['patched'] += total
+                r['files'] += 1
+        return r
+
+    @staticmethod
+    def _replace_ad_urls(smali_root: str) -> Dict:
+        """替换广告URL为空字符串"""
+        config = AdRemover._load_config()
+        url_patterns = config.get('url_patterns', [])
+        if not url_patterns:
+            return {'replacements': 0, 'files': 0}
+        
+        r = {'replacements': 0, 'files': 0}
+        for sf in AdRemover._iter_smali_files(smali_root):
+            c = AdRemover._read_file(sf)
+            total = 0
+            changed = False
+            for url_pat in url_patterns:
+                nc, n = AdRemover._clear_string_constants(c, url_pat, exact_match=False)
+                if n > 0:
+                    total += n
+                    changed = True
+                    c = nc
+            if changed:
+                AdRemover._write_file(sf, c)
+                r['replacements'] += total
+                r['files'] += 1
+        return r
+
+    @staticmethod
+    def _remove_manifest_by_config(manifest_path: str) -> Dict:
+        """从 manifest 中删除广告组件，使用配置中的 ad_activities/ad_services/ad_receivers"""
+        r = {'removed': 0, 'components': []}
+        if not os.path.isfile(manifest_path):
+            return r
+        
+        config = AdRemover._load_config()
+        c = AdRemover._read_file(manifest_path)
+        total = 0
+        
+        # 从配置中获取 SDK 包名模式
+        sdk_packages = config.get('sdk_packages', [])
+        # 转换为 manifest 匹配模式（将 . 替换为 /）
+        manifest_patterns = []
+        for pkg in sdk_packages:
+            if pkg.startswith('.'):
+                continue
+            manifest_patterns.append(pkg.replace('.', '/'))
+        
+        # 内置模式
+        builtin_patterns = [
+            'sigmob', 'com/google/gms.*ad', 'com/google/android/gms/ads',
+            'com/qq/e', 'com/bytedance/sdk/openadsdk', 'com/bytedance/pangle',
+            'com/kwad', 'com/baidu/mobads', 'toutiao', 'com/bytedance/toutiao',
+        ]
+        
+        all_patterns = manifest_patterns + builtin_patterns
+        for pat in all_patterns:
+            nc, n = AdRemover._remove_manifest_components(c, pat)
+            c = nc
+            total += n
+        
+        # 使用 ad_activities 配置删除广告 Activity
+        ad_activities = config.get('ad_activities', [])
+        for act_name in ad_activities:
+            pattern = rf'<activity\b[^>]*android:name="[^"]*{re.escape(act_name)}[^"]*"[^>]*>.*?</activity>|<activity\b[^>]*android:name="[^"]*{re.escape(act_name)}[^"]*"[^>]*/>'
+            nc, n = re.subn(pattern, '', c, flags=re.DOTALL | re.IGNORECASE)
+            c = nc
+            total += n
+        
+        # ad_services
+        ad_services = config.get('ad_services', [])
+        for svc_name in ad_services:
+            pattern = rf'<service\b[^>]*android:name="[^"]*{re.escape(svc_name)}[^"]*"[^>]*>.*?</service>|<service\b[^>]*android:name="[^"]*{re.escape(svc_name)}[^"]*"[^>]*/>'
+            nc, n = re.subn(pattern, '', c, flags=re.DOTALL | re.IGNORECASE)
+            c = nc
+            total += n
+        
+        # ad_receivers
+        ad_receivers = config.get('ad_receivers', [])
+        for rcv_name in ad_receivers:
+            pattern = rf'<receiver\b[^>]*android:name="[^"]*{re.escape(rcv_name)}[^"]*"[^>]*>.*?</receiver>|<receiver\b[^>]*android:name="[^"]*{re.escape(rcv_name)}[^"]*"[^>]*/>'
+            nc, n = re.subn(pattern, '', c, flags=re.DOTALL | re.IGNORECASE)
+            c = nc
+            total += n
+        
+        if total > 0:
+            AdRemover._write_file(manifest_path, c)
+            r['removed'] = total
+            r['components'] = all_patterns
+        return r
+
+    # ============================================================
     # Assets 清理
     # ============================================================
 
@@ -621,7 +795,7 @@ class AdRemover:
                         r['deleted'].append(os.path.relpath(full_path, assets_dir))
                         r['count'] += 1
                     except OSError as e:
-                        logger.debug(f"e")
+                        logger.debug(f"删除失败 {f}: {e}")
         return r
 
     # ============================================================
@@ -683,7 +857,7 @@ class AdRemover:
     def remove_all(smali_root: str, assets_dir: str = None,
                    manifest_path: str = None,
                    options: dict = None) -> Dict:
-        """一键移除所有广告
+        """一键移除所有广告 + VIP解锁
 
         Args:
             smali_root: 解码后的 APK 根目录（含 smali/ 目录）
@@ -698,7 +872,8 @@ class AdRemover:
             options = {}
         # 默认全部开启
         for k in ['tencent', 'kuaishou', 'pangle', 'baidu', 'toutiao', 'sigmob',
-                   'google', 'miads', 'regex', 'assets', 'manifest']:
+                   'google', 'miads', 'regex', 'assets', 'manifest',
+                   'vip_unlock', 'url_replace', 'manifest_config']:
             options.setdefault(k, True)
 
         report = {
@@ -706,8 +881,11 @@ class AdRemover:
             'total_files': 0,
             'sdks': {},
             'regex': {},
+            'vip_unlock': {},
+            'url_replace': {},
             'assets': {},
             'manifest': {},
+            'manifest_config': {},
         }
 
         # SDK 定向移除
@@ -743,13 +921,31 @@ class AdRemover:
             report['total_patched'] += r.get('replacements', 0)
             report['total_files'] += r.get('files', 0)
 
+        # VIP/Pro/Premium 解锁
+        if options.get('vip_unlock', True):
+            r = AdRemover._force_true_methods(smali_root)
+            report['vip_unlock'] = r
+            report['total_patched'] += r.get('patched', 0)
+            report['total_files'] += r.get('files', 0)
+
+        # 广告URL替换
+        if options.get('url_replace', True):
+            r = AdRemover._replace_ad_urls(smali_root)
+            report['url_replace'] = r
+            report['total_patched'] += r.get('replacements', 0)
+            report['total_files'] += r.get('files', 0)
+
         # Assets 清理
         if options.get('assets', True) and assets_dir:
             report['assets'] = AdRemover._clean_assets(assets_dir)
 
-        # Manifest 清理
+        # Manifest 清理 (内置模式)
         if options.get('manifest', True) and manifest_path:
             report['manifest'] = AdRemover._clean_manifest(manifest_path)
+
+        # Manifest 清理 (配置模式 - ad_activities/ad_services/ad_receivers)
+        if options.get('manifest_config', True) and manifest_path:
+            report['manifest_config'] = AdRemover._remove_manifest_by_config(manifest_path)
 
         return report
 
@@ -760,10 +956,32 @@ class AdRemover:
         all_files = list(AdRemover._iter_smali_files(smali_root))
         file_paths = ' '.join(f.replace(smali_root, '') for f in all_files[:5000])
 
+        # 检测内置 SDK
         for sdk_key, config in AdRemover.AD_SDKS.items():
             for pkg in config['packages']:
                 if pkg in file_paths:
                     if sdk_key not in detected:
                         detected.append(sdk_key)
                     break
+        
+        # 检测配置文件中的额外 SDK 包名
+        ext_config = AdRemover._load_config()
+        ext_packages = ext_config.get('sdk_packages', [])
+        for pkg in ext_packages:
+            pkg_path = pkg.replace('.', '/')
+            if pkg_path in file_paths:
+                # 找到匹配的内置 SDK key
+                matched = False
+                for sdk_key, sdk_config in AdRemover.AD_SDKS.items():
+                    for sdk_pkg in sdk_config['packages']:
+                        if pkg_path.startswith(sdk_pkg):
+                            if sdk_key not in detected:
+                                detected.append(sdk_key)
+                            matched = True
+                            break
+                    if matched:
+                        break
+                if not matched and pkg not in detected:
+                    # 额外 SDK，添加包名作为标识
+                    detected.append(pkg)
         return detected
