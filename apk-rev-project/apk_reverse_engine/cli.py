@@ -1376,7 +1376,7 @@ def cmd_core(args):
     console.print(Panel(
         f"[bold cyan]核心类定位分析[/] | 共扫描 {len(dex_files)} 个 DEX | 筛选出 [bold]{len(all_results)}[/] 个核心类"
         f"{app_tag}\n"
-        f"[dim]评分维度: 入口点(×1.5) | 方法量(×1.0) | 字段量(×0.5) | 引用度(×1.2) | 命名模式(×1.5) | 接口(×0.8) | 父类(×1.0)[/]"
+        "[dim]评分维度: 入口点(×1.5) | 方法量(×1.0) | 字段量(×0.5) | 引用度(×1.2) | 命名模式(×1.5) | 接口(×0.8) | 父类(×1.0)[/]"
         f"{f' | 包名: [cyan]{app_package}[/]' if app_package else ''}",
         title="🎯 核心类定位", border_style="cyan", box=box.DOUBLE
     ))
@@ -3193,7 +3193,7 @@ def _interactive_prompt(prompt, default=''):
             val = input(f"  {prompt} ({default}): ") or default
         else:
             val = input(f"  {prompt}: ")
-    except Exception as e:
+    except Exception:
         return None
     return val.strip()
 
@@ -3415,12 +3415,12 @@ def interactive_mode():
                 if s == 'help' or s == '?':
                     console.print()
                     console.print(Panel(
-                        f"[bold]快捷操作:[/]\n"
-                        f"  [cyan]数字[/]    选择类别/命令\n"
-                        f"  [cyan]命令名[/]  直接执行（支持前缀模糊匹配）\n"
-                        f"  [cyan]r[/]       重跑上一条命令\n"
-                        f"  [cyan]b / menu[/]  返回上级菜单\n"
-                        f"  [cyan]q / exit[/]  退出\n\n"
+                        "[bold]快捷操作:[/]\n"
+                        "  [cyan]数字[/]    选择类别/命令\n"
+                        "  [cyan]命令名[/]  直接执行（支持前缀模糊匹配）\n"
+                        "  [cyan]r[/]       重跑上一条命令\n"
+                        "  [cyan]b / menu[/]  返回上级菜单\n"
+                        "  [cyan]q / exit[/]  退出\n\n"
                         f"[bold]可用命令 ({len(_INTERACTIVE_COMMANDS)}):[/]\n"
                         f"  [cyan]{', '.join(_INTERACTIVE_COMMANDS.keys())}[/]",
                         title="❓ 帮助", border_style="yellow", title_align="left"
@@ -4272,9 +4272,9 @@ def main():
         total_cmds = sum(len(g[2]) for g in cmd_groups)
         console.print(Panel(
             f"[bold]完整命令集:[/] {total_cmds} 个命令  |  "
-            f"[bold]帮助:[/] [cyan]reng <command> --help[/]  |  "
-            f"[bold]交互模式:[/] [magenta]reng --interactive[/]  |  "
-            f"[bold]版本:[/] [yellow]v2.0.0[/]",
+            "[bold]帮助:[/] [cyan]reng <command> --help[/]  |  "
+            "[bold]交互模式:[/] [magenta]reng --interactive[/]  |  "
+            "[bold]版本:[/] [yellow]v2.0.0[/]",
             border_style="dim", box=box.SIMPLE
         ))
         console.print()

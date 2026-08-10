@@ -45,11 +45,11 @@ class ReportGenerator:
     def generate_markdown(results, apk_name='', output_path=None):
         """生成 Markdown 格式报告"""
         lines = [
-            f'# APK 逆向分析报告',
+            '# APK 逆向分析报告',
             '',
             f'- **文件**: {os.path.basename(apk_name) if apk_name else "N/A"}',
             f'- **生成时间**: {time.strftime("%Y-%m-%d %H:%M:%S")}',
-            f'- **工具**: APK Reverse Engineering Engine v2',
+            '- **工具**: APK Reverse Engineering Engine v2',
             '',
             '---',
             '',

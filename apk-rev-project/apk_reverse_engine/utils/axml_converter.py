@@ -117,6 +117,7 @@ class AXMLEncoder:
         try:
             root = fromstring(xml_text)
         except ExpatError as e:
+            # XML entities need fixing, retry with escaped ampersands
             xml_text = xml_text.replace('&', '&amp;')
             xml_text = xml_text.replace('android:&amp;', 'android:')
             try:

@@ -1,5 +1,4 @@
 import subprocess, os, json
-
 from apk_reverse_engine.utils.logutil import get_logger
 logger = get_logger(__name__)
 

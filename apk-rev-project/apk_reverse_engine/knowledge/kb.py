@@ -5,8 +5,8 @@
 - 支持自定义添加/查询/删除
 - 本地 JSON 持久化，可备份恢复
 """
-import os, json, time
 from datetime import datetime
+import os, json, time
 
 
 class KnowledgeBase:

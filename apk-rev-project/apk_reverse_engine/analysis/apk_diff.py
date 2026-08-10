@@ -1,6 +1,6 @@
 """APK差异对比引擎 - 深度对比两个APK的结构、类、方法、权限、资源差异"""
-import os, zipfile, hashlib
 from collections import defaultdict
+import os, zipfile, hashlib
 
 class APKDiffEngine:
     """APK差异对比分析器"""

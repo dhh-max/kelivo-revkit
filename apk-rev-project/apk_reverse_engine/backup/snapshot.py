@@ -5,8 +5,8 @@
 - 导入到另一机器恢复工作区
 - 单文件可移植，不依赖原始路径
 """
-import os, json, base64, shutil
 from datetime import datetime
+import os, json, base64, shutil
 
 
 class Snapshot:

@@ -110,8 +110,6 @@ class ResourceParser:
     def _parse_string_pool(self):
         """解析全局字符串池，返回块结束位置"""
         chunk_start = self.pos
-        _ct = self.r16()    # chunk type
-        _hs = self.r16()    # header size
         chunk_size = self.r32()
         string_count = self.r32()
         style_count = self.r32()

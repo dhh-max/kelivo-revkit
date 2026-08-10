@@ -232,11 +232,11 @@ class ManifestEditor:
         activity_xml = (
             f'        <activity android:name="{activity_name}" '
             f'android:exported="{exported_str}">\n'
-            f'            <intent-filter>\n'
-            f'                <action android:name="android.intent.action.MAIN"/>\n'
-            f'                <category android:name="android.intent.category.LAUNCHER"/>\n'
-            f'            </intent-filter>\n'
-            f'        </activity>'
+            '            <intent-filter>\n'
+            '                <action android:name="android.intent.action.MAIN"/>\n'
+            '                <category android:name="android.intent.category.LAUNCHER"/>\n'
+            '            </intent-filter>\n'
+            '        </activity>'
         )
         # 在 </application> 前插入
         new_xml = re.sub(
