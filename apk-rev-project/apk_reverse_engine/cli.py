@@ -5306,6 +5306,158 @@ def cmd_dexctrlflow(args):
         _info(f"完整报告已保存到 {args.output}")
 
 
+def cmd_dexnative(args):
+    """DEX Native(JNI)方法分析 — Native方法分布/动态库引用/混合编程评估"""
+    from apk_reverse_engine.core.apk_file_ops import ApkFileOps
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.analysis.dex_native import DexNativeAnalyzer
+    ops = ApkFileOps(args.apk)
+    dex_datas = ops.get_dex_data()
+    if not dex_datas:
+        _error("未找到 DEX 文件")
+        return
+    dp = DexParser(dex_datas[0])
+    with console.status(f"{ICO['mag']} 正在分析 DEX Native/JNI 方法...", spinner="dots"):
+        result = DexNativeAnalyzer.analyze(dp)
+    if 'error' in result:
+        _error(result['error'])
+        return
+    _section("🦀 DEX Native/JNI 方法分析")
+    console.print(f"  [cyan]总方法:[/] {result['total_methods']}  [cyan]Native方法:[/] {result['native_method_count']}  [cyan]Native占比:[/] {result['native_ratio']}%")
+    console.print(f"  [cyan]含Native的类:[/] {result['classes_with_native']}  [cyan]混合编程评分:[/] {result['mix_score']}/100  [cyan]等级:[/] {result['mix_level']}")
+    if result['native_methods']:
+        console.print()
+        _sub("Native方法列表 (前30)")
+        t = Table(box=box.ROUNDED, border_style='yellow', show_header=True)
+        t.add_column("#", style="dim", width=3)
+        t.add_column("类", style="cyan", width=40)
+        t.add_column("方法", style="green", width=20)
+        t.add_column("返回类型", style="magenta", width=10)
+        t.add_column("参数", justify="right", style="yellow", width=6)
+        for i, m in enumerate(result['native_methods'][:30], 1):
+            cls = m['class'].replace('L', '').replace(';', '').replace('/', '.')
+            if len(cls) > 40: cls = '...' + cls[-37:]
+            t.add_row(str(i), cls, m['method'][:20], m['return'][:10], str(m['params']))
+        console.print(t)
+    if result['top_classes_with_native']:
+        console.print()
+        _sub("Native方法Top类")
+        t2 = Table(box=box.ROUNDED, border_style='red', show_header=True)
+        t2.add_column("#", style="dim", width=3)
+        t2.add_column("类", style="cyan", width=50)
+        t2.add_column("Native方法数", justify="right", style="yellow", width=12)
+        for i, item in enumerate(result['top_classes_with_native'][:15], 1):
+            t2.add_row(str(i), item['class'][:50], str(item['native_methods']))
+        console.print(t2)
+    if result['load_lib_hits']:
+        console.print()
+        _sub("动态库加载引用")
+        t3 = Table(box=box.ROUNDED, border_style='blue', show_header=True)
+        t3.add_column("加载模式", style="cyan", width=30)
+        t3.add_column("引用次数", justify="right", style="yellow", width=10)
+        for item in result['load_lib_hits']:
+            t3.add_row(item['pattern'][:30], str(item['count']))
+        console.print(t3)
+    if args.output:
+        import json
+        with open(args.output, 'w') as f:
+            json.dump(result, f, ensure_ascii=False, indent=2, default=str)
+        _info(f"完整报告已保存到 {args.output}")
+
+def cmd_dexreflection(args):
+    """DEX 反射/动态加载分析 — 反射调用/动态类加载/安全风险评分"""
+    from apk_reverse_engine.core.apk_file_ops import ApkFileOps
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.analysis.dex_reflection import DexReflectionAnalyzer
+    ops = ApkFileOps(args.apk)
+    dex_datas = ops.get_dex_data()
+    if not dex_datas:
+        _error("未找到 DEX 文件")
+        return
+    dp = DexParser(dex_datas[0])
+    with console.status(f"{ICO['mag']} 正在分析 DEX 反射/动态加载...", spinner="dots"):
+        result = DexReflectionAnalyzer.analyze(dp)
+    if 'error' in result:
+        _error(result['error'])
+        return
+    _section("🔮 DEX 反射/动态加载分析")
+    risk_color = 'red' if result['risk_score'] >= 60 else 'yellow' if result['risk_score'] >= 30 else 'green'
+    console.print(f"  [cyan]反射引用总数:[/] {result['reflect_total']}  [cyan]动态加载引用:[/] {result['dynamic_total']}")
+    console.print(f"  [cyan]反射辅助类:[/] {result['reflect_class_count']}  [cyan]风险评分:[/] [{risk_color}]{result['risk_score']}/100 ({result['risk_level']})[/]")
+    if result['reflect_hits']:
+        console.print()
+        _sub("反射特征引用 Top 20")
+        t = Table(box=box.ROUNDED, border_style='cyan', show_header=True)
+        t.add_column("反射模式", style="cyan", width=30)
+        t.add_column("引用次数", justify="right", style="yellow", width=10)
+        for item in result['reflect_hits']:
+            t.add_row(item['pattern'][:30], str(item['count']))
+        console.print(t)
+    if result['dynamic_hits']:
+        console.print()
+        _sub("动态加载特征引用")
+        t2 = Table(box=box.ROUNDED, border_style='magenta', show_header=True)
+        t2.add_column("动态加载模式", style="cyan", width=30)
+        t2.add_column("引用次数", justify="right", style="yellow", width=10)
+        for item in result['dynamic_hits']:
+            t2.add_row(item['pattern'][:30], str(item['count']))
+        console.print(t2)
+    if result['reflect_classes']:
+        console.print()
+        _sub("反射/动态加载相关类")
+        for c in result['reflect_classes']:
+            console.print(f"  [yellow]•[/] {c}")
+    if args.output:
+        import json
+        with open(args.output, 'w') as f:
+            json.dump(result, f, ensure_ascii=False, indent=2, default=str)
+        _info(f"完整报告已保存到 {args.output}")
+
+def cmd_dexserialization(args):
+    """DEX 序列化/数据持久化分析 — Serializable/Parcelable/序列化字段/数据泄露风险"""
+    from apk_reverse_engine.core.apk_file_ops import ApkFileOps
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.analysis.dex_serialization import DexSerializationAnalyzer
+    ops = ApkFileOps(args.apk)
+    dex_datas = ops.get_dex_data()
+    if not dex_datas:
+        _error("未找到 DEX 文件")
+        return
+    dp = DexParser(dex_datas[0])
+    with console.status(f"{ICO['mag']} 正在分析 DEX 序列化/持久化...", spinner="dots"):
+        result = DexSerializationAnalyzer.analyze(dp)
+    if 'error' in result:
+        _error(result['error'])
+        return
+    _section("💾 DEX 序列化/数据持久化分析")
+    console.print(f"  [cyan]总类数:[/] {result['total_classes']}  [cyan]Serializable:[/] {result['serializable_class_count']}  [cyan]Parcelable:[/] {result['parcelable_class_count']}  [cyan]持久化引用:[/] {result['persist_total']}")
+    risk_color = 'red' if result['risk_score'] >= 60 else 'yellow' if result['risk_score'] >= 30 else 'green'
+    console.print(f"  [cyan]风险评分:[/] [{risk_color}]{result['risk_score']}/100 ({result['risk_level']})[/]")
+    if result['serializable_classes']:
+        console.print()
+        _sub("实现 Serializable 的类")
+        for c in result['serializable_classes']:
+            console.print(f"  [yellow]•[/] {c}")
+    if result['parcelable_classes']:
+        console.print()
+        _sub("实现 Parcelable 的类")
+        for c in result['parcelable_classes']:
+            console.print(f"  [yellow]•[/] {c}")
+    if result['persist_hits']:
+        console.print()
+        _sub("持久化操作引用")
+        t = Table(box=box.ROUNDED, border_style='blue', show_header=True)
+        t.add_column("持久化模式", style="cyan", width=30)
+        t.add_column("引用次数", justify="right", style="yellow", width=10)
+        for item in result['persist_hits']:
+            t.add_row(item['pattern'][:30], str(item['count']))
+        console.print(t)
+    if args.output:
+        import json
+        with open(args.output, 'w') as f:
+            json.dump(result, f, ensure_ascii=False, indent=2, default=str)
+        _info(f"完整报告已保存到 {args.output}")
+
 def cmd_ai(args):
     """AI 逆向助手 - 大模型对话 + MCP 工具调用 + 技能库"""
     from apk_reverse_engine.ai import AiSession, AiSetting, AiPrompt
@@ -6325,6 +6477,21 @@ def main():
     p.add_argument("apk", help="APK 文件路径")
     p.add_argument("-o", "--output", default=None, help="输出 JSON 报告路径")
     p.set_defaults(func=cmd_dexctrlflow)
+    # ── dexnative: DEX Native/JNI方法分析 ──
+    p = sub.add_parser("dexnative", help="🦀 DEX Native/JNI (Native方法/动态库/混合编程评分)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("-o", "--output", default=None, help="输出 JSON 报告路径")
+    p.set_defaults(func=cmd_dexnative)
+    # ── dexreflection: DEX 反射/动态加载分析 ──
+    p = sub.add_parser("dexreflection", help="🔮 DEX 反射/动态加载 (反射扫描/动态类加载/安全风险)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("-o", "--output", default=None, help="输出 JSON 报告路径")
+    p.set_defaults(func=cmd_dexreflection)
+    # ── dexserialization: DEX 序列化/持久化分析 ──
+    p = sub.add_parser("dexserialization", help="💾 DEX 序列化/持久化 (Serializable/Parcelable/数据泄露)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("-o", "--output", default=None, help="输出 JSON 报告路径")
+    p.set_defaults(func=cmd_dexserialization)
     args = parser.parse_args()
 
     # 交互式模式
@@ -6337,7 +6504,7 @@ def main():
         console.print()
         console.print(Panel.fit(
             "[bold cyan]⚡ APK Reverse Engineering Engine v2[/]\n"
-            "[dim]  全功能 APK 逆向工具集  |  80 命令  |  19,000+ 行核心引擎  [/]",
+            "[dim] 全功能 APK 逆向工具集 | 83 命令 | 19,000+ 行核心引擎 [/]",
             border_style="cyan", box=box.DOUBLE_EDGE
         ))
         console.print()
@@ -6446,6 +6613,9 @@ def main():
                 ("dexdebinfo", "🧪 DEX调试信息 (源文件/行号/保留度)"),
                 ("dexobfuscan", "🕵️ DEX混淆扫描 (混淆/加固/加密检测)"),
                 ("dexctrlflow", "📐 DEX控制流 (方法体积/热点类)"),
+                ("dexnative", "🦀 DEX Native/JNI (Native方法/混合编程)"),
+                ("dexreflection", "🔮 DEX 反射/动态加载 (安全风险评分)"),
+                ("dexserialization", "💾 DEX 序列化/持久化 (数据泄露检测)"),
                 ("permtrace", "🔍 权限使用追溯 (DEX中权限API路径)"),
                 ("apistats", "📊 API调用统计 (使用频率/分布)"),
                 ("sigcheck", "🔑 APK签名方案检测 (V1/V2/V3/V4)"),
@@ -6468,7 +6638,7 @@ def main():
             f"[bold]完整命令集:[/] {total_cmds} 个命令  |  "
             "[bold]帮助:[/] [cyan]reng <command> --help[/]  |  "
             "[bold]交互模式:[/] [magenta]reng --interactive[/]  |  "
-            "[bold]版本:[/] [yellow]v2.9.0[/]",
+            "[bold]版本:[/] [yellow]v3.0.0[/]",
             border_style="dim", box=box.SIMPLE
         ))
         console.print()
