@@ -5458,6 +5458,170 @@ def cmd_dexserialization(args):
             json.dump(result, f, ensure_ascii=False, indent=2, default=str)
         _info(f"完整报告已保存到 {args.output}")
 
+def cmd_dexinnerclass(args):
+    """DEX 内部类/匿名类分析 — 内部类比例/匿名类分布/Lambda/类结构复杂度"""
+    from apk_reverse_engine.core.apk_file_ops import ApkFileOps
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.analysis.dex_inner_class import DexInnerClassAnalyzer
+    ops = ApkFileOps(args.apk)
+    dex_datas = ops.get_dex_data()
+    if not dex_datas:
+        _error("未找到 DEX 文件")
+        return
+    dp = DexParser(dex_datas[0])
+    with console.status(f"{ICO['mag']} 正在分析 DEX 内部类/匿名类...", spinner="dots"):
+        result = DexInnerClassAnalyzer.analyze(dp)
+    if 'error' in result:
+        _error(result['error'])
+        return
+    _section("🏠 DEX 内部类/匿名类分析")
+    sc = 'red' if result['complexity_score'] >= 60 else 'yellow' if result['complexity_score'] >= 30 else 'green'
+    console.print(f"  [cyan]总类数:[/] {result['total_classes']}  [cyan]顶层类:[/] {result['top_level_class_count']}  [cyan]内部类:[/] {result['inner_class_count']} ({result['inner_ratio']}%)")
+    console.print(f"  [cyan]匿名类:[/] {result['anonymous_class_count']} ({result['anonymous_ratio']}%)  [cyan]Lambda类:[/] {result['lambda_class_count']}  [cyan]深层嵌套:[/] {result['deep_inner_classes']}")
+    console.print(f"  [cyan]结构复杂度:[/] [{sc}]{result['complexity_score']}/100 ({result['complexity_level']})[/]")
+    if result['dollar_level_dist']:
+        console.print()
+        _sub("$ 层级分布")
+        for k, v in sorted(result['dollar_level_dist'].items()):
+            bar = '█' * min(v, 50)
+            console.print(f"  [cyan]第{k}层:[/] {bar} [dim]({v})[/]")
+    if result['inner_classes']:
+        console.print()
+        _sub(f"内部类列表 (前{min(30, len(result['inner_classes']))})")
+        for c in result['inner_classes'][:30]:
+            console.print(f"  [yellow]•[/] {c}")
+    if result['anonymous_classes']:
+        console.print()
+        _sub(f"匿名类列表 (前{min(20, len(result['anonymous_classes']))})")
+        for c in result['anonymous_classes'][:20]:
+            console.print(f"  [dim]•[/] {c}")
+    if result['lambda_classes']:
+        console.print()
+        _sub(f"Lambda 类列表 (前{min(15, len(result['lambda_classes']))})")
+        for c in result['lambda_classes'][:15]:
+            console.print(f"  [green]•[/] {c}")
+    if args.output:
+        import json
+        with open(args.output, 'w') as f:
+            json.dump(result, f, ensure_ascii=False, indent=2, default=str)
+        _info(f"完整报告已保存到 {args.output}")
+
+def cmd_dexcrypto(args):
+    """DEX 加密/编码特征分析 — 加密算法/哈希/编码/密钥/安全评分"""
+    from apk_reverse_engine.core.apk_file_ops import ApkFileOps
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.analysis.dex_crypto import DexCryptoAnalyzer
+    ops = ApkFileOps(args.apk)
+    dex_datas = ops.get_dex_data()
+    if not dex_datas:
+        _error("未找到 DEX 文件")
+        return
+    dp = DexParser(dex_datas[0])
+    with console.status(f"{ICO['mag']} 正在分析 DEX 加密/编码特征...", spinner="dots"):
+        result = DexCryptoAnalyzer.analyze(dp)
+    if 'error' in result:
+        _error(result['error'])
+        return
+    _section("🔐 DEX 加密/编码特征分析")
+    sc = 'red' if result['security_score'] >= 60 else 'yellow' if result['security_score'] >= 30 else 'green'
+    console.print(f"  [cyan]加密引用:[/] {result['encryption_total']}  [cyan]哈希引用:[/] {result['hash_total']}  [cyan]编码引用:[/] {result['encoding_total']}  [cyan]弱算法:[/] {result['weak_total']}")
+    console.print(f"  [cyan]强加密算法:[/] {'✅ 有' if result['has_strong_encryption'] else '❌ 无'}  [cyan]加密安全评分:[/] [{sc}]{result['security_score']}/100 ({result['security_level']})[/]")
+    if result['encryption_hits']:
+        console.print()
+        _sub("加密算法引用 Top 20")
+        t = Table(box=box.ROUNDED, border_style='cyan', show_header=True)
+        t.add_column("算法", style="cyan", width=30)
+        t.add_column("引用次数", justify="right", style="yellow", width=10)
+        for item in result['encryption_hits']:
+            t.add_row(item['algo'][:30], str(item['count']))
+        console.print(t)
+    if result['hash_hits']:
+        console.print()
+        _sub("哈希算法引用 Top 15")
+        t2 = Table(box=box.ROUNDED, border_style='magenta', show_header=True)
+        t2.add_column("哈希算法", style="cyan", width=30)
+        t2.add_column("引用次数", justify="right", style="yellow", width=10)
+        for item in result['hash_hits']:
+            t2.add_row(item['algo'][:30], str(item['count']))
+        console.print(t2)
+    if result['weak_algo_hits']:
+        console.print()
+        _sub("⚠️ 弱算法/不安全算法引用")
+        t3 = Table(box=box.ROUNDED, border_style='red', show_header=True)
+        t3.add_column("弱算法", style="red", width=30)
+        t3.add_column("引用次数", justify="right", style="yellow", width=10)
+        for item in result['weak_algo_hits']:
+            t3.add_row(item['algo'][:30], str(item['count']))
+        console.print(t3)
+    if result['crypto_classes']:
+        console.print()
+        _sub("加密相关类")
+        for c in result['crypto_classes']:
+            console.print(f"  [yellow]•[/] {c}")
+    if args.output:
+        import json
+        with open(args.output, 'w') as f:
+            json.dump(result, f, ensure_ascii=False, indent=2, default=str)
+        _info(f"完整报告已保存到 {args.output}")
+
+def cmd_dexproto(args):
+    """DEX 方法原型/签名分析 — 参数类型/返回类型/重载/API签名复杂度"""
+    from apk_reverse_engine.core.apk_file_ops import ApkFileOps
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.analysis.dex_proto_analyzer import DexProtoAnalyzer
+    ops = ApkFileOps(args.apk)
+    dex_datas = ops.get_dex_data()
+    if not dex_datas:
+        _error("未找到 DEX 文件")
+        return
+    dp = DexParser(dex_datas[0])
+    with console.status(f"{ICO['mag']} 正在分析 DEX 方法原型/签名...", spinner="dots"):
+        result = DexProtoAnalyzer.analyze(dp)
+    if 'error' in result:
+        _error(result['error'])
+        return
+    _section("📋 DEX 方法原型/签名分析")
+    sc = 'red' if result['complexity_score'] >= 60 else 'yellow' if result['complexity_score'] >= 30 else 'green'
+    console.print(f"  [cyan]总方法:[/] {result['total_methods']}  [cyan]总原型:[/] {result['total_protos']}  [cyan]平均参数:[/] {result['avg_params_per_method']}  [cyan]重载方法数:[/] {result['overload_count']}")
+    console.print(f"  [cyan]API签名复杂度:[/] [{sc}]{result['complexity_score']}/100 ({result['complexity_level']})[/]")
+    if result['param_count_dist']:
+        console.print()
+        _sub("参数个数分布")
+        t = Table(box=box.ROUNDED, border_style='cyan', show_header=True)
+        t.add_column("参数个数", style="cyan", width=12)
+        t.add_column("方法数", justify="right", style="yellow", width=10)
+        t.add_column("占比", justify="right", style="magenta", width=8)
+        total = result['total_methods']
+        for k in sorted(result['param_count_dist'].keys()):
+            v = result['param_count_dist'][k]
+            t.add_row(str(k), str(v), f"{round(v/total*100,1)}%")
+        console.print(t)
+    if result['param_categories']:
+        console.print()
+        _sub("参数类型分类")
+        for cat, cnt in result['param_categories'].items():
+            bar = '█' * min(cnt // 5, 50)
+            console.print(f"  [cyan]{cat}:[/] {bar} [dim]({cnt})[/]")
+    if result['top_return_types']:
+        console.print()
+        _sub("Top 返回类型")
+        t2 = Table(box=box.ROUNDED, border_style='green', show_header=True)
+        t2.add_column("返回类型", style="cyan", width=30)
+        t2.add_column("次数", justify="right", style="yellow", width=10)
+        for item in result['top_return_types'][:10]:
+            t2.add_row(item['type'][:30], str(item['count']))
+        console.print(t2)
+    if result['top_overloads']:
+        console.print()
+        _sub("Top 重载方法名")
+        for item in result['top_overloads'][:10]:
+            console.print(f"  [yellow]•[/] {item['method']} [dim]({item['classes']} 个类)[/]")
+    if args.output:
+        import json
+        with open(args.output, 'w') as f:
+            json.dump(result, f, ensure_ascii=False, indent=2, default=str)
+        _info(f"完整报告已保存到 {args.output}")
+
 def cmd_ai(args):
     """AI 逆向助手 - 大模型对话 + MCP 工具调用 + 技能库"""
     from apk_reverse_engine.ai import AiSession, AiSetting, AiPrompt
@@ -6492,6 +6656,21 @@ def main():
     p.add_argument("apk", help="APK 文件路径")
     p.add_argument("-o", "--output", default=None, help="输出 JSON 报告路径")
     p.set_defaults(func=cmd_dexserialization)
+    # ── dexcrypto: DEX 加密/编码特征分析 ──
+    p = sub.add_parser("dexcrypto", help="🔐 DEX 加密/编码特征 (加密算法/哈希/编码/密钥/安全评分)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("-o", "--output", default=None, help="输出 JSON 报告路径")
+    p.set_defaults(func=cmd_dexcrypto)
+    # ── dexinnerclass: DEX 内部类/匿名类分析 ──
+    p = sub.add_parser("dexinnerclass", help="🏠 DEX 内部类/匿名类 (内部类比例/Lambda/结构复杂度)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("-o", "--output", default=None, help="输出 JSON 报告路径")
+    p.set_defaults(func=cmd_dexinnerclass)
+    # ── dexproto: DEX 方法原型/签名分析 ──
+    p = sub.add_parser("dexproto", help="📋 DEX 方法原型/签名 (参数类型/返回类型/重载/复杂度)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("-o", "--output", default=None, help="输出 JSON 报告路径")
+    p.set_defaults(func=cmd_dexproto)
     args = parser.parse_args()
 
     # 交互式模式
@@ -6504,7 +6683,7 @@ def main():
         console.print()
         console.print(Panel.fit(
             "[bold cyan]⚡ APK Reverse Engineering Engine v2[/]\n"
-            "[dim] 全功能 APK 逆向工具集 | 83 命令 | 19,000+ 行核心引擎 [/]",
+            "[dim] 全功能 APK 逆向工具集 | 86 命令 | 19,000+ 行核心引擎 [/]",
             border_style="cyan", box=box.DOUBLE_EDGE
         ))
         console.print()
@@ -6616,6 +6795,9 @@ def main():
                 ("dexnative", "🦀 DEX Native/JNI (Native方法/混合编程)"),
                 ("dexreflection", "🔮 DEX 反射/动态加载 (安全风险评分)"),
                 ("dexserialization", "💾 DEX 序列化/持久化 (数据泄露检测)"),
+                ("dexcrypto", "🔐 DEX 加密/编码特征 (算法/哈希/安全评分)"),
+                ("dexinnerclass", "🏠 DEX 内部类/匿名类 (Lambda/结构复杂度)"),
+                ("dexproto", "📋 DEX 方法原型/签名 (参数类型/重载/复杂度)"),
                 ("permtrace", "🔍 权限使用追溯 (DEX中权限API路径)"),
                 ("apistats", "📊 API调用统计 (使用频率/分布)"),
                 ("sigcheck", "🔑 APK签名方案检测 (V1/V2/V3/V4)"),
@@ -6638,7 +6820,7 @@ def main():
             f"[bold]完整命令集:[/] {total_cmds} 个命令  |  "
             "[bold]帮助:[/] [cyan]reng <command> --help[/]  |  "
             "[bold]交互模式:[/] [magenta]reng --interactive[/]  |  "
-            "[bold]版本:[/] [yellow]v3.0.0[/]",
+            "[bold]版本:[/] [yellow]v3.1.0[/]",
             border_style="dim", box=box.SIMPLE
         ))
         console.print()
