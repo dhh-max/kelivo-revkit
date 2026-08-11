@@ -4326,6 +4326,218 @@ def cmd_optcheck(args):
             t.add_row(str(i), str(p), '1', '')
     console.print(t)
 
+def cmd_dexcomplex(args):
+    """DEX 代码复杂度分析 — 圈复杂度/嵌套深度/方法长度/认知复杂度"""
+    from apk_reverse_engine.core.apk_file_ops import ApkFileOps
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.analysis.dex_complexity import DexComplexityAnalyzer
+    ops = ApkFileOps(args.apk)
+    dex_datas = ops.get_dex_data()
+    if not dex_datas:
+        _error("未找到 DEX 文件")
+        return
+    dp = DexParser(dex_datas[0])
+    with console.status(f"{ICO['mag']} 正在分析代码复杂度...", spinner="dots"):
+        result = DexComplexityAnalyzer.analyze(dp)
+    if result['total_methods'] == 0:
+        _info("未找到可分析的方法")
+        return
+    _section("🧠 DEX 代码复杂度分析")
+    console.print(f"  [cyan]总方法数:[/] {result['total_methods']}")
+    console.print(f"  [cyan]平均圈复杂度:[/] {result['avg_cyclomatic_complexity']}")
+    console.print(f"  [cyan]最大圈复杂度:[/] {result['max_cyclomatic_complexity']}")
+    dist = result['complexity_distribution']
+    console.print(f"  [green]低(≤5):[/] {dist['low']}  [yellow]中(6-10):[/] {dist['medium']}  [red]高(11-20):[/] {dist['high']}  [bold red]极高(>20):[/] {dist['extreme']}")
+    console.print()
+    _sub("Top 10 复杂方法")
+    t = Table(box=box.ROUNDED, border_style='red', show_header=True)
+    t.add_column("#", style="dim", width=4)
+    t.add_column("类", style="cyan", width=40)
+    t.add_column("方法", style="white", width=25)
+    t.add_column("圈复杂度", justify="right", style="red", width=10)
+    t.add_column("认知复杂度", justify="right", style="yellow", width=10)
+    t.add_column("指令数", justify="right", style="dim", width=8)
+    for i, m in enumerate(result['top_complex_methods'][:10], 1):
+        cls = m['class'].replace('L', '').replace(';', '').replace('/', '.')
+        if len(cls) > 40:
+            cls = '...' + cls[-37:]
+        t.add_row(str(i), cls, m['method'], str(m['cyclomatic_complexity']), str(m['cognitive_complexity']), str(m['method_length']))
+    console.print(t)
+    if args.output:
+        import json
+        with open(args.output, 'w') as f:
+            json.dump(result, f, ensure_ascii=False, indent=2, default=str)
+        _info(f"完整报告已保存到 {args.output}")
+
+def cmd_dexinherit(args):
+    """DEX 继承图分析 — 类继承关系树/接口实现/抽象类检测"""
+    from apk_reverse_engine.core.apk_file_ops import ApkFileOps
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.analysis.dex_inheritance import DexInheritanceAnalyzer
+    ops = ApkFileOps(args.apk)
+    dex_datas = ops.get_dex_data()
+    if not dex_datas:
+        _error("未找到 DEX 文件")
+        return
+    dp = DexParser(dex_datas[0])
+    with console.status(f"{ICO['mag']} 正在分析类继承关系...", spinner="dots"):
+        result = DexInheritanceAnalyzer.analyze(dp)
+    if result['total_classes'] == 0:
+        _info("未找到类定义")
+        return
+    _section("🌳 DEX 类继承关系分析")
+    console.print(f"  [cyan]总类数:[/] {result['total_classes']}")
+    console.print(f"  [cyan]接口数:[/] {result['interface_count']}")
+    console.print(f"  [cyan]抽象类数:[/] {result['abstract_count']}")
+    console.print(f"  [cyan]final类数:[/] {result['final_count']}")
+    console.print(f"  [cyan]根类数:[/] {len(result['root_classes'])}")
+    console.print()
+    _sub("最深继承链 Top 10")
+    t1 = Table(box=box.ROUNDED, border_style='blue', show_header=True)
+    t1.add_column("#", style="dim", width=4)
+    t1.add_column("类名", style="cyan", width=50)
+    t1.add_column("继承深度", justify="right", style="yellow", width=10)
+    for i, (cls, depth) in enumerate(result['deepest_inheritance'][:10], 1):
+        cls_name = cls.replace('L', '').replace(';', '').replace('/', '.')
+        if len(cls_name) > 50:
+            cls_name = '...' + cls_name[-47:]
+        t1.add_row(str(i), cls_name, str(depth))
+    console.print(t1)
+    console.print()
+    _sub("最多子类的类 Top 10")
+    t2 = Table(box=box.ROUNDED, border_style='green', show_header=True)
+    t2.add_column("#", style="dim", width=4)
+    t2.add_column("父类", style="cyan", width=50)
+    t2.add_column("子类数量", justify="right", style="green", width=10)
+    for i, (cls, count) in enumerate(result['most_subclassed'][:10], 1):
+        cls_name = cls.replace('L', '').replace(';', '').replace('/', '.')
+        if len(cls_name) > 50:
+            cls_name = '...' + cls_name[-47:]
+        t2.add_row(str(i), cls_name, str(count))
+    console.print(t2)
+    if args.output:
+        import json
+        with open(args.output, 'w') as f:
+            json.dump(result, f, ensure_ascii=False, indent=2, default=str)
+        _info(f"完整报告已保存到 {args.output}")
+
+def cmd_resource(args):
+    """APK 资源分析 — 资源大小分布/冗余资源/图片格式/布局复杂度"""
+    from apk_reverse_engine.analysis.resource_analyzer import ResourceAnalyzer
+    with console.status(f"{ICO['mag']} 正在分析 APK 资源...", spinner="dots"):
+        result = ResourceAnalyzer.analyze(args.apk)
+    if 'error' in result:
+        _error(result['error'])
+        return
+    _section("📦 APK 资源分析")
+    console.print(f"  [cyan]总文件数:[/] {result['total_files']}")
+    console.print(f"  [cyan]总大小:[/] {_fmt_size(result['total_size'])}")
+    console.print(f"  [cyan]压缩后:[/] {_fmt_size(result['total_compressed'])}")
+    console.print(f"  [cyan]压缩率:[/] {result['compression_ratio']:.2%}")
+    console.print(f"  [green]节省空间:[/] {_fmt_size(result['compression_saved_bytes'])} ({result['compression_saved_pct']}%)")
+    console.print()
+    _sub("资源分类统计")
+    t = Table(box=box.ROUNDED, border_style='cyan', show_header=True)
+    t.add_column("类别", style="cyan", width=15)
+    t.add_column("文件数", justify="right", width=8)
+    t.add_column("大小", justify="right", style="yellow", width=12)
+    t.add_column("占比", justify="right", style="dim", width=8)
+    for cat, stat in result['category_stats'].items():
+        t.add_row(cat, str(stat['count']), _fmt_size(stat['size']), f"{stat['pct']}%")
+    console.print(t)
+    console.print()
+    _sub(f"大文件 Top 10 (>{_fmt_size(ResourceAnalyzer.LARGE_FILE_THRESHOLD)})")
+    t2 = Table(box=box.ROUNDED, border_style='red', show_header=True)
+    t2.add_column("#", style="dim", width=4)
+    t2.add_column("文件", style="cyan", width=50)
+    t2.add_column("大小", justify="right", style="red", width=12)
+    t2.add_column("压缩后", justify="right", style="yellow", width=12)
+    t2.add_column("压缩率", justify="right", style="dim", width=8)
+    for i, f in enumerate(result['large_files'][:10], 1):
+        name = f['name']
+        if len(name) > 50:
+            name = '...' + name[-47:]
+        t2.add_row(str(i), name, _fmt_size(f['size']), _fmt_size(f['compressed']), f"{f['compression_ratio']:.2%}")
+    console.print(t2)
+    if result['potential_duplicates']:
+        console.print()
+        _sub(f"潜在重复文件 ({len(result['potential_duplicates'])} 组)")
+        for size, names in list(result['potential_duplicates'].items())[:5]:
+            console.print(f"  [yellow]{_fmt_size(int(size))}:[/] {', '.join(names[:3])}")
+    img = result.get('image_analysis', {})
+    if img.get('count', 0) > 0:
+        console.print()
+        _sub("图片资源分析")
+        console.print(f"  [cyan]图片总数:[/] {img['count']}")
+        console.print(f"  [cyan]图片总大小:[/] {_fmt_size(img['total_size'])}")
+        console.print(f"  [cyan]格式分布:[/] {', '.join(f'{k}: {v}' for k, v in img.get('format_distribution', {}).items())}")
+    if args.output:
+        import json
+        with open(args.output, 'w') as f:
+            json.dump(result, f, ensure_ascii=False, indent=2, default=str)
+        _info(f"完整报告已保存到 {args.output}")
+
+def cmd_dexannot(args):
+    """DEX 注解分析 — 提取并分析 DEX 中的注解信息"""
+    from apk_reverse_engine.core.apk_file_ops import ApkFileOps
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.analysis.dex_annotation_analyzer import DexAnnotationAnalyzer
+    ops = ApkFileOps(args.apk)
+    dex_datas = ops.get_dex_data()
+    if not dex_datas:
+        _error("未找到 DEX 文件")
+        return
+    dp = DexParser(dex_datas[0])
+    with console.status(f"{ICO['mag']} 正在分析 DEX 注解...", spinner="dots"):
+        result = DexAnnotationAnalyzer.analyze(dp)
+    if result['total_annotations'] == 0:
+        _info("未找到注解信息")
+        return
+    _section("🏷️ DEX 注解分析")
+    console.print(f"  [cyan]注解总数:[/] {result['total_annotations']}")
+    console.print(f"  [cyan]含注解的类:[/] {result['classes_with_annotations']}")
+    console.print(f"  [cyan]类注解:[/] {result['class_annotation_count']}  [cyan]方法注解:[/] {result['method_annotation_count']}  [cyan]字段注解:[/] {result['field_annotation_count']}  [cyan]参数注解:[/] {result['parameter_annotation_count']}")
+    vis = result['visibility_distribution']
+    if vis:
+        console.print(f"  [dim]可见性:[/] {', '.join(f'{k}: {v}' for k, v in vis.items())}")
+    console.print()
+    _sub("注解类型 Top 15")
+    t = Table(box=box.ROUNDED, border_style='yellow', show_header=True)
+    t.add_column("#", style="dim", width=4)
+    t.add_column("注解类型", style="cyan", width=55)
+    t.add_column("数量", justify="right", style="yellow", width=8)
+    for i, item in enumerate(result['top_annotation_types'][:15], 1):
+        t.add_row(str(i), item['type'], str(item['count']))
+    console.print(t)
+    groups = result['annotation_groups']
+    active_groups = {k: v for k, v in groups.items() if v > 0}
+    if active_groups:
+        console.print()
+        _sub("框架注解分布")
+        t2 = Table(box=box.ROUNDED, border_style='green', show_header=True)
+        t2.add_column("框架", style="cyan", width=20)
+        t2.add_column("注解数", justify="right", style="green", width=10)
+        for k, v in sorted(active_groups.items(), key=lambda x: x[1], reverse=True):
+            t2.add_row(k, str(v))
+        console.print(t2)
+    console.print()
+    _sub("注解最多的类 Top 10")
+    t3 = Table(box=box.ROUNDED, border_style='blue', show_header=True)
+    t3.add_column("#", style="dim", width=4)
+    t3.add_column("类名", style="cyan", width=50)
+    t3.add_column("注解数", justify="right", style="yellow", width=8)
+    for i, item in enumerate(result['top_classes_by_annotations'][:10], 1):
+        cls_name = item['class'].replace('L', '').replace(';', '').replace('/', '.')
+        if len(cls_name) > 50:
+            cls_name = '...' + cls_name[-47:]
+        t3.add_row(str(i), cls_name, str(item['count']))
+    console.print(t3)
+    if args.output:
+        import json
+        with open(args.output, 'w') as f:
+            json.dump(result, f, ensure_ascii=False, indent=2, default=str)
+        _info(f"完整报告已保存到 {args.output}")
+
 def cmd_ai(args):
     """AI 逆向助手 - 大模型对话 + MCP 工具调用 + 技能库"""
     from apk_reverse_engine.ai import AiSession, AiSetting, AiPrompt
@@ -4611,7 +4823,7 @@ def main():
   reng patch app.apk out --type hex --old 9090 --new 9091  SO 补丁
         """
     )
-    parser.add_argument('--version', action='version', version='APK Reverse Engine v2.5.0')
+    parser.add_argument('--version', action='version', version='APK Reverse Engine v2.6.0')
     parser.add_argument('--interactive', '-i', action='store_true', help='🎮 进入交互式菜单模式')
     sub = parser.add_subparsers(dest="command")
 
@@ -5265,7 +5477,26 @@ def main():
     p = sub.add_parser("optcheck", help="⚙️ 优化模式检测 (编译器优化/设计模式/代码特征)")
     p.add_argument("apk")
     p.set_defaults(func=cmd_optcheck)
-
+    # ── dexcomplex: DEX代码复杂度分析 ──
+    p = sub.add_parser("dexcomplex", help="🧠 DEX代码复杂度 (圈复杂度/嵌套深度/认知复杂度)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("-o", "--output", default=None, help="输出 JSON 报告路径")
+    p.set_defaults(func=cmd_dexcomplex)
+    # ── dexinherit: DEX继承图分析 ──
+    p = sub.add_parser("dexinherit", help="🌳 DEX继承图 (类继承树/接口实现/抽象类)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("-o", "--output", default=None, help="输出 JSON 报告路径")
+    p.set_defaults(func=cmd_dexinherit)
+    # ── resource: APK资源分析 ──
+    p = sub.add_parser("resource", help="📦 APK资源分析 (大小分布/冗余资源/图片格式)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("-o", "--output", default=None, help="输出 JSON 报告路径")
+    p.set_defaults(func=cmd_resource)
+    # ── dexannot: DEX注解分析 ──
+    p = sub.add_parser("dexannot", help="🏷️ DEX注解分析 (注解类型/框架分布/可见性)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("-o", "--output", default=None, help="输出 JSON 报告路径")
+    p.set_defaults(func=cmd_dexannot)
     args = parser.parse_args()
 
     # 交互式模式
@@ -5278,7 +5509,7 @@ def main():
         console.print()
         console.print(Panel.fit(
             "[bold cyan]⚡ APK Reverse Engineering Engine v2[/]\n"
-            "[dim]  全功能 APK 逆向工具集  |  64 命令  |  18,000+ 行核心引擎  [/]",
+            "[dim]  全功能 APK 逆向工具集  |  68 命令  |  19,000+ 行核心引擎  [/]",
             border_style="cyan", box=box.DOUBLE_EDGE
         ))
         console.print()
@@ -5371,6 +5602,10 @@ def main():
                 ("apkinfo", "📊 APK 深度信息 (包名/版本/权限/签名)"),
                 ("xref", "🔗 交叉引用分析 (调用者/被调用者)"),
                 ("optcheck", "⚙️ 优化模式检测 (编译器/设计模式)"),
+                ("dexcomplex", "🧠 DEX代码复杂度 (圈复杂度/认知复杂度)"),
+                ("dexinherit", "🌳 DEX继承图 (继承树/接口/抽象类)"),
+                ("resource", "📦 APK资源分析 (大小/冗余/图片格式)"),
+                ("dexannot", "🏷️ DEX注解分析 (类型/框架/可见性)"),
                 ("permtrace", "🔍 权限使用追溯 (DEX中权限API路径)"),
                 ("apistats", "📊 API调用统计 (使用频率/分布)"),
                 ("sigcheck", "🔑 APK签名方案检测 (V1/V2/V3/V4)"),
