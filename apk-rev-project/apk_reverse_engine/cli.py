@@ -5140,6 +5140,172 @@ def cmd_dexinsndensity(args):
             json.dump(result, f, ensure_ascii=False, indent=2, default=str)
         _info(f"完整报告已保存到 {args.output}")
 
+
+def cmd_dexdebinfo(args):
+    """DEX 调试信息分析 — 源文件保留/行号/Debug信息保留度/可读性评分"""
+    from apk_reverse_engine.core.apk_file_ops import ApkFileOps
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.analysis.dex_debug_info import DexDebugInfoAnalyzer
+    ops = ApkFileOps(args.apk)
+    dex_datas = ops.get_dex_data()
+    if not dex_datas:
+        _error("未找到 DEX 文件")
+        return
+    dp = DexParser(dex_datas[0])
+    with console.status(f"{ICO['mag']} 正在分析 DEX 调试信息...", spinner="dots"):
+        result = DexDebugInfoAnalyzer.analyze(dp)
+    if 'error' in result:
+        _error(result['error'])
+        return
+    _section("🧪 DEX 调试信息分析")
+    console.print(f"  [cyan]总类数:[/] {result['total_classes']}  [cyan]有源文件:[/] {result['classes_with_source']}  [cyan]源文件保留率:[/] [{'green' if result['source_retention']>=50 else 'yellow' if result['source_retention']>=20 else 'red'}]{result['source_retention']}%[/]")
+    console.print(f"  [cyan]有代码方法:[/] {result['methods_with_code']}  [cyan]含调试信息:[/] {result['methods_with_debug']}  [cyan]调试保留率:[/] [{'green' if result['debug_retention']>=50 else 'yellow' if result['debug_retention']>=20 else 'red'}]{result['debug_retention']}%[/]")
+    score = result['readability_score']
+    sc = 'green' if score >= 60 else 'yellow' if score >= 30 else 'red'
+    console.print(f"  [cyan]可读性评分:[/] [{sc}]{score}/100[/]  [cyan]无源文件类:[/] {result['classes_without_source_count']}  [cyan]独立源文件:[/] {result['unique_source_files']}")
+    console.print()
+    if result['top_source_files']:
+        _sub("源文件分布 Top 10")
+        t = Table(box=box.ROUNDED, border_style='cyan', show_header=True)
+        t.add_column("#", style="dim", width=4)
+        t.add_column("源文件", style="cyan", width=30)
+        t.add_column("出现次数", justify="right", style="yellow", width=10)
+        for i, item in enumerate(result['top_source_files'][:10], 1):
+            t.add_row(str(i), item['file'][:30], str(item['count']))
+        console.print(t)
+    if result['top_classes_without_source']:
+        console.print()
+        _sub("无源文件类 Top 10")
+        t2 = Table(box=box.ROUNDED, border_style='red', show_header=True)
+        t2.add_column("#", style="dim", width=4)
+        t2.add_column("类名", style="cyan", width=50)
+        t2.add_column("方法数", justify="right", style="yellow", width=8)
+        for i, item in enumerate(result['top_classes_without_source'][:10], 1):
+            cls = item['class'].replace('L', '').replace(';', '').replace('/', '.')
+            if len(cls) > 50: cls = '...' + cls[-47:]
+            t2.add_row(str(i), cls, str(item['methods']))
+        console.print(t2)
+    if args.output:
+        import json
+        with open(args.output, 'w') as f:
+            json.dump(result, f, ensure_ascii=False, indent=2, default=str)
+        _info(f"完整报告已保存到 {args.output}")
+
+
+def cmd_dexobfuscan(args):
+    """DEX 混淆特征扫描 — 类名混淆/字符串加密/加固检测/混淆强度"""
+    from apk_reverse_engine.core.apk_file_ops import ApkFileOps
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.analysis.dex_obfuscation_scan import DexObfuscationScan
+    ops = ApkFileOps(args.apk)
+    dex_datas = ops.get_dex_data()
+    if not dex_datas:
+        _error("未找到 DEX 文件")
+        return
+    dp = DexParser(dex_datas[0])
+    with console.status(f"{ICO['mag']} 正在扫描 DEX 混淆特征...", spinner="dots"):
+        result = DexObfuscationScan.analyze(dp)
+    if 'error' in result:
+        _error(result['error'])
+        return
+    _section("🕵️ DEX 混淆特征扫描")
+    level = result['obfuscation_level']
+    lc = 'red' if '严重' in level else 'yellow' if '高度' in level else 'green' if '未' in level else 'cyan'
+    console.print(f"  [cyan]混淆等级:[/] [{lc}]{level}[/]  [cyan]混淆评分:[/] [{lc}]{result['obfuscation_score']}/100[/]")
+    console.print(f"  [cyan]总类数:[/] {result['total_classes']}  [cyan]混淆类:[/] {result['obfuscated_class_count']}  [cyan]混淆率:[/] {result['obfuscation_rate']}%")
+    console.print(f"  [cyan]单字母方法:[/] {result['single_letter_methods']}  [cyan]加固特征:[/] {result['packer_count']}项")
+    console.print()
+    if result['packer_detected']:
+        _sub("加固框架检测")
+        for item in result['packer_detected']:
+            console.print(f"  ⚠️  [red]{item['pattern']}[/]  (命中 {item['count']} 次)")
+    if result['encrypt_string_patterns']:
+        console.print()
+        _sub("字符串加密/编码特征")
+        t = Table(box=box.ROUNDED, border_style='yellow', show_header=True)
+        t.add_column("模式", style="cyan", width=20)
+        t.add_column("命中次数", justify="right", style="yellow", width=10)
+        for item in result['encrypt_string_patterns']:
+            t.add_row(item['pattern'], str(item['count']))
+        console.print(t)
+    if result['sample_obfuscated_classes']:
+        console.print()
+        _sub("混淆类样本")
+        for i, item in enumerate(result['sample_obfuscated_classes'][:10], 1):
+            cls = item['class'].replace('L', '').replace(';', '').replace('/', '.')
+            console.print(f"  {i}. [cyan]{cls}[/]  [dim]({item['reason']})[/]")
+    if args.output:
+        import json
+        with open(args.output, 'w') as f:
+            json.dump(result, f, ensure_ascii=False, indent=2, default=str)
+        _info(f"完整报告已保存到 {args.output}")
+
+
+def cmd_dexctrlflow(args):
+    """DEX 控制流分析 — 方法复杂度分布/大方法/热点类/控制流评分"""
+    from apk_reverse_engine.core.apk_file_ops import ApkFileOps
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.analysis.dex_control_flow import DexControlFlowAnalyzer
+    ops = ApkFileOps(args.apk)
+    dex_datas = ops.get_dex_data()
+    if not dex_datas:
+        _error("未找到 DEX 文件")
+        return
+    dp = DexParser(dex_datas[0])
+    with console.status(f"{ICO['mag']} 正在分析 DEX 控制流...", spinner="dots"):
+        result = DexControlFlowAnalyzer.analyze(dp)
+    if 'error' in result:
+        _error(result['error'])
+        return
+    _section("📐 DEX 控制流分析")
+    console.print(f"  [cyan]总方法:[/] {result['total_methods']}  [cyan]有代码:[/] {result['methods_with_code']}  [cyan]总指令:[/] {result['total_insns']}")
+    console.print(f"  [cyan]均指令/方法:[/] {result['avg_insns_per_method']}  [cyan]大方法(>=150):[/] {result['large_method_count']}  [cyan]大方法占比:[/] {result['large_method_ratio']}%")
+    cs = result['complexity_score']
+    csc = 'red' if cs >= 60 else 'yellow' if cs >= 30 else 'green'
+    console.print(f"  [cyan]控制流复杂度评分:[/] [{csc}]{cs}/100[/]")
+    console.print()
+    _sub("指令量分布")
+    t = Table(box=box.ROUNDED, border_style='cyan', show_header=True)
+    t.add_column("规模", style="cyan", width=20)
+    t.add_column("方法数", justify="right", style="yellow", width=10)
+    t.add_column("占比", justify="right", style="magenta", width=8)
+    total = result['methods_with_code']
+    for label, count in sorted(result['insn_distribution'].items()):
+        pct = round(count / max(total, 1) * 100, 1)
+        t.add_row(label, str(count), f"{pct}%")
+    console.print(t)
+    if result['top_large_methods']:
+        console.print()
+        _sub("超大方法 Top 15")
+        t2 = Table(box=box.ROUNDED, border_style='red', show_header=True)
+        t2.add_column("#", style="dim", width=4)
+        t2.add_column("类", style="cyan", width=40)
+        t2.add_column("方法", style="green", width=20)
+        t2.add_column("指令", justify="right", style="yellow", width=8)
+        t2.add_column("寄存器", justify="right", style="magenta", width=8)
+        for i, m in enumerate(result['top_large_methods'][:15], 1):
+            cls = m['class'].replace('L', '').replace(';', '').replace('/', '.')
+            if len(cls) > 40: cls = '...' + cls[-37:]
+            t2.add_row(str(i), cls, m['method'][:20], str(m['insns']), str(m['regs']))
+        console.print(t2)
+    if result['top_class_hotspots']:
+        console.print()
+        _sub("类级指令热点 Top 15")
+        t3 = Table(box=box.ROUNDED, border_style='yellow', show_header=True)
+        t3.add_column("#", style="dim", width=4)
+        t3.add_column("类", style="cyan", width=50)
+        t3.add_column("指令总量", justify="right", style="yellow", width=10)
+        t3.add_column("方法数", justify="right", style="magenta", width=8)
+        for i, item in enumerate(result['top_class_hotspots'][:15], 1):
+            t3.add_row(str(i), item['class'][:50], str(item['insns']), str(item['methods']))
+        console.print(t3)
+    if args.output:
+        import json
+        with open(args.output, 'w') as f:
+            json.dump(result, f, ensure_ascii=False, indent=2, default=str)
+        _info(f"完整报告已保存到 {args.output}")
+
+
 def cmd_ai(args):
     """AI 逆向助手 - 大模型对话 + MCP 工具调用 + 技能库"""
     from apk_reverse_engine.ai import AiSession, AiSetting, AiPrompt
@@ -6144,6 +6310,21 @@ def main():
     p.add_argument("apk", help="APK 文件路径")
     p.add_argument("-o", "--output", default=None, help="输出 JSON 报告路径")
     p.set_defaults(func=cmd_dexinsndensity)
+    # ── dexdebinfo: DEX调试信息分析 ──
+    p = sub.add_parser("dexdebinfo", help="🧪 DEX调试信息 (源文件/行号/调试保留度)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("-o", "--output", default=None, help="输出 JSON 报告路径")
+    p.set_defaults(func=cmd_dexdebinfo)
+    # ── dexobfuscan: DEX混淆特征扫描 ──
+    p = sub.add_parser("dexobfuscan", help="🕵️ DEX混淆扫描 (类名混淆/加固/加密特征)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("-o", "--output", default=None, help="输出 JSON 报告路径")
+    p.set_defaults(func=cmd_dexobfuscan)
+    # ── dexctrlflow: DEX控制流分析 ──
+    p = sub.add_parser("dexctrlflow", help="📐 DEX控制流 (方法体积/大方法/热点类)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("-o", "--output", default=None, help="输出 JSON 报告路径")
+    p.set_defaults(func=cmd_dexctrlflow)
     args = parser.parse_args()
 
     # 交互式模式
@@ -6156,7 +6337,7 @@ def main():
         console.print()
         console.print(Panel.fit(
             "[bold cyan]⚡ APK Reverse Engineering Engine v2[/]\n"
-            "[dim]  全功能 APK 逆向工具集  |  77 命令  |  19,000+ 行核心引擎  [/]",
+            "[dim]  全功能 APK 逆向工具集  |  80 命令  |  19,000+ 行核心引擎  [/]",
             border_style="cyan", box=box.DOUBLE_EDGE
         ))
         console.print()
@@ -6262,6 +6443,9 @@ def main():
                 ("dexregpressure", "🎛️ DEX寄存器压力 (高压力/调用帧)"),
                 ("dexexcflow", "🛡️ DEX异常处理流 (try/catch/防御评分)"),
                 ("dexinsndensity", "📐 DEX指令密度 (体积/大方法/膨胀)"),
+                ("dexdebinfo", "🧪 DEX调试信息 (源文件/行号/保留度)"),
+                ("dexobfuscan", "🕵️ DEX混淆扫描 (混淆/加固/加密检测)"),
+                ("dexctrlflow", "📐 DEX控制流 (方法体积/热点类)"),
                 ("permtrace", "🔍 权限使用追溯 (DEX中权限API路径)"),
                 ("apistats", "📊 API调用统计 (使用频率/分布)"),
                 ("sigcheck", "🔑 APK签名方案检测 (V1/V2/V3/V4)"),
@@ -6284,7 +6468,7 @@ def main():
             f"[bold]完整命令集:[/] {total_cmds} 个命令  |  "
             "[bold]帮助:[/] [cyan]reng <command> --help[/]  |  "
             "[bold]交互模式:[/] [magenta]reng --interactive[/]  |  "
-            "[bold]版本:[/] [yellow]v2.8.0[/]",
+            "[bold]版本:[/] [yellow]v2.9.0[/]",
             border_style="dim", box=box.SIMPLE
         ))
         console.print()
