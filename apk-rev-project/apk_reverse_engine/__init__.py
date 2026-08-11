@@ -1,7 +1,7 @@
 """APK Reverse Engineering Engine v2 - 全模块基础功能API"""
 import os, zipfile
 
-__version__ = '2.7.0'
+__version__ = '2.8.0'
 
 # ============================================================
 # 核心模块 - Core

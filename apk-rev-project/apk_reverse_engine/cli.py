@@ -4915,6 +4915,231 @@ def cmd_dexconstscan(args):
             json.dump(result, f, ensure_ascii=False, indent=2, default=str)
         _info(f"完整报告已保存到 {args.output}")
 
+def cmd_dexregpressure(args):
+    """DEX 寄存器压力分析 — 寄存器分配/参数寄存器/调用帧/高压力方法检测"""
+    from apk_reverse_engine.core.apk_file_ops import ApkFileOps
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.analysis.dex_register_pressure import DexRegisterPressureAnalyzer
+    ops = ApkFileOps(args.apk)
+    dex_datas = ops.get_dex_data()
+    if not dex_datas:
+        _error("未找到 DEX 文件")
+        return
+    dp = DexParser(dex_datas[0])
+    with console.status(f"{ICO['mag']} 正在分析 DEX 寄存器压力...", spinner="dots"):
+        result = DexRegisterPressureAnalyzer.analyze(dp)
+    if 'error' in result:
+        _error(result['error'])
+        return
+    _section("🎛️ DEX 寄存器压力分析")
+    console.print(f"  [cyan]有代码方法:[/] {result['methods_with_code']}")
+    console.print(f"  [cyan]平均寄存器:[/] {result['avg_registers']}  [cyan]平均参数寄存器:[/] {result['avg_ins']}  [cyan]平均调用帧:[/] {result['avg_outs']}")
+    console.print(f"  [cyan]高压力方法:[/] {result['high_pressure_count']}  [cyan]极高压力:[/] {result['very_high_pressure_count']}  [cyan]深调用链:[/] {result['high_outs_count']}")
+    console.print()
+    _sub("寄存器区间分布")
+    rr = result['register_ranges']
+    t = Table(box=box.ROUNDED, border_style='cyan', show_header=True)
+    t.add_column("区间", style="cyan", width=12)
+    t.add_column("方法数", justify="right", style="yellow", width=10)
+    for k, v in rr.items():
+        t.add_row(k, str(v))
+    console.print(t)
+    console.print()
+    _sub("调用帧区间分布")
+    ora = result['outs_ranges']
+    t2 = Table(box=box.ROUNDED, border_style='green', show_header=True)
+    t2.add_column("区间", style="cyan", width=12)
+    t2.add_column("方法数", justify="right", style="yellow", width=10)
+    for k, v in ora.items():
+        t2.add_row(k, str(v))
+    console.print(t2)
+    console.print()
+    _sub("极高压力方法 Top 15")
+    t3 = Table(box=box.ROUNDED, border_style='red', show_header=True)
+    t3.add_column("#", style="dim", width=4)
+    t3.add_column("类", style="cyan", width=40)
+    t3.add_column("方法", style="green", width=30)
+    t3.add_column("寄存器", justify="right", style="yellow", width=8)
+    t3.add_column("指令", justify="right", style="magenta", width=8)
+    for i, m in enumerate(result['top_very_high'][:15], 1):
+        cls = m['class'].replace('L', '').replace(';', '').replace('/', '.')
+        if len(cls) > 40: cls = '...' + cls[-37:]
+        console.print(f"  {i}. [cyan]{cls}[/]  [green]{m['method']}[/]  [yellow]regs={m['registers']}[/]  [magenta]insns={m['insns']}[/]")
+    console.print()
+    _sub("深调用链方法 Top 10")
+    for i, m in enumerate(result['top_high_outs'][:10], 1):
+        cls = m['class'].replace('L', '').replace(';', '').replace('/', '.')
+        if len(cls) > 50: cls = '...' + cls[-47:]
+        console.print(f"  {i}. [cyan]{cls}[/]  [green]{m['method']}[/]  [yellow]outs={m['outs']}[/]  [magenta]insns={m['insns']}[/]")
+    console.print()
+    _sub("寄存器最多的类 Top 15")
+    t4 = Table(box=box.ROUNDED, border_style='blue', show_header=True)
+    t4.add_column("#", style="dim", width=4)
+    t4.add_column("类名", style="cyan", width=50)
+    t4.add_column("最大regs", justify="right", style="yellow", width=10)
+    t4.add_column("平均regs", justify="right", style="green", width=10)
+    t4.add_column("方法数", justify="right", style="magenta", width=8)
+    for i, item in enumerate(result['top_classes_by_regs'][:15], 1):
+        cls = item['class']
+        if len(cls) > 50: cls = '...' + cls[-47:]
+        t4.add_row(str(i), cls, str(item['max_regs']), str(item['avg_regs']), str(item['methods']))
+    console.print(t4)
+    if args.output:
+        import json
+        with open(args.output, 'w') as f:
+            json.dump(result, f, ensure_ascii=False, indent=2, default=str)
+        _info(f"完整报告已保存到 {args.output}")
+
+def cmd_dexexcflow(args):
+    """DEX 异常处理流分析 — try/catch分布/异常类型/防御性编程评分"""
+    from apk_reverse_engine.core.apk_file_ops import ApkFileOps
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.analysis.dex_exception_flow import DexExceptionFlowAnalyzer
+    ops = ApkFileOps(args.apk)
+    dex_datas = ops.get_dex_data()
+    if not dex_datas:
+        _error("未找到 DEX 文件")
+        return
+    dp = DexParser(dex_datas[0])
+    with console.status(f"{ICO['mag']} 正在分析 DEX 异常处理流...", spinner="dots"):
+        result = DexExceptionFlowAnalyzer.analyze(dp)
+    if 'error' in result:
+        _error(result['error'])
+        return
+    _section("🛡️ DEX 异常处理流分析")
+    console.print(f"  [cyan]有代码方法:[/] {result['methods_with_code']}")
+    console.print(f"  [cyan]含try方法:[/] {result['methods_with_try']}  [cyan]覆盖率:[/] {result['try_coverage']}%")
+    console.print(f"  [cyan]try块总数:[/] {result['total_try_blocks']}  [cyan]handler总数:[/] {result['total_handlers']}")
+    console.print(f"  [cyan]异常类型发现:[/] {result['exception_types_found']}种")
+    score = result['defensive_score']
+    score_color = 'green' if score >= 60 else 'yellow' if score >= 30 else 'red'
+    console.print(f"  [cyan]防御性编程评分:[/] [{score_color}]{score}/100[/]")
+    console.print()
+    _sub("异常类型 Top 20")
+    t = Table(box=box.ROUNDED, border_style='red', show_header=True)
+    t.add_column("#", style="dim", width=4)
+    t.add_column("异常类型", style="cyan", width=35)
+    t.add_column("出现次数", justify="right", style="yellow", width=10)
+    for i, item in enumerate(result['top_exception_types'][:20], 1):
+        t.add_row(str(i), item['type'][:35], str(item['count']))
+    console.print(t)
+    console.print()
+    _sub("try块最多的方法 Top 15")
+    t2 = Table(box=box.ROUNDED, border_style='yellow', show_header=True)
+    t2.add_column("#", style="dim", width=4)
+    t2.add_column("类", style="cyan", width=40)
+    t2.add_column("方法", style="green", width=25)
+    t2.add_column("try块", justify="right", style="yellow", width=8)
+    t2.add_column("指令", justify="right", style="magenta", width=8)
+    for i, m in enumerate(result['methods_with_many_tries'][:15], 1):
+        cls = m['class'].replace('L', '').replace(';', '').replace('/', '.')
+        if len(cls) > 40: cls = '...' + cls[-37:]
+        t2.add_row(str(i), cls, m['method'][:25], str(m['try_blocks']), str(m['insns']))
+    console.print(t2)
+    console.print()
+    _sub("异常处理最多的类 Top 15")
+    t3 = Table(box=box.ROUNDED, border_style='blue', show_header=True)
+    t3.add_column("#", style="dim", width=4)
+    t3.add_column("类名", style="cyan", width=50)
+    t3.add_column("try块", justify="right", style="yellow", width=8)
+    t3.add_column("含try方法", justify="right", style="green", width=10)
+    t3.add_column("总方法", justify="right", style="magenta", width=8)
+    for i, item in enumerate(result['top_classes_by_try'][:15], 1):
+        cls = item['class']
+        if len(cls) > 50: cls = '...' + cls[-47:]
+        t3.add_row(str(i), cls, str(item['try_blocks']), str(item['methods_with_try']), str(item['total_methods']))
+    console.print(t3)
+    if args.output:
+        import json
+        with open(args.output, 'w') as f:
+            json.dump(result, f, ensure_ascii=False, indent=2, default=str)
+        _info(f"完整报告已保存到 {args.output}")
+
+def cmd_dexinsndensity(args):
+    """DEX 指令密度分析 — 方法体积分布/大方法检测/代码膨胀/类复杂度"""
+    from apk_reverse_engine.core.apk_file_ops import ApkFileOps
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.analysis.dex_insn_density import DexInsnDensityAnalyzer
+    ops = ApkFileOps(args.apk)
+    dex_datas = ops.get_dex_data()
+    if not dex_datas:
+        _error("未找到 DEX 文件")
+        return
+    dp = DexParser(dex_datas[0])
+    with console.status(f"{ICO['mag']} 正在分析 DEX 指令密度...", spinner="dots"):
+        result = DexInsnDensityAnalyzer.analyze(dp)
+    if 'error' in result:
+        _error(result['error'])
+        return
+    _section("📐 DEX 指令密度分析")
+    console.print(f"  [cyan]有代码方法:[/] {result['methods_with_code']}")
+    console.print(f"  [cyan]总指令数:[/] {result['total_insns']:,}")
+    console.print(f"  [cyan]平均指令/方法:[/] {result['avg_insns_per_method']}  [cyan]平均指令/类:[/] {result['avg_insns_per_class']}")
+    console.print(f"  [cyan]Native方法:[/] {result['native_methods']}  [cyan]Abstract方法:[/] {result['abstract_methods']}")
+    console.print(f"  [cyan]巨型方法(>200):[/] {result['huge_method_count']}  [cyan]超大方法(>500):[/] {result['mega_method_count']}")
+    console.print()
+    _sub("方法体积分类")
+    sc = result['size_categories']
+    t = Table(box=box.ROUNDED, border_style='cyan', show_header=True)
+    t.add_column("类别", style="cyan", width=16)
+    t.add_column("描述", style="dim", width=30)
+    t.add_column("数量", justify="right", style="yellow", width=10)
+    descs = {'small': '<10指令 (小方法)', 'medium': '10-50 (中等)', 'large': '50-100 (大方法)', 'huge': '100-200 (巨型)', 'mega': '>500 (超大)'}
+    for k in ['small', 'medium', 'large', 'huge', 'mega']:
+        t.add_row(k, descs.get(k, ''), str(sc.get(k, 0)))
+    console.print(t)
+    console.print()
+    _sub("超大方法 Top 15 (>500指令)")
+    t2 = Table(box=box.ROUNDED, border_style='red', show_header=True)
+    t2.add_column("#", style="dim", width=4)
+    t2.add_column("类", style="cyan", width=40)
+    t2.add_column("方法", style="green", width=25)
+    t2.add_column("指令", justify="right", style="yellow", width=8)
+    t2.add_column("寄存器", justify="right", style="magenta", width=8)
+    for i, m in enumerate(result['top_mega_methods'][:15], 1):
+        cls = m['class'].replace('L', '').replace(';', '').replace('/', '.')
+        if len(cls) > 40: cls = '...' + cls[-37:]
+        t2.add_row(str(i), cls, m['method'][:25], str(m['insns']), str(m['registers']))
+    console.print(t2)
+    console.print()
+    _sub("巨型方法 Top 15 (100-500)")
+    t3 = Table(box=box.ROUNDED, border_style='yellow', show_header=True)
+    t3.add_column("#", style="dim", width=4)
+    t3.add_column("类", style="cyan", width=40)
+    t3.add_column("方法", style="green", width=25)
+    t3.add_column("指令", justify="right", style="yellow", width=8)
+    for i, m in enumerate(result['top_huge_methods'][:15], 1):
+        cls = m['class'].replace('L', '').replace(';', '').replace('/', '.')
+        if len(cls) > 40: cls = '...' + cls[-37:]
+        t3.add_row(str(i), cls, m['method'][:25], str(m['insns']))
+    console.print(t3)
+    console.print()
+    _sub("指令量最多的类 Top 15")
+    t4 = Table(box=box.ROUNDED, border_style='blue', show_header=True)
+    t4.add_column("#", style="dim", width=4)
+    t4.add_column("类名", style="cyan", width=45)
+    t4.add_column("总指令", justify="right", style="yellow", width=10)
+    t4.add_column("最大", justify="right", style="green", width=8)
+    t4.add_column("平均", justify="right", style="magenta", width=8)
+    t4.add_column("方法", justify="right", style="dim", width=6)
+    for i, item in enumerate(result['top_classes_by_insns'][:15], 1):
+        cls = item['class']
+        if len(cls) > 45: cls = '...' + cls[-42:]
+        t4.add_row(str(i), cls, str(item['total_insns']), str(item['max_insns']), str(item['avg_insns']), str(item['methods']))
+    console.print(t4)
+    if result['native_method_list']:
+        console.print()
+        _sub("Native方法 Top 10")
+        for i, m in enumerate(result['native_method_list'][:10], 1):
+            cls = m['class'].replace('L', '').replace(';', '').replace('/', '.')
+            if len(cls) > 45: cls = '...' + cls[-42:]
+            console.print(f"  {i}. [cyan]{cls}[/]  [green]{m['method']}[/]")
+    if args.output:
+        import json
+        with open(args.output, 'w') as f:
+            json.dump(result, f, ensure_ascii=False, indent=2, default=str)
+        _info(f"完整报告已保存到 {args.output}")
+
 def cmd_ai(args):
     """AI 逆向助手 - 大模型对话 + MCP 工具调用 + 技能库"""
     from apk_reverse_engine.ai import AiSession, AiSetting, AiPrompt
@@ -5904,6 +6129,21 @@ def main():
     p.add_argument("apk", help="APK 文件路径")
     p.add_argument("-o", "--output", default=None, help="输出 JSON 报告路径")
     p.set_defaults(func=cmd_dexconstscan)
+    # ── dexregpressure: DEX寄存器压力分析 ──
+    p = sub.add_parser("dexregpressure", help="🎛️ DEX寄存器压力 (分配/调用帧/高压力方法)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("-o", "--output", default=None, help="输出 JSON 报告路径")
+    p.set_defaults(func=cmd_dexregpressure)
+    # ── dexexcflow: DEX异常处理流分析 ──
+    p = sub.add_parser("dexexcflow", help="🛡️ DEX异常处理流 (try/catch分布/防御性评分)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("-o", "--output", default=None, help="输出 JSON 报告路径")
+    p.set_defaults(func=cmd_dexexcflow)
+    # ── dexinsndensity: DEX指令密度分析 ──
+    p = sub.add_parser("dexinsndensity", help="📐 DEX指令密度 (方法体积/大方法/代码膨胀)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("-o", "--output", default=None, help="输出 JSON 报告路径")
+    p.set_defaults(func=cmd_dexinsndensity)
     args = parser.parse_args()
 
     # 交互式模式
@@ -5916,7 +6156,7 @@ def main():
         console.print()
         console.print(Panel.fit(
             "[bold cyan]⚡ APK Reverse Engineering Engine v2[/]\n"
-            "[dim]  全功能 APK 逆向工具集  |  74 命令  |  19,000+ 行核心引擎  [/]",
+            "[dim]  全功能 APK 逆向工具集  |  77 命令  |  19,000+ 行核心引擎  [/]",
             border_style="cyan", box=box.DOUBLE_EDGE
         ))
         console.print()
@@ -6019,6 +6259,9 @@ def main():
                 ("dextyperef", "🔗 DEX类型引用 (矩阵/枢纽类/依赖)"),
                 ("dexmethodstats", "📊 DEX方法签名 (参数/返回/修饰符)"),
                 ("dexconstscan", "🔍 DEX常量扫描 (硬编码/密钥/版本)"),
+                ("dexregpressure", "🎛️ DEX寄存器压力 (高压力/调用帧)"),
+                ("dexexcflow", "🛡️ DEX异常处理流 (try/catch/防御评分)"),
+                ("dexinsndensity", "📐 DEX指令密度 (体积/大方法/膨胀)"),
                 ("permtrace", "🔍 权限使用追溯 (DEX中权限API路径)"),
                 ("apistats", "📊 API调用统计 (使用频率/分布)"),
                 ("sigcheck", "🔑 APK签名方案检测 (V1/V2/V3/V4)"),
@@ -6041,7 +6284,7 @@ def main():
             f"[bold]完整命令集:[/] {total_cmds} 个命令  |  "
             "[bold]帮助:[/] [cyan]reng <command> --help[/]  |  "
             "[bold]交互模式:[/] [magenta]reng --interactive[/]  |  "
-            "[bold]版本:[/] [yellow]v2.7.0[/]",
+            "[bold]版本:[/] [yellow]v2.8.0[/]",
             border_style="dim", box=box.SIMPLE
         ))
         console.print()
