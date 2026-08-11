@@ -4538,6 +4538,183 @@ def cmd_dexannot(args):
             json.dump(result, f, ensure_ascii=False, indent=2, default=str)
         _info(f"完整报告已保存到 {args.output}")
 
+def cmd_dexstringpool(args):
+    """DEX 字符串常量池深度分析 — 字符串引用追踪/加密检测/常量模式"""
+    from apk_reverse_engine.core.apk_file_ops import ApkFileOps
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.analysis.dex_string_pool import DexStringPoolAnalyzer
+    ops = ApkFileOps(args.apk)
+    dex_datas = ops.get_dex_data()
+    if not dex_datas:
+        _error("未找到 DEX 文件")
+        return
+    dp = DexParser(dex_datas[0])
+    with console.status(f"{ICO['mag']} 正在分析 DEX 字符串常量池...", spinner="dots"):
+        result = DexStringPoolAnalyzer.analyze(dp)
+    if 'error' in result:
+        _info(result['error'])
+        return
+    _section("🔤 DEX 字符串常量池分析")
+    console.print(f"  [cyan]字符串总数:[/] {result['total_strings']}")
+    console.print(f"  [cyan]总字节数:[/] {result['total_bytes']:,}")
+    console.print(f"  [cyan]平均长度:[/] {result['avg_length']}")
+    console.print(f"  [cyan]中文字符串:[/] {result['chinese_strings']}  [cyan]Emoji:[/] {result['emoji_strings']}  [cyan]Base64候选:[/] {result['base64_candidates']}")
+    console.print(f"  [cyan]加密候选:[/] {result['encrypted_count']}")
+    console.print()
+    _sub("长度分布")
+    ld = result['length_distribution']
+    t = Table(box=box.ROUNDED, border_style='cyan', show_header=True)
+    t.add_column("区间", style="cyan", width=16)
+    t.add_column("数量", justify="right", style="yellow", width=10)
+    for k, v in ld.items():
+        t.add_row(k, str(v))
+    console.print(t)
+    console.print()
+    _sub("分类统计 Top 15")
+    cs = result['category_summary']
+    t2 = Table(box=box.ROUNDED, border_style='green', show_header=True)
+    t2.add_column("#", style="dim", width=4)
+    t2.add_column("分类", style="cyan", width=30)
+    t2.add_column("数量", justify="right", style="yellow", width=10)
+    for i, (cat, cnt) in enumerate(sorted(cs.items(), key=lambda x: x[1], reverse=True)[:15], 1):
+        t2.add_row(str(i), cat, str(cnt))
+    console.print(t2)
+    if result['encrypted_candidates']:
+        console.print()
+        _sub("加密候选字符串 Top 15")
+        t3 = Table(box=box.ROUNDED, border_style='red', show_header=True)
+        t3.add_column("#", style="dim", width=4)
+        t3.add_column("Idx", style="cyan", width=8)
+        t3.add_column("长度", justify="right", width=8)
+        t3.add_column("唯一率", justify="right", width=10)
+        t3.add_column("预览", style="dim")
+        for i, item in enumerate(result['encrypted_candidates'][:15], 1):
+            t3.add_row(str(i), str(item['idx']), str(item['length']), str(item['unique_ratio']), item['preview'][:80])
+        console.print(t3)
+    if result['duplicate_strings']:
+        console.print()
+        _sub("重复字符串 Top 10")
+        t4 = Table(box=box.ROUNDED, border_style='yellow', show_header=True)
+        t4.add_column("#", style="dim", width=4)
+        t4.add_column("字符串", style="cyan", width=60)
+        t4.add_column("重复次数", justify="right", style="red", width=10)
+        for i, item in enumerate(result['duplicate_strings'][:10], 1):
+            t4.add_row(str(i), item['value'][:60], str(item['count']))
+        console.print(t4)
+    if args.output:
+        import json
+        with open(args.output, 'w') as f:
+            json.dump(result, f, ensure_ascii=False, indent=2, default=str)
+        _info(f"完整报告已保存到 {args.output}")
+
+def cmd_dexcallgraph(args):
+    """DEX 方法调用图深度分析 — 方法间调用关系/高频调用方法/调用环检测"""
+    from apk_reverse_engine.core.apk_file_ops import ApkFileOps
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.analysis.dex_callgraph_analyzer import DexCallGraphAnalyzer
+    ops = ApkFileOps(args.apk)
+    dex_datas = ops.get_dex_data()
+    if not dex_datas:
+        _error("未找到 DEX 文件")
+        return
+    dp = DexParser(dex_datas[0])
+    with console.status(f"{ICO['mag']} 正在分析 DEX 方法调用图...", spinner="dots"):
+        result = DexCallGraphAnalyzer.analyze(dp)
+    _section("🕸️ DEX 方法调用图分析")
+    console.print(f"  [cyan]有代码方法数:[/] {result['total_methods_with_code']}")
+    console.print(f"  [cyan]总调用数:[/] {result['total_calls']}")
+    console.print(f"  [cyan]唯一调用者:[/] {result['unique_callers']}  [cyan]唯一被调用者:[/] {result['unique_callees']}")
+    console.print(f"  [cyan]平均每方法调用数:[/] {result['avg_calls_per_method']}")
+    console.print(f"  [cyan]调用环数:[/] {result['cycle_count']}")
+    console.print(f"  [cyan]调用图节点数:[/] {result['call_graph_size']}  [cyan]反向图节点数:[/] {result['reverse_graph_size']}")
+    console.print()
+    _sub("最被调用的方法 Top 20 (热点方法)")
+    t = Table(box=box.ROUNDED, border_style='red', show_header=True)
+    t.add_column("#", style="dim", width=4)
+    t.add_column("方法名", style="cyan", width=60)
+    t.add_column("调用次数", justify="right", style="yellow", width=10)
+    for i, item in enumerate(result['most_called_methods'][:20], 1):
+        t.add_row(str(i), item['method'][:60], str(item['call_count']))
+    console.print(t)
+    console.print()
+    _sub("调用最多的方法 Top 20 (扇出最高)")
+    t2 = Table(box=box.ROUNDED, border_style='blue', show_header=True)
+    t2.add_column("#", style="dim", width=4)
+    t2.add_column("方法名", style="cyan", width=60)
+    t2.add_column("调用数", justify="right", style="yellow", width=10)
+    for i, item in enumerate(result['most_calling_methods'][:20], 1):
+        t2.add_row(str(i), item['method'][:60], str(item['calls_made']))
+    console.print(t2)
+    if result['cycles_detected']:
+        console.print()
+        _sub(f"调用环 Top {min(len(result['cycles_detected']), 20)}")
+        t3 = Table(box=box.ROUNDED, border_style='magenta', show_header=True)
+        t3.add_column("#", style="dim", width=4)
+        t3.add_column("调用路径", style="cyan")
+        for i, cycle in enumerate(result['cycles_detected'][:20], 1):
+            t3.add_row(str(i), ' → '.join(c[:50] for c in cycle))
+        console.print(t3)
+    if args.output:
+        import json
+        with open(args.output, 'w') as f:
+            json.dump(result, f, ensure_ascii=False, indent=2, default=str)
+        _info(f"完整报告已保存到 {args.output}")
+
+def cmd_dexfieldusage(args):
+    """DEX 字段使用深度分析 — 字段访问模式/静态字段/final字段/字段类型分布"""
+    from apk_reverse_engine.core.apk_file_ops import ApkFileOps
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.analysis.dex_field_usage import DexFieldUsageAnalyzer
+    ops = ApkFileOps(args.apk)
+    dex_datas = ops.get_dex_data()
+    if not dex_datas:
+        _error("未找到 DEX 文件")
+        return
+    dp = DexParser(dex_datas[0])
+    with console.status(f"{ICO['mag']} 正在分析 DEX 字段使用...", spinner="dots"):
+        result = DexFieldUsageAnalyzer.analyze(dp)
+    _section("🗂️ DEX 字段使用分析")
+    console.print(f"  [cyan]字段总数:[/] {result['total_fields']}")
+    console.print(f"  [cyan]静态字段:[/] {result['static_fields']}  [cyan]实例字段:[/] {result['instance_fields']}")
+    console.print(f"  [cyan]final字段:[/] {result['final_fields']}  [cyan]volatile字段:[/] {result['volatile_fields']}")
+    console.print(f"  [cyan]字段读取数:[/] {result['field_reads']}  [cyan]字段写入数:[/] {result['field_writes']}")
+    console.print()
+    _sub("访问标志统计")
+    afs = result['access_flag_stats']
+    t = Table(box=box.ROUNDED, border_style='cyan', show_header=True)
+    t.add_column("标志", style="cyan", width=20)
+    t.add_column("数量", justify="right", style="yellow", width=10)
+    for k, v in sorted(afs.items(), key=lambda x: x[1], reverse=True):
+        t.add_row(k, str(v))
+    console.print(t)
+    console.print()
+    _sub("字段类型分布 Top 20")
+    td = result['type_distribution']
+    t2 = Table(box=box.ROUNDED, border_style='green', show_header=True)
+    t2.add_column("#", style="dim", width=4)
+    t2.add_column("类型", style="cyan", width=40)
+    t2.add_column("数量", justify="right", style="yellow", width=10)
+    for i, (typ, cnt) in enumerate(list(td.items())[:20], 1):
+        t2.add_row(str(i), typ[:40], str(cnt))
+    console.print(t2)
+    console.print()
+    _sub("字段最多的类 Top 20")
+    t3 = Table(box=box.ROUNDED, border_style='blue', show_header=True)
+    t3.add_column("#", style="dim", width=4)
+    t3.add_column("类名", style="cyan", width=60)
+    t3.add_column("字段数", justify="right", style="yellow", width=8)
+    for i, item in enumerate(result['top_classes_by_fields'][:20], 1):
+        cls_name = item['class'].replace('L', '').replace(';', '').replace('/', '.')
+        if len(cls_name) > 60:
+            cls_name = '...' + cls_name[-57:]
+        t3.add_row(str(i), cls_name, str(item['field_count']))
+    console.print(t3)
+    if args.output:
+        import json
+        with open(args.output, 'w') as f:
+            json.dump(result, f, ensure_ascii=False, indent=2, default=str)
+        _info(f"完整报告已保存到 {args.output}")
+
 def cmd_ai(args):
     """AI 逆向助手 - 大模型对话 + MCP 工具调用 + 技能库"""
     from apk_reverse_engine.ai import AiSession, AiSetting, AiPrompt
@@ -5497,6 +5674,21 @@ def main():
     p.add_argument("apk", help="APK 文件路径")
     p.add_argument("-o", "--output", default=None, help="输出 JSON 报告路径")
     p.set_defaults(func=cmd_dexannot)
+    # ── dexstringpool: DEX字符串常量池分析 ──
+    p = sub.add_parser("dexstringpool", help="🔤 DEX字符串常量池 (分类/加密检测/重复/长度分布)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("-o", "--output", default=None, help="输出 JSON 报告路径")
+    p.set_defaults(func=cmd_dexstringpool)
+    # ── dexcallgraph: DEX方法调用图分析 ──
+    p = sub.add_parser("dexcallgraph", help="🕸️ DEX方法调用图 (调用关系/热点方法/调用环)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("-o", "--output", default=None, help="输出 JSON 报告路径")
+    p.set_defaults(func=cmd_dexcallgraph)
+    # ── dexfieldusage: DEX字段使用分析 ──
+    p = sub.add_parser("dexfieldusage", help="🗂️ DEX字段使用 (访问模式/静态/final/类型分布)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("-o", "--output", default=None, help="输出 JSON 报告路径")
+    p.set_defaults(func=cmd_dexfieldusage)
     args = parser.parse_args()
 
     # 交互式模式
@@ -5509,7 +5701,7 @@ def main():
         console.print()
         console.print(Panel.fit(
             "[bold cyan]⚡ APK Reverse Engineering Engine v2[/]\n"
-            "[dim]  全功能 APK 逆向工具集  |  68 命令  |  19,000+ 行核心引擎  [/]",
+            "[dim]  全功能 APK 逆向工具集  |  71 命令  |  19,000+ 行核心引擎  [/]",
             border_style="cyan", box=box.DOUBLE_EDGE
         ))
         console.print()
@@ -5606,6 +5798,9 @@ def main():
                 ("dexinherit", "🌳 DEX继承图 (继承树/接口/抽象类)"),
                 ("resource", "📦 APK资源分析 (大小/冗余/图片格式)"),
                 ("dexannot", "🏷️ DEX注解分析 (类型/框架/可见性)"),
+                ("dexstringpool", "🔤 DEX字符串常量池 (分类/加密/重复/长度)"),
+                ("dexcallgraph", "🕸️ DEX方法调用图 (热点/环检测)"),
+                ("dexfieldusage", "🗂️ DEX字段使用 (访问/类型/分布)"),
                 ("permtrace", "🔍 权限使用追溯 (DEX中权限API路径)"),
                 ("apistats", "📊 API调用统计 (使用频率/分布)"),
                 ("sigcheck", "🔑 APK签名方案检测 (V1/V2/V3/V4)"),
@@ -5628,7 +5823,7 @@ def main():
             f"[bold]完整命令集:[/] {total_cmds} 个命令  |  "
             "[bold]帮助:[/] [cyan]reng <command> --help[/]  |  "
             "[bold]交互模式:[/] [magenta]reng --interactive[/]  |  "
-            "[bold]版本:[/] [yellow]v2.0.0[/]",
+            "[bold]版本:[/] [yellow]v2.7.0[/]",
             border_style="dim", box=box.SIMPLE
         ))
         console.print()
