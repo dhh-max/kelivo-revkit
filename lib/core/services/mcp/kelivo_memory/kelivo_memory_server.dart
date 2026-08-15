@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:mcp_client/mcp_client.dart' as mcp;
 import '../in_memory_mcp_server.dart';
-import '../../mcp_protocol.dart' as mcp;
 
 /// Kelivo Memory MCP Server — exposes the app's built-in memory system
 /// (add/list/update/delete/search memories per assistant) as MCP tools.
