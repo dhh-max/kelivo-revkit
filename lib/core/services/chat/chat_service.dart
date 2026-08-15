@@ -1537,7 +1537,7 @@ class ChatService extends ChangeNotifier {
     await c.save();
     notifyListeners();
   }
-}
+
   /// Persist the memory-extraction watermark for a conversation.
   Future<void> setConversationLastMemoryExtractedOrder(
     String conversationId,
