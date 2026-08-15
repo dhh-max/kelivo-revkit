@@ -11,6 +11,7 @@ import 'dart:convert';
 import 'package:path/path.dart' as p;
 import '../services/search/search_service.dart';
 import '../services/tts/network_tts.dart';
+import '../services/memory/memory_prompts.dart';
 import '../services/tts/tts_text_selection.dart';
 import '../services/network/request_logger.dart';
 import '../services/logging/flutter_logger.dart';
@@ -46,6 +47,52 @@ enum MobileMessageNavButtonsMode { always, scroll, never }
 enum _MigrationResult { noChange, applied, failed }
 
 class SettingsProvider extends ChangeNotifier {
+  // ─── Memory background-organize settings (adapted from master) ─────────
+  String? _memoryModelProvider;
+  String? _memoryModelId;
+  String? get memoryModelProvider => _memoryModelProvider;
+  String? get memoryModelId => _memoryModelId;
+  String? get memoryModelKey =>
+      (_memoryModelProvider != null && _memoryModelId != null)
+          ? '${_memoryModelProvider!}::${_memoryModelId!}'
+          : null;
+  bool _memoryModelThinkingEnabled = false;
+  bool get memoryModelThinkingEnabled => _memoryModelThinkingEnabled;
+  String _memoryPromptLang = 'auto';
+  String get memoryPromptLang => _memoryPromptLang;
+  MemoryPromptLang get resolvedMemoryPromptLang {
+    switch (_memoryPromptLang) {
+      case 'zh':
+        return MemoryPromptLang.zh;
+      case 'en':
+        return MemoryPromptLang.en;
+      default:
+        final tag = _appLocaleTag;
+        return (tag != null && tag.startsWith('zh'))
+            ? MemoryPromptLang.zh
+            : MemoryPromptLang.en;
+    }
+  }
+  String _memoryGatePromptZh = MemoryPrompts.gateZh;
+  String _memoryGatePromptEn = MemoryPrompts.gateEn;
+  String _memoryExtractPromptZh = MemoryPrompts.extractZh;
+  String _memoryExtractPromptEn = MemoryPrompts.extractEn;
+  String _memorySmartAddPromptZh = MemoryPrompts.smartAddZh;
+  String _memorySmartAddPromptEn = MemoryPrompts.smartAddEn;
+  String _memorySmartAddBatchPromptZh = MemoryPrompts.smartAddBatchZh;
+  String _memorySmartAddBatchPromptEn = MemoryPrompts.smartAddBatchEn;
+  String _memoryProfileDistillPromptZh = MemoryPrompts.profileDistillZh;
+  String _memoryProfileDistillPromptEn = MemoryPrompts.profileDistillEn;
+  String get memoryGatePromptZh => _memoryGatePromptZh;
+  String get memoryGatePromptEn => _memoryGatePromptEn;
+  String get memoryExtractPromptZh => _memoryExtractPromptZh;
+  String get memoryExtractPromptEn => _memoryExtractPromptEn;
+  String get memorySmartAddPromptZh => _memorySmartAddPromptZh;
+  String get memorySmartAddPromptEn => _memorySmartAddPromptEn;
+  String get memorySmartAddBatchPromptZh => _memorySmartAddBatchPromptZh;
+  String get memorySmartAddBatchPromptEn => _memorySmartAddBatchPromptEn;
+  String get memoryProfileDistillPromptZh => _memoryProfileDistillPromptZh;
+  String get memoryProfileDistillPromptEn => _memoryProfileDistillPromptEn;
   static const String _providersOrderKey = 'providers_order_v1';
   static const String _providerGroupsKey =
       'provider_groups_v1'; // [{id,name,createdAt}]

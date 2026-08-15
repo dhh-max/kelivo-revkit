@@ -1538,7 +1538,107 @@ class ChatService extends ChangeNotifier {
     notifyListeners();
   }
 }
+  /// Persist the memory-extraction watermark for a conversation.
+  Future<void> setConversationLastMemoryExtractedOrder(
+    String conversationId,
+    int order,
+  ) async {
+    if (_draftConversations.containsKey(conversationId)) {
+      final draft = _draftConversations[conversationId]!;
+      draft.lastMemoryExtractedOrder = order;
+      notifyListeners();
+      return;
+    }
+    final c = _conversationsBox.get(conversationId);
+    if (c == null) return;
+    c.lastMemoryExtractedOrder = order;
+    await c.save();
+    notifyListeners();
+  }
+  /// Local keyword search across conversation messages.
 
+  ///
+  /// Iterates all conversations (optionally scoped to [conversationId], and
+  /// optionally excluding [excludeConversationId]), matches message content
+  /// against every token, and returns up to [limit] matches.
+  Future<List<ConversationSearchMatch>> searchConversationMatches({
+    required List<String> tokens,
+    int limit = 200,
+    bool includeAllRevisions = false,
+    String? conversationId,
+    String? excludeConversationId,
+  }) async {
+    if (!_initialized) await init();
+    final norm = tokens
+        .map((t) => t.trim().toLowerCase())
+        .where((t) => t.isNotEmpty)
+        .toList(growable: false);
+    if (norm.isEmpty) return const <ConversationSearchMatch>[];
+    final results = <ConversationSearchMatch>[];
+
+    final convos = _conversationsBox.values
+        .where((c) {
+          if (conversationId != null && conversationId.isNotEmpty) {
+            return c.id == conversationId;
+          }
+          if (excludeConversationId != null &&
+              excludeConversationId.isNotEmpty) {
+            return c.id != excludeConversationId;
+          }
+          return true;
+        })
+        .toList()
+      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+
+    for (final c in convos) {
+      if (results.length >= limit) break;
+      final messages = getMessages(c.id);
+      for (final m in messages) {
+        final hay = (m.content ?? '').toLowerCase();
+        final matched = norm.every((t) => hay.contains(t));
+        if (!matched) continue;
+        results.add(ConversationSearchMatch(
+          conversationId: c.id,
+          conversationTitle: c.title,
+          updatedAt: m.timestamp ?? c.updatedAt,
+          versionSelections: getVersionSelections(c.id),
+          messageId: m.id,
+          messageContent: m.content,
+          messageRole: m.role,
+          groupId: m.groupId,
+          version: m.version,
+          maxVersion: 1,
+        ));
+        if (results.length >= limit) break;
+      }
+    }
+    return results;
+  }
+}
+class ConversationSearchMatch {
+  const ConversationSearchMatch({
+    required this.conversationId,
+    required this.conversationTitle,
+    required this.updatedAt,
+    required this.versionSelections,
+    required this.messageId,
+    required this.messageContent,
+    required this.messageRole,
+    required this.groupId,
+    required this.version,
+    required this.maxVersion,
+  });
+  final String conversationId;
+  final String conversationTitle;
+  final DateTime updatedAt;
+  final Map<String, int> versionSelections;
+  final String? messageId;
+  final String? messageContent;
+  final String? messageRole;
+  final String? groupId;
+  final int? version;
+  final int? maxVersion;
+}
 class UploadStats {
   final int fileCount;
   final int totalBytes;

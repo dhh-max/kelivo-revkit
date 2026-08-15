@@ -50,6 +50,9 @@ class Conversation extends HiveObject {
   // LLM-generated quick follow-up suggestions for the latest assistant reply.
   @HiveField(12)
   List<String> chatSuggestions;
+  // Memory extraction watermark (-1 = never organized)
+  @HiveField(13)
+  int lastMemoryExtractedOrder;
 
   Conversation({
     String? id,
@@ -65,6 +68,7 @@ class Conversation extends HiveObject {
     this.summary,
     int? lastSummarizedMessageCount,
     List<String>? chatSuggestions,
+    int? lastMemoryExtractedOrder,
   }) : id = id ?? const Uuid().v4(),
        createdAt = createdAt ?? DateTime.now(),
        updatedAt = updatedAt ?? DateTime.now(),
@@ -73,7 +77,8 @@ class Conversation extends HiveObject {
        truncateIndex = truncateIndex ?? -1,
        versionSelections = versionSelections ?? <String, int>{},
        lastSummarizedMessageCount = lastSummarizedMessageCount ?? 0,
-       chatSuggestions = chatSuggestions ?? [];
+       chatSuggestions = chatSuggestions ?? [],
+       lastMemoryExtractedOrder = lastMemoryExtractedOrder ?? -1;
 
   Conversation copyWith({
     String? id,
@@ -89,6 +94,7 @@ class Conversation extends HiveObject {
     String? summary,
     int? lastSummarizedMessageCount,
     List<String>? chatSuggestions,
+    int? lastMemoryExtractedOrder,
     bool clearSummary = false,
   }) {
     return Conversation(
@@ -106,6 +112,8 @@ class Conversation extends HiveObject {
       lastSummarizedMessageCount:
           lastSummarizedMessageCount ?? this.lastSummarizedMessageCount,
       chatSuggestions: chatSuggestions ?? this.chatSuggestions,
+      lastMemoryExtractedOrder:
+          lastMemoryExtractedOrder ?? this.lastMemoryExtractedOrder,
     );
   }
 
@@ -124,6 +132,7 @@ class Conversation extends HiveObject {
       'summary': summary,
       'lastSummarizedMessageCount': lastSummarizedMessageCount,
       'chatSuggestions': chatSuggestions,
+      'lastMemoryExtractedOrder': lastMemoryExtractedOrder,
     };
   }
 
@@ -150,6 +159,8 @@ class Conversation extends HiveObject {
       chatSuggestions:
           (json['chatSuggestions'] as List?)?.cast<String>() ??
           const <String>[],
+      lastMemoryExtractedOrder:
+          json['lastMemoryExtractedOrder'] as int? ?? -1,
     );
   }
 }

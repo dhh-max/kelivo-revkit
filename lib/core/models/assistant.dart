@@ -2,9 +2,11 @@ import 'dart:convert';
 import 'app_control_policy.dart';
 import 'assistant_regex.dart';
 import 'preset_message.dart';
+import 'memory_entry.dart';
 
 class Assistant {
   static const int defaultRecentChatsSummaryMessageCount = 5;
+  static const int defaultMemoryOrganizeEveryNTurns = 1;
   static const int minContextMessageSize = 1;
   static const int maxContextMessageSize = 1024;
   static const List<int> recentChatsSummaryMessageCountOptions = <int>[
@@ -47,6 +49,11 @@ class Assistant {
   final List<Map<String, String>> customBody; // [{key:'foo', value:'{"a":1}'}]
   // Memory features
   final bool enableMemory; // assistant memory feature switch
+  final MemoryWriteScope memoryWriteScope; // tool write-scope policy
+  final bool allowPastConversationRecall; // allow chat_search across past chats
+  final bool autoOrganizeMemory; // background memory organize on turn finalize
+  final int memoryOrganizeEveryNTurns; // organize after N assistant turns
+  final MemorySmartAddMode memorySmartAddMode; // batched or per-item smart add
   final bool enableRecentChatsReference; // include recent chat titles in prompt
   final int
   recentChatsSummaryMessageCount; // refresh summary after N new messages
@@ -82,6 +89,11 @@ class Assistant {
     this.customHeaders = const <Map<String, String>>[],
     this.customBody = const <Map<String, String>>[],
     this.enableMemory = false,
+    this.memoryWriteScope = MemoryWriteScope.alwaysGlobal,
+    this.allowPastConversationRecall = false,
+    this.autoOrganizeMemory = false,
+    this.memoryOrganizeEveryNTurns = defaultMemoryOrganizeEveryNTurns,
+    this.memorySmartAddMode = MemorySmartAddMode.batched,
     this.enableRecentChatsReference = false,
     this.recentChatsSummaryMessageCount = defaultRecentChatsSummaryMessageCount,
     this.presetMessages = const <PresetMessage>[],
@@ -115,6 +127,11 @@ class Assistant {
     List<Map<String, String>>? customHeaders,
     List<Map<String, String>>? customBody,
     bool? enableMemory,
+    MemoryWriteScope? memoryWriteScope,
+    bool? allowPastConversationRecall,
+    bool? autoOrganizeMemory,
+    int? memoryOrganizeEveryNTurns,
+    MemorySmartAddMode? memorySmartAddMode,
     bool? enableRecentChatsReference,
     int? recentChatsSummaryMessageCount,
     List<PresetMessage>? presetMessages,
@@ -158,6 +175,13 @@ class Assistant {
       customHeaders: customHeaders ?? this.customHeaders,
       customBody: customBody ?? this.customBody,
       enableMemory: enableMemory ?? this.enableMemory,
+      memoryWriteScope: memoryWriteScope ?? this.memoryWriteScope,
+      allowPastConversationRecall:
+          allowPastConversationRecall ?? this.allowPastConversationRecall,
+      autoOrganizeMemory: autoOrganizeMemory ?? this.autoOrganizeMemory,
+      memoryOrganizeEveryNTurns:
+          memoryOrganizeEveryNTurns ?? this.memoryOrganizeEveryNTurns,
+      memorySmartAddMode: memorySmartAddMode ?? this.memorySmartAddMode,
       enableRecentChatsReference:
           enableRecentChatsReference ?? this.enableRecentChatsReference,
       recentChatsSummaryMessageCount:
@@ -196,6 +220,11 @@ class Assistant {
     'customHeaders': customHeaders,
     'customBody': customBody,
     'enableMemory': enableMemory,
+    'memoryWriteScope': memoryWriteScopeToString(memoryWriteScope),
+    'allowPastConversationRecall': allowPastConversationRecall,
+    'autoOrganizeMemory': autoOrganizeMemory,
+    'memoryOrganizeEveryNTurns': memoryOrganizeEveryNTurns,
+    'memorySmartAddMode': memorySmartAddModeToString(memorySmartAddMode),
     'enableRecentChatsReference': enableRecentChatsReference,
     'recentChatsSummaryMessageCount': recentChatsSummaryMessageCount,
     'presetMessages': PresetMessage.encodeList(presetMessages),
@@ -266,6 +295,22 @@ class Assistant {
         return const <Map<String, String>>[];
       })(),
       enableMemory: json['enableMemory'] as bool? ?? false,
+      memoryWriteScope: memoryWriteScopeFromString(
+        json['memoryWriteScope'] as String?,
+      ),
+      allowPastConversationRecall:
+          json['allowPastConversationRecall'] as bool? ?? false,
+      autoOrganizeMemory: json['autoOrganizeMemory'] as bool? ?? false,
+      memoryOrganizeEveryNTurns: (() {
+        final raw = (json['memoryOrganizeEveryNTurns'] as num?)?.toInt();
+        if (raw == null || raw < 1) {
+          return defaultMemoryOrganizeEveryNTurns;
+        }
+        return raw;
+      })(),
+      memorySmartAddMode: memorySmartAddModeFromString(
+        json['memorySmartAddMode'] as String?,
+      ),
       enableRecentChatsReference:
           json['enableRecentChatsReference'] as bool? ?? false,
       recentChatsSummaryMessageCount: (() {
@@ -295,6 +340,48 @@ class Assistant {
     );
   }
 
+  static String memorySmartAddModeToString(MemorySmartAddMode mode) {
+    switch (mode) {
+      case MemorySmartAddMode.batched:
+        return 'batched';
+      case MemorySmartAddMode.perItem:
+        return 'perItem';
+    }
+  }
+  static MemorySmartAddMode memorySmartAddModeFromString(String? value) {
+    switch (value) {
+      case 'perItem':
+        return MemorySmartAddMode.perItem;
+      case 'batched':
+      default:
+        return MemorySmartAddMode.batched;
+    }
+  }
+  static String memoryWriteScopeToString(MemoryWriteScope scope) {
+    switch (scope) {
+      case MemoryWriteScope.alwaysGlobal:
+        return 'alwaysGlobal';
+      case MemoryWriteScope.alwaysAssistant:
+        return 'alwaysAssistant';
+      case MemoryWriteScope.toolDefaultGlobal:
+        return 'toolDefaultGlobal';
+      case MemoryWriteScope.toolDefaultAssistant:
+        return 'toolDefaultAssistant';
+    }
+  }
+  static MemoryWriteScope memoryWriteScopeFromString(String? value) {
+    switch (value) {
+      case 'alwaysAssistant':
+        return MemoryWriteScope.alwaysAssistant;
+      case 'toolDefaultGlobal':
+        return MemoryWriteScope.toolDefaultGlobal;
+      case 'toolDefaultAssistant':
+        return MemoryWriteScope.toolDefaultAssistant;
+      case 'alwaysGlobal':
+      default:
+        return MemoryWriteScope.alwaysGlobal;
+    }
+  }
   static String encodeList(List<Assistant> list) =>
       jsonEncode(list.map((e) => e.toJson()).toList());
   static List<Assistant> decodeList(String raw) {
