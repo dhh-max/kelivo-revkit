@@ -4,7 +4,7 @@ build-backend = "setuptools.backends._legacy:_Backend"
 
 [project]
 name = "apk-reverse-engine"
-version = "2.5.0"
+version = "3.1.0"
 description = "全功能 APK 逆向工具集 - 解包/分析/反编译/修补/重打包/签名 一站式工具"
 readme = "README.md"
 requires-python = ">=3.8"
