@@ -13,6 +13,7 @@ import '../services/mcp/kelivo_so/kelivo_so_server.dart';
 import '../services/mcp/kelivo_dex/kelivo_dex_server.dart';
 import '../services/mcp/kelivo_reverse/kelivo_reverse_server.dart';
 import '../services/mcp/kelivo_jadx/kelivo_jadx_server.dart';
+import '../services/mcp/kelivo_memory/kelivo_memory_server.dart';
 import '../services/mcp/stdio_command_resolver.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
@@ -443,7 +444,9 @@ class McpProvider extends ChangeNotifier {
   static const String _builtinReverseId = 'kelivo_reverse';
   static const String _builtinReverseName = '@kelivo/reverse';
   static const String _builtinJadxId = 'kelivo_jadx';
+  static const String _builtinMemoryId = 'kelivo_memory';
   static const String _builtinJadxName = '@kelivo/jadx';
+  static const String _builtinMemoryName = '@kelivo/memory';
   static const Set<String> _builtinFileWriteToolNames = {
     'kelivo_create_directory',
     'kelivo_create_text_file',
@@ -642,6 +645,11 @@ class McpProvider extends ChangeNotifier {
         _builtinServer(_builtinJadxId, _builtinJadxName, enabled: false),
       );
     }
+    if (!_hasBuiltinServer(_builtinMemoryId, _builtinMemoryName)) {
+      next.add(
+        _builtinServer(_builtinMemoryId, _builtinMemoryName, enabled: true),
+      );
+    }
     _servers = next;
   }
 
@@ -675,12 +683,12 @@ class McpProvider extends ChangeNotifier {
   static final Set<String> _builtinServerIds = {
     _builtinFetchId, _builtinFilesId, _builtinGithubId, _builtinImagesId,
     _builtinContextId, _builtinSoId, _builtinDexId, _builtinReverseId,
-    _builtinJadxId,
+    _builtinJadxId, _builtinMemoryId,
   };
   static final Set<String> _builtinServerNames = {
     _builtinFetchName, _builtinFilesName, _builtinGithubName, _builtinImagesName,
     _builtinContextName, _builtinSoName, _builtinDexName, _builtinReverseName,
-    _builtinJadxName,
+    _builtinJadxName, _builtinMemoryName,
   };
 
   bool _isInmemoryBuiltin(McpServerConfig server) {
@@ -721,6 +729,10 @@ class McpProvider extends ChangeNotifier {
   bool _isBuiltinJadxServer(McpServerConfig server) {
     return server.transport == McpTransportType.inmemory &&
         (server.id == _builtinJadxId || server.name == _builtinJadxName);
+  }
+  bool _isBuiltinMemoryServer(McpServerConfig server) {
+    return server.transport == McpTransportType.inmemory &&
+        (server.id == _builtinMemoryId || server.name == _builtinMemoryName);
   }
   bool _isBuiltinGithubServer(McpServerConfig server) {
     return server.transport == McpTransportType.inmemory &&
@@ -773,6 +785,8 @@ class McpProvider extends ChangeNotifier {
         return KelivoReverseMcpServerEngine();
       case _builtinJadxId:
         return KelivoJadxMcpServerEngine();
+      case _builtinMemoryId:
+        return KelivoMemoryMcpServerEngine();
       default:
         return KelivoFetchMcpServerEngine();
     }
@@ -1120,6 +1134,8 @@ class McpProvider extends ChangeNotifier {
               builtinEnabledById[_builtinFetchId] = enabled;
             } else if (id == _builtinJadxId || name == _builtinJadxName) {
               builtinEnabledById[_builtinJadxId] = enabled;
+            } else if (id == _builtinMemoryId || name == _builtinMemoryName) {
+              builtinEnabledById[_builtinMemoryId] = enabled;
             } else {
               legacyBuiltinSeen = true;
               legacyBuiltinEnabled = enabled;
@@ -1272,6 +1288,13 @@ class McpProvider extends ChangeNotifier {
               _builtinJadxName,
               enabled: false,
             ).copyWith(enabled: builtinEnabledById[_builtinJadxId] ?? false),
+          );
+          next.add(
+            _builtinServer(
+              _builtinMemoryId,
+              _builtinMemoryName,
+              enabled: true,
+            ).copyWith(enabled: builtinEnabledById[_builtinMemoryId] ?? true),
           );
         }
       } else if (data is List) {
