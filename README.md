@@ -55,9 +55,10 @@ Create a world book from this setting document and use character and location na
 - `@kelivo/images`: image-oriented helper tools.
 - `@kelivo/github`: GitHub repository, file, issue, PR, release, Actions, secrets, and variables operations.
 - `@kelivo/so`: pure-Dart ELF/.so reverse engineering toolkit (26 tools). No native dependencies required.
-- `@kelivo/dex`: pure-Dart DEX/ODEX bytecode parsing toolkit (10 tools). No native dependencies required.
+- `@kelivo/dex`: pure-Dart DEX/ODEX bytecode parsing and analysis toolkit (39 tools). No native dependencies required.
 - `@kelivo/context`: conversation context management toolkit (6 tools) — stats, summary, search, export, and boundary management.
 - `@kelivo/reverse`: APK-oriented static analysis and triage toolkit (20 tools, incl. signature bypass, APK resign & DEX injection) for Android reverse engineering.
+- `@kelivo/memory`: per-assistant memory persistence toolkit — list/add/update/delete/search/clear/stats of structured memories and preference key-values.
 
 ### SO/ELF Reverse Engineering Tools
 
@@ -81,20 +82,23 @@ Create a world book from this setting document and use character and location na
 
 ### DEX Bytecode Parsing Tools
 
-`@kelivo/dex` provides pure-Dart DEX/ODEX bytecode-level parsing:
+`@kelivo/dex` provides pure-Dart DEX/ODEX bytecode-level parsing and static analysis:
 
 | Category | Tools |
 | --- | --- |
 | Header | `dex_parse_header` |
-| Strings | `dex_list_strings` |
-| Types | `dex_list_types` |
-| Classes | `dex_list_classes` |
-| Methods | `dex_list_methods` |
-| Fields | `dex_list_fields` |
-| Annotations | `dex_list_annotations` (class-level annotation extraction, deobfuscation hints) |
-| Disassembly | `dex_disassemble_method` (per-method Dalvik bytecode disassembly) |
-| Cross-reference | `dex_xref_method` (method-level call graph — find all callers) |
-| String search | `dex_search_strings` (regex/substring search over DEX string pool) |
+| Strings | `dex_list_strings`, `dex_string_pool`, `dex_search_strings` (regex/substring search over string pool) |
+| Types | `dex_list_types`, `dex_type_ref` |
+| Classes | `dex_list_classes`, `dex_inner_class`, `dex_inherit_tree`, `dex_debug_info` |
+| Methods | `dex_list_methods`, `dex_method_signatures`, `dex_disassemble_method` (per-method Dalvik bytecode disassembly) |
+| Fields | `dex_list_fields`, `dex_field_stats` |
+| Annotations | `dex_list_annotations`, `dex_annotation_stats` (annotation extraction and statistics) |
+| Cross-reference | `dex_xref_method` (method-level call graph — find all callers), `dex_call_graph` |
+| Control flow | `dex_ctrl_flow`, `dex_exception_flow`, `dex_access_flow` |
+| Complexity | `dex_complexity` (per-method cyclomatic/size complexity), `dex_reg_pressure`, `dex_insn_stats`, `dex_insn_density`, `dex_class_density` |
+| Security scan | `dex_crypto_scan`, `dex_const_scan`, `dex_serialization_scan`, `dex_reflection_scan`, `dex_obfuscation_scan`, `dex_lib_analysis`, `dex_native_analysis`, `dex_resource_ref`, `dex_access_pattern` |
+| Protocol | `dex_proto_analysis`, `dex_proto_matrix` |
+| Permission | `dex_perm_audit` |
 
 ### Conversation Context Management Tools
 
@@ -108,6 +112,20 @@ Create a world book from this setting document and use character and location na
 | Export | `context_export` |
 | Boundary | `context_set_boundary` |
 | Messages | `context_get_messages` |
+
+### Memory Tools
+
+`@kelivo/memory` provides per-assistant structured memory persistence (built on the `AssistantMemory` system):
+
+| Category | Tools |
+| --- | --- |
+| List | `memory_list` |
+| Add | `memory_add` |
+| Update | `memory_update` |
+| Delete | `memory_delete` |
+| Search | `memory_search` |
+| Clear | `memory_clear` |
+| Stats | `memory_stats` |
 
 ### APK Reverse Engineering Tools
 

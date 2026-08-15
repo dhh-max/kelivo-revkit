@@ -63,9 +63,10 @@ Kelivo RevKit 完整继承 Kelivo Plus 的全部能力（神经权能网关、Sk
 - `@kelivo/images`：图片相关辅助能力。
 - `@kelivo/github`：GitHub 仓库、文件、Issue、PR、Release、Actions、Secrets、Variables 等。
 - `@kelivo/so`：纯 Dart 实现的 ELF/.so 逆向分析工具集（共 26 个工具），无需额外原生依赖。
-- `@kelivo/dex`：纯 Dart 实现的 DEX/ODEX 字节码解析工具集（共 10 个工具），无需额外原生依赖。
+- `@kelivo/dex`：纯 Dart 实现的 DEX/ODEX 字节码解析与静态分析工具集（共 39 个工具），无需额外原生依赖。
 - `@kelivo/context`：对话上下文管理工具集（共 6 个工具），支持上下文统计、摘要、搜索、导出与边界管理。
 - `@kelivo/reverse`：面向 APK 的静态分析、修改与快速排查工具（共 20 个工具，含过签、重打包与 DEX 注入能力）。
+- `@kelivo/memory`：按助手隔离的结构化记忆持久化工具集（共 7 个工具），支持记忆列表、增改删查、清空与统计。
 - `@kelivo/reverse_extensions`：逆向扩展工具集（共 3 个工具），包含 DEX 字符串批量替换、APK 权限批量修改、第三方 SDK 识别。
 
 ### 体验优化
@@ -137,9 +138,11 @@ GitHub 工具从基础/只读能力升级为更完整的仓库自动化能力。
 
 本仓库（`dhh-max/kelivo-revkit`）在 Kelivo Plus 的二次开发基础上，进一步聚焦 **Android 安全与逆向工程** 方向，新增/扩展了以下能力，构成与实际发布版本的差异点。
 
-### 8.1 新增 `@kelivo/dex`（DEX/ODEX 字节码解析）
+### 8.1 新增 `@kelivo/dex`（DEX/ODEX 字节码解析与静态分析）
 
-纯 Dart 实现的字节码级解析服务，无需外部反编译工具，共 10 个工具：
+纯 Dart 实现的字节码级解析与静态分析服务，无需外部反编译工具，共 39 个工具：
+
+**基础解析（10 个）：**
 
 | 工具 | 说明 |
 | --- | --- |
@@ -154,13 +157,61 @@ GitHub 工具从基础/只读能力升级为更完整的仓库自动化能力。
 | `dex_xref_method` | 方法级调用图——查找所有调用者 |
 | `dex_search_strings` | 正则/子串搜索 DEX 字符串池 |
 
+**静态分析扩展（29 个）：**
+
+| 工具 | 说明 |
+| --- | --- |
+| `dex_string_pool` | 字符串池分析 |
+| `dex_type_ref` | 类型引用分析 |
+| `dex_inner_class` | 内部类结构分析 |
+| `dex_inherit_tree` | 继承关系树分析 |
+| `dex_debug_info` | 调试信息分析 |
+| `dex_method_signatures` | 方法签名统计 |
+| `dex_field_stats` | 字段统计 |
+| `dex_annotation_stats` | 注解统计 |
+| `dex_call_graph` | 调用图分析 |
+| `dex_ctrl_flow` | 控制流分析 |
+| `dex_exception_flow` | 异常处理流分析 |
+| `dex_access_flow` | 访问流程分析 |
+| `dex_complexity` | 方法圈复杂度/体积分析 |
+| `dex_reg_pressure` | 寄存器压力分析 |
+| `dex_insn_stats` | 指令统计 |
+| `dex_insn_density` | 指令密度分析 |
+| `dex_class_density` | 类密度分析 |
+| `dex_crypto_scan` | 加密相关代码扫描 |
+| `dex_const_scan` | 常量扫描 |
+| `dex_serialization_scan` | 序列化相关扫描 |
+| `dex_reflection_scan` | 反射调用扫描 |
+| `dex_obfuscation_scan` | 混淆特征扫描 |
+| `dex_lib_analysis` | 库依赖分析 |
+| `dex_native_analysis` | 原生方法分析 |
+| `dex_resource_ref` | 资源引用分析 |
+| `dex_access_pattern` | 访问模式分析 |
+| `dex_proto_analysis` | 方法原型分析 |
+| `dex_proto_matrix` | 原型矩阵分析 |
+| `dex_perm_audit` | 权限使用审计 |
+
 ### 8.2 新增 `@kelivo/context`（对话上下文自我管理）
 
 帮助模型感知并管理自身对话上下文，共 6 个工具：
 
 `context_get_stats`、`context_get_summary`、`context_search`、`context_export`、`context_set_boundary`、`context_get_messages`。
 
-### 8.3 `@kelivo/reverse` 深度扩展（至 20 个工具）
+### 8.3 新增 `@kelivo/memory`（按助手的结构化记忆）
+
+基于内置 `AssistantMemory` 持久化系统，提供按助手隔离的结构化记忆读写能力，共 7 个工具：
+
+| 工具 | 说明 |
+| --- | --- |
+| `memory_list` | 列出当前助手的记忆条目 |
+| `memory_add` | 新增一条记忆 |
+| `memory_update` | 更新已有记忆 |
+| `memory_delete` | 删除记忆 |
+| `memory_search` | 搜索记忆 |
+| `memory_clear` | 清空当前助手的记忆 |
+| `memory_stats` | 记忆统计信息 |
+
+### 8.4 `@kelivo/reverse` 深度扩展（至 20 个工具）
 
 在 Kelivo Plus 版 `reverse` 工具基础上，新增面向深度 APK 分析的能力：
 
