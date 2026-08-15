@@ -29,6 +29,8 @@ import 'core/providers/instruction_injection_provider.dart';
 import 'core/providers/instruction_injection_group_provider.dart';
 import 'core/providers/world_book_provider.dart';
 import 'core/providers/memory_provider.dart';
+import 'core/providers/memory_provider_v2.dart';
+import 'core/services/memory/memory_repository.dart';
 import 'core/providers/custom_prompt_provider.dart';
 import 'core/providers/tool_history_provider.dart';
 import 'core/providers/backup_provider.dart';
@@ -60,8 +62,9 @@ Future<void> main() async {
     () async {
       WidgetsFlutterBinding.ensureInitialized();
       FlutterLogger.installGlobalHandlers();
+      SharedPreferences? prefs;
       try {
-        final prefs = await SharedPreferences.getInstance();
+        prefs = await SharedPreferences.getInstance();
         final enabled = prefs.getBool('flutter_log_enabled_v1') ?? false;
         await FlutterLogger.setEnabled(enabled);
       } catch (_) {}
@@ -85,7 +88,7 @@ Future<void> main() async {
       // Enable edge-to-edge to allow content under system bars (Android)
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
       // Start app (Flutter log capture is toggleable and off by default)
-      runApp(const MyApp());
+      runApp(MyApp(prefs: prefs));
     },
     zoneSpecification: ZoneSpecification(
       print: (self, parent, zone, line) {
@@ -113,7 +116,8 @@ Future<void> _initDesktopWindow() async {
 // Removed eager system font preloading to reduce memory footprint at launch.
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  const MyApp({super.key, this.prefs});
+  final SharedPreferences? prefs;
 
   @override
   Widget build(BuildContext context) {
@@ -148,6 +152,11 @@ class MyApp extends StatelessWidget {
         ),
         ChangeNotifierProvider(create: (_) => WorldBookProvider()),
         ChangeNotifierProvider(create: (_) => MemoryProvider()),
+        ChangeNotifierProvider(
+          create: (_) => MemoryProviderV2(
+            repository: MemoryRepository(prefs!),
+          ),
+        ),
         ChangeNotifierProvider(create: (_) => CustomPromptProvider()),
         ChangeNotifierProvider(create: (_) => ToolHistoryProvider()),
         ChangeNotifierProvider(create: (_) => BackupReminderProvider()),
