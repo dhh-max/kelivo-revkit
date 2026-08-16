@@ -12,6 +12,7 @@ import 'package:path/path.dart' as p;
 import '../services/search/search_service.dart';
 import '../services/tts/network_tts.dart';
 import '../services/memory/memory_prompts.dart';
+import '../services/memory/memory_trace.dart';
 import '../services/tts/tts_text_selection.dart';
 import '../services/network/request_logger.dart';
 import '../services/logging/flutter_logger.dart';
@@ -93,6 +94,12 @@ class SettingsProvider extends ChangeNotifier {
   String get memorySmartAddBatchPromptEn => _memorySmartAddBatchPromptEn;
   String get memoryProfileDistillPromptZh => _memoryProfileDistillPromptZh;
   String get memoryProfileDistillPromptEn => _memoryProfileDistillPromptEn;
+  String _memoryRulesPromptZh = MemoryPrompts.rulesZh;
+  String _memoryRulesPromptEn = MemoryPrompts.rulesEn;
+  String get memoryRulesPromptZh => _memoryRulesPromptZh;
+  String get memoryRulesPromptEn => _memoryRulesPromptEn;
+  bool _memoryTraceEnabled = false;
+  bool get memoryTraceEnabled => _memoryTraceEnabled;
   static const String _providersOrderKey = 'providers_order_v1';
   static const String _providerGroupsKey =
       'provider_groups_v1'; // [{id,name,createdAt}]
@@ -1178,6 +1185,51 @@ class SettingsProvider extends ChangeNotifier {
       await prefs.setString(_appLocaleKey, 'system');
     }
 
+    // Memory system settings
+    _memoryModelProvider = prefs.getString('memory_model_provider');
+    if (_memoryModelProvider != null && _memoryModelProvider!.isEmpty) {
+      _memoryModelProvider = null;
+    }
+    _memoryModelId = prefs.getString('memory_model_id');
+    if (_memoryModelId != null && _memoryModelId!.isEmpty) {
+      _memoryModelId = null;
+    }
+    _memoryModelThinkingEnabled =
+        prefs.getBool('memory_model_thinking_enabled') ?? false;
+    _memoryPromptLang = prefs.getString('memory_prompt_lang') ?? 'auto';
+    _memoryRulesPromptZh =
+        prefs.getString('memory_rules_prompt_zh') ?? MemoryPrompts.rulesZh;
+    _memoryRulesPromptEn =
+        prefs.getString('memory_rules_prompt_en') ?? MemoryPrompts.rulesEn;
+    _memoryGatePromptZh =
+        prefs.getString('memory_gate_prompt_zh') ?? MemoryPrompts.gateZh;
+    _memoryGatePromptEn =
+        prefs.getString('memory_gate_prompt_en') ?? MemoryPrompts.gateEn;
+    _memoryExtractPromptZh =
+        prefs.getString('memory_extract_prompt_zh') ?? MemoryPrompts.extractZh;
+    _memoryExtractPromptEn =
+        prefs.getString('memory_extract_prompt_en') ?? MemoryPrompts.extractEn;
+    _memorySmartAddPromptZh =
+        prefs.getString('memory_smart_add_prompt_zh') ?? MemoryPrompts.smartAddZh;
+    _memorySmartAddPromptEn =
+        prefs.getString('memory_smart_add_prompt_en') ?? MemoryPrompts.smartAddEn;
+    _memorySmartAddBatchPromptZh =
+        prefs.getString('memory_smart_add_batch_prompt_zh') ??
+            MemoryPrompts.smartAddBatchZh;
+    _memorySmartAddBatchPromptEn =
+        prefs.getString('memory_smart_add_batch_prompt_en') ??
+            MemoryPrompts.smartAddBatchEn;
+    _memoryProfileDistillPromptZh =
+        prefs.getString('memory_profile_distill_prompt_zh') ??
+            MemoryPrompts.profileDistillZh;
+    _memoryProfileDistillPromptEn =
+        prefs.getString('memory_profile_distill_prompt_en') ??
+            MemoryPrompts.profileDistillEn;
+    _memoryTraceEnabled =
+        prefs.getBool('memory_trace_enabled') ?? false;
+    if (_memoryTraceEnabled) {
+      MemoryTraceRecorder.instance.setEnabled(true);
+    }
     // Chat real-time notification
     _chatRealtimeNotificationEnabled =
         prefs.getBool(_chatRealtimeNotificationKey) ?? true;
@@ -4412,6 +4464,143 @@ DO NOT GIVE ANSWERS OR DO HOMEWORK FOR THE USER. If the user asks a math or logi
         _mobileAssistantDetailOutlineEnabled;
     return copy;
   }
+  // ─── Memory setters ───────────────────────────────────────────────────
+  Future<void> setMemoryModel(String? providerKey, String? modelId) async {
+    _memoryModelProvider = providerKey;
+    _memoryModelId = modelId;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('memory_model_provider', providerKey ?? '');
+    await prefs.setString('memory_model_id', modelId ?? '');
+  }
+  Future<void> setMemoryModelThinkingEnabled(bool v) async {
+    _memoryModelThinkingEnabled = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('memory_model_thinking_enabled', v);
+  }
+  Future<void> setMemoryPromptLang(String lang) async {
+    _memoryPromptLang = lang;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('memory_prompt_lang', lang);
+  }
+  Future<void> setMemoryRulesPromptZh(String v) async {
+    _memoryRulesPromptZh = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('memory_rules_prompt_zh', v);
+  }
+  Future<void> setMemoryRulesPromptEn(String v) async {
+    _memoryRulesPromptEn = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('memory_rules_prompt_en', v);
+  }
+  Future<void> setMemoryGatePromptZh(String v) async {
+    _memoryGatePromptZh = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('memory_gate_prompt_zh', v);
+  }
+  Future<void> setMemoryGatePromptEn(String v) async {
+    _memoryGatePromptEn = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('memory_gate_prompt_en', v);
+  }
+  Future<void> setMemoryExtractPromptZh(String v) async {
+    _memoryExtractPromptZh = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('memory_extract_prompt_zh', v);
+  }
+  Future<void> setMemoryExtractPromptEn(String v) async {
+    _memoryExtractPromptEn = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('memory_extract_prompt_en', v);
+  }
+  Future<void> setMemorySmartAddPromptZh(String v) async {
+    _memorySmartAddPromptZh = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('memory_smart_add_prompt_zh', v);
+  }
+  Future<void> setMemorySmartAddPromptEn(String v) async {
+    _memorySmartAddPromptEn = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('memory_smart_add_prompt_en', v);
+  }
+  Future<void> setMemorySmartAddBatchPromptZh(String v) async {
+    _memorySmartAddBatchPromptZh = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('memory_smart_add_batch_prompt_zh', v);
+  }
+  Future<void> setMemorySmartAddBatchPromptEn(String v) async {
+    _memorySmartAddBatchPromptEn = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('memory_smart_add_batch_prompt_en', v);
+  }
+  Future<void> setMemoryProfileDistillPromptZh(String v) async {
+    _memoryProfileDistillPromptZh = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('memory_profile_distill_prompt_zh', v);
+  }
+  Future<void> setMemoryProfileDistillPromptEn(String v) async {
+    _memoryProfileDistillPromptEn = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('memory_profile_distill_prompt_en', v);
+  }
+  Future<void> resetMemoryRulesPromptZh() async {
+    await setMemoryRulesPromptZh(MemoryPrompts.rulesZh);
+  }
+  Future<void> resetMemoryRulesPromptEn() async {
+    await setMemoryRulesPromptEn(MemoryPrompts.rulesEn);
+  }
+  Future<void> resetMemoryGatePromptZh() async {
+    await setMemoryGatePromptZh(MemoryPrompts.gateZh);
+  }
+  Future<void> resetMemoryGatePromptEn() async {
+    await setMemoryGatePromptEn(MemoryPrompts.gateEn);
+  }
+  Future<void> resetMemoryExtractPromptZh() async {
+    await setMemoryExtractPromptZh(MemoryPrompts.extractZh);
+  }
+  Future<void> resetMemoryExtractPromptEn() async {
+    await setMemoryExtractPromptEn(MemoryPrompts.extractEn);
+  }
+  Future<void> resetMemorySmartAddPromptZh() async {
+    await setMemorySmartAddPromptZh(MemoryPrompts.smartAddZh);
+  }
+  Future<void> resetMemorySmartAddPromptEn() async {
+    await setMemorySmartAddPromptEn(MemoryPrompts.smartAddEn);
+  }
+  Future<void> resetMemorySmartAddBatchPromptZh() async {
+    await setMemorySmartAddBatchPromptZh(MemoryPrompts.smartAddBatchZh);
+  }
+  Future<void> resetMemorySmartAddBatchPromptEn() async {
+    await setMemorySmartAddBatchPromptEn(MemoryPrompts.smartAddBatchEn);
+  }
+  Future<void> resetMemoryProfileDistillPromptZh() async {
+    await setMemoryProfileDistillPromptZh(MemoryPrompts.profileDistillZh);
+  }
+  Future<void> resetMemoryProfileDistillPromptEn() async {
+    await setMemoryProfileDistillPromptEn(MemoryPrompts.profileDistillEn);
+  }
+  Future<void> setMemoryTraceEnabled(bool v) async {
+    _memoryTraceEnabled = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('memory_trace_enabled', v);
+    MemoryTraceRecorder.instance.setEnabled(v);
+  }
+
 }
 
 String _normalizeProxyHost(String host) {

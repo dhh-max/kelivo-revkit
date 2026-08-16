@@ -154,11 +154,6 @@ class AssistantProvider extends ChangeNotifier {
         name: l10n.assistantProviderSampleAssistantName,
         systemPrompt: l10n.assistantProviderSampleAssistantSystemPrompt(
           '{model_name}',
-          '{cur_datetime}',
-          '"{locale}"',
-          '{timezone}',
-          '{device_info}',
-          '{system_version}',
         ),
         temperature: 0.6,
         topP: null,
