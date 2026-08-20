@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 广告识别分析提示词模板 -->
+    <string name="ad_analysis_template">请分析以下代码片段，判断是否包含广告相关内容，重点关注以下几个方面：
+1. 是否包含广告SDK的接口调用（如AdMob、Unity Ads、腾讯广告等）
+2. 是否有广告加载、展示、点击相关的逻辑代码
+3. 是否有广告初始化或配置相关的代码
+4. 是否包含广告单元ID或广告位标识符
+5. 是否有广告相关的网络请求或数据交换
+
+请提供详细的分析结果，包括：
+- 发现的广告类型和SDK
+- 广告相关的关键代码片段
+- 广告功能的实现方式
+- 潜在的隐私或性能影响
+
+代码片段：
+</string>
+    
+    <!-- 无广告发现时的提示词模板 -->
+    <string name="no_ad_found_template">经过分析，以下代码片段中未发现明显的广告相关内容：
+
+可能的原因：
+1. 代码片段不包含广告相关部分
+2. 广告代码可能在其他文件或模块中
+3. 使用了混淆或加密技术隐藏广告代码
+4. 采用了动态加载或远程配置方式实现广告功能
+
+建议进一步检查：
+1. 完整的项目文件结构
+2. 网络请求相关的代码
+3. 第三方SDK的集成情况
+4. 应用的隐私政策和用户协议
+5. 资源文件和配置文件中的广告相关标识
+6. 动态加载和反射调用相关代码
+
+代码片段：
+</string>
+    
+    <!-- 广告屏蔽建议模板 -->
+    <string name="ad_blocking_suggestions">基于发现的广告内容，以下是一些屏蔽建议：
+
+1. 广告加载屏蔽：
+   - 拦截广告SDK的初始化请求
+   - 屏蔽广告配置文件的下载
+   - 阻止广告服务器的网络连接
+   - 修改广告加载参数返回空结果
+
+2. 广告展示屏蔽：
+   - 隐藏广告视图容器
+   - 修改广告布局参数为0或不可见
+   - 拦截广告渲染过程
+   - 替换广告视图为空白视图
+
+3. 广告点击屏蔽：
+   - 拦截广告点击事件
+   - 重定向广告链接到安全页面
+   - 屏蔽广告跳转逻辑
+   - 修改广告点击回调返回失败
+
+4. 数据收集屏蔽：
+   - 阻止用户数据上报
+   - 修改设备标识符为无效值
+   - 拦截行为追踪代码
+   - 屏蔽地理位置和用户信息收集
+
+5. 高级屏蔽技术：
+   - 使用Xposed框架拦截广告API调用
+   - 修改hosts文件屏蔽广告域名
+   - 使用VPN或代理过滤广告流量
+   - 修改系统权限限制广告SDK访问
+
+注意事项：
+- 屏蔽广告可能影响应用正常功能
+- 某些应用可能检测广告屏蔽行为并限制功能
+- 建议谨慎使用，遵守相关法律法规
+- 某些应用依赖广告收入，屏蔽可能影响开发者收益
+</string>
+    
+    <!-- 特定广告SDK分析模板 -->
+    <string name="google_admob_analysis">Google AdMob 广告分析要点：
+1. 检查AdMob SDK的集成版本和初始化代码
+2. 查找AdView、InterstitialAd、RewardedAd等广告组件
+3. 识别广告单元ID（ca-app-pub-xxxxxxxxxxxxxxxx/yyyyyyyyyy）
+4. 分析广告加载和展示的回调函数
+5. 检查广告事件监听器和用户数据收集代码
+6. 查找AdRequest配置和广告定向设置
+7. 检查MobileAds.initialize()初始化调用
+8. 分析广告加载失败和错误处理逻辑
+9. 查找广告收益统计和上报代码
+</string>
+    
+    <string name="facebook_audience_network_analysis">Facebook Audience Network 广告分析要点：
+1. 检查Facebook SDK的集成和初始化
+2. 查找AdView、InterstitialAd、NativeAd等广告组件
+3. 识别广告位ID和placement ID
+4. 分析广告加载和展示的回调函数
+5. 检查AdSettings配置和广告定向
+6. 查找广告测试模式和调试代码
+7. 分析广告数据收集和用户隐私设置
+8. 检查广告缓存和预加载机制
+</string>
+    
+    <string name="unity_ads_analysis">Unity Ads 广告分析要点：
+1. 检查Unity Ads SDK的初始化和配置
+2. 查找ShowAd、LoadAd等广告调用方法
+3. 识别广告位ID和游戏ID
+4. 分析广告奖励机制和回调处理
+5. 检查与Unity引擎集成的广告组件
+6. 查找广告测试模式和调试开关
+7. 分析广告缓存和预加载策略
+8. 检查广告展示时机和触发条件
+</string>
+    
+    <string name="tencent_ads_analysis">腾讯广告分析要点：
+1. 检查腾讯广告SDK的集成和初始化
+2. 查找TTAd、TTAdNative、TTAdManager等广告组件
+3. 识别广告位ID和AppID
+4. 分析广告加载、展示和点击流程
+5. 检查用户数据上报和个性化设置
+6. 查找广告定向和人群标签设置
+7. 分析广告缓存和预加载机制
+8. 检查广告异常处理和错误回调
+9. 查找广告调试和测试相关代码
+</string>
+    
+    <string name="byte_dance_ads_analysis">字节跳动广告分析要点：
+1. 检查穿山甲SDK的集成和配置
+2. 查找TTAdManager、TTAdNative等广告组件
+3. 识别广告位ID和AppID
+4. 分析广告加载、渲染和交互逻辑
+5. 检查用户画像和数据收集机制
+6. 查找广告定向和兴趣标签设置
+7. 分析广告缓存和预加载策略
+8. 检查广告异常处理和错误回调
+9. 查找广告调试和测试相关代码
+10. 分析广告数据上报和统计逻辑
+</string>
+    
+    <string name="baidu_ads_analysis">百度广告分析要点：
+1. 检查百度移动广告SDK的集成
+2. 查找AdView、InterstitialAd等广告组件
+3. 识别广告位ID和AppID
+4. 分析广告加载和展示的回调函数
+5. 检查广告定向和用户数据收集代码
+6. 查找广告配置和初始化参数
+7. 分析广告缓存和预加载机制
+8. 检查广告异常处理和错误回调
+9. 查找广告调试和测试相关代码
+</string>
+    
+    <!-- 广告识别通用关键词 -->
+    <string name="ad_common_keywords">广告识别通用关键词列表：
+1. 广告SDK相关：AdMob, AdView, Ads, Advertisement, Interstitial, Rewarded, Native
+2. 广告平台相关：Google, Facebook, Unity, Tencent, ByteDance, Baidu, Huawei, Xiaomi
+3. 广告操作相关：Load, Show, Click, Impression, Reward, Close, Skip
+4. 广告标识相关：AdUnit, Placement, Slot, Position, Banner, PopUp, Splash
+5. 广告数据相关：Request, Response, Config, Settings, Mediation, Network
+6. 广告事件相关：Listener, Callback, Handler, Event, State, Status
+7. 广告收益相关：Revenue, Earning, Metric, Report, Analytics
+8. 广告测试相关：Test, Debug, Demo, Sample, Mock, Sandbox
+</string>
+    
+    <!-- 广告混淆代码识别 -->
+    <string name="ad_obfuscated_code_analysis">广告混淆代码识别要点：
+1. 检查类名和方法名是否包含ad、ads、adv等关键词的变体
+2. 查找字符串常量中是否包含广告相关的URL或标识符
+3. 分析网络请求是否访问已知的广告服务器域名
+4. 检查反射调用是否可能用于动态加载广告SDK
+5. 分析代码中是否有动态加载和执行逻辑
+6. 查找资源文件中是否包含广告相关的图片或配置
+7. 检查native代码中是否有广告相关的实现
+8. 分析代码中是否有加密或解密广告数据的逻辑
+</string>
+</resources>
