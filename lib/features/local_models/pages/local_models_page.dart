@@ -127,7 +127,7 @@ class _LocalModelsPageState extends State<LocalModelsPage>
           if (response.statusCode == 200 || response.statusCode == 206) {
             break;
           }
-          httpClient.close();
+          httpClient?.close();
         } catch (e) {
           httpClient?.close();
           continue;
@@ -153,7 +153,7 @@ class _LocalModelsPageState extends State<LocalModelsPage>
       }
       
       await sink.close();
-      httpClient.close();
+      httpClient?.close();
       
       // 校验文件完整性
       final finalFileSize = await file.length();

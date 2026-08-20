@@ -6,6 +6,7 @@ class LocalModel {
   final String description;
   final String source;
   final String downloadUrl;
+  final List<String>? downloadUrls;
   final String? modelScopeId;
   final String fileName;
   final int fileSize;
@@ -21,6 +22,7 @@ class LocalModel {
     this.description = '',
     this.source = 'hf-mirror',
     required this.downloadUrl,
+    this.downloadUrls,
     this.modelScopeId,
     required this.fileName,
     this.fileSize = 0,
@@ -41,6 +43,7 @@ class LocalModel {
     description: description ?? this.description,
     source: source ?? this.source,
     downloadUrl: downloadUrl ?? this.downloadUrl,
+    downloadUrls: downloadUrls ?? this.downloadUrls,
     modelScopeId: modelScopeId ?? this.modelScopeId,
     fileName: fileName ?? this.fileName,
     fileSize: fileSize ?? this.fileSize,

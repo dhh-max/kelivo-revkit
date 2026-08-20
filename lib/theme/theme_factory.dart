@@ -175,27 +175,24 @@ ThemeData buildLightTheme(ColorScheme? dynamicScheme) {
         fontFamilyFallback: fontFallback,
       ),
       elevation: 4,
-      shadowColor: scheme.shadow.withValues(alpha: 0.2),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       actionTextColor: scheme.primary,
       disabledActionTextColor: scheme.onInverseSurface.withValues(alpha: 0.5),
     ),
-    cardTheme: CardTheme(
+    cardTheme: CardThemeData(
       color: scheme.surface.withValues(alpha: 0.96),
       surfaceTintColor: scheme.surfaceTint,
       elevation: 0.5,
-      shadowColor: scheme.shadow.withValues(alpha: 0.1),
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
         side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.12)),
       ),
     ),
-    dialogTheme: DialogTheme(
+    dialogTheme: DialogThemeData(
       backgroundColor: scheme.surface.withValues(alpha: 0.96),
       surfaceTintColor: scheme.surfaceTint,
       elevation: 8,
-      shadowColor: scheme.shadow.withValues(alpha: 0.2),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
         side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.12)),
@@ -205,7 +202,6 @@ ThemeData buildLightTheme(ColorScheme? dynamicScheme) {
       backgroundColor: scheme.surface.withValues(alpha: 0.96),
       surfaceTintColor: scheme.surfaceTint,
       elevation: 12,
-      shadowColor: scheme.shadow.withValues(alpha: 0.2),
       modalBackgroundColor: scheme.surface.withValues(alpha: 0.96),
       modalElevation: 12,
       shape: const RoundedRectangleBorder(
@@ -248,12 +244,12 @@ ThemeData buildLightTheme(ColorScheme? dynamicScheme) {
         borderRadius: BorderRadius.circular(16),
       ),
     ),
-    pageTransitionsTheme: const PageTransitionsTheme(
+    pageTransitionsTheme: PageTransitionsTheme(
       builders: {
-        TargetPlatform.android: CupertinoPageTransitionsBuilder(),
-        TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+        TargetPlatform.android: FadeUpwardsPageTransitionsBuilder(),
+        TargetPlatform.iOS: FadeUpwardsPageTransitionsBuilder(),
         TargetPlatform.windows: FadeUpwardsPageTransitionsBuilder(),
-        TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+        TargetPlatform.macOS: FadeUpwardsPageTransitionsBuilder(),
         TargetPlatform.linux: FadeUpwardsPageTransitionsBuilder(),
       },
     ),
@@ -403,27 +399,24 @@ ThemeData buildDarkTheme(ColorScheme? dynamicScheme) {
         fontFamilyFallback: fontFallback,
       ),
       elevation: 4,
-      shadowColor: scheme.shadow.withValues(alpha: 0.3),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       actionTextColor: scheme.primary,
       disabledActionTextColor: scheme.onInverseSurface.withValues(alpha: 0.6),
     ),
-    cardTheme: CardTheme(
+    cardTheme: CardThemeData(
       color: scheme.surface.withValues(alpha: 0.96),
       surfaceTintColor: scheme.surfaceTint,
       elevation: 0.5,
-      shadowColor: scheme.shadow.withValues(alpha: 0.2),
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
         side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.12)),
       ),
     ),
-    dialogTheme: DialogTheme(
+    dialogTheme: DialogThemeData(
       backgroundColor: scheme.surface.withValues(alpha: 0.96),
       surfaceTintColor: scheme.surfaceTint,
       elevation: 8,
-      shadowColor: scheme.shadow.withValues(alpha: 0.3),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
         side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.12)),
@@ -433,7 +426,6 @@ ThemeData buildDarkTheme(ColorScheme? dynamicScheme) {
       backgroundColor: scheme.surface.withValues(alpha: 0.96),
       surfaceTintColor: scheme.surfaceTint,
       elevation: 12,
-      shadowColor: scheme.shadow.withValues(alpha: 0.3),
       modalBackgroundColor: scheme.surface.withValues(alpha: 0.96),
       modalElevation: 12,
       shape: const RoundedRectangleBorder(
@@ -476,12 +468,12 @@ ThemeData buildDarkTheme(ColorScheme? dynamicScheme) {
         borderRadius: BorderRadius.circular(16),
       ),
     ),
-    pageTransitionsTheme: const PageTransitionsTheme(
+    pageTransitionsTheme: PageTransitionsTheme(
       builders: {
-        TargetPlatform.android: CupertinoPageTransitionsBuilder(),
-        TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+        TargetPlatform.android: FadeUpwardsPageTransitionsBuilder(),
+        TargetPlatform.iOS: FadeUpwardsPageTransitionsBuilder(),
         TargetPlatform.windows: FadeUpwardsPageTransitionsBuilder(),
-        TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+        TargetPlatform.macOS: FadeUpwardsPageTransitionsBuilder(),
         TargetPlatform.linux: FadeUpwardsPageTransitionsBuilder(),
       },
     ),
