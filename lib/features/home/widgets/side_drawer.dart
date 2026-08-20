@@ -2165,6 +2165,27 @@ class _SideDrawerState extends State<SideDrawer> with TickerProviderStateMixin {
                             ),
                           ),
                           const SizedBox(width: 4),
+                          // API中转站按钮（圆形，无水波纹）
+                          SizedBox(
+                            width: 45,
+                            height: 45,
+                            child: Center(
+                              child: IosIconButton(
+                                size: 22,
+                                color: textBase,
+                                icon: Lucide.Server,
+                                padding: const EdgeInsets.all(10),
+                                onTap: () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => const relaygo_home.HomeScreen(),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
                           // 设置按钮（圆形，无水波纹）
                           SizedBox(
                             width: 45,
