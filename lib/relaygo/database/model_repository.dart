@@ -101,6 +101,11 @@ class ModelRepository {
     if (map.isNotEmpty) await _box.putAll(map);
   }
 
+  /// 写入单个模型（覆盖同 id 条目）
+  Future<void> upsert(ModelInfo model) async {
+    await _box.put(model.id, model.toJson());
+  }
+
   /// 切换单个模型的启用状态
   Future<void> setEnabled(String id, bool enabled) async {
     final m = getById(id);

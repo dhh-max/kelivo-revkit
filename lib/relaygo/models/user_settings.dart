@@ -57,6 +57,14 @@ class UserSettings {
   bool autoStartOnBoot; // 开机自启（默认关闭，需用户开启）
   bool ignoreBatteryOptimization; // 请求加入电池优化白名单（默认关闭）
 
+  // —— 管理接口鉴权 ——
+  /// 管理令牌：设置后，/relay/* 管理接口需要携带此令牌才能访问。
+  /// 支持两种传递方式：
+  ///   1. 请求头 `x-relay-admin-token: <token>`
+  ///   2. 标准 `Authorization: Bearer <token>`
+  /// 为空或长度不足时，管理接口无鉴权（向后兼容旧版本）。
+  String? adminToken;
+
   UserSettings({
     this.port = Constants.defaultPort,
     this.host = Constants.defaultHost,
@@ -92,6 +100,7 @@ class UserSettings {
     this.keepAliveEnabled = true,
     this.autoStartOnBoot = false,
     this.ignoreBatteryOptimization = false,
+    this.adminToken,
   });
 
   factory UserSettings.fromJson(Map<String, dynamic> json) {
@@ -151,6 +160,7 @@ class UserSettings {
       autoStartOnBoot: json['auto_start_on_boot'] as bool? ?? false,
       ignoreBatteryOptimization:
           json['ignore_battery_optimization'] as bool? ?? false,
+      adminToken: json['admin_token'] as String?,
     );
   }
 
@@ -190,8 +200,12 @@ class UserSettings {
       'keep_alive_enabled': keepAliveEnabled,
       'auto_start_on_boot': autoStartOnBoot,
       'ignore_battery_optimization': ignoreBatteryOptimization,
+      'admin_token': adminToken,
     };
   }
+
+  /// Alias for [toJson], used by the admin settings API endpoint.
+  Map<String, dynamic> toMap() => toJson();
 
   UserSettings copyWith({
     int? port,
@@ -228,6 +242,7 @@ class UserSettings {
     bool? keepAliveEnabled,
     bool? autoStartOnBoot,
     bool? ignoreBatteryOptimization,
+    String? adminToken,
   }) {
     return UserSettings(
       port: port ?? this.port,
@@ -271,6 +286,7 @@ class UserSettings {
       autoStartOnBoot: autoStartOnBoot ?? this.autoStartOnBoot,
       ignoreBatteryOptimization:
           ignoreBatteryOptimization ?? this.ignoreBatteryOptimization,
+      adminToken: adminToken ?? this.adminToken,
     );
   }
 }

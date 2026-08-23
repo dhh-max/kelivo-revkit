@@ -953,6 +953,27 @@ class ProxyServer {
   Future<void> _serveAdmin(HttpRequest request, String path) async {
     request.response.headers.contentType = ContentType.json;
 
+    // —— 管理接口鉴权 ——
+    // 若已设置管理令牌，校验请求头中的令牌是否匹配。
+    // 支持两种传递方式：x-relay-admin-token 或 Authorization: Bearer
+    final token = settings.adminToken;
+    if (token != null && token.length >= Constants.adminTokenMinLength) {
+      final headerToken =
+          request.headers.value(Constants.adminTokenHeader);
+      String? bearerToken;
+      final authHeader = request.headers.value('authorization');
+      if (authHeader != null &&
+          authHeader.toLowerCase().startsWith('bearer ')) {
+        bearerToken = authHeader.substring(7);
+      }
+      final provided = headerToken ?? bearerToken;
+      if (provided == null || provided != token) {
+        await _respondError(
+            request, 401, '管理接口需要鉴权，请提供有效的管理令牌');
+        return;
+      }
+    }
+
     switch (path) {
       // — 当前版本信息 —
       case Constants.versionPath:
@@ -993,6 +1014,207 @@ class ProxyServer {
           return;
         }
         await _jsonResponse(request, 200, cache.stats.toJson());
+        return;
+
+      // — Key 管理（GET 列表 / POST 添加 / DELETE 删除 / PATCH 启停）—
+      case Constants.keysPath:
+        if (request.method == 'GET') {
+          final keys = keyManager.getAll();
+          await _jsonResponse(request, 200, {
+            'keys': keys.map((k) => {
+              'id': k.id,
+              'name': k.name,
+              'provider': k.provider,
+              'status': k.status.name,
+              'masked_key': k.maskedKey,
+              'group': k.group ?? '',
+              'failure_count': k.failureCount,
+              'cooldown_until': k.cooldownUntil,
+              'daily_quota': k.dailyQuota,
+              'used_today': k.usedToday,
+              'created_at': k.createdAt,
+            }).toList(),
+            'total': keys.length,
+            'active': keys.where((k) => k.status == KeyStatus.active).length,
+          });
+          return;
+        }
+        if (request.method == 'POST') {
+          final body = await _readBody(request);
+          final obj = jsonDecode(utf8.decode(body)) as Map<String, dynamic>;
+          final key = await keyManager.createKey(
+            provider: obj['provider'] as String,
+            plainKey: obj['api_key'] as String,
+            name: obj['name'] as String? ?? '',
+          );
+          await _jsonResponse(request, 201, {'id': key.id, 'name': key.name});
+          return;
+        }
+        if (request.method == 'DELETE') {
+          final id = request.uri.queryParameters['id'];
+          if (id == null || id.isEmpty) {
+            await _respondError(request, 400, '缺少 id 参数');
+            return;
+          }
+          await keyManager.deleteKey(id);
+          await _jsonResponse(request, 200, {'deleted': true, 'id': id});
+          return;
+        }
+        if (request.method == 'PATCH') {
+          final id = request.uri.queryParameters['id'];
+          if (id == null || id.isEmpty) {
+            await _respondError(request, 400, '缺少 id 参数');
+            return;
+          }
+          final body = await _readBody(request);
+          final obj = jsonDecode(utf8.decode(body)) as Map<String, dynamic>;
+          final key = keyManager.getById(id);
+          if (key == null) {
+            await _respondError(request, 404, 'Key 不存在');
+            return;
+          }
+          if (obj['enabled'] == true) {
+            key.status = KeyStatus.active;
+          } else if (obj['enabled'] == false) {
+            key.status = KeyStatus.inactive;
+          }
+          if (obj['group'] != null) {
+            key.group = obj['group'] as String;
+          }
+          await keyManager.updateKey(key);
+          await _jsonResponse(request, 200, {'id': id, 'status': key.status.name});
+          return;
+        }
+        await _respondError(request, 405, '该接口支持 GET / POST / DELETE / PATCH');
+        return;
+
+      // — 设置管理（GET 读取 / PUT 更新）—
+      case Constants.settingsPath:
+        if (request.method == 'GET') {
+          await _jsonResponse(request, 200, settings.toMap());
+          return;
+        }
+        if (request.method == 'PUT') {
+          final body = await _readBody(request);
+          final obj = jsonDecode(utf8.decode(body)) as Map<String, dynamic>;
+          final newSettings = settings.copyWith(
+            port: obj['port'] != null ? obj['port'] as int : null,
+            host: obj['host'] as String?,
+            loadBalanceStrategy: obj['load_balance_strategy'] as String?,
+            language: obj['language'] as String?,
+            appLockEnabled: obj['app_lock_enabled'] as bool?,
+            logRetentionDays: obj['log_retention_days'] != null ? obj['log_retention_days'] as int : null,
+            maxLogEntries: obj['max_log_entries'] != null ? obj['max_log_entries'] as int : null,
+            upstreamTimeoutSeconds: obj['upstream_timeout_seconds'] != null ? obj['upstream_timeout_seconds'] as int : null,
+            cacheEnabled: obj['cache_enabled'] as bool?,
+            cacheTtlSeconds: obj['cache_ttl_seconds'] != null ? obj['cache_ttl_seconds'] as int : null,
+            cacheMaxEntries: obj['cache_max_entries'] != null ? obj['cache_max_entries'] as int : null,
+            rateLimitEnabled: obj['rate_limit_enabled'] as bool?,
+            rulesEnabled: obj['rules_enabled'] as bool?,
+            adminToken: obj['admin_token'] as String?,
+            keepAliveEnabled: obj['keep_alive_enabled'] as bool?,
+            autoStartOnBoot: obj['auto_start_on_boot'] as bool?,
+            ignoreBatteryOptimization: obj['ignore_battery_optimization'] as bool?,
+          );
+          await _jsonResponse(request, 200, newSettings.toMap());
+          return;
+        }
+        await _respondError(request, 405, '该接口支持 GET / PUT');
+        return;
+
+      // — 路由规则管理（GET 列表 / POST 添加 / DELETE 删除）—
+      case Constants.rulesPath:
+        if (request.method == 'GET') {
+          await _jsonResponse(request, 200, {
+            'rules': ruleEngine.rules.map((r) => r.toJson()).toList(),
+            'enabled': settings.rulesEnabled,
+          });
+          return;
+        }
+        if (request.method == 'POST') {
+          final body = await _readBody(request);
+          final obj = jsonDecode(utf8.decode(body)) as Map<String, dynamic>;
+          await ruleEngine.addRuleFromJson(obj);
+          await _jsonResponse(request, 201, {'created': true});
+          return;
+        }
+        if (request.method == 'DELETE') {
+          final id = request.uri.queryParameters['id'];
+          if (id == null || id.isEmpty) {
+            await _respondError(request, 400, '缺少 id 参数');
+            return;
+          }
+          await ruleEngine.deleteRule(id);
+          await _jsonResponse(request, 200, {'deleted': true, 'id': id});
+          return;
+        }
+        await _respondError(request, 405, '该接口支持 GET / POST / DELETE');
+        return;
+
+      // — 最近日志（GET，支持 ?limit=N）—
+      case Constants.logsPath:
+        if (request.method != 'GET') {
+          await _respondError(request, 405, '该接口仅支持 GET');
+          return;
+        }
+        final logLimit = int.tryParse(
+                request.uri.queryParameters['limit'] ?? '100') ??
+            100;
+        final logs = logService.recent
+            .toList()
+            .reversed
+            .take(logLimit)
+            .map((l) => l.toJson())
+            .toList();
+        await _jsonResponse(request, 200, {'logs': logs, 'count': logs.length});
+        return;
+
+      // — 最近告警（GET，支持 ?limit=N）—
+      case Constants.alertsPath:
+        if (request.method != 'GET') {
+          await _respondError(request, 405, '该接口仅支持 GET');
+          return;
+        }
+        final alertLimit = int.tryParse(
+                request.uri.queryParameters['limit'] ?? '50') ??
+            50;
+        // 告警存储在 Hive 盒中，通过 AppState 暴露；此处返回空列表作为占位
+        await _jsonResponse(request, 200, {'alerts': [], 'count': 0});
+        return;
+
+      // — 触发模型列表同步（POST）—
+      case Constants.modelsSyncPath:
+        if (request.method != 'POST') {
+          await _respondError(request, 405, '该接口仅支持 POST');
+          return;
+        }
+        // 惰性同步：遍历所有提供商，拉取最新模型列表
+        final syncResults = <Map<String, dynamic>>[];
+        final allProviderNames = keyManager.getAll()
+            .map((k) => k.provider)
+            .toSet()
+            .toList();
+        for (final providerName in allProviderNames) {
+          try {
+            final provider = providerForName(providerName);
+            if (provider == null) continue;
+            final keys = keyManager.getByProvider(providerName)
+                .where((k) => k.status == KeyStatus.active)
+                .toList();
+            if (keys.isEmpty) {
+              syncResults.add({'provider': providerName, 'error': '无可用 key'});
+              continue;
+            }
+            final models = await provider.fetchModels(keys.first);
+            for (final m in models) {
+              await modelRepository.upsert(m);
+            }
+            syncResults.add({'provider': providerName, 'count': models.length});
+          } catch (e) {
+            syncResults.add({'provider': providerName, 'error': e.toString()});
+          }
+        }
+        await _jsonResponse(request, 200, {'synced': true, 'results': syncResults});
         return;
 
       // — 实时状态（默认）—

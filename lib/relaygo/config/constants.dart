@@ -63,6 +63,12 @@ class Constants {
   static const String updateCheckPath = '/relay/update/check'; // 触发在线更新检查
   static const String reportPath = '/relay/report'; // 统计报表（JSON）
   static const String cacheStatsPath = '/relay/cache'; // 缓存统计（DELETE 可清空）
+  static const String keysPath = '/relay/keys'; // Key 管理（GET 列表 / POST 添加 / DELETE 删除 / PATCH 启停）
+  static const String settingsPath = '/relay/settings'; // 设置管理（GET 读取 / PUT 更新）
+  static const String rulesPath = '/relay/rules'; // 路由规则管理（GET 列表 / POST 添加 / DELETE 删除）
+  static const String logsPath = '/relay/logs'; // 最近日志（GET，支持 ?limit=N）
+  static const String alertsPath = '/relay/alerts'; // 最近告警（GET，支持 ?limit=N）
+  static const String modelsSyncPath = '/relay/models/sync'; // 触发模型列表同步（POST）
 
   /// 中转站管理接口集合（这些路径不转发到上游）
   static const List<String> adminPaths = [
@@ -71,7 +77,19 @@ class Constants {
     updateCheckPath,
     reportPath,
     cacheStatsPath,
+    keysPath,
+    settingsPath,
+    rulesPath,
+    logsPath,
+    alertsPath,
+    modelsSyncPath,
   ];
+
+  // —— 管理接口鉴权 ——
+  /// 管理令牌的请求头名（与 Authorization: Bearerxxx 并行支持）
+  static const String adminTokenHeader = 'x-relay-admin-token';
+  /// 管理令牌的最小长度（低于此长度视为未设置）
+  static const int adminTokenMinLength = 8;
 
   // 模型列表同步（REQ-003）
   static const String modelsPath = '/v1/models'; // 代理层对外暴露的聚合模型列表（AI 应用查询用）

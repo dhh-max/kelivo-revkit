@@ -73,6 +73,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late bool _autoStartOnBoot;
   late bool _ignoreBatteryOptimization;
 
+  // —— 管理接口鉴权 ——
+  late String _adminToken;
+  final _adminTokenCtrl = TextEditingController();
+
   final _portCtrl = TextEditingController();
   final _logRetentionCtrl = TextEditingController();
   final _maxLogCtrl = TextEditingController();
@@ -118,9 +122,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _keepAliveEnabled = s.keepAliveEnabled;
     _autoStartOnBoot = s.autoStartOnBoot;
     _ignoreBatteryOptimization = s.ignoreBatteryOptimization;
+    _adminToken = s.adminToken ?? '';
     _githubRepo = s.updateGithubRepo;
 
     _portCtrl.text = '$_port';
+    _adminTokenCtrl.text = _adminToken;
     _githubCtrl.text = _githubRepo;
     _logRetentionCtrl.text = '$_logRetentionDays';
     _maxLogCtrl.text = '$_maxLogEntries';
@@ -148,6 +154,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _globalRpmCtrl.dispose();
     _tokenRpmCtrl.dispose();
     _burstCtrl.dispose();
+    _adminTokenCtrl.dispose();
     super.dispose();
   }
 
@@ -190,6 +197,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       keepAliveEnabled: _keepAliveEnabled,
       autoStartOnBoot: _autoStartOnBoot,
       ignoreBatteryOptimization: _ignoreBatteryOptimization,
+      adminToken: _adminTokenCtrl.text.trim().isEmpty
+          ? null
+          : _adminTokenCtrl.text.trim(),
     );
     await app.saveSettings(newSettings);
     // 开启「忽略电池优化」时，请求系统授权（弹出系统对话框）
@@ -473,6 +483,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
               subtitle: L10n.tr('（生物识别 / PIN）'),
               trailing:
                   _switch(_appLock, (v) => setState(() => _appLock = v)),
+            ),
+            _row(
+              title: t.t('管理令牌'),
+              subtitle: _adminToken.isEmpty
+                  ? L10n.tr('未设置，管理接口无鉴权')
+                  : '••••••••••••',
+              trailing: TextButton(
+                style: TextButton.styleFrom(
+                  minimumSize: const Size(0, 32),
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  textStyle: const TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w600),
+                ),
+                onPressed: () => _editAdminToken(context),
+                child: Text(L10n.tr('设置')),
+              ),
             ),
           ]),
           _section(t.t('关于')),
@@ -769,6 +795,47 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // 方案一：进入「关于与更新」页进行手动检查 / 下载 / 安装
     Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (_) => const UpdateScreen()),
+    );
+  }
+
+  void _editAdminToken(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(L10n.tr('管理令牌')),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _adminTokenCtrl,
+              autofocus: true,
+              obscureText: true,
+              decoration: InputDecoration(
+                labelText: L10n.tr('管理令牌'),
+                hintText: L10n.tr('至少 8 个字符'),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              L10n.tr('设置后，访问管理接口需在请求头中携带此令牌。留空则移除鉴权。'),
+              style: const TextStyle(fontSize: 12, color: AppTheme.text2),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: Text(L10n.tr('取消'))),
+          TextButton(
+            onPressed: () {
+              setState(() {
+                _adminToken = _adminTokenCtrl.text.trim();
+              });
+              Navigator.pop(ctx);
+            },
+            child: Text(L10n.tr('确定')),
+          ),
+        ],
+      ),
     );
   }
 

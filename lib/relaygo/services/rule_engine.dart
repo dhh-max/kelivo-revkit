@@ -26,6 +26,21 @@ class RuleEngine {
   /// 规则变更后由调用方刷新（代理服务器持有同一实例）
   setRules(List<RoutingRule> value) => rules = value;
 
+  /// 从 JSON 添加一条规则
+  Future<void> addRuleFromJson(Map<String, dynamic> json) async {
+    final ruleJson = Map<String, dynamic>.from(json);
+    if (!ruleJson.containsKey('id') || (ruleJson['id'] as String?)?.isEmpty == true) {
+      ruleJson['id'] = 'rule_${DateTime.now().millisecondsSinceEpoch}';
+    }
+    final rule = RoutingRule.fromJson(ruleJson);
+    rules.add(rule);
+  }
+
+  /// 删除指定 id 的规则
+  Future<void> deleteRule(String id) async {
+    rules.removeWhere((r) => r.id == id);
+  }
+
   /// 从 ProxyRequest 构建求值上下文（供表达式中的 request.* 访问）
   static Map<String, dynamic> buildContext(ProxyRequest request) {
     final now = DateTime.now();
