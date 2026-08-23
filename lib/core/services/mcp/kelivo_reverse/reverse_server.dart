@@ -272,6 +272,156 @@ class KelivoReverseMcpServerEngine implements KelivoInMemoryMcpServerEngine {
             case 'reverse_popup_remove':
               return _ok(id, result: await KelivoReverseAnalyzer.popupRemove(payload, arguments));
 
+            // ---- APK file-level operations (移植自 apk_reverse_engine/core/apk_file_ops.py) ----
+            case 'reverse_apk_file_list':
+              return _ok(id, result: await _ApkFileOps.listFiles(payload!.apkBytes, pattern: arguments['pattern'] as String?) != null
+                  ? {'files': _ApkFileOps.listFiles(payload.apkBytes, pattern: arguments['pattern'] as String?)}
+                  : {'error': 'No APK data'});
+            case 'reverse_apk_file_delete':
+              return _ok(id, result: await _ApkFileOps.deleteFiles(payload!.apkBytes, (arguments['files'] as String).split(','), arguments['output'] as String));
+            case 'reverse_apk_file_delete_pattern':
+              return _ok(id, result: await _ApkFileOps.deleteFilesByPattern(payload!.apkBytes, arguments['pattern'] as String, arguments['output'] as String));
+            case 'reverse_apk_file_update':
+              return _ok(id, result: await _ApkFileOps.updateFile(payload!.apkBytes, arguments['file'] as String, Uint8List.fromList((arguments['data'] as String).codeUnits), arguments['output'] as String));
+            case 'reverse_apk_file_add':
+              return _ok(id, result: await _ApkFileOps.addFile(payload!.apkBytes, arguments['file'] as String, Uint8List.fromList((arguments['data'] as String).codeUnits), arguments['output'] as String));
+            case 'reverse_apk_file_extract':
+              return _ok(id, result: await _ApkFileOps.extractFile(payload!.apkBytes, arguments['file'] as String, arguments['output'] as String));
+            case 'reverse_apk_file_extract_all':
+              return _ok(id, result: await _ApkFileOps.extractAll(payload!.apkBytes, arguments['output_dir'] as String, pattern: arguments['pattern'] as String?));
+
+            // ---- AXML binary tag operations (移植自 manifest_ops.py) ----
+            case 'reverse_axml_find_tags':
+              return _ok(id, result: {'tags': _ManifestOps.findTags(payload!.axmlBytes, tagName: arguments['tag'] as String?, attrName: arguments['attr'] as String?, attrValue: arguments['value'] as String?)});
+            case 'reverse_axml_remove_tag':
+              return _ok(id, result: {'result': 'removed', 'output': (await File(arguments['output'] as String).writeAsBytes(_ManifestOps.removeTags(payload!.axmlBytes, arguments['tag'] as String, arguments['attr'] as String, arguments['value'] as String))).path});
+            case 'reverse_axml_replace_attr':
+              return _ok(id, result: {'result': 'replaced', 'output': (await File(arguments['output'] as String).writeAsBytes(_ManifestOps.replaceAttrValue(payload!.axmlBytes, arguments['tag'] as String, arguments['attr'] as String, arguments['old'] as String, arguments['new'] as String))).path});
+            case 'reverse_axml_remove_component':
+              return _ok(id, result: {'result': 'removed', 'output': (await File(arguments['output'] as String).writeAsBytes(_ManifestOps.removeComponent(payload!.axmlBytes, arguments['type'] as String, arguments['class'] as String))).path});
+            case 'reverse_axml_replace_launcher':
+              return _ok(id, result: {'result': 'replaced', 'output': (await File(arguments['output'] as String).writeAsBytes(_ManifestOps.replaceLauncherActivity(payload!.axmlBytes, arguments['old'] as String, arguments['new'] as String))).path});
+
+            // ---- resources.arsc parser (移植自 resource_parser.py) ----
+            case 'reverse_arsc_parse':
+              final arscParser = _ArscParser(payload!.arscBytes);
+              return _ok(id, result: arscParser.parse());
+            case 'reverse_arsc_packages':
+              final arscParser = _ArscParser(payload!.arscBytes);
+              arscParser.parse();
+              return _ok(id, result: {'packages': arscParser.getPackageNames()});
+            case 'reverse_arsc_resources':
+              final arscParser = _ArscParser(payload!.arscBytes);
+              arscParser.parse();
+              final res = arscParser.getResources();
+              return _ok(id, result: {'count': res.length, 'resources': res.take(500).toList()});
+            case 'reverse_arsc_find':
+              final arscParser = _ArscParser(payload!.arscBytes);
+              arscParser.parse();
+              final resId = int.parse(arguments['res_id'] as String, radix: 16);
+              return _ok(id, result: arscParser.findResource(resId) ?? {'error': 'not found'});
+
+            // ---- Workspace management (移植自 workspace/manager.py) ----
+            case 'reverse_workspace_create':
+              return _ok(id, result: await _Workspace.create(arguments['name'] as String, description: arguments['description'] as String? ?? '', apkPath: arguments['apk_path'] as String?));
+            case 'reverse_workspace_list':
+              return _ok(id, result: {'workspaces': await _Workspace.list()});
+            case 'reverse_workspace_open':
+              return _ok(id, result: await _Workspace.open(arguments['name'] as String) ?? {'error': 'not found'});
+            case 'reverse_workspace_delete':
+              return _ok(id, result: {'deleted': await _Workspace.delete(arguments['name'] as String)});
+            case 'reverse_workspace_info':
+              return _ok(id, result: await _Workspace.info(arguments['name'] as String));
+            case 'reverse_workspace_save_result':
+              return _ok(id, result: {'path': await _Workspace.saveResult(arguments['name'] as String, arguments['key'] as String, arguments['data'] as Map<String, dynamic>)});
+            case 'reverse_workspace_load_result':
+              return _ok(id, result: await _Workspace.loadResult(arguments['name'] as String, arguments['key'] as String) ?? {'error': 'not found'});
+
+            // ---- ADB device operations (移植自 device/adb.py) ----
+            case 'reverse_adb_devices':
+              final adb = _Adb(arguments['device_id'] as String?);
+              return _ok(id, result: {'devices': await adb.devices()});
+            case 'reverse_adb_info':
+              final adb = _Adb(arguments['device_id'] as String?);
+              return _ok(id, result: await adb.info());
+            case 'reverse_adb_install':
+              final adb = _Adb(arguments['device_id'] as String?);
+              return _ok(id, result: {'result': await adb.install(arguments['apk_path'] as String, reinstall: arguments['reinstall'] as bool? ?? false)});
+            case 'reverse_adb_uninstall':
+              final adb = _Adb(arguments['device_id'] as String?);
+              return _ok(id, result: {'result': await adb.uninstall(arguments['package'] as String)});
+            case 'reverse_adb_launch':
+              final adb = _Adb(arguments['device_id'] as String?);
+              return _ok(id, result: {'result': await adb.launch(arguments['package'] as String, activity: arguments['activity'] as String?)});
+            case 'reverse_adb_force_stop':
+              final adb = _Adb(arguments['device_id'] as String?);
+              return _ok(id, result: {'result': await adb.forceStop(arguments['package'] as String)});
+            case 'reverse_adb_pull':
+              final adb = _Adb(arguments['device_id'] as String?);
+              return _ok(id, result: {'result': await adb.pull(arguments['remote'] as String, arguments['local'] as String)});
+            case 'reverse_adb_push':
+              final adb = _Adb(arguments['device_id'] as String?);
+              return _ok(id, result: {'result': await adb.push(arguments['local'] as String, arguments['remote'] as String)});
+            case 'reverse_adb_screenshot':
+              final adb = _Adb(arguments['device_id'] as String?);
+              return _ok(id, result: {'path': await adb.screenshot(arguments['output'] as String)});
+            case 'reverse_adb_logcat':
+              final adb = _Adb(arguments['device_id'] as String?);
+              return _ok(id, result: {'log': await adb.logcat(filterSpec: arguments['filter'] as String?, lines: arguments['lines'] as int? ?? 50)});
+            case 'reverse_adb_list_packages':
+              final adb = _Adb(arguments['device_id'] as String?);
+              return _ok(id, result: {'packages': await adb.listPackages(filter: arguments['filter'] as String?)});
+
+            // ---- Native SO advanced patching (移植自 patching/native_patcher.py) ----
+            case 'reverse_native_detect_arch':
+              return _ok(id, result: {'arch': _NativePatcher.detectArch(payload!.soBytes, arguments['offset'] as int? ?? 0)});
+            case 'reverse_native_patch_hex':
+              return _ok(id, result: {'result': _NativePatcher.patchHex(payload!.soBytes, arguments['old'] as String, arguments['new'] as String)});
+            case 'reverse_native_patch_hex_at':
+              return _ok(id, result: {'result': _NativePatcher.patchHexAt(payload!.soBytes, arguments['offset'] as int, arguments['hex'] as String)});
+            case 'reverse_native_patch_string':
+              return _ok(id, result: {'result': _NativePatcher.patchString(payload!.soBytes, arguments['old'] as String, arguments['new'] as String, maxReplace: arguments['max_replace'] as int? ?? 1)});
+            case 'reverse_native_nop_out':
+              return _ok(id, result: {'result': _NativePatcher.nopOut(payload!.soBytes, arguments['offset'] as int, arguments['count'] as int, arch: arguments['arch'] as String? ?? 'aarch64')});
+            case 'reverse_native_branch_to_ret':
+              return _ok(id, result: {'result': _NativePatcher.patchBranchToRet(payload!.soBytes, arguments['offset'] as int, arch: arguments['arch'] as String? ?? 'aarch64')});
+            case 'reverse_native_branch_to_mov':
+              return _ok(id, result: {'result': _NativePatcher.patchBranchToMovR0(payload!.soBytes, arguments['offset'] as int, arguments['value'] as int? ?? 0, arch: arguments['arch'] as String? ?? 'aarch64')});
+            case 'reverse_native_patch_jni':
+              return _ok(id, result: {'result': _NativePatcher.patchJniFunction(payload!.soBytes, arguments['old'] as String, arguments['new'] as String)});
+            case 'reverse_native_patch_elf_entry':
+              return _ok(id, result: {'result': _NativePatcher.patchElfEntrypoint(payload!.soBytes, arguments['entry'] as int)});
+            case 'reverse_native_patch_branch':
+              return _ok(id, result: {'result': _NativePatcher.patchArmBranch(payload!.soBytes, arguments['offset'] as int, arguments['target'] as int, bl: arguments['bl'] as bool? ?? false, arch: arguments['arch'] as String? ?? 'aarch64')});
+            case 'reverse_native_find_pattern':
+              return _ok(id, result: {'offsets': _NativePatcher.findPattern(payload!.soBytes, arguments['hex'] as String)});
+            case 'reverse_native_find_string':
+              return _ok(id, result: {'offsets': _NativePatcher.findStringOffsets(payload!.soBytes, arguments['string'] as String)});
+
+            // ---- Smali advanced patching (移植自 patching/smali_patcher.py) ----
+            case 'reverse_smali_insert_method':
+              return _ok(id, result: {'result': _SmaliPatcher.insertMethod(arguments['smali'] as String, arguments['method'] as String, beforeLine: arguments['before'] as String?)});
+            case 'reverse_smali_remove_method':
+              return _ok(id, result: {'result': _SmaliPatcher.removeMethod(arguments['smali'] as String, arguments['name'] as String)});
+            case 'reverse_smali_add_log':
+              return _ok(id, result: {'result': _SmaliPatcher.addLogInject(arguments['smali'] as String, arguments['name'] as String, tag: arguments['tag'] as String? ?? 'DEBUG', msg: arguments['msg'] as String? ?? 'injected')});
+            case 'reverse_smali_add_return':
+              return _ok(id, result: {'result': _SmaliPatcher.addReturnInject(arguments['smali'] as String, arguments['name'] as String, returnValue: arguments['value'] as String? ?? '0')});
+            case 'reverse_smali_bypass_sig':
+              return _ok(id, result: {'result': _SmaliPatcher.bypassSignatureCheck(arguments['smali'] as String)});
+            case 'reverse_smali_nop_method':
+              return _ok(id, result: {'result': _SmaliPatcher.nopOutMethod(arguments['smali'] as String, arguments['name'] as String)});
+            case 'reverse_smali_replace_const':
+              return _ok(id, result: {'result': _SmaliPatcher.replaceConstValue(arguments['smali'] as String, arguments['old'] as String, arguments['new'] as String)});
+            case 'reverse_smali_nop_invoke':
+              return _ok(id, result: {'result': _SmaliPatcher.nopOutInvoke(arguments['smali'] as String, targetClass: arguments['class'] as String?, targetMethod: arguments['method'] as String?)});
+            case 'reverse_smali_gen_stub':
+              return _ok(id, result: {'result': _SmaliPatcher.generateMethodStub(arguments['return_type'] as String, arguments['name'] as String, (arguments['params'] as String? ?? '').split(','), access: arguments['access'] as String? ?? 'public')});
+            case 'reverse_smali_find_methods_by_string':
+              return _ok(id, result: {'results': _SmaliPatcher.findMethodsByString(arguments['smali'] as String, arguments['search'] as String)});
+            case 'reverse_smali_patch_goto':
+              return _ok(id, result: {'result': _SmaliPatcher.patchGotoDirection(arguments['smali'] as String, arguments['old'] as String, arguments['new'] as String)});
+
             // ---- @kelivo/so tools (delegated) ----
             case 'so_parse_header':
               return _ok(id, result: KelivoSoAnalyzer.header(payload as KelivoSoRequestPayload));
@@ -1273,6 +1423,298 @@ class KelivoReverseMcpServerEngine implements KelivoInMemoryMcpServerEngine {
       {
         'name': 'reverse_popup_remove',
         'description': '弹窗去除器：腾讯分享弹窗 SDK 检测（SETUP_LAUNCHER_ACTIVITY/SdkInitProvider/tauth/connect/setup_sdk/TaskActivity，6 项评分）+ 通用弹窗检测（showDialog/AlertDialog/PopupWindow/DialogFragment/rate_app/update_dialog）+ 弹窗 assets 文件检测 + Manifest 组件统计 + 去除操作（删除 manifest 组件/删除 assets/替换启动 Activity/删除 DEX）。',
+        'inputSchema': baseSchema(),
+      },
+      // ---- APK file-level operations (移植自 apk_file_ops.py) ----
+      {
+        'name': 'reverse_apk_file_list',
+        'description': '列出 APK 内所有文件路径，可选正则过滤。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_apk_file_delete',
+        'description': '从 APK 中删除指定文件列表，输出新 APK。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_apk_file_delete_pattern',
+        'description': '从 APK 中按正则匹配删除文件。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_apk_file_update',
+        'description': '更新 APK 中指定文件的内容。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_apk_file_add',
+        'description': '向 APK 中添加新文件（若已存在则覆盖）。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_apk_file_extract',
+        'description': '提取 APK 内指定文件到磁盘。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_apk_file_extract_all',
+        'description': '提取 APK 内所有文件到指定目录，支持正则过滤和增量提取。',
+        'inputSchema': baseSchema(),
+      },
+      // ---- AXML binary tag operations (移植自 manifest_ops.py) ----
+      {
+        'name': 'reverse_axml_find_tags',
+        'description': '在 AXML 二进制数据中查找匹配的标签，支持标签名/属性名/属性值过滤。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_axml_remove_tag',
+        'description': '从 AXML 二进制中删除匹配的标签及其子标签，直接二进制操作不经文本转换。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_axml_replace_attr',
+        'description': '在 AXML 字符串池中原地替换指定标签的属性值，不改变标签结构。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_axml_remove_component',
+        'description': '从 AXML 中删除指定组件声明（activity/service/receiver/provider/meta-data）。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_axml_replace_launcher',
+        'description': '替换启动 Activity 类名。',
+        'inputSchema': baseSchema(),
+      },
+      // ---- resources.arsc parser (移植自 resource_parser.py) ----
+      {
+        'name': 'reverse_arsc_parse',
+        'description': '完整解析 resources.arsc 二进制结构：全局字符串池/包表/类型表/类型规格/配置/条目。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_arsc_packages',
+        'description': '获取 resources.arsc 中的所有包名。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_arsc_resources',
+        'description': '获取扁平化资源列表（类型/名称/ID/配置/值），最多返回 500 条。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_arsc_find',
+        'description': '按资源 ID（十六进制）查找资源详情。',
+        'inputSchema': baseSchema(),
+      },
+      // ---- Workspace management (移植自 workspace/manager.py) ----
+      {
+        'name': 'reverse_workspace_create',
+        'description': '创建分析工作区：元信息/结果目录/artifacts 目录，可选 APK 指纹。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_workspace_list',
+        'description': '列出所有工作区。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_workspace_open',
+        'description': '打开指定工作区，返回元信息。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_workspace_delete',
+        'description': '删除指定工作区。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_workspace_info',
+        'description': '获取工作区详情：结果列表/配置/元信息。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_workspace_save_result',
+        'description': '保存分析结果快照到工作区。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_workspace_load_result',
+        'description': '从工作区加载分析结果快照。',
+        'inputSchema': baseSchema(),
+      },
+      // ---- ADB device operations (移植自 device/adb.py) ----
+      {
+        'name': 'reverse_adb_devices',
+        'description': '列出已连接的 Android 设备。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_adb_info',
+        'description': '获取设备信息：型号/Android 版本/SDK/制造商/ABI。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_adb_install',
+        'description': '安装 APK 到设备，支持重装。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_adb_uninstall',
+        'description': '卸载应用。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_adb_launch',
+        'description': '启动应用，可指定 Activity 或自动获取 launcher。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_adb_force_stop',
+        'description': '强制停止应用。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_adb_pull',
+        'description': '从设备拉取文件。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_adb_push',
+        'description': '推送文件到设备。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_adb_screenshot',
+        'description': '设备截图并保存到本地。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_adb_logcat',
+        'description': '获取 logcat 日志，支持过滤和行数限制。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_adb_list_packages',
+        'description': '列出设备上的应用包名，支持过滤和第三方过滤。',
+        'inputSchema': baseSchema(),
+      },
+      // ---- Native SO advanced patching (移植自 native_patcher.py) ----
+      {
+        'name': 'reverse_native_detect_arch',
+        'description': '检测指定偏移处的指令集架构（arm/thumb/aarch64/x86/x86_64）。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_native_patch_hex',
+        'description': '十六进制模式搜索替换。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_native_patch_hex_at',
+        'description': '在指定偏移处写入十六进制字节。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_native_patch_string',
+        'description': 'SO 文件字符串替换（保留空终止符），支持最大替换次数。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_native_nop_out',
+        'description': '用 NOP 指令填充指定区域，支持多架构自动检测。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_native_branch_to_ret',
+        'description': '将分支/调用指令替换为返回指令（RET/BX LR）。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_native_branch_to_mov',
+        'description': '将分支替换为 mov r0, #value + ret。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_native_patch_jni',
+        'description': '修改 JNI 函数名。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_native_patch_elf_entry',
+        'description': '修改 ELF 入口点。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_native_patch_branch',
+        'description': '在指定偏移处写入跳转指令（B/BL），支持 AArch64 和 ARM。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_native_find_pattern',
+        'description': '搜索十六进制模式，返回所有匹配偏移。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_native_find_string',
+        'description': '搜索字符串偏移，返回所有匹配位置。',
+        'inputSchema': baseSchema(),
+      },
+      // ---- Smali advanced patching (移植自 smali_patcher.py) ----
+      {
+        'name': 'reverse_smali_insert_method',
+        'description': '在 Smali 代码中插入方法，可指定插入位置。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_smali_remove_method',
+        'description': '从 Smali 代码中删除指定方法。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_smali_add_log',
+        'description': '在方法头部注入 Log.d 调用。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_smali_add_return',
+        'description': '在方法头部注入立即返回指令。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_smali_bypass_sig',
+        'description': '签名校验绕过：替换 checkSignatures/getPackageInfo 调用为常量返回。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_smali_nop_method',
+        'description': '将方法体全部替换为 NOP 指令。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_smali_replace_const',
+        'description': '替换 Smali 常量值（const/4/const/16/const/const-string）。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_smali_nop_invoke',
+        'description': '将特定方法调用替换为 NOP，支持类名/方法名过滤。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_smali_gen_stub',
+        'description': '生成方法存根代码，支持所有返回类型。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_smali_find_methods_by_string',
+        'description': '查找包含特定字符串引用的方法。',
+        'inputSchema': baseSchema(),
+      },
+      {
+        'name': 'reverse_smali_patch_goto',
+        'description': '修改 goto 跳转目标。',
         'inputSchema': baseSchema(),
       },
     ];
