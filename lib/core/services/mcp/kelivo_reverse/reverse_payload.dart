@@ -110,9 +110,9 @@ String _extractTextFromBytes(Uint8List bytes, {int maxLength = 4096}) {
 // Manifest summary from AXML (heuristic extraction)
 // ---------------------------------------------------------------------------
 
-String _manifestSummary(Uint8List? manifestBytes) {
-  if (manifestBytes == null || manifestBytes.isEmpty) return '(no manifest)';
-  final text = _extractTextFromBytes(manifestBytes);
+String _manifestSummary(dynamic manifestBytes) {
+  if (manifestBytes == null || (manifestBytes is Uint8List && manifestBytes.isEmpty) || (manifestBytes is String && manifestBytes.isEmpty)) return '(no manifest)';
+  final text = manifestBytes is String ? manifestBytes : _extractTextFromBytes(manifestBytes as Uint8List);
   // Heuristic extraction of common manifest fields
   final sb = StringBuffer();
   for (final line in text.split('\n')) {
@@ -130,5 +130,6 @@ String _manifestSummary(Uint8List? manifestBytes) {
     if (t.contains('android:launchMode=')) sb.writeln(t);
   }
   final result = sb.toString().trim();
-  return result.isNotEmpty ? result : '(manifest extracted ${manifestBytes.length} bytes, but no structured fields found)';
+  final sizeStr = manifestBytes is Uint8List ? manifestBytes.length : (manifestBytes is String ? manifestBytes.length : 0);
+  return result.isNotEmpty ? result : '(manifest extracted $sizeStr bytes, but no structured fields found)';
 }

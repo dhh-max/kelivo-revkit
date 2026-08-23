@@ -598,7 +598,7 @@ class _RsaKeyGen {
     final gen = RSAKeyGenerator()
       ..init(ParametersWithRandom(
         RSAKeyGeneratorParameters(BigInt.from(65537), 2048, 64),
-        math.Random.secure(),
+        math.Random.secure() as dynamic,
       ));
     final pair = gen.generateKeyPair();
     return pair.privateKey as RSAPrivateKey;

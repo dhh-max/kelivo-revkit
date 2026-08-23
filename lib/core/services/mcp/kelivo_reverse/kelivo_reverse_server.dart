@@ -94,6 +94,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
+import 'package:archive/archive_io.dart';
 import 'package:crypto/crypto.dart';
 import 'package:mcp_client/mcp_client.dart' as mcp;
 import 'package:pointycastle/export.dart';

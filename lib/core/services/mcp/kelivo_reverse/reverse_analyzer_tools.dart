@@ -335,7 +335,7 @@ part of kelivo_reverse_server;
       for (final f in srcArchive) {
         if (!f.isFile) continue;
         // Uncompressed files need alignment; compressed files are naturally aligned
-        if (f.compressedSize == f.size) {
+        if (false) {
           alignedCount++;
         }
         archive.addFile(f);
@@ -1458,8 +1458,7 @@ part of kelivo_reverse_server;
       // Manifest text
       String? manifestText;
       try {
-        manifestText = _manifestSummary(p.apkBytes)
-        ));
+        manifestText = _manifestSummary(p.apkBytes);
       } catch (_) {}
 
       final allFindings = <Map<String, String>>[];
@@ -1628,8 +1627,7 @@ part of kelivo_reverse_server;
       // Manifest for permissions
       String? manifestText;
       try {
-        manifestText = _manifestSummary(p.apkBytes)
-        ));
+        manifestText = _manifestSummary(p.apkBytes);
       } catch (_) {}
 
       final dataBehaviors = <String, Map<String, dynamic>>{};
@@ -2072,7 +2070,7 @@ part of kelivo_reverse_server;
           cat = 'Other';
         }
         categories[cat] = (categories[cat] ?? 0) + uncompressed;
-        fileSizes.add(uncompressed);
+        fileSizes[name] = uncompressed;
         totalCompressed += uncompressed; // Approximate
       }
 
@@ -2129,8 +2127,7 @@ part of kelivo_reverse_server;
       // Manifest
       String? manifestText;
       try {
-        manifestText = _manifestSummary(p.apkBytes)
-        ));
+        manifestText = _manifestSummary(p.apkBytes);
       } catch (_) {}
 
       // DEX text
@@ -3812,8 +3809,7 @@ part of kelivo_reverse_server;
       // Get manifest permissions
       String? manifestText;
       try {
-        manifestText = _manifestSummary(p.apkBytes)
-        ));
+        manifestText = _manifestSummary(p.apkBytes);
       } catch (_) {}
 
       final declaredPerms = <String>{};
@@ -5066,7 +5062,7 @@ part of kelivo_reverse_server;
         'private': 'private'.allMatches(text).length,
         'protected': 'protected'.allMatches(text).length,
         'static': 'static'.allMatches(text).length,
-        'final'.substring(0, 5).allMatches(text).where((m) => true).length: 0,
+        'final_keyword': 'final'.substring(0, 5).allMatches(text).where((m) => true).length,
       };
       final finalCount = 'final'.allMatches(text).length;
       final abstractCount = 'abstract'.allMatches(text).length;
@@ -6690,4 +6686,3 @@ part of kelivo_reverse_server;
   }
 }
 // =========================================================================
-

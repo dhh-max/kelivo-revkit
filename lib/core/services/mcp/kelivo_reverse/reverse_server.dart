@@ -292,15 +292,15 @@ class KelivoReverseMcpServerEngine implements KelivoInMemoryMcpServerEngine {
 
             // ---- AXML binary tag operations (移植自 manifest_ops.py) ----
             case 'reverse_axml_find_tags':
-              return _ok(id, result: {'tags': _ManifestOps.findTags(payload!.axmlBytes, tagName: arguments['tag'] as String?, attrName: arguments['attr'] as String?, attrValue: arguments['value'] as String?)});
+              return _ok(id, result: {'tags': _ManifestOps.findTags(payload!.apkBytes, tagName: arguments['tag'] as String?, attrName: arguments['attr'] as String?, attrValue: arguments['value'] as String?)});
             case 'reverse_axml_remove_tag':
-              return _ok(id, result: {'result': 'removed', 'output': (await File(arguments['output'] as String).writeAsBytes(_ManifestOps.removeTags(payload!.axmlBytes, arguments['tag'] as String, arguments['attr'] as String, arguments['value'] as String))).path});
+              return _ok(id, result: {'result': 'removed', 'output': (await File(arguments['output'] as String).writeAsBytes(_ManifestOps.removeTags(payload!.apkBytes, arguments['tag'] as String, arguments['attr'] as String, arguments['value'] as String))).path});
             case 'reverse_axml_replace_attr':
-              return _ok(id, result: {'result': 'replaced', 'output': (await File(arguments['output'] as String).writeAsBytes(_ManifestOps.replaceAttrValue(payload!.axmlBytes, arguments['tag'] as String, arguments['attr'] as String, arguments['old'] as String, arguments['new'] as String))).path});
+              return _ok(id, result: {'result': 'replaced', 'output': (await File(arguments['output'] as String).writeAsBytes(_ManifestOps.replaceAttrValue(payload!.apkBytes, arguments['tag'] as String, arguments['attr'] as String, arguments['old'] as String, arguments['new'] as String))).path});
             case 'reverse_axml_remove_component':
-              return _ok(id, result: {'result': 'removed', 'output': (await File(arguments['output'] as String).writeAsBytes(_ManifestOps.removeComponent(payload!.axmlBytes, arguments['type'] as String, arguments['class'] as String))).path});
+              return _ok(id, result: {'result': 'removed', 'output': (await File(arguments['output'] as String).writeAsBytes(_ManifestOps.removeComponent(payload!.apkBytes, arguments['type'] as String, arguments['class'] as String))).path});
             case 'reverse_axml_replace_launcher':
-              return _ok(id, result: {'result': 'replaced', 'output': (await File(arguments['output'] as String).writeAsBytes(_ManifestOps.replaceLauncherActivity(payload!.axmlBytes, arguments['old'] as String, arguments['new'] as String))).path});
+              return _ok(id, result: {'result': 'replaced', 'output': (await File(arguments['output'] as String).writeAsBytes(_ManifestOps.replaceLauncherActivity(payload!.apkBytes, arguments['old'] as String, arguments['new'] as String))).path});
 
             // ---- resources.arsc parser (移植自 resource_parser.py) ----
             case 'reverse_arsc_parse':
