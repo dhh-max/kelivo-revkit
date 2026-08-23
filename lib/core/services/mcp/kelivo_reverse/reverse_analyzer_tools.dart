@@ -2836,7 +2836,6 @@ part of kelivo_reverse_server;
     } catch (e) {
       return _err(e.toString());
     }
-  }
 
   // =========================================================================
   // reverse_code_analyze — 深度代码分析
