@@ -335,7 +335,7 @@ part of kelivo_reverse_server;
       for (final f in srcArchive) {
         if (!f.isFile) continue;
         // Uncompressed files need alignment; compressed files are naturally aligned
-        if (false) {
+        if (f.compressedSize == f.size) {
           alignedCount++;
         }
         archive.addFile(f);
@@ -5062,7 +5062,7 @@ part of kelivo_reverse_server;
         'private': 'private'.allMatches(text).length,
         'protected': 'protected'.allMatches(text).length,
         'static': 'static'.allMatches(text).length,
-        'final_keyword': 'final'.substring(0, 5).allMatches(text).where((m) => true).length,
+        'final_keyword': 'final'.allMatches(text).length,
       };
       final finalCount = 'final'.allMatches(text).length;
       final abstractCount = 'abstract'.allMatches(text).length;
@@ -6684,4 +6684,6 @@ part of kelivo_reverse_server;
       return _err(e.toString());
     }
   }
+}
 // =========================================================================
+

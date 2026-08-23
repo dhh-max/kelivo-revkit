@@ -268,4 +268,5 @@ class _SmaliPatcher {
     }
     return results;
   }
+
 }
