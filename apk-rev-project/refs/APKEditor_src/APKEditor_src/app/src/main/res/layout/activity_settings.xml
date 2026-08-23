@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/bg_page">
+
+    <com.google.android.material.appbar.AppBarLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <androidx.appcompat.widget.Toolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            android:background="?attr/colorPrimary"
+            app:title="广告特征配置"
+            app:titleTextColor="@android:color/white"
+            app:subtitle="自定义去广告特征"
+            app:subtitleTextColor="@android:color/white" />
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <!-- 配置文件信息 -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                app:cardCornerRadius="8dp"
+                app:cardElevation="2dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="配置文件"
+                        android:textStyle="bold"
+                        android:textSize="16sp" />
+
+                    <TextView
+                        android:id="@+id/tvConfigPath"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:textSize="12sp"
+                        android:textColor="#666666"
+                        android:text="/storage/emulated/0/APKEditor/ad_patterns.json" />
+
+                    <TextView
+                        android:id="@+id/tvConfigStats"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:textSize="13sp"
+                        android:textColor="#4CAF50"
+                        android:text="共 0 条特征" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnSave"
+                            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:layout_marginEnd="4dp"
+                            android:text="保存"
+                            android:textSize="13sp"
+                            app:icon="@android:drawable/ic_menu_save"
+                            app:iconSize="18dp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnReset"
+                            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:layout_marginStart="4dp"
+                            android:text="重置默认"
+                            android:textSize="13sp"
+                            app:icon="@android:drawable/ic_menu_revert"
+                            app:iconSize="18dp" />
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- 分类列表 -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:text="广告特征分类"
+                android:textStyle="bold"
+                android:textSize="15sp" />
+
+            <!-- SDK包名 -->
+            <include layout="@layout/item_config_category"
+                android:id="@+id/cardSdkPackages" />
+
+            <!-- 类名关键词 -->
+            <include layout="@layout/item_config_category"
+                android:id="@+id/cardClassKeywords" />
+
+            <!-- 方法名 -->
+            <include layout="@layout/item_config_category"
+                android:id="@+id/cardMethodPatterns" />
+
+            <!-- URL/域名 -->
+            <include layout="@layout/item_config_category"
+                android:id="@+id/cardUrlPatterns" />
+
+            <!-- View名称 -->
+            <include layout="@layout/item_config_category"
+                android:id="@+id/cardAdViewNames" />
+
+            <!-- 广告Activity -->
+            <include layout="@layout/item_config_category"
+                android:id="@+id/cardAdActivities" />
+
+            <!-- 广告Service -->
+            <include layout="@layout/item_config_category"
+                android:id="@+id/cardAdServices" />
+
+            <!-- 广告Receiver -->
+            <include layout="@layout/item_config_category"
+                android:id="@+id/cardAdReceivers" />
+
+            <!-- 强制返回true的方法名 -->
+            <include layout="@layout/item_config_category"
+                android:id="@+id/cardForceTrueMethods" />
+
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>

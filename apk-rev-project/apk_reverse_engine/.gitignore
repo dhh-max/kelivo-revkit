@@ -1,0 +1,18 @@
+# APK Reverse Engineering Engine v2
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+_temp/
+test_*
+_output/
+/tests/
