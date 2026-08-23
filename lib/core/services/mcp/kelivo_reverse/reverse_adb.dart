@@ -20,7 +20,7 @@ class _Adb {
       runInShell: true,
     );
     if (result.exitCode != 0) {
-      throw RuntimeError('ADB error: ${result.stderr.toString().trim() || result.stdout.toString().trim()}');
+      throw StateError('ADB error: \${result.stderr.toString().trim().isNotEmpty ? result.stderr.toString().trim() : result.stdout.toString().trim()}');
     }
     return result.stdout.toString().trim();
   }

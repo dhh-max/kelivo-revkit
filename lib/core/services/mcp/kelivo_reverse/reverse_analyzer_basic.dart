@@ -82,7 +82,7 @@ class KelivoReverseAnalyzer {
       sb.writeln('| reverse_clue_chain | Cross-module clue chain analysis (8 analyzers/risk score) |');
       sb.writeln('| reverse_dex_lib_analysis | DEX third-party library detection (40+ libs/bloat score) |');
       sb.writeln('| reverse_dex_reflection | DEX reflection & dynamic loading analysis |');
-      sb.writeln('| reverse_dex_resource_ref | DEX resource reference analysis (R$ refs/hardcoded IDs) |');
+      sb.writeln('| reverse_dex_resource_ref | DEX resource reference analysis (R\$ refs/hardcoded IDs) |');
       sb.writeln('| reverse_dex_serialization | DEX serialization & persistence analysis |');
       sb.writeln('| reverse_dex_string_pool | DEX string pool deep analysis (distribution/sensitive patterns) |');
       sb.writeln('| reverse_dex_obfuscation_scan | DEX obfuscation scan (class names/packer fingerprints) |');

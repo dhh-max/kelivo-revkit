@@ -96,10 +96,7 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
 import 'package:mcp_client/mcp_client.dart' as mcp;
-import 'package:pointycastle/digests/sha1.dart';
-import 'package:pointycastle/digests/sha256.dart';
-import 'package:pointycastle/key_generators/rsa_key_generator.dart';
-import 'package:pointycastle/rsa.dart';
+import 'package:pointycastle/export.dart';
 
 import '../in_memory_mcp_server.dart';
 import '../kelivo_so/kelivo_so_server.dart';

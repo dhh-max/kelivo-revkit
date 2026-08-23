@@ -510,7 +510,7 @@ class StringPoolChunk {
         final len2 = (len1 & 0x80) != 0 ? buf.u8() : 0;
         final len = ((len1 & 0x7f) << 8) | len2;
         final b = buf.bytesLen(len);
-        strings.add(utf8.decode(b, allowMalformed: true));
+        strings.add(const Utf8Codec().decode(b, allowMalformed: true));
       } else {
         final len1 = buf.u16();
         final len2 = (len1 & 0x8000) != 0 ? buf.u16() : 0;
@@ -575,10 +575,10 @@ class _ZipUtil {
 }
 
 class _CryptoUtil {
-  static Uint8List sha256(List<int> data) =>
+  static Uint8List sha256Hash(List<int> data) =>
       Uint8List.fromList(sha256.convert(data).bytes);
 
-  static Uint8List sha1(List<int> data) =>
+  static Uint8List sha1Hash(List<int> data) =>
       Uint8List.fromList(sha1.convert(data).bytes);
 
   static Uint8List randomBytes(int n, math.Random rng) {

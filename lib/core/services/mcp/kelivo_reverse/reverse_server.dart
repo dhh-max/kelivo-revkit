@@ -1282,7 +1282,7 @@ class KelivoReverseMcpServerEngine implements KelivoInMemoryMcpServerEngine {
       },
       {
         'name': 'reverse_dex_inner_class',
-        'description': 'DEX 内部类/匿名类分析：统计顶层类/内部类/匿名类/Lambda，$ 嵌套层级分布，计算代码复杂度评分。',
+        'description': 'DEX 内部类/匿名类分析：统计顶层类/内部类/匿名类/Lambda，\$ 嵌套层级分布，计算代码复杂度评分。',
         'inputSchema': baseSchema(),
       },
       {

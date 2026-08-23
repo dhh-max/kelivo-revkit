@@ -114,7 +114,7 @@ part of kelivo_reverse_server;
         final lexer = _AxmlLexer(_ByteBuf(manifestEntry!.content!));
         xmlText = lexer.decode() as String;
       } catch (_) {
-        xmlText = _manifestSummary(manifestEntry.content);
+        xmlText = _manifestSummary(manifestEntry!.content);
       }
 
       // 2. Apply edits
@@ -174,8 +174,8 @@ part of kelivo_reverse_server;
         sb.writeln('  ${e.key} = ${e.value}');
       }
       if (compName != null) sb.writeln('  exported($compName) = $compVal');
-      sb.writeln('\nOutput: $outputPath')
-        ..writeln('⚠️ Unsigned. Run reverse_apk_sign next.');
+      sb.writeln('\nOutput: $outputPath');
+      sb.writeln('⚠️ Unsigned. Run reverse_apk_sign next.');
       return _ok(sb.toString().trimRight());
     } catch (e) {
       return _err(e.toString());
@@ -335,7 +335,7 @@ part of kelivo_reverse_server;
       for (final f in srcArchive) {
         if (!f.isFile) continue;
         // Uncompressed files need alignment; compressed files are naturally aligned
-        if (f.compression == ZipFileCompression.none) {
+        if (f.compressedSize == f.size) {
           alignedCount++;
         }
         archive.addFile(f);
@@ -1458,8 +1458,7 @@ part of kelivo_reverse_server;
       // Manifest text
       String? manifestText;
       try {
-        manifestText = _extractResultText(KelivoManifestAnalyzer.summary(
-          KelivoManifestRequestPayload(bytes: p.apkBytes!),
+        manifestText = _manifestSummary(p.apkBytes)
         ));
       } catch (_) {}
 
@@ -1541,9 +1540,9 @@ part of kelivo_reverse_server;
 
       // ── 6. 硬编码凭据 ──
       final credPats = [
-        [r'(?i)(password|passwd|pwd)\s*[:=]\s*["\'][^"\']{4,}["\']', 'hardcoded_password', 'high', '硬编码密码'],
-        [r'(?i)(api_?key|apikey|secret)\s*[:=]\s*["\'][^"\']{10,}["\']', 'hardcoded_api_key', 'high', '硬编码 API Key'],
-        [r'(?i)(token|auth)\s*[:=]\s*["\'][^"\']{16,}["\']', 'hardcoded_token', 'high', '硬编码 Token'],
+        [r"""(?i)(password|passwd|pwd)\s*[:=]\s*["'][^"']{4,}["']""", 'hardcoded_password', 'high', '硬编码密码'],
+        [r"""(?i)(api_?key|apikey|secret)\s*[:=]\s*["'][^"']{10,}["']""", 'hardcoded_api_key', 'high', '硬编码 API Key'],
+        [r"""(?i)(token|auth)\s*[:=]\s*["'][^"']{16,}["']""", 'hardcoded_token', 'high', '硬编码 Token'],
         [r'(?i)AKIA[0-9A-Z]{16}', 'aws_key', 'critical', '硬编码 AWS Access Key'],
         [r'(?i)-----BEGIN (RSA |EC )?PRIVATE KEY-----', 'private_key', 'critical', '硬编码私钥'],
         [r'(?i)ghp_[a-zA-Z0-9]{36}', 'github_token', 'critical', '硬编码 GitHub Token'],
@@ -1629,8 +1628,7 @@ part of kelivo_reverse_server;
       // Manifest for permissions
       String? manifestText;
       try {
-        manifestText = _extractResultText(KelivoManifestAnalyzer.summary(
-          KelivoManifestRequestPayload(bytes: p.apkBytes!),
+        manifestText = _manifestSummary(p.apkBytes)
         ));
       } catch (_) {}
 
@@ -1880,7 +1878,7 @@ part of kelivo_reverse_server;
       final combined = allText.join('\n');
 
       // URLs
-      final urlMatches = RegExp(r'https?://[^\s"\'<>]+').allMatches(combined);
+      final urlMatches = RegExp(r"""https?://[^\s"'<>]+""").allMatches(combined);
       final urls = urlMatches.map((m) => m.group(0)!).toSet().toList();
       final httpUrls = urls.where((u) => u.startsWith('http://')).toList();
       final httpsUrls = urls.where((u) => u.startsWith('https://')).toList();
@@ -1892,7 +1890,7 @@ part of kelivo_reverse_server;
       // Domains
       final domains = <String>{};
       for (final u in urls) {
-        final m = RegExp(r'https?://([^/\s"\'<>:]+)').firstMatch(u);
+        final m = RegExp(r"""https?://([^/\s"'<>:]+)""").firstMatch(u);
         if (m != null) domains.add(m.group(1)!.toLowerCase());
       }
       sb.writeln('\n--- Domains (${domains.length}) ---');
@@ -2047,7 +2045,7 @@ part of kelivo_reverse_server;
       final sb = StringBuffer()..writeln('=== APK Size Analysis ===\n');
 
       final categories = <String, int>{};
-      final fileSizes = <String, int>[];
+      final fileSizes = <String, int>{};
       var totalUncompressed = 0;
       var totalCompressed = 0;
 
@@ -2131,8 +2129,7 @@ part of kelivo_reverse_server;
       // Manifest
       String? manifestText;
       try {
-        manifestText = _extractResultText(KelivoManifestAnalyzer.summary(
-          KelivoManifestRequestPayload(bytes: p.apkBytes!),
+        manifestText = _manifestSummary(p.apkBytes)
         ));
       } catch (_) {}
 
@@ -2206,7 +2203,7 @@ part of kelivo_reverse_server;
 
       // 8. Hardcoded credentials
       maxScore += 3;
-      if (RegExp(r'(?i)(password|passwd|pwd)\s*[:=]\s*["\'][^"\']{4,}["\']').hasMatch(combined)) {
+      if (RegExp(r"""(?i)(password|passwd|pwd)\s*[:=]\s*["'][^"']{4,}["']""").hasMatch(combined)) {
         issues.add({'severity': 'HIGH', 'type': '硬编码凭据', 'desc': '检测到硬编码密码', 'cwe': 'CWE-798'});
         score += 3;
       }
@@ -2273,7 +2270,7 @@ part of kelivo_reverse_server;
       sb.writeln('Unique strings: ${allStrings.length}');
 
       // Classification patterns
-      final urlPattern = RegExp(r'https?://[^\s"\']{4,}');
+      final urlPattern = RegExp(r"""https?://[^\s"']{4,}""");
       final ipPattern = RegExp(r'\b(\d{1,3}\.){3}\d{1,3}\b');
       final emailPattern = RegExp(r'[\w.+-]+@[\w-]+\.[\w.-]+');
       final uuidPattern = RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', caseSensitive: false);
@@ -2406,11 +2403,11 @@ part of kelivo_reverse_server;
       final foundKeys = <Map<String, String>>[];
 
       final keyPatterns = [
-        (RegExp(r'(?i)(?:password|passwd|pwd|secret|private_key)\s*[:=]\s*["\']([^"\']{8,})["\']'), '密码/密钥'),
-        (RegExp(r'(?i)(?:api[_-]?key|apikey)\s*[:=]\s*["\']([a-zA-Z0-9_\-]{16,})["\']'), 'API密钥'),
-        (RegExp(r'(?i)(?:token|access_token|auth_token|refresh_token|bearer)\s*[:=]\s*["\']([a-zA-Z0-9_\-\.]{16,})["\']'), '访问令牌'),
-        (RegExp(r'(?i)(?:session[_-]?id|sid)\s*[:=]\s*["\']([a-zA-Z0-9]{8,})["\']'), '会话ID'),
-        (RegExp(r'(?i)jwt\s*[:=]\s*["\'](eyJ[a-zA-Z0-9_\-]+\.[a-zA-Z0-9_\-]+\.[a-zA-Z0-9_\-]+)["\']'), 'JWT令牌'),
+        (RegExp(r"""(?i)(?:password|passwd|pwd|secret|private_key)\s*[:=]\s*["']([^"']{8,})["']"""), '密码/密钥'),
+        (RegExp(r"""(?i)(?:api[_-]?key|apikey)\s*[:=]\s*["']([a-zA-Z0-9_\-]{16,})["']"""), 'API密钥'),
+        (RegExp(r"""(?i)(?:token|access_token|auth_token|refresh_token|bearer)\s*[:=]\s*["']([a-zA-Z0-9_\-\.]{16,})["']"""), '访问令牌'),
+        (RegExp(r"""(?i)(?:session[_-]?id|sid)\s*[:=]\s*["']([a-zA-Z0-9]{8,})["']"""), '会话ID'),
+        (RegExp(r"""(?i)jwt\s*[:=]\s*["'](eyJ[a-zA-Z0-9_\-]+\.[a-zA-Z0-9_\-]+\.[a-zA-Z0-9_\-]+)["']"""), 'JWT令牌'),
         (RegExp(r'(?i)AIza[0-9A-Za-z_-]{35}'), 'Google API Key'),
         (RegExp(r'(?i)sk-[0-9a-zA-Z]{32,}'), 'OpenAI API Key'),
         (RegExp(r'(?i)sk_live_[0-9a-zA-Z]{20,}'), 'Stripe Live Key'),
@@ -2420,12 +2417,12 @@ part of kelivo_reverse_server;
         (RegExp(r'(?i)-----BEGIN CERTIFICATE-----'), '证书(PEM)'),
         (RegExp(r'(?i)-----BEGIN OPENSSH PRIVATE KEY-----'), 'SSH私钥'),
         (RegExp(r'(?i)(?:jdbc|mysql|postgresql|mongodb|redis|sqlite)://[\w:]+@[\w.]+'), '数据库连接串'),
-        (RegExp(r'(?i)firebase[_-]?(?:url|database|key|secret)\s*[:=]\s*["\']([^"\']+)["\']'), 'Firebase配置'),
-        (RegExp(r'(?i)(?:encryption|decrypt|aes|rsa|des)[_-]?(?:key|secret)\s*[:=]\s*["\']([a-fA-F0-9]{16,64})["\']'), '加密密钥(Hex)'),
-        (RegExp(r'(?i)(?:client[_-]?id|client[_-]?secret|app[_-]?id|app[_-]?secret)\s*[:=]\s*["\']([^"\']{8,})["\']'), '客户端凭证'),
-        (RegExp(r'(?i)aws[_-]?secret[_-]?access[_-]?key\s*[:=]\s*["\']([^"\']+)["\']'), 'AWS Secret Key'),
-        (RegExp(r'(?i)aliyun[_-]?(?:access[_-]?)?key[_-]?(?:id|secret)\s*[:=]\s*["\']([^"\']+)["\']'), '阿里云密钥'),
-        (RegExp(r'(?i)tencent[_-]?(?:secret|key)[_-]?id\s*[:=]\s*["\']([^"\']+)["\']'), '腾讯云SecretId'),
+        (RegExp(r"""(?i)firebase[_-]?(?:url|database|key|secret)\s*[:=]\s*["']([^"']+)["']"""), 'Firebase配置'),
+        (RegExp(r"""(?i)(?:encryption|decrypt|aes|rsa|des)[_-]?(?:key|secret)\s*[:=]\s*["']([a-fA-F0-9]{16,64})["']"""), '加密密钥(Hex)'),
+        (RegExp(r"""(?i)(?:client[_-]?id|client[_-]?secret|app[_-]?id|app[_-]?secret)\s*[:=]\s*["']([^"']{8,})["']"""), '客户端凭证'),
+        (RegExp(r"""(?i)aws[_-]?secret[_-]?access[_-]?key\s*[:=]\s*["']([^"']+)["']"""), 'AWS Secret Key'),
+        (RegExp(r"""(?i)aliyun[_-]?(?:access[_-]?)?key[_-]?(?:id|secret)\s*[:=]\s*["']([^"']+)["']"""), '阿里云密钥'),
+        (RegExp(r"""(?i)tencent[_-]?(?:secret|key)[_-]?id\s*[:=]\s*["']([^"']+)["']"""), '腾讯云SecretId'),
       ];
 
       for (final entry in keyPatterns) {
@@ -2658,7 +2655,7 @@ part of kelivo_reverse_server;
       if (bytes.length > 22) {
         final magic = Uint8List.fromList('APK Sig Block 42'.codeUnits);
         outer:
-        for (var i = max(0, bytes.length - 65557); i < bytes.length - magic.length; i++) {
+        for (var i = math.max(0, bytes.length - 65557); i < bytes.length - magic.length; i++) {
           bool match = true;
           for (var j = 0; j < magic.length; j++) {
             if (bytes[i + j] != magic[j]) { match = false; break; }
@@ -2856,7 +2853,7 @@ part of kelivo_reverse_server;
       final text = dexText.toString();
 
       // 1. URL/IP/Email extraction
-      final urls = RegExp(r'https?://[^\s"\'<>]+').allMatches(text).map((m) => m.group(0)!).toSet().toList();
+      final urls = RegExp(r"""https?://[^\s"'<>]+""").allMatches(text).map((m) => m.group(0)!).toSet().toList();
       final ips = RegExp(r'\b(\d{1,3}\.){3}\d{1,3}\b').allMatches(text).map((m) => m.group(0)!).toSet().toList();
       final emails = RegExp(r'[\w.+-]+@[\w-]+\.[\w.-]+').allMatches(text).map((m) => m.group(0)!).toSet().toList();
       final domains = <String>{};
@@ -3815,8 +3812,7 @@ part of kelivo_reverse_server;
       // Get manifest permissions
       String? manifestText;
       try {
-        manifestText = _extractResultText(KelivoManifestAnalyzer.summary(
-          KelivoManifestRequestPayload(bytes: p.apkBytes!),
+        manifestText = _manifestSummary(p.apkBytes)
         ));
       } catch (_) {}
 
@@ -4080,7 +4076,7 @@ part of kelivo_reverse_server;
 
       // 3. WebSocket
       sb.writeln('\n--- WebSocket ---');
-      final wsUrls = RegExp(r'wss?://[^\s"\'<>]+').allMatches(combined).map((m) => m.group(0)!).toSet();
+      final wsUrls = RegExp(r"""wss?://[^\s"'<>]+""").allMatches(combined).map((m) => m.group(0)!).toSet();
       final wsKeywords = ['WebSocket', 'Socket.IO', 'socket.io', 'SockJS', 'Java-WebSocket'];
       final wsClasses = wsKeywords.where((k) => combined.toLowerCase().contains(k.toLowerCase())).toList();
       if (wsUrls.isNotEmpty || wsClasses.isNotEmpty) {
@@ -4098,7 +4094,7 @@ part of kelivo_reverse_server;
         final count = scheme.allMatches(combined).length;
         if (count > 0) sb.writeln('  $scheme: $count');
       }
-      final deepLinks = RegExp(r'[a-zA-Z][a-zA-Z0-9+.-]{2,}://[^\s"\'<>]+').allMatches(combined).map((m) => m.group(0)!).toSet();
+      final deepLinks = RegExp(r"""[a-zA-Z][a-zA-Z0-9+.-]{2,}://[^\s"'<>]+""").allMatches(combined).map((m) => m.group(0)!).toSet();
       final standardSchemes = {'http', 'https', 'ftp', 'ftps', 'ws', 'wss', 'file', 'mailto'};
       final customDeepLinks = deepLinks.where((d) => !standardSchemes.contains(d.split('://')[0])).toList();
       sb.writeln('  Custom deep links: ${customDeepLinks.length}');
@@ -4120,7 +4116,7 @@ part of kelivo_reverse_server;
 
       // 6. Port analysis
       sb.writeln('\n--- Ports ---');
-      final portMatches = RegExp(r':(\d{2,5})(?=/|\s|$|"|\')').allMatches(combined);
+      final portMatches = RegExp(r""":(\d{2,5})(?=/|\s|$|"|')""").allMatches(combined);
       final ports = portMatches.map((m) => m.group(1)!).where((p) => int.tryParse(p) != null && int.parse(p) >= 1 && int.parse(p) <= 65535).toSet();
       final commonPorts = {'80': 'HTTP', '443': 'HTTPS', '8080': 'HTTP-Alt', '8443': 'HTTPS-Alt', '21': 'FTP', '22': 'SSH', '3306': 'MySQL', '5432': 'PostgreSQL', '6379': 'Redis', '27017': 'MongoDB', '1883': 'MQTT', '5222': 'XMPP', '5228': 'GCM/FCM'};
       for (final port in ports.take(15)) {
@@ -4449,7 +4445,7 @@ part of kelivo_reverse_server;
 
       // Sensitive patterns
       final patterns = <String, RegExp>{
-        'url': RegExp(r'https?://[^\s"\'<>]+'),
+        'url': RegExp(r"""https?://[^\s"'<>]+"""),
         'ip': RegExp(r'\b(\d{1,3}\.){3}\d{1,3}\b'),
         'email': RegExp(r'[\w.+-]+@[\w-]+\.[\w.-]+'),
         'jwt': RegExp(r'eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+'),
@@ -5257,7 +5253,7 @@ part of kelivo_reverse_server;
       final switchCount = RegExp(r'(-switch)').allMatches(text).length;
 
       final sizeCategories = <String, int>{
-        'tiny': RegExp(r'registers_size':\s*[1-9]\b').allMatches(text).length,
+        'tiny': RegExp(r"registers_size':\s*[1-9]\b").allMatches(text).length,
       };
 
       sb.writeln('--- Method Stats ---');
@@ -5752,21 +5748,21 @@ part of kelivo_reverse_server;
       final text = allText.toString();
 
       // Extract registers_size values
-      final regMatches = RegExp(r'registers_size':\s*(\d+)').allMatches(text);
+      final regMatches = RegExp(r"""registers_size':\s*(\d+)""").allMatches(text);
       final regValues = <int>[];
       for (final m in regMatches) {
         final v = int.tryParse(m.group(1) ?? '0');
         if (v != null) regValues.add(v);
       }
 
-      final insMatches = RegExp(r'ins_size':\s*(\d+)').allMatches(text);
+      final insMatches = RegExp(r"""ins_size':\s*(\d+)""").allMatches(text);
       final insValues = <int>[];
       for (final m in insMatches) {
         final v = int.tryParse(m.group(1) ?? '0');
         if (v != null) insValues.add(v);
       }
 
-      final outsMatches = RegExp(r'outs_size':\s*(\d+)').allMatches(text);
+      final outsMatches = RegExp(r"""outs_size':\s*(\d+)""").allMatches(text);
       final outsValues = <int>[];
       for (final m in outsMatches) {
         final v = int.tryParse(m.group(1) ?? '0');
@@ -6119,7 +6115,7 @@ part of kelivo_reverse_server;
 
       // 1. 检测广告SDK
       final allText = StringBuffer();
-      for (final entry in apk) {
+      for (final entry in apk.entries) {
         if (entry.name.endsWith('.dex') && entry.content != null) {
           allText.writeln(_extractTextFromBytes(entry.content!, maxLength: 999999));
         }
@@ -6236,7 +6232,7 @@ part of kelivo_reverse_server;
       ];
       sb.writeln('\n--- Ad Assets ---');
       var totalAssets = 0;
-      for (final entry in apk) {
+      for (final entry in apk.entries) {
         for (final pat in adAssetPatterns) {
           if (entry.name.contains(pat)) {
             sb.writeln('  ${entry.name}');
@@ -6425,7 +6421,7 @@ part of kelivo_reverse_server;
       final sb = StringBuffer()..writeln('=== Integrity Bypass Analysis ===\n');
 
       final allText = StringBuffer();
-      for (final entry in apk) {
+      for (final entry in apk.entries) {
         if (entry.content != null) {
           allText.writeln(_extractTextFromBytes(entry.content!, maxLength: 999999));
         }
@@ -6544,7 +6540,7 @@ part of kelivo_reverse_server;
       }
 
       // 2. XML文件
-      final xmlFiles = apk.where((e) => e.name.endsWith('.xml')).toList();
+      final xmlFiles = apk.entries.where((e) => e.name.endsWith('.xml')).toList();
       sb.writeln('\n--- XML Files ---');
       sb.writeln('  Count: ${xmlFiles.length}');
 
@@ -6552,11 +6548,11 @@ part of kelivo_reverse_server;
       final imgExts = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp'];
       var imgCount = 0;
       var imgSize = 0;
-      for (final entry in apk) {
+      for (final entry in apk.entries) {
         for (final ext in imgExts) {
           if (entry.name.toLowerCase().endsWith(ext)) {
             imgCount++;
-            imgSize += entry.content?.length ?? 0;
+            imgSize += (entry.content?.length ?? 0);
             break;
           }
         }
@@ -6566,7 +6562,7 @@ part of kelivo_reverse_server;
       sb.writeln('  Total size: ${(imgSize / 1024).toStringAsFixed(1)} KB');
 
       // 4. Assets文件
-      final assets = apk.where((e) => e.name.startsWith('assets/')).toList();
+      final assets = apk.entries.where((e) => e.name.startsWith('assets/')).toList();
       sb.writeln('\n--- Assets ---');
       sb.writeln('  Count: ${assets.length}');
 
@@ -6609,7 +6605,7 @@ part of kelivo_reverse_server;
 
       // 1. 检测弹窗SDK
       final allText = StringBuffer();
-      for (final entry in apk) {
+      for (final entry in apk.entries) {
         if (entry.content != null) {
           allText.writeln(_extractTextFromBytes(entry.content!, maxLength: 999999));
         }
@@ -6652,7 +6648,7 @@ part of kelivo_reverse_server;
       }
 
       // 2. Assets弹窗文件
-      final popupAssets = apk.where((e) =>
+      final popupAssets = apk.entries.where((e) =>
         e.name.contains('setup_sdk') ||
         e.name.contains('info.json') ||
         e.name.contains('share/') ||

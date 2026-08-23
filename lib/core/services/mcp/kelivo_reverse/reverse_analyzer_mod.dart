@@ -55,9 +55,9 @@ part of kelivo_reverse_server;
         final lexer = _AxmlLexer(_ByteBuf(manifestEntry!.content!));
         manifestJson['manifestAttrs'] = lexer.decode();
       } catch (_) {
-        manifestJson['manifestAttrs'] = _manifestSummary(manifestEntry.content);
+        manifestJson['manifestAttrs'] = _manifestSummary(manifestEntry!.content);
       }
-      manifestJson['manifestText'] = _manifestSummary(manifestEntry.content);
+      manifestJson['manifestText'] = _manifestSummary(manifestEntry!.content);
     }
 
     // ---- resources.json ----
@@ -73,7 +73,7 @@ part of kelivo_reverse_server;
       resources.add({
         'name': e.name,
         'size': e.size,
-        'sha256': _CryptoUtil.sha256(e.content!).map((b) => b.toRadixString(16).padLeft(2, '0')).join(),
+        'sha256': _CryptoUtil.sha256Hash(e.content!).map((b) => b.toRadixString(16).padLeft(2, '0')).join(),
       });
       // Extract non-dex/so resources for AI inspection
       if (!e.name.endsWith('.dex') && !e.name.endsWith('.so') && !e.name.endsWith('.arsc')) {
