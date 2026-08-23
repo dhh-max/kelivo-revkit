@@ -53,6 +53,8 @@ import 'core/services/notification_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:Kelivo/relaygo/database/database_helper.dart' as relaygo_db;
 import 'package:Kelivo/relaygo/app.dart' as relaygo;
+import 'package:Kelivo/relaygo/utils/encryption.dart' as relaygo_enc;
+import 'package:Kelivo/relaygo/config/constants.dart' as relaygo_constants;
 
 final RouteObserver<ModalRoute<dynamic>> routeObserver =
     RouteObserver<ModalRoute<dynamic>>();
@@ -89,6 +91,16 @@ Future<void> main() async {
 await SandboxPathResolver.init();
        // 初始化RelayGo中转服务
        await relaygo_db.DatabaseHelper.init();
+       // 初始化加密主密钥（首次运行生成并持久化到 vault 盒）
+       final vault = relaygo_db.DatabaseHelper.vault;
+       String masterKey;
+       if (vault.containsKey(relaygo_constants.Constants.masterKeyName)) {
+         masterKey = vault.get(relaygo_constants.Constants.masterKeyName) as String;
+       } else {
+         masterKey = relaygo_enc.EncryptionUtil.generateMasterKeyBase64();
+         await vault.put(relaygo_constants.Constants.masterKeyName, masterKey);
+       }
+       relaygo_enc.EncryptionUtil.init(masterKey);
        // Enable edge-to-edge to allow content under system bars (Android)
        SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
       // Start app (Flutter log capture is toggleable and off by default)
