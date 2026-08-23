@@ -171,7 +171,7 @@ class AssistantProvider extends ChangeNotifier {
             : 'You are a professional Android reverse engineering analyst. You excel at: APK structure analysis, DEX/ODEX bytecode decompilation, SO/ELF native library reverse engineering, Manifest permission and component auditing, JNI interface analysis, deobfuscation and packer identification. Use the built-in @kelivo/reverse toolset for systematic analysis and cite tool outputs as evidence in your responses.',
         temperature: 0.3,
         topP: null,
-        mcpServerIds: const ['kelivo_reverse'],
+        mcpServerIds: const [], // MCP 按需手动启用，不默认绑定
       ),
     );
     await _persist();
@@ -282,7 +282,7 @@ class AssistantProvider extends ChangeNotifier {
               : 'New Assistant')),
       temperature: 0.6,
       topP: null,
-      mcpServerIds: const ['kelivo_so'], // 默认绑定内置 SO 逆向 MCP
+      mcpServerIds: const [], // 默认不绑定任何 MCP，用户按需手动启用
     );
     _assistants.add(a);
     await _persist();

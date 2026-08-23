@@ -595,8 +595,9 @@ class McpProvider extends ChangeNotifier {
 
   void _ensureBuiltinServersPresent() {
     final next = List<McpServerConfig>.of(_servers);
+    // —— 所有内置 MCP 服务器默认禁用，用户按需手动启用 ——
     if (!_hasBuiltinServer(_builtinFetchId, _builtinFetchName)) {
-      next.add(_builtinServer(_builtinFetchId, _builtinFetchName));
+      next.add(_builtinServer(_builtinFetchId, _builtinFetchName, enabled: false));
     }
     if (!_hasBuiltinServer(_builtinFilesId, _builtinFilesName)) {
       next.add(
@@ -615,7 +616,7 @@ class McpProvider extends ChangeNotifier {
     }
     if (!_hasBuiltinServer(_builtinContextId, _builtinContextName)) {
       next.add(
-        _builtinServer(_builtinContextId, _builtinContextName, enabled: true),
+        _builtinServer(_builtinContextId, _builtinContextName, enabled: false),
       );
     }
     final soIndex = next.indexWhere(
@@ -625,10 +626,8 @@ class McpProvider extends ChangeNotifier {
     );
     if (soIndex == -1) {
       next.add(
-        _builtinServer(_builtinSoId, _builtinSoName, enabled: true),
+        _builtinServer(_builtinSoId, _builtinSoName, enabled: false),
       );
-    } else if (!next[soIndex].enabled) {
-      next[soIndex] = next[soIndex].copyWith(enabled: true);
     }
     if (!_hasBuiltinServer(_builtinDexId, _builtinDexName)) {
       next.add(
@@ -647,7 +646,7 @@ class McpProvider extends ChangeNotifier {
     }
     if (!_hasBuiltinServer(_builtinMemoryId, _builtinMemoryName)) {
       next.add(
-        _builtinServer(_builtinMemoryId, _builtinMemoryName, enabled: true),
+        _builtinServer(_builtinMemoryId, _builtinMemoryName, enabled: false),
       );
     }
     _servers = next;
