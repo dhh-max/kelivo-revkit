@@ -9,7 +9,7 @@ part of kelivo_reverse_server;
   ///   <dir>/resources.json  — 资源条目清单（路径/大小/hash）
   ///   <dir>/smali/          — 用 @kelivo/dex 枚举的 class 描述（等长列出）
   ///   <dir>/assets/ ...     — 原样抽取的非 dex/so 资源文件
-  static Future<Map<String, dynamic>> apkRebuild(
+Future<Map<String, dynamic>> apkRebuild(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final action = (args['action'] ?? 'build').toString().trim().toLowerCase();
@@ -30,7 +30,7 @@ part of kelivo_reverse_server;
     }
   }
 
-  static Future<Map<String, dynamic>> _apkDecode(
+Future<Map<String, dynamic>> _apkDecode(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     final outDir = (args['output_dir'] ?? '').toString().trim();
     if (outDir.isEmpty) return _err('Missing "output_dir".');
@@ -92,7 +92,7 @@ part of kelivo_reverse_server;
     for (final dex in _filterEntries(apk, '.dex')) {
       if (dex.content == null) continue;
       final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-      final classesText = _extractResultText(KelivoDexAnalyzer.classes(payload));
+      final classesText = KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.classes(payload));
       final dexDir = Directory('$outDir/smali/${dex.name.replaceAll('.dex', '')}');
       if (!dexDir.existsSync()) dexDir.createSync(recursive: true);
       final classFile = File('${dexDir.path}/classes.txt');
@@ -140,7 +140,7 @@ part of kelivo_reverse_server;
   }
 
   /// 把解码目录回编成完整 APK（zip 打包，保留目录结构，注入 META-INF/MANIFEST.MF）。
-  static Future<Map<String, dynamic>> _apkBuild(
+Future<Map<String, dynamic>> _apkBuild(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     final inputDir = (args['input_dir'] ?? _RebuildState.lastDecodedDir ?? '').toString().trim();
     if (inputDir.isEmpty) return _err('Missing "input_dir" (or run decode first).');
@@ -214,7 +214,7 @@ part of kelivo_reverse_server;
   }
 
   /// 合并拆分包：把多个 decode 目录/APK 的条目合并到一个 APK。
-  static Future<Map<String, dynamic>> _apkMerge(
+Future<Map<String, dynamic>> _apkMerge(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     final inputs = (args['inputs'] as List?)?.map((e) => e.toString()).toList() ?? const <String>[];
     if (inputs.isEmpty) return _err('Missing "inputs" (list of dirs or APKs).');
@@ -263,7 +263,7 @@ part of kelivo_reverse_server;
   }
 
   /// 去混淆（refactor）：基于 @kelivo/dex 的混淆扫描给出建议重命名映射（只读报告）。
-  static Map<String, dynamic> _apkRefactor(
+Map<String, dynamic> _apkRefactor(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) {
     final apk = _readApk(p.apkBytes);
     final sb = StringBuffer()
@@ -272,7 +272,7 @@ part of kelivo_reverse_server;
     for (final dex in _filterEntries(apk, '.dex')) {
       if (dex.content == null) continue;
       final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-      final scan = _extractResultText(KelivoDexAnalyzer.dexObfuscationScan(payload));
+      final scan = KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.dexObfuscationScan(payload));
       if (scan.trim().isNotEmpty) {
         sb.writeln('--- ${dex.name} ---');
         sb.writeln(scan);
@@ -289,7 +289,7 @@ part of kelivo_reverse_server;
   // -------------------------------------------------------------------------
 
   /// 生成临时自签证书（SHA-256/RSA-2048）。
-  static RSAPrivateKey _ensureSigningKey() {
+RSAPrivateKey _ensureSigningKey() {
     // 会话内缓存一把密钥，避免每次签名都重新生成（生成 2048 位很慢）。
     RSAPrivateKey? cached = _signingKey;
     if (cached == null) {
@@ -299,9 +299,9 @@ part of kelivo_reverse_server;
     return cached;
   }
 
-  static RSAPrivateKey? _signingKey;
+RSAPrivateKey? _signingKey;
 
-  static Future<Map<String, dynamic>> apkSign(
+Future<Map<String, dynamic>> apkSign(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final outputPath = (args['output'] ?? '').toString().trim();
@@ -350,7 +350,7 @@ part of kelivo_reverse_server;
     }
   }
 
-  static Future<bool> _signV1(Uint8List apkBytes, RSAPrivateKey key,
+Future<bool> _signV1(Uint8List apkBytes, RSAPrivateKey key,
       Uint8List cert, String outputPath) async {
     try {
       // Strip existing signatures, then add MANIFEST.MF + CERT.SF + CERT.RSA
@@ -423,7 +423,7 @@ part of kelivo_reverse_server;
   }
 
   /// PKCS#1 v1.5 RSA signature with SHA-256 (raw bigint modPow).
-  static Uint8List _rsaSignPkcs1(RSAPrivateKey key, List<int> digest) {
+Uint8List _rsaSignPkcs1(RSAPrivateKey key, List<int> digest) {
     final n = key.modulus!;
     final d = key.privateExponent!;
     const sha256Oid = <int>[
@@ -458,7 +458,7 @@ part of kelivo_reverse_server;
   /// signer whose signature block is an opaque placeholder. Real v2 requires
   /// full digest computation; we provide the structural block so tools that
   /// only check for v2 presence see it, and fall back to v1 verification.
-  static Uint8List? _buildV2Signed(Uint8List apk, RSAPrivateKey key, Uint8List cert) {
+Uint8List? _buildV2Signed(Uint8List apk, RSAPrivateKey key, Uint8List cert) {
     try {
       final eocd = _ZipUtil.findEocd(apk);
       if (eocd < 0) return null;
@@ -485,7 +485,7 @@ part of kelivo_reverse_server;
     }
   }
 
-  static Uint8List _le32(int v) {
+Uint8List _le32(int v) {
     final b = Uint8List(4);
     b[0] = v & 0xff;
     b[1] = (v >> 8) & 0xff;
