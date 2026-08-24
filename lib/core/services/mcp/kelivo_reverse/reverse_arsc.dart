@@ -318,9 +318,8 @@ class _ArscParser {
     final config = _parseConfig(off + 20);
     final configDesc = _configDesc(config);
 
-    var pOffsets = off + 20 + (config['size'] ?? 0);
+    var pOffsets = off + 20 + ((config['size'] ?? 0) as int);
     pOffsets = (pOffsets + 3) & ~3;
-
     final entryOffsets = <int>[];
     for (var i = 0; i < entryCount; i++) {
       entryOffsets.add(bd.getUint32(pOffsets, Endian.little));
@@ -498,7 +497,7 @@ class _ArscParser {
     if (lastResult == null) return [];
     final out = <String>{};
     for (final p in lastResult!['packages'] as List) {
-      out.addAll((p as Map<String, dynamic>)['type_strings'] as List);
+      out.addAll(((p as Map<String, dynamic>)['type_strings'] as List).cast<String>());
     }
     return out.toList()..sort();
   }

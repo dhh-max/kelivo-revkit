@@ -304,19 +304,19 @@ class KelivoReverseMcpServerEngine implements KelivoInMemoryMcpServerEngine {
 
             // ---- resources.arsc parser (移植自 resource_parser.py) ----
             case 'reverse_arsc_parse':
-              final arscParser = _ArscParser(payload!.arscBytes);
+              final arscParser = _ArscParser(payload!.arscBytes!);
               return _ok(id, result: arscParser.parse());
             case 'reverse_arsc_packages':
-              final arscParser = _ArscParser(payload!.arscBytes);
+              final arscParser = _ArscParser(payload!.arscBytes!);
               arscParser.parse();
               return _ok(id, result: {'packages': arscParser.getPackageNames()});
             case 'reverse_arsc_resources':
-              final arscParser = _ArscParser(payload!.arscBytes);
+              final arscParser = _ArscParser(payload!.arscBytes!);
               arscParser.parse();
               final res = arscParser.getResources();
               return _ok(id, result: {'count': res.length, 'resources': res.take(500).toList()});
             case 'reverse_arsc_find':
-              final arscParser = _ArscParser(payload!.arscBytes);
+              final arscParser = _ArscParser(payload!.arscBytes!);
               arscParser.parse();
               final resId = int.parse(arguments['res_id'] as String, radix: 16);
               return _ok(id, result: arscParser.findResource(resId) ?? {'error': 'not found'});
@@ -374,29 +374,29 @@ class KelivoReverseMcpServerEngine implements KelivoInMemoryMcpServerEngine {
 
             // ---- Native SO advanced patching (移植自 patching/native_patcher.py) ----
             case 'reverse_native_detect_arch':
-              return _ok(id, result: {'arch': _NativePatcher.detectArch(payload!.soBytes, arguments['offset'] as int? ?? 0)});
+              return _ok(id, result: {'arch': _NativePatcher.detectArch(payload!.soBytes!, arguments['offset'] as int? ?? 0)});
             case 'reverse_native_patch_hex':
-              return _ok(id, result: {'result': _NativePatcher.patchHex(payload!.soBytes, arguments['old'] as String, arguments['new'] as String)});
+              return _ok(id, result: {'result': _NativePatcher.patchHex(payload!.soBytes!, arguments['old'] as String, arguments['new'] as String)});
             case 'reverse_native_patch_hex_at':
-              return _ok(id, result: {'result': _NativePatcher.patchHexAt(payload!.soBytes, arguments['offset'] as int, arguments['hex'] as String)});
+              return _ok(id, result: {'result': _NativePatcher.patchHexAt(payload!.soBytes!, arguments['offset'] as int, arguments['hex'] as String)});
             case 'reverse_native_patch_string':
-              return _ok(id, result: {'result': _NativePatcher.patchString(payload!.soBytes, arguments['old'] as String, arguments['new'] as String, maxReplace: arguments['max_replace'] as int? ?? 1)});
+              return _ok(id, result: {'result': _NativePatcher.patchString(payload!.soBytes!, arguments['old'] as String, arguments['new'] as String, maxReplace: arguments['max_replace'] as int? ?? 1)});
             case 'reverse_native_nop_out':
-              return _ok(id, result: {'result': _NativePatcher.nopOut(payload!.soBytes, arguments['offset'] as int, arguments['count'] as int, arch: arguments['arch'] as String? ?? 'aarch64')});
+              return _ok(id, result: {'result': _NativePatcher.nopOut(payload!.soBytes!, arguments['offset'] as int, arguments['count'] as int, arch: arguments['arch'] as String? ?? 'aarch64')});
             case 'reverse_native_branch_to_ret':
-              return _ok(id, result: {'result': _NativePatcher.patchBranchToRet(payload!.soBytes, arguments['offset'] as int, arch: arguments['arch'] as String? ?? 'aarch64')});
+              return _ok(id, result: {'result': _NativePatcher.patchBranchToRet(payload!.soBytes!, arguments['offset'] as int, arch: arguments['arch'] as String? ?? 'aarch64')});
             case 'reverse_native_branch_to_mov':
-              return _ok(id, result: {'result': _NativePatcher.patchBranchToMovR0(payload!.soBytes, arguments['offset'] as int, arguments['value'] as int? ?? 0, arch: arguments['arch'] as String? ?? 'aarch64')});
+              return _ok(id, result: {'result': _NativePatcher.patchBranchToMovR0(payload!.soBytes!, arguments['offset'] as int, arguments['value'] as int? ?? 0, arch: arguments['arch'] as String? ?? 'aarch64')});
             case 'reverse_native_patch_jni':
-              return _ok(id, result: {'result': _NativePatcher.patchJniFunction(payload!.soBytes, arguments['old'] as String, arguments['new'] as String)});
+              return _ok(id, result: {'result': _NativePatcher.patchJniFunction(payload!.soBytes!, arguments['old'] as String, arguments['new'] as String)});
             case 'reverse_native_patch_elf_entry':
-              return _ok(id, result: {'result': _NativePatcher.patchElfEntrypoint(payload!.soBytes, arguments['entry'] as int)});
+              return _ok(id, result: {'result': _NativePatcher.patchElfEntrypoint(payload!.soBytes!, arguments['entry'] as int)});
             case 'reverse_native_patch_branch':
-              return _ok(id, result: {'result': _NativePatcher.patchArmBranch(payload!.soBytes, arguments['offset'] as int, arguments['target'] as int, bl: arguments['bl'] as bool? ?? false, arch: arguments['arch'] as String? ?? 'aarch64')});
+              return _ok(id, result: {'result': _NativePatcher.patchArmBranch(payload!.soBytes!, arguments['offset'] as int, arguments['target'] as int, bl: arguments['bl'] as bool? ?? false, arch: arguments['arch'] as String? ?? 'aarch64')});
             case 'reverse_native_find_pattern':
-              return _ok(id, result: {'offsets': _NativePatcher.findPattern(payload!.soBytes, arguments['hex'] as String)});
+              return _ok(id, result: {'offsets': _NativePatcher.findPattern(payload!.soBytes!, arguments['hex'] as String)});
             case 'reverse_native_find_string':
-              return _ok(id, result: {'offsets': _NativePatcher.findStringOffsets(payload!.soBytes, arguments['string'] as String)});
+              return _ok(id, result: {'offsets': _NativePatcher.findStringOffsets(payload!.soBytes!, arguments['string'] as String)});
 
             // ---- Smali advanced patching (移植自 patching/smali_patcher.py) ----
             case 'reverse_smali_insert_method':
@@ -1252,7 +1252,7 @@ class KelivoReverseMcpServerEngine implements KelivoInMemoryMcpServerEngine {
       },
       {
         'name': 'reverse_dex_resource_ref',
-        'description': 'DEX 资源引用分析：统计 R$layout/R$id/R$drawable 等 11 类资源引用计数，检测硬编码 Resource ID（0x7f*），评估资源混淆程度。',
+        'description': 'DEX 资源引用分析：统计 R\$layout/R\$id/R\$drawable 等 11 类资源引用计数，检测硬编码 Resource ID（0x7f*），评估资源混淆程度。',
         'inputSchema': baseSchema(),
       },
       {

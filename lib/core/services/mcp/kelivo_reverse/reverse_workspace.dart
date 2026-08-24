@@ -28,14 +28,14 @@ class _Workspace {
     await Directory('$dir/results').create(recursive: true);
     await Directory('$dir/artifacts').create(recursive: true);
 
-    String? sha256;
+    String? apkSha256;
     int? size;
     if (apkPath != null) {
       final f = File(apkPath);
       if (await f.exists()) {
         size = await f.length();
         final bytes = await f.readAsBytes();
-        sha256 = sha256$1.convert(bytes).toString();
+        apkSha256 = sha256.convert(bytes).toString();
       }
     }
 
@@ -45,7 +45,7 @@ class _Workspace {
       'description': description,
       'apk': {
         'path': apkPath,
-        'sha256': sha256,
+        'sha256': apkSha256,
         'size': size,
       },
     };

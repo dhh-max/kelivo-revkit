@@ -21,7 +21,7 @@ class _ApkFileOps {
   }
 
   /// 从 APK 中删除指定文件，输出新 APK
-  static Map<String, dynamic> deleteFiles(
+  static Future<Map<String, dynamic>> deleteFiles(
       Uint8List apkBytes, List<String> filePaths, String outputPath) async {
     final fileSet = filePaths.toSet();
     final srcArchive = ZipDecoder().decodeBytes(apkBytes);
@@ -209,7 +209,7 @@ class _ApkFileOps {
       final content = f.content;
       if (content is Uint8List) {
         await outFile.writeAsBytes(content);
-        totalSize += content.length;
+        totalSize += content.length as int;
       }
       extracted.add(f.name);
     }

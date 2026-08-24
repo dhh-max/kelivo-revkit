@@ -258,7 +258,7 @@ class _NativePatcher {
   static Uint8List findAndNopJniCalls(
       Uint8List data, String jniFuncName) {
     final nameBytes = Uint8List.fromList(jniFuncName.codeUnits);
-    final nullBytes = Uint8List.filled(nameBytes.length, 0);
+    final nullBytes = Uint8List(nameBytes.length);
     final result = Uint8List.fromList(data);
     var idx = _indexOf(result, nameBytes);
     while (idx >= 0) {
