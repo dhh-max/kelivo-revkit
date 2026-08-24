@@ -1,7 +1,7 @@
 part of kelivo_reverse_server;
 
   // ---- helpers ----
-  static Map<String, dynamic> _ok(String text) => {
+Map<String, dynamic> _ok(String text) => {
         'content': [
           {'type': 'text', 'text': text},
         ],
@@ -9,7 +9,7 @@ part of kelivo_reverse_server;
         'isError': false,
       };
 
-  static Map<String, dynamic> _err(String message) => {
+Map<String, dynamic> _err(String message) => {
         'content': [
           {'type': 'text', 'text': message},
         ],
@@ -20,7 +20,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_axml_edit — AXML 编码/替换 (纯 Dart)
   // =========================================================================
-  static Future<Map<String, dynamic>> axmlEdit(
+Future<Map<String, dynamic>> axmlEdit(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final action = (args['action'] ?? 'encode').toString().trim().toLowerCase();
@@ -37,11 +37,11 @@ part of kelivo_reverse_server;
     }
   }
 
-  static Map<String, dynamic> _axmlEncodeAction(
+Map<String, dynamic> _axmlEncodeAction(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) {
     final xmlText = (args['xml'] ?? '').toString();
     if (xmlText.isEmpty) return _err('Missing "xml" (text XML to encode).');
-    final encoded = encodeAxml(xmlText);
+    final encoded = KelivoReverseAnalyzer.encodeAxml(xmlText);
     if (encoded == null) return _err('AXML encoding failed.');
     final outputPath = (args['output'] ?? '').toString().trim();
     final sb = StringBuffer()
@@ -55,14 +55,14 @@ part of kelivo_reverse_server;
     return _ok(sb.toString().trimRight());
   }
 
-  static Future<Map<String, dynamic>> _axmlReplaceAction(
+Future<Map<String, dynamic>> _axmlReplaceAction(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     final xmlText = (args['xml'] ?? '').toString();
     if (xmlText.isEmpty) return _err('Missing "xml" (new manifest text).');
     final outputPath = (args['output'] ?? '').toString().trim();
     if (outputPath.isEmpty) return _err('Missing "output" path.');
 
-    final encoded = encodeAxml(xmlText);
+    final encoded = KelivoReverseAnalyzer.encodeAxml(xmlText);
     if (encoded == null) return _err('AXML encoding failed.');
 
     // Replace AndroidManifest.xml inside the APK
@@ -96,7 +96,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_manifest_edit — Manifest 属性增删改 (文本 XML 级)
   // =========================================================================
-  static Future<Map<String, dynamic>> manifestEdit(
+Future<Map<String, dynamic>> manifestEdit(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       // 1. Decode existing manifest to text
@@ -143,7 +143,7 @@ part of kelivo_reverse_server;
       }
 
       // 3. Re-encode to binary AXML
-      final encoded = encodeAxml(xmlText);
+      final encoded = KelivoReverseAnalyzer.encodeAxml(xmlText);
       if (encoded == null) return _err('AXML re-encoding failed.');
 
       // 4. Replace in APK
@@ -182,7 +182,7 @@ part of kelivo_reverse_server;
     }
   }
 
-  static String _manifestSetAttr(String xml, String attr, String val) {
+String _manifestSetAttr(String xml, String attr, String val) {
     final pattern = RegExp('android:$attr="(?:true|false|[^"]*)"');
     if (pattern.hasMatch(xml)) {
       return xml.replaceAll(pattern, 'android:$attr="$val"');
@@ -194,7 +194,7 @@ part of kelivo_reverse_server;
     );
   }
 
-  static String _manifestSetExported(String xml, String component, bool exported) {
+String _manifestSetExported(String xml, String component, bool exported) {
     final val = exported ? 'true' : 'false';
     for (final tag in ['activity', 'service', 'receiver', 'provider']) {
       final pattern = RegExp(
@@ -225,7 +225,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_smali_patch — Smali 指令级修补 (正则)
   // =========================================================================
-  static Future<Map<String, dynamic>> smaliPatch(
+Future<Map<String, dynamic>> smaliPatch(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final action = (args['action'] ?? 'find_replace').toString().trim().toLowerCase();
@@ -239,7 +239,7 @@ part of kelivo_reverse_server;
 
       // Get smali via @kelivo/dex
       final dexPayload = KelivoDexRequestPayload(bytes: dexEntry!.content!, limit: 99999);
-      final smaliText = _extractResultText(KelivoDexAnalyzer.classes(dexPayload));
+      final smaliText = KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.classes(dexPayload));
 
       final sb = StringBuffer()..writeln('=== Smali Patch ===\n');
 
@@ -321,7 +321,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_zipalign — 纯 Dart 4 字节对齐
   // =========================================================================
-  static Future<Map<String, dynamic>> zipalign(
+Future<Map<String, dynamic>> zipalign(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final outputPath = (args['output'] ?? '').toString().trim();
@@ -364,7 +364,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_hook_gen — Frida/Xposed/Smali Hook 脚本生成
   // =========================================================================
-  static Future<Map<String, dynamic>> hookGen(
+Future<Map<String, dynamic>> hookGen(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final targetClass = (args['target_class'] ?? '').toString();
@@ -513,7 +513,7 @@ part of kelivo_reverse_server;
     }
   }
 
-  static String _fridaBypassRoot() => '''    // ── Root检测绕过 ──
+String _fridaBypassRoot() => '''    // ── Root检测绕过 ──
     var rootChecks = ["su", "/system/bin/su", "/system/xbin/su",
                       "test-keys", "magisk"];
     rootChecks.forEach(function(check) {
@@ -527,13 +527,13 @@ part of kelivo_reverse_server;
         } catch(e) {}
     });''';
 
-  static String _fridaBypassDebug() => '''    // ── 反调试绕过 ──
+String _fridaBypassDebug() => '''    // ── 反调试绕过 ──
     try {
         var Debug = Java.use("android.os.Debug");
         Debug.isDebuggerConnected.implementation = function() { return false; };
     } catch(e) {}''';
 
-  static String _fridaBypassSsl() => '''    // ── SSL Pinning绕过 ──
+String _fridaBypassSsl() => '''    // ── SSL Pinning绕过 ──
     try {
         var X509TrustManager = Java.use("javax.net.ssl.X509TrustManager");
         var SSLContext = Java.use("javax.net.ssl.SSLContext");
@@ -555,7 +555,7 @@ part of kelivo_reverse_server;
         };
     } catch(e) {}''';
 
-  static String _fridaBypassSignature() => '''    // ── 签名校验绕过 ──
+String _fridaBypassSignature() => '''    // ── 签名校验绕过 ──
     try {
         var PackageManager = Java.use("android.app.PackageManager");
         PackageManager.getPackageInfo.overload("java.lang.String", "int").implementation = function(name, flags) {
@@ -566,7 +566,7 @@ part of kelivo_reverse_server;
         };
     } catch(e) {}''';
 
-  static String _fridaBypassEmulator() => '''    // ── 模拟器检测绕过 ──
+String _fridaBypassEmulator() => '''    // ── 模拟器检测绕过 ──
     try {
         var Build = Java.use("android.os.Build");
         Build.MODEL.value = "Pixel 6";
@@ -578,7 +578,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_dex_merge — 多 DEX 条目级合并 (简单拼接)
   // =========================================================================
-  static Future<Map<String, dynamic>> dexMerge(
+Future<Map<String, dynamic>> dexMerge(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final outputPath = (args['output'] ?? '').toString().trim();
@@ -593,7 +593,7 @@ part of kelivo_reverse_server;
         ..writeln('DEX files: ${dexEntries.length}');
 
       for (final d in dexEntries) {
-        sb.writeln('  ${d.name} (${_formatSize(d.size)})');
+        sb.writeln('  ${d.name} (${KelivoReverseAnalyzer._formatSize(d.size)})');
       }
 
       if (dexEntries.length == 1) {
@@ -631,7 +631,7 @@ part of kelivo_reverse_server;
       if (outBytes == null) return _err('Failed to encode merged APK.');
       await File(outputPath).writeAsBytes(outBytes);
 
-      sb.writeln('\nMerged size: ${_formatSize(mergedBytes.length)}');
+      sb.writeln('\nMerged size: ${KelivoReverseAnalyzer._formatSize(mergedBytes.length)}');
       sb.writeln('Output: $outputPath');
       sb.writeln('⚠️ Simple byte concatenation. For proper merge, use dex-merger.');
       sb.writeln('⚠️ Unsigned. Run reverse_apk_sign next.');
@@ -644,7 +644,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_anti_analysis — 反分析检测 (反调试/反Root/反模拟器/完整性/反Hook/反VPN/反虚拟化)
   // =========================================================================
-  static Future<Map<String, dynamic>> antiAnalysis(
+Future<Map<String, dynamic>> antiAnalysis(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -655,7 +655,7 @@ part of kelivo_reverse_server;
       for (final dex in _filterEntries(apk, '.dex')) {
         if (dex.content == null) continue;
         final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-        final text = _extractResultText(KelivoDexAnalyzer.classes(payload));
+        final text = KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.classes(payload));
         allText.add(text);
       }
 
@@ -664,7 +664,7 @@ part of kelivo_reverse_server;
         if (so.content == null) continue;
         try {
           final soPayload = KelivoSoRequestPayload(bytes: so.content!);
-          final soText = _extractResultText(KelivoSoAnalyzer.strings(soPayload));
+          final soText = KelivoReverseAnalyzer._extractResultText(KelivoSoAnalyzer.strings(soPayload));
           allText.add(soText);
         } catch (_) {}
       }
@@ -785,7 +785,7 @@ part of kelivo_reverse_server;
     }
   }
 
-  static List<Map<String, dynamic>> _scanPatterns(String text, List<List<String>> patterns) {
+List<Map<String, dynamic>> _scanPatterns(String text, List<List<String>> patterns) {
     final findings = <Map<String, dynamic>>[];
     final seen = <String>{};
     for (final p in patterns) {
@@ -806,7 +806,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_callgraph — DEX 调用图构建 (正向/反向可达性 + 热点 + 递归)
   // =========================================================================
-  static Future<Map<String, dynamic>> callgraphBuild(
+Future<Map<String, dynamic>> callgraphBuild(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final dexPath = (args['dex_path'] ?? 'classes.dex').toString().trim();
@@ -822,7 +822,7 @@ part of kelivo_reverse_server;
       if (dexEntry?.content == null) return _err('DEX not found: $dexPath');
 
       final dexPayload = KelivoDexRequestPayload(bytes: dexEntry!.content!, limit: 99999);
-      final classesText = _extractResultText(KelivoDexAnalyzer.classes(dexPayload));
+      final classesText = KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.classes(dexPayload));
 
       final sb = StringBuffer()..writeln('=== Call Graph ===\n');
       sb.writeln('DEX: $dexPath');
@@ -898,7 +898,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_crypto_analyzer — 加密深度分析
   // =========================================================================
-  static Future<Map<String, dynamic>> cryptoAnalyze(
+Future<Map<String, dynamic>> cryptoAnalyze(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -908,13 +908,13 @@ part of kelivo_reverse_server;
       for (final dex in _filterEntries(apk, '.dex')) {
         if (dex.content == null) continue;
         final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-        allText.add(_extractResultText(KelivoDexAnalyzer.classes(payload)));
+        allText.add(KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.classes(payload)));
       }
       for (final so in _filterEntries(apk, '.so')) {
         if (so.content == null) continue;
         try {
           final soPayload = KelivoSoRequestPayload(bytes: so.content!);
-          allText.add(_extractResultText(KelivoSoAnalyzer.strings(soPayload)));
+          allText.add(KelivoReverseAnalyzer._extractResultText(KelivoSoAnalyzer.strings(soPayload)));
         } catch (_) {}
       }
       final combined = allText.join('\n');
@@ -1037,7 +1037,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_dataflow — DEX 数据流分析 (污点追踪 + 常量传播)
   // =========================================================================
-  static Future<Map<String, dynamic>> dataflowAnalyze(
+Future<Map<String, dynamic>> dataflowAnalyze(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final dexPath = (args['dex_path'] ?? 'classes.dex').toString().trim();
@@ -1052,7 +1052,7 @@ part of kelivo_reverse_server;
       if (dexEntry?.content == null) return _err('DEX not found: $dexPath');
 
       final dexPayload = KelivoDexRequestPayload(bytes: dexEntry!.content!, limit: 99999);
-      final classesText = _extractResultText(KelivoDexAnalyzer.classes(dexPayload));
+      final classesText = KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.classes(dexPayload));
 
       final sb = StringBuffer()..writeln('=== DEX Data Flow Analysis ===\n');
       sb.writeln('DEX: $dexPath');
@@ -1133,7 +1133,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_dex_metadata — DEX 元数据分析 (注解/Debug/Hidden API/序列化)
   // =========================================================================
-  static Future<Map<String, dynamic>> dexMetadata(
+Future<Map<String, dynamic>> dexMetadata(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final dexPath = (args['dex_path'] ?? 'classes.dex').toString().trim();
@@ -1145,7 +1145,7 @@ part of kelivo_reverse_server;
       if (dexEntry?.content == null) return _err('DEX not found: $dexPath');
 
       final dexPayload = KelivoDexRequestPayload(bytes: dexEntry!.content!, limit: 99999);
-      final classesText = _extractResultText(KelivoDexAnalyzer.classes(dexPayload));
+      final classesText = KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.classes(dexPayload));
 
       final sb = StringBuffer()..writeln('=== DEX Metadata ===\n');
       sb.writeln('DEX: $dexPath');
@@ -1235,7 +1235,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_multidex — 多 DEX 关联分析 (分布/跨引用/重复)
   // =========================================================================
-  static Future<Map<String, dynamic>> multidexAnalyze(
+Future<Map<String, dynamic>> multidexAnalyze(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -1251,7 +1251,7 @@ part of kelivo_reverse_server;
       for (final dex in dexEntries) {
         if (dex.content == null) continue;
         final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-        final text = _extractResultText(KelivoDexAnalyzer.classes(payload));
+        final text = KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.classes(payload));
         final classCount = text.split('\n').where((l) => l.trim().isNotEmpty).length;
         sb.writeln('  ${dex.name}: $classCount classes');
 
@@ -1278,7 +1278,7 @@ part of kelivo_reverse_server;
       for (final dex in dexEntries) {
         if (dex.content == null) continue;
         final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-        final text = _extractResultText(KelivoDexAnalyzer.classes(payload));
+        final text = KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.classes(payload));
         dexClassSets[dex.name] = text.split('\n').map((l) => l.trim()).where((l) => l.isNotEmpty).toSet();
       }
 
@@ -1286,7 +1286,7 @@ part of kelivo_reverse_server;
       for (final dex in dexEntries) {
         if (dex.content == null) continue;
         final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-        final text = _extractResultText(KelivoDexAnalyzer.classes(payload));
+        final text = KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.classes(payload));
         final localClasses = dexClassSets[dex.name] ?? {};
 
         for (final otherDex in dexClassSets.keys) {
@@ -1330,7 +1330,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_native_xref — Native-Java 交叉引用分析
   // =========================================================================
-  static Future<Map<String, dynamic>> nativeXref(
+Future<Map<String, dynamic>> nativeXref(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -1341,7 +1341,7 @@ part of kelivo_reverse_server;
       for (final dex in _filterEntries(apk, '.dex')) {
         if (dex.content == null) continue;
         final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-        final text = _extractResultText(KelivoDexAnalyzer.classes(payload));
+        final text = KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.classes(payload));
         // Look for native method patterns in class listing
         final nativeMatches = RegExp(r'(L[\w/]+;)\.(\w+)\s*\([^)]*\)\s*native', caseSensitive: false)
             .allMatches(text);
@@ -1373,7 +1373,7 @@ part of kelivo_reverse_server;
         if (so.content == null) continue;
         try {
           final soPayload = KelivoSoRequestPayload(bytes: so.content!);
-          final soText = _extractResultText(KelivoSoAnalyzer.exports(soPayload));
+          final soText = KelivoReverseAnalyzer._extractResultText(KelivoSoAnalyzer.exports(soPayload));
           final jniSyms = <String>[];
           for (final line in soText.split('\n')) {
             final trimmed = line.trim();
@@ -1440,7 +1440,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_vuln_scan — 安全漏洞扫描 (11类)
   // =========================================================================
-  static Future<Map<String, dynamic>> vulnScan(
+Future<Map<String, dynamic>> vulnScan(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -1451,7 +1451,7 @@ part of kelivo_reverse_server;
       for (final dex in _filterEntries(apk, '.dex')) {
         if (dex.content == null) continue;
         final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-        allText.add(_extractResultText(KelivoDexAnalyzer.classes(payload)));
+        allText.add(KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.classes(payload)));
       }
       final combined = allText.join('\n');
 
@@ -1610,7 +1610,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_privacy_audit — 隐私风险评估
   // =========================================================================
-  static Future<Map<String, dynamic>> privacyAudit(
+Future<Map<String, dynamic>> privacyAudit(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -1620,7 +1620,7 @@ part of kelivo_reverse_server;
       for (final dex in _filterEntries(apk, '.dex')) {
         if (dex.content == null) continue;
         final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-        allText.add(_extractResultText(KelivoDexAnalyzer.classes(payload)));
+        allText.add(KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.classes(payload)));
       }
       final combined = allText.join('\n');
 
@@ -1747,7 +1747,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_sdk_detect — 第三方 SDK/追踪器检测
   // =========================================================================
-  static Future<Map<String, dynamic>> sdkDetect(
+Future<Map<String, dynamic>> sdkDetect(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -1757,7 +1757,7 @@ part of kelivo_reverse_server;
       for (final dex in _filterEntries(apk, '.dex')) {
         if (dex.content == null) continue;
         final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-        allText.add(_extractResultText(KelivoDexAnalyzer.classes(payload)));
+        allText.add(KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.classes(payload)));
       }
       final combined = allText.join('\n');
 
@@ -1853,7 +1853,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_endpoint_extract — 网络端点提取
   // =========================================================================
-  static Future<Map<String, dynamic>> endpointExtract(
+Future<Map<String, dynamic>> endpointExtract(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -1863,14 +1863,14 @@ part of kelivo_reverse_server;
       for (final dex in _filterEntries(apk, '.dex')) {
         if (dex.content == null) continue;
         final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-        allText.add(_extractResultText(KelivoDexAnalyzer.classes(payload)));
+        allText.add(KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.classes(payload)));
       }
       // Also search SO strings
       for (final so in _filterEntries(apk, '.so')) {
         if (so.content == null) continue;
         try {
           final soPayload = KelivoSoRequestPayload(bytes: so.content!);
-          allText.add(_extractResultText(KelivoSoAnalyzer.strings(soPayload)));
+          allText.add(KelivoReverseAnalyzer._extractResultText(KelivoSoAnalyzer.strings(soPayload)));
         } catch (_) {}
       }
       final combined = allText.join('\n');
@@ -1956,7 +1956,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_social_login — 社交登录检测
   // =========================================================================
-  static Future<Map<String, dynamic>> socialLoginDetect(
+Future<Map<String, dynamic>> socialLoginDetect(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -1966,7 +1966,7 @@ part of kelivo_reverse_server;
       for (final dex in _filterEntries(apk, '.dex')) {
         if (dex.content == null) continue;
         final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-        allText.add(_extractResultText(KelivoDexAnalyzer.classes(payload)));
+        allText.add(KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.classes(payload)));
       }
       final combined = allText.join('\n');
 
@@ -2036,7 +2036,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_apk_size — APK 体积分析
   // =========================================================================
-  static Future<Map<String, dynamic>> apkSize(
+Future<Map<String, dynamic>> apkSize(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -2118,7 +2118,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_security_score — 综合安全评分
   // =========================================================================
-  static Future<Map<String, dynamic>> securityScore(
+Future<Map<String, dynamic>> securityScore(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -2135,7 +2135,7 @@ part of kelivo_reverse_server;
       for (final dex in _filterEntries(apk, '.dex')) {
         if (dex.content == null) continue;
         final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-        allText.add(_extractResultText(KelivoDexAnalyzer.classes(payload)));
+        allText.add(KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.classes(payload)));
       }
       final combined = allText.join('\n');
 
@@ -2244,7 +2244,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_string_analyze — DEX 字符串深度分析
   // =========================================================================
-  static Future<Map<String, dynamic>> stringAnalyze(
+Future<Map<String, dynamic>> stringAnalyze(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -2255,7 +2255,7 @@ part of kelivo_reverse_server;
       for (final dex in _filterEntries(apk, '.dex')) {
         if (dex.content == null) continue;
         final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-        final text = _extractResultText(KelivoDexAnalyzer.strings(payload));
+        final text = KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.strings(payload));
         for (final line in text.split('\n')) {
           final s = line.trim();
           if (s.isNotEmpty && s.length >= 3) allStrings.add(s);
@@ -2383,7 +2383,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_key_scan — 密钥/凭证深度扫描
   // =========================================================================
-  static Future<Map<String, dynamic>> keyScan(
+Future<Map<String, dynamic>> keyScan(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -2489,7 +2489,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_cert_deep — 证书深度分析
   // =========================================================================
-  static Future<Map<String, dynamic>> certDeep(
+Future<Map<String, dynamic>> certDeep(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -2618,7 +2618,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_sig_scheme — APK 签名方案检测
   // =========================================================================
-  static Future<Map<String, dynamic>> sigScheme(
+Future<Map<String, dynamic>> sigScheme(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -2700,7 +2700,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_deobfuscate — 自动化去混淆分析
   // =========================================================================
-  static Future<Map<String, dynamic>> deobfuscate(
+Future<Map<String, dynamic>> deobfuscate(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -2834,7 +2834,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_code_analyze — 深度代码分析
   // =========================================================================
-  static Future<Map<String, dynamic>> codeAnalyze(
+Future<Map<String, dynamic>> codeAnalyze(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -2963,7 +2963,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_resource_analyze — APK 资源分析
   // =========================================================================
-  static Future<Map<String, dynamic>> resourceAnalyze(
+Future<Map<String, dynamic>> resourceAnalyze(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -3061,7 +3061,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_resource_obfuscation — 资源混淆检测
   // =========================================================================
-  static Future<Map<String, dynamic>> resourceObfuscation(
+Future<Map<String, dynamic>> resourceObfuscation(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -3136,7 +3136,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_apk_clean — APK 清理分析
   // =========================================================================
-  static Future<Map<String, dynamic>> apkClean(
+Future<Map<String, dynamic>> apkClean(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -3258,7 +3258,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_component_explore — 组件浏览器
   // =========================================================================
-  static Future<Map<String, dynamic>> componentExplore(
+Future<Map<String, dynamic>> componentExplore(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -3366,7 +3366,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_core_class_locate — 核心类定位
   // =========================================================================
-  static Future<Map<String, dynamic>> coreClassLocate(
+Future<Map<String, dynamic>> coreClassLocate(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -3377,7 +3377,7 @@ part of kelivo_reverse_server;
       for (final dex in _filterEntries(apk, '.dex')) {
         if (dex.content == null) continue;
         final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-        final text = _extractResultText(KelivoDexAnalyzer.classes(payload));
+        final text = KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.classes(payload));
 
         // Extract class names
         final classPattern = RegExp(r'(L[\w/$]+;)');
@@ -3443,7 +3443,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_ad_detect — 广告检测
   // =========================================================================
-  static Future<Map<String, dynamic>> adDetect(
+Future<Map<String, dynamic>> adDetect(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -3555,7 +3555,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_clue_chain — 跨模块线索串联分析
   // =========================================================================
-  static Future<Map<String, dynamic>> clueChain(
+Future<Map<String, dynamic>> clueChain(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -3723,7 +3723,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_api_usage — API 调用统计分析
   // =========================================================================
-  static Future<Map<String, dynamic>> apiUsage(
+Future<Map<String, dynamic>> apiUsage(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -3733,7 +3733,7 @@ part of kelivo_reverse_server;
       for (final dex in _filterEntries(apk, '.dex')) {
         if (dex.content == null) continue;
         final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-        allStrings.add(_extractResultText(KelivoDexAnalyzer.classes(payload)));
+        allStrings.add(KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.classes(payload)));
       }
       final combined = allStrings.join('\n');
 
@@ -3800,7 +3800,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_permission_trace — 权限使用追溯
   // =========================================================================
-  static Future<Map<String, dynamic>> permissionTrace(
+Future<Map<String, dynamic>> permissionTrace(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -3825,7 +3825,7 @@ part of kelivo_reverse_server;
       for (final dex in _filterEntries(apk, '.dex')) {
         if (dex.content == null) continue;
         final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-        allStrings.add(_extractResultText(KelivoDexAnalyzer.classes(payload)));
+        allStrings.add(KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.classes(payload)));
       }
       final combined = allStrings.join('\n');
 
@@ -3926,7 +3926,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_clone_detect — DEX 方法克隆检测
   // =========================================================================
-  static Future<Map<String, dynamic>> cloneDetect(
+Future<Map<String, dynamic>> cloneDetect(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -3943,7 +3943,7 @@ part of kelivo_reverse_server;
         if (dex.content == null) continue;
         final dexName = dex.name;
         final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-        final classesText = _extractResultText(KelivoDexAnalyzer.classes(payload));
+        final classesText = KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.classes(payload));
 
         // Parse class/method lines
         final lines = classesText.split('\n');
@@ -4020,7 +4020,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_network_analysis — 网络行为深度分析
   // =========================================================================
-  static Future<Map<String, dynamic>> networkAnalysis(
+Future<Map<String, dynamic>> networkAnalysis(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -4030,13 +4030,13 @@ part of kelivo_reverse_server;
       for (final dex in _filterEntries(apk, '.dex')) {
         if (dex.content == null) continue;
         final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-        allText.add(_extractResultText(KelivoDexAnalyzer.classes(payload)));
+        allText.add(KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.classes(payload)));
       }
       for (final so in _filterEntries(apk, '.so')) {
         if (so.content == null) continue;
         try {
           final soPayload = KelivoSoRequestPayload(bytes: so.content!);
-          allText.add(_extractResultText(KelivoSoAnalyzer.strings(soPayload)));
+          allText.add(KelivoReverseAnalyzer._extractResultText(KelivoSoAnalyzer.strings(soPayload)));
         } catch (_) {}
       }
       final combined = allText.join('\n');
@@ -4142,7 +4142,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_dex_lib_analysis — DEX 第三方库分析
   // =========================================================================
-  static Future<Map<String, dynamic>> dexLibAnalysis(
+Future<Map<String, dynamic>> dexLibAnalysis(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -4152,7 +4152,7 @@ part of kelivo_reverse_server;
       for (final dex in _filterEntries(apk, '.dex')) {
         if (dex.content == null) continue;
         final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-        final text = _extractResultText(KelivoDexAnalyzer.classes(payload));
+        final text = KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.classes(payload));
         allClassNames.addAll(RegExp(r'L[\w/$]+;').allMatches(text).map((m) => m.group(0)!));
       }
 
@@ -4242,7 +4242,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_dex_reflection — DEX 反射/动态加载分析
   // =========================================================================
-  static Future<Map<String, dynamic>> dexReflection(
+Future<Map<String, dynamic>> dexReflection(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -4300,7 +4300,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_dex_resource_ref — DEX 资源引用分析
   // =========================================================================
-  static Future<Map<String, dynamic>> dexResourceRef(
+Future<Map<String, dynamic>> dexResourceRef(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -4349,7 +4349,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_dex_serialization — DEX 序列化/持久化分析
   // =========================================================================
-  static Future<Map<String, dynamic>> dexSerialization(
+Future<Map<String, dynamic>> dexSerialization(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -4400,7 +4400,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_dex_string_pool — DEX 字符串常量池深度分析
   // =========================================================================
-  static Future<Map<String, dynamic>> dexStringPool(
+Future<Map<String, dynamic>> dexStringPool(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -4410,7 +4410,7 @@ part of kelivo_reverse_server;
       for (final dex in _filterEntries(apk, '.dex')) {
         if (dex.content == null) continue;
         final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-        final text = _extractResultText(KelivoDexAnalyzer.strings(payload));
+        final text = KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.strings(payload));
         for (final line in text.split('\n')) {
           final s = line.trim();
           if (s.isNotEmpty) allStrings.add(s);
@@ -4484,7 +4484,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_dex_obfuscation_scan — DEX 混淆特征扫描
   // =========================================================================
-  static Future<Map<String, dynamic>> dexObfuscationScan(
+Future<Map<String, dynamic>> dexObfuscationScan(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -4494,7 +4494,7 @@ part of kelivo_reverse_server;
       for (final dex in _filterEntries(apk, '.dex')) {
         if (dex.content == null) continue;
         final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-        final text = _extractResultText(KelivoDexAnalyzer.classes(payload));
+        final text = KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.classes(payload));
         allClassNames.addAll(RegExp(r'L[\w/$]+;').allMatches(text).map((m) => m.group(0)!));
       }
 
@@ -4543,7 +4543,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_dex_crypto — DEX 加密特征分析
   // =========================================================================
-  static Future<Map<String, dynamic>> dexCrypto(
+Future<Map<String, dynamic>> dexCrypto(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -4610,7 +4610,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_dex_class_density — DEX 类结构密度分析
   // =========================================================================
-  static Future<Map<String, dynamic>> dexClassDensity(
+Future<Map<String, dynamic>> dexClassDensity(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -4620,7 +4620,7 @@ part of kelivo_reverse_server;
       for (final dex in _filterEntries(apk, '.dex')) {
         if (dex.content == null) continue;
         final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-        final text = _extractResultText(KelivoDexAnalyzer.classes(payload));
+        final text = KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.classes(payload));
         allClassNames.addAll(RegExp(r'L[\w/$]+;').allMatches(text).map((m) => m.group(0)!));
       }
 
@@ -4662,7 +4662,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_dex_inner_class — DEX 内部类/匿名类分析
   // =========================================================================
-  static Future<Map<String, dynamic>> dexInnerClass(
+Future<Map<String, dynamic>> dexInnerClass(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -4672,7 +4672,7 @@ part of kelivo_reverse_server;
       for (final dex in _filterEntries(apk, '.dex')) {
         if (dex.content == null) continue;
         final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-        final text = _extractResultText(KelivoDexAnalyzer.classes(payload));
+        final text = KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.classes(payload));
         allClassNames.addAll(RegExp(r'L[\w/$]+;').allMatches(text).map((m) => m.group(0)!));
       }
 
@@ -4716,7 +4716,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_dex_native — DEX Native 方法分析
   // =========================================================================
-  static Future<Map<String, dynamic>> dexNative(
+Future<Map<String, dynamic>> dexNative(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -4766,7 +4766,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_dex_const_scan — DEX 常量池扫描
   // =========================================================================
-  static Future<Map<String, dynamic>> dexConstScan(
+Future<Map<String, dynamic>> dexConstScan(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -4776,7 +4776,7 @@ part of kelivo_reverse_server;
       for (final dex in _filterEntries(apk, '.dex')) {
         if (dex.content == null) continue;
         final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-        final text = _extractResultText(KelivoDexAnalyzer.strings(payload));
+        final text = KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.strings(payload));
         allStrings.addAll(text.split('\n'));
       }
 
@@ -4832,7 +4832,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_dex_inheritance — DEX 继承图分析
   // =========================================================================
-  static Future<Map<String, dynamic>> dexInheritance(
+Future<Map<String, dynamic>> dexInheritance(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -4842,7 +4842,7 @@ part of kelivo_reverse_server;
       for (final dex in _filterEntries(apk, '.dex')) {
         if (dex.content == null) continue;
         final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-        final text = _extractResultText(KelivoDexAnalyzer.classes(payload));
+        final text = KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.classes(payload));
         allClassNames.addAll(RegExp(r'L[\w/$]+;').allMatches(text).map((m) => m.group(0)!));
       }
 
@@ -4875,7 +4875,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_dex_method_stats — DEX 方法签名统计
   // =========================================================================
-  static Future<Map<String, dynamic>> dexMethodStats(
+Future<Map<String, dynamic>> dexMethodStats(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -4885,7 +4885,7 @@ part of kelivo_reverse_server;
       for (final dex in _filterEntries(apk, '.dex')) {
         if (dex.content == null) continue;
         final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-        allText.writeln(_extractResultText(KelivoDexAnalyzer.methods(payload)));
+        allText.writeln(KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.methods(payload)));
       }
       final text = allText.toString();
 
@@ -4920,7 +4920,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_dex_access_flow — DEX 访问权限流分析
   // =========================================================================
-  static Future<Map<String, dynamic>> dexAccessFlow(
+Future<Map<String, dynamic>> dexAccessFlow(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -4930,7 +4930,7 @@ part of kelivo_reverse_server;
       for (final dex in _filterEntries(apk, '.dex')) {
         if (dex.content == null) continue;
         final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-        allText.writeln(_extractResultText(KelivoDexAnalyzer.classes(payload)));
+        allText.writeln(KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.classes(payload)));
       }
       final text = allText.toString();
 
@@ -4973,7 +4973,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_dex_permission_audit — DEX 权限审计
   // =========================================================================
-  static Future<Map<String, dynamic>> dexPermissionAudit(
+Future<Map<String, dynamic>> dexPermissionAudit(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -5044,7 +5044,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_dex_access_pattern — DEX 访问控制模式分析
   // =========================================================================
-  static Future<Map<String, dynamic>> dexAccessPattern(
+Future<Map<String, dynamic>> dexAccessPattern(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -5104,7 +5104,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_dex_annotation — DEX 注解分析
   // =========================================================================
-  static Future<Map<String, dynamic>> dexAnnotation(
+Future<Map<String, dynamic>> dexAnnotation(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -5175,7 +5175,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_dex_complexity — DEX 代码复杂度分析
   // =========================================================================
-  static Future<Map<String, dynamic>> dexComplexity(
+Future<Map<String, dynamic>> dexComplexity(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -5185,7 +5185,7 @@ part of kelivo_reverse_server;
       for (final dex in _filterEntries(apk, '.dex')) {
         if (dex.content == null) continue;
         final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-        final text = _extractResultText(KelivoDexAnalyzer.classes(payload));
+        final text = KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.classes(payload));
         allClassNames.addAll(RegExp(r'L[\w/$]+;').allMatches(text).map((m) => m.group(0)!));
       }
 
@@ -5227,7 +5227,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_dex_control_flow — DEX 控制流分析
   // =========================================================================
-  static Future<Map<String, dynamic>> dexControlFlow(
+Future<Map<String, dynamic>> dexControlFlow(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -5237,7 +5237,7 @@ part of kelivo_reverse_server;
       for (final dex in _filterEntries(apk, '.dex')) {
         if (dex.content == null) continue;
         final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-        allText.writeln(_extractResultText(KelivoDexAnalyzer.methods(payload)));
+        allText.writeln(KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.methods(payload)));
       }
       final text = allText.toString();
 
@@ -5275,7 +5275,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_dex_debug_info — DEX 调试信息分析
   // =========================================================================
-  static Future<Map<String, dynamic>> dexDebugInfo(
+Future<Map<String, dynamic>> dexDebugInfo(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -5334,7 +5334,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_dex_exception_flow — DEX 异常处理流分析
   // =========================================================================
-  static Future<Map<String, dynamic>> dexExceptionFlow(
+Future<Map<String, dynamic>> dexExceptionFlow(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -5404,7 +5404,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_dex_field_analyzer — DEX 字段分析
   // =========================================================================
-  static Future<Map<String, dynamic>> dexFieldAnalyzer(
+Future<Map<String, dynamic>> dexFieldAnalyzer(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -5458,7 +5458,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_dex_field_usage — DEX 字段使用分析
   // =========================================================================
-  static Future<Map<String, dynamic>> dexFieldUsage(
+Future<Map<String, dynamic>> dexFieldUsage(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -5498,7 +5498,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_dex_insn_density — DEX 指令密度分析
   // =========================================================================
-  static Future<Map<String, dynamic>> dexInsnDensity(
+Future<Map<String, dynamic>> dexInsnDensity(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -5510,7 +5510,7 @@ part of kelivo_reverse_server;
         if (dex.content == null) continue;
         totalDexSize += dex.content!.length;
         final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-        final text = _extractResultText(KelivoDexAnalyzer.methods(payload));
+        final text = KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.methods(payload));
         totalInsns += RegExp(r'registers_size').allMatches(text).length;
       }
 
@@ -5526,7 +5526,7 @@ part of kelivo_reverse_server;
         final dex = dexFiles[i];
         final size = dex.content?.length ?? 0;
         final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-        final text = _extractResultText(KelivoDexAnalyzer.methods(payload));
+        final text = KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.methods(payload));
         final methods = RegExp(r'registers_size').allMatches(text).length;
         sb.writeln('\n--- ${dex.name} ($size bytes) ---');
         sb.writeln('  Methods: $methods');
@@ -5544,7 +5544,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_dex_instruction_stats — DEX 指令统计
   // =========================================================================
-  static Future<Map<String, dynamic>> dexInstructionStats(
+Future<Map<String, dynamic>> dexInstructionStats(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -5596,7 +5596,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_dex_proto_analyzer — DEX 方法原型分析
   // =========================================================================
-  static Future<Map<String, dynamic>> dexProtoAnalyzer(
+Future<Map<String, dynamic>> dexProtoAnalyzer(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -5606,7 +5606,7 @@ part of kelivo_reverse_server;
       for (final dex in _filterEntries(apk, '.dex')) {
         if (dex.content == null) continue;
         final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-        allText.writeln(_extractResultText(KelivoDexAnalyzer.methods(payload)));
+        allText.writeln(KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.methods(payload)));
       }
       final text = allText.toString();
 
@@ -5662,7 +5662,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_dex_proto_matrix — DEX 原型矩阵分析
   // =========================================================================
-  static Future<Map<String, dynamic>> dexProtoMatrix(
+Future<Map<String, dynamic>> dexProtoMatrix(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -5672,7 +5672,7 @@ part of kelivo_reverse_server;
       for (final dex in _filterEntries(apk, '.dex')) {
         if (dex.content == null) continue;
         final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-        allText.writeln(_extractResultText(KelivoDexAnalyzer.methods(payload)));
+        allText.writeln(KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.methods(payload)));
       }
       final text = allText.toString();
 
@@ -5729,7 +5729,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_dex_register_pressure — DEX 寄存器压力分析
   // =========================================================================
-  static Future<Map<String, dynamic>> dexRegisterPressure(
+Future<Map<String, dynamic>> dexRegisterPressure(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -5739,7 +5739,7 @@ part of kelivo_reverse_server;
       for (final dex in _filterEntries(apk, '.dex')) {
         if (dex.content == null) continue;
         final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-        allText.writeln(_extractResultText(KelivoDexAnalyzer.methods(payload)));
+        allText.writeln(KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.methods(payload)));
       }
       final text = allText.toString();
 
@@ -5803,7 +5803,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_dex_type_ref — DEX 类型引用分析
   // =========================================================================
-  static Future<Map<String, dynamic>> dexTypeRef(
+Future<Map<String, dynamic>> dexTypeRef(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -5813,7 +5813,7 @@ part of kelivo_reverse_server;
       for (final dex in _filterEntries(apk, '.dex')) {
         if (dex.content == null) continue;
         final payload = KelivoDexRequestPayload(bytes: dex.content!, limit: 99999);
-        final text = _extractResultText(KelivoDexAnalyzer.classes(payload));
+        final text = KelivoReverseAnalyzer._extractResultText(KelivoDexAnalyzer.classes(payload));
         allClassNames.addAll(RegExp(r'L[\w/$]+;').allMatches(text).map((m) => m.group(0)!));
       }
 
@@ -5866,7 +5866,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_dex_optimizer_patterns — DEX 优化模式检测
   // =========================================================================
-  static Future<Map<String, dynamic>> dexOptimizerPatterns(
+Future<Map<String, dynamic>> dexOptimizerPatterns(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -5958,7 +5958,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_permission_analyze — 权限综合分析（合规/风险/广告关联）
   // =========================================================================
-  static Future<Map<String, dynamic>> permissionAnalyze(
+Future<Map<String, dynamic>> permissionAnalyze(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -6103,7 +6103,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_ad_remove — 广告移除引擎
   // =========================================================================
-  static Future<Map<String, dynamic>> adRemove(
+Future<Map<String, dynamic>> adRemove(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -6255,7 +6255,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_smali_patch_advanced — Smali高级修补器
   // =========================================================================
-  static Future<Map<String, dynamic>> smaliPatchAdvanced(
+Future<Map<String, dynamic>> smaliPatchAdvanced(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -6340,7 +6340,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_native_patch — 原生SO补丁工具
   // =========================================================================
-  static Future<Map<String, dynamic>> nativePatch(
+Future<Map<String, dynamic>> nativePatch(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -6410,7 +6410,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_integrity_patch — 完整性校验绕过
   // =========================================================================
-  static Future<Map<String, dynamic>> integrityPatch(
+Future<Map<String, dynamic>> integrityPatch(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -6521,7 +6521,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_resource_patch — 资源文件补丁
   // =========================================================================
-  static Future<Map<String, dynamic>> resourcePatch(
+Future<Map<String, dynamic>> resourcePatch(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);
@@ -6593,7 +6593,7 @@ part of kelivo_reverse_server;
   // =========================================================================
   // reverse_popup_remove — 弹窗去除器
   // =========================================================================
-  static Future<Map<String, dynamic>> popupRemove(
+Future<Map<String, dynamic>> popupRemove(
       KelivoReverseRequestPayload p, Map<String, dynamic> args) async {
     try {
       final apk = _readApk(p.apkBytes);

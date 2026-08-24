@@ -61,7 +61,7 @@ class KelivoReverseMcpServerEngine implements KelivoInMemoryMcpServerEngine {
           try {
             payload = await KelivoReverseRequestPayload.parse(arguments);
           } catch (e) {
-            return _ok(id, result: KelivoReverseAnalyzer._err(e.toString()));
+            return _ok(id, result: _err(e.toString()));
           }
 
           switch (name) {
@@ -120,157 +120,157 @@ class KelivoReverseMcpServerEngine implements KelivoInMemoryMcpServerEngine {
             case 'reverse_unpack_guide':
               return _ok(id, result: KelivoReverseAnalyzer.unpackGuide(payload));
             case 'reverse_apk_rebuild':
-              return _ok(id, result: await KelivoReverseAnalyzer.apkRebuild(payload, arguments));
+              return _ok(id, result: await apkRebuild(payload, arguments));
             case 'reverse_apk_sign':
-              return _ok(id, result: await KelivoReverseAnalyzer.apkSign(payload, arguments));
+              return _ok(id, result: await apkSign(payload, arguments));
             case 'reverse_axml_edit':
-              return _ok(id, result: await KelivoReverseAnalyzer.axmlEdit(payload, arguments));
+              return _ok(id, result: await axmlEdit(payload, arguments));
             case 'reverse_manifest_edit':
-              return _ok(id, result: await KelivoReverseAnalyzer.manifestEdit(payload, arguments));
+              return _ok(id, result: await manifestEdit(payload, arguments));
             case 'reverse_smali_patch':
-              return _ok(id, result: await KelivoReverseAnalyzer.smaliPatch(payload, arguments));
+              return _ok(id, result: await smaliPatch(payload, arguments));
             case 'reverse_zipalign':
-              return _ok(id, result: await KelivoReverseAnalyzer.zipalign(payload, arguments));
+              return _ok(id, result: await zipalign(payload, arguments));
             case 'reverse_hook_gen':
-              return _ok(id, result: await KelivoReverseAnalyzer.hookGen(payload, arguments));
+              return _ok(id, result: await hookGen(payload, arguments));
             case 'reverse_dex_merge':
-              return _ok(id, result: await KelivoReverseAnalyzer.dexMerge(payload, arguments));
+              return _ok(id, result: await dexMerge(payload, arguments));
             case 'reverse_anti_analysis':
-              return _ok(id, result: await KelivoReverseAnalyzer.antiAnalysis(payload, arguments));
+              return _ok(id, result: await antiAnalysis(payload, arguments));
             case 'reverse_callgraph':
-              return _ok(id, result: await KelivoReverseAnalyzer.callgraphBuild(payload, arguments));
+              return _ok(id, result: await callgraphBuild(payload, arguments));
             case 'reverse_crypto_analyzer':
-              return _ok(id, result: await KelivoReverseAnalyzer.cryptoAnalyze(payload, arguments));
+              return _ok(id, result: await cryptoAnalyze(payload, arguments));
             case 'reverse_dataflow':
-              return _ok(id, result: await KelivoReverseAnalyzer.dataflowAnalyze(payload, arguments));
+              return _ok(id, result: await dataflowAnalyze(payload, arguments));
             case 'reverse_dex_metadata':
-              return _ok(id, result: await KelivoReverseAnalyzer.dexMetadata(payload, arguments));
+              return _ok(id, result: await dexMetadata(payload, arguments));
             case 'reverse_multidex':
-              return _ok(id, result: await KelivoReverseAnalyzer.multidexAnalyze(payload, arguments));
+              return _ok(id, result: await multidexAnalyze(payload, arguments));
             case 'reverse_native_xref':
-              return _ok(id, result: await KelivoReverseAnalyzer.nativeXref(payload, arguments));
+              return _ok(id, result: await nativeXref(payload, arguments));
             case 'reverse_vuln_scan':
-              return _ok(id, result: await KelivoReverseAnalyzer.vulnScan(payload, arguments));
+              return _ok(id, result: await vulnScan(payload, arguments));
             case 'reverse_privacy_audit':
-              return _ok(id, result: await KelivoReverseAnalyzer.privacyAudit(payload, arguments));
+              return _ok(id, result: await privacyAudit(payload, arguments));
             case 'reverse_sdk_detect':
-              return _ok(id, result: await KelivoReverseAnalyzer.sdkDetect(payload, arguments));
+              return _ok(id, result: await sdkDetect(payload, arguments));
             case 'reverse_endpoint_extract':
-              return _ok(id, result: await KelivoReverseAnalyzer.endpointExtract(payload, arguments));
+              return _ok(id, result: await endpointExtract(payload, arguments));
             case 'reverse_social_login':
-              return _ok(id, result: await KelivoReverseAnalyzer.socialLoginDetect(payload, arguments));
+              return _ok(id, result: await socialLoginDetect(payload, arguments));
             case 'reverse_apk_size':
-              return _ok(id, result: await KelivoReverseAnalyzer.apkSize(payload, arguments));
+              return _ok(id, result: await apkSize(payload, arguments));
             case 'reverse_security_score':
-              return _ok(id, result: await KelivoReverseAnalyzer.securityScore(payload, arguments));
+              return _ok(id, result: await securityScore(payload, arguments));
             case 'reverse_api_usage':
-              return _ok(id, result: await KelivoReverseAnalyzer.apiUsage(payload, arguments));
+              return _ok(id, result: await apiUsage(payload, arguments));
             case 'reverse_permission_trace':
-              return _ok(id, result: await KelivoReverseAnalyzer.permissionTrace(payload, arguments));
+              return _ok(id, result: await permissionTrace(payload, arguments));
             case 'reverse_clone_detect':
-              return _ok(id, result: await KelivoReverseAnalyzer.cloneDetect(payload, arguments));
+              return _ok(id, result: await cloneDetect(payload, arguments));
             case 'reverse_network_analysis':
-              return _ok(id, result: await KelivoReverseAnalyzer.networkAnalysis(payload, arguments));
+              return _ok(id, result: await networkAnalysis(payload, arguments));
             case 'reverse_string_analyze':
-              return _ok(id, result: await KelivoReverseAnalyzer.stringAnalyze(payload, arguments));
+              return _ok(id, result: await stringAnalyze(payload, arguments));
             case 'reverse_key_scan':
-              return _ok(id, result: await KelivoReverseAnalyzer.keyScan(payload, arguments));
+              return _ok(id, result: await keyScan(payload, arguments));
             case 'reverse_cert_deep':
-              return _ok(id, result: await KelivoReverseAnalyzer.certDeep(payload, arguments));
+              return _ok(id, result: await certDeep(payload, arguments));
             case 'reverse_sig_scheme':
-              return _ok(id, result: await KelivoReverseAnalyzer.sigScheme(payload, arguments));
+              return _ok(id, result: await sigScheme(payload, arguments));
             case 'reverse_deobfuscate':
-              return _ok(id, result: await KelivoReverseAnalyzer.deobfuscate(payload, arguments));
+              return _ok(id, result: await deobfuscate(payload, arguments));
             case 'reverse_code_analyze':
-              return _ok(id, result: await KelivoReverseAnalyzer.codeAnalyze(payload, arguments));
+              return _ok(id, result: await codeAnalyze(payload, arguments));
             case 'reverse_resource_analyze':
-              return _ok(id, result: await KelivoReverseAnalyzer.resourceAnalyze(payload, arguments));
+              return _ok(id, result: await resourceAnalyze(payload, arguments));
             case 'reverse_resource_obfuscation':
-              return _ok(id, result: await KelivoReverseAnalyzer.resourceObfuscation(payload, arguments));
+              return _ok(id, result: await resourceObfuscation(payload, arguments));
             case 'reverse_apk_clean':
-              return _ok(id, result: await KelivoReverseAnalyzer.apkClean(payload, arguments));
+              return _ok(id, result: await apkClean(payload, arguments));
             case 'reverse_component_explore':
-              return _ok(id, result: await KelivoReverseAnalyzer.componentExplore(payload, arguments));
+              return _ok(id, result: await componentExplore(payload, arguments));
             case 'reverse_core_class_locate':
-              return _ok(id, result: await KelivoReverseAnalyzer.coreClassLocate(payload, arguments));
+              return _ok(id, result: await coreClassLocate(payload, arguments));
             case 'reverse_ad_detect':
-              return _ok(id, result: await KelivoReverseAnalyzer.adDetect(payload, arguments));
+              return _ok(id, result: await adDetect(payload, arguments));
             case 'reverse_clue_chain':
-              return _ok(id, result: await KelivoReverseAnalyzer.clueChain(payload, arguments));
+              return _ok(id, result: await clueChain(payload, arguments));
             case 'reverse_dex_lib_analysis':
-              return _ok(id, result: await KelivoReverseAnalyzer.dexLibAnalysis(payload, arguments));
+              return _ok(id, result: await dexLibAnalysis(payload, arguments));
             case 'reverse_dex_reflection':
-              return _ok(id, result: await KelivoReverseAnalyzer.dexReflection(payload, arguments));
+              return _ok(id, result: await dexReflection(payload, arguments));
             case 'reverse_dex_resource_ref':
-              return _ok(id, result: await KelivoReverseAnalyzer.dexResourceRef(payload, arguments));
+              return _ok(id, result: await dexResourceRef(payload, arguments));
             case 'reverse_dex_serialization':
-              return _ok(id, result: await KelivoReverseAnalyzer.dexSerialization(payload, arguments));
+              return _ok(id, result: await dexSerialization(payload, arguments));
             case 'reverse_dex_string_pool':
-              return _ok(id, result: await KelivoReverseAnalyzer.dexStringPool(payload, arguments));
+              return _ok(id, result: await dexStringPool(payload, arguments));
             case 'reverse_dex_obfuscation_scan':
-              return _ok(id, result: await KelivoReverseAnalyzer.dexObfuscationScan(payload, arguments));
+              return _ok(id, result: await dexObfuscationScan(payload, arguments));
             case 'reverse_dex_crypto':
-              return _ok(id, result: await KelivoReverseAnalyzer.dexCrypto(payload, arguments));
+              return _ok(id, result: await dexCrypto(payload, arguments));
             case 'reverse_dex_class_density':
-              return _ok(id, result: await KelivoReverseAnalyzer.dexClassDensity(payload, arguments));
+              return _ok(id, result: await dexClassDensity(payload, arguments));
             case 'reverse_dex_inner_class':
-              return _ok(id, result: await KelivoReverseAnalyzer.dexInnerClass(payload, arguments));
+              return _ok(id, result: await dexInnerClass(payload, arguments));
             case 'reverse_dex_native':
-              return _ok(id, result: await KelivoReverseAnalyzer.dexNative(payload, arguments));
+              return _ok(id, result: await dexNative(payload, arguments));
             case 'reverse_dex_const_scan':
-              return _ok(id, result: await KelivoReverseAnalyzer.dexConstScan(payload, arguments));
+              return _ok(id, result: await dexConstScan(payload, arguments));
             case 'reverse_dex_inheritance':
-              return _ok(id, result: await KelivoReverseAnalyzer.dexInheritance(payload, arguments));
+              return _ok(id, result: await dexInheritance(payload, arguments));
             case 'reverse_dex_method_stats':
-              return _ok(id, result: await KelivoReverseAnalyzer.dexMethodStats(payload, arguments));
+              return _ok(id, result: await dexMethodStats(payload, arguments));
             case 'reverse_dex_access_flow':
-              return _ok(id, result: await KelivoReverseAnalyzer.dexAccessFlow(payload, arguments));
+              return _ok(id, result: await dexAccessFlow(payload, arguments));
             case 'reverse_dex_permission_audit':
-              return _ok(id, result: await KelivoReverseAnalyzer.dexPermissionAudit(payload, arguments));
+              return _ok(id, result: await dexPermissionAudit(payload, arguments));
             case 'reverse_dex_access_pattern':
-              return _ok(id, result: await KelivoReverseAnalyzer.dexAccessPattern(payload, arguments));
+              return _ok(id, result: await dexAccessPattern(payload, arguments));
             case 'reverse_dex_annotation':
-              return _ok(id, result: await KelivoReverseAnalyzer.dexAnnotation(payload, arguments));
+              return _ok(id, result: await dexAnnotation(payload, arguments));
             case 'reverse_dex_complexity':
-              return _ok(id, result: await KelivoReverseAnalyzer.dexComplexity(payload, arguments));
+              return _ok(id, result: await dexComplexity(payload, arguments));
             case 'reverse_dex_control_flow':
-              return _ok(id, result: await KelivoReverseAnalyzer.dexControlFlow(payload, arguments));
+              return _ok(id, result: await dexControlFlow(payload, arguments));
             case 'reverse_dex_debug_info':
-              return _ok(id, result: await KelivoReverseAnalyzer.dexDebugInfo(payload, arguments));
+              return _ok(id, result: await dexDebugInfo(payload, arguments));
             case 'reverse_dex_exception_flow':
-              return _ok(id, result: await KelivoReverseAnalyzer.dexExceptionFlow(payload, arguments));
+              return _ok(id, result: await dexExceptionFlow(payload, arguments));
             case 'reverse_dex_field_analyzer':
-              return _ok(id, result: await KelivoReverseAnalyzer.dexFieldAnalyzer(payload, arguments));
+              return _ok(id, result: await dexFieldAnalyzer(payload, arguments));
             case 'reverse_dex_field_usage':
-              return _ok(id, result: await KelivoReverseAnalyzer.dexFieldUsage(payload, arguments));
+              return _ok(id, result: await dexFieldUsage(payload, arguments));
             case 'reverse_dex_insn_density':
-              return _ok(id, result: await KelivoReverseAnalyzer.dexInsnDensity(payload, arguments));
+              return _ok(id, result: await dexInsnDensity(payload, arguments));
             case 'reverse_dex_instruction_stats':
-              return _ok(id, result: await KelivoReverseAnalyzer.dexInstructionStats(payload, arguments));
+              return _ok(id, result: await dexInstructionStats(payload, arguments));
             case 'reverse_dex_proto_analyzer':
-              return _ok(id, result: await KelivoReverseAnalyzer.dexProtoAnalyzer(payload, arguments));
+              return _ok(id, result: await dexProtoAnalyzer(payload, arguments));
             case 'reverse_dex_proto_matrix':
-              return _ok(id, result: await KelivoReverseAnalyzer.dexProtoMatrix(payload, arguments));
+              return _ok(id, result: await dexProtoMatrix(payload, arguments));
             case 'reverse_dex_register_pressure':
-              return _ok(id, result: await KelivoReverseAnalyzer.dexRegisterPressure(payload, arguments));
+              return _ok(id, result: await dexRegisterPressure(payload, arguments));
             case 'reverse_dex_type_ref':
-              return _ok(id, result: await KelivoReverseAnalyzer.dexTypeRef(payload, arguments));
+              return _ok(id, result: await dexTypeRef(payload, arguments));
             case 'reverse_dex_optimizer_patterns':
-              return _ok(id, result: await KelivoReverseAnalyzer.dexOptimizerPatterns(payload, arguments));
+              return _ok(id, result: await dexOptimizerPatterns(payload, arguments));
             case 'reverse_permission_analyze':
-              return _ok(id, result: await KelivoReverseAnalyzer.permissionAnalyze(payload, arguments));
+              return _ok(id, result: await permissionAnalyze(payload, arguments));
             case 'reverse_ad_remove':
-              return _ok(id, result: await KelivoReverseAnalyzer.adRemove(payload, arguments));
+              return _ok(id, result: await adRemove(payload, arguments));
             case 'reverse_smali_patch_advanced':
-              return _ok(id, result: await KelivoReverseAnalyzer.smaliPatchAdvanced(payload, arguments));
+              return _ok(id, result: await smaliPatchAdvanced(payload, arguments));
             case 'reverse_native_patch':
-              return _ok(id, result: await KelivoReverseAnalyzer.nativePatch(payload, arguments));
+              return _ok(id, result: await nativePatch(payload, arguments));
             case 'reverse_integrity_patch':
-              return _ok(id, result: await KelivoReverseAnalyzer.integrityPatch(payload, arguments));
+              return _ok(id, result: await integrityPatch(payload, arguments));
             case 'reverse_resource_patch':
-              return _ok(id, result: await KelivoReverseAnalyzer.resourcePatch(payload, arguments));
+              return _ok(id, result: await resourcePatch(payload, arguments));
             case 'reverse_popup_remove':
-              return _ok(id, result: await KelivoReverseAnalyzer.popupRemove(payload, arguments));
+              return _ok(id, result: await popupRemove(payload, arguments));
 
             // ---- APK file-level operations (移植自 apk_reverse_engine/core/apk_file_ops.py) ----
             case 'reverse_apk_file_list':

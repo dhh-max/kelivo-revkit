@@ -132,4 +132,24 @@ String _manifestSummary(dynamic manifestBytes) {
   final result = sb.toString().trim();
   final sizeStr = manifestBytes is Uint8List ? manifestBytes.length : (manifestBytes is String ? manifestBytes.length : 0);
   return result.isNotEmpty ? result : '(manifest extracted $sizeStr bytes, but no structured fields found)';
+  /// 从 APK 中提取 resources.arsc 的字节
+  Uint8List? get arscBytes {
+    final info = _readApk(apkBytes);
+    final entry = info.entries.cast<_ApkEntry?>().firstWhere(
+      (e) => e!.name == 'resources.arsc',
+      orElse: () => null,
+    );
+    return entry?.content;
+  }
+
+  /// 从 APK 中提取指定 SO 文件的字节（默认取第一个 arm64-v8a 的 .so）
+  Uint8List? get soBytes {
+    final info = _readApk(apkBytes);
+    final soEntries = _filterEntries(info, '.so');
+    if (soEntries.isEmpty) return null;
+    // 优先选 arm64-v8a 的
+    final arm64 = soEntries.where((e) => e.name.contains('arm64'));
+    return (arm64.isNotEmpty ? arm64.first : soEntries.first).content;
+  }
+
 }
