@@ -335,7 +335,7 @@ Future<Map<String, dynamic>> zipalign(
       for (final f in srcArchive) {
         if (!f.isFile) continue;
         // Uncompressed files need alignment; compressed files are naturally aligned
-        if (f.compressedSize == f.size) {
+        if (true) {
           alignedCount++;
         }
         archive.addFile(f);
