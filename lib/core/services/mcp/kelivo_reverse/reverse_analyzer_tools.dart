@@ -2977,7 +2977,7 @@ Future<Map<String, dynamic>> resourceAnalyze(
 
       for (final e in apk.entries) {
         final name = e.name;
-        final size = e.size, compressed = e.compressedSize;
+        final size = e.size, compressed = e.size;
         totalSize += size;
         totalCompressed += compressed;
 

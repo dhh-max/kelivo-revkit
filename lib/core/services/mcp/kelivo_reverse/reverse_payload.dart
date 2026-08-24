@@ -61,6 +61,14 @@ class KelivoReverseRequestPayload {
     );
     return entry?.content;
   }
+  Uint8List? get soBytes {
+    final info = _readApk(apkBytes);
+    final soEntries = _filterEntries(info, '.so');
+    if (soEntries.isEmpty) return null;
+    // 优先选 arm64-v8a 的
+    final arm64 = soEntries.where((e) => e.name.contains('arm64'));
+    return (arm64.isNotEmpty ? arm64.first : soEntries.first).content;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -143,13 +151,5 @@ String _manifestSummary(dynamic manifestBytes) {
   /// 从 APK 中提取 resources.arsc 的字节
 
   /// 从 APK 中提取指定 SO 文件的字节（默认取第一个 arm64-v8a 的 .so）
-  Uint8List? get soBytes {
-    final info = _readApk(apkBytes);
-    final soEntries = _filterEntries(info, '.so');
-    if (soEntries.isEmpty) return null;
-    // 优先选 arm64-v8a 的
-    final arm64 = soEntries.where((e) => e.name.contains('arm64'));
-    return (arm64.isNotEmpty ? arm64.first : soEntries.first).content;
-  }
 
 }
