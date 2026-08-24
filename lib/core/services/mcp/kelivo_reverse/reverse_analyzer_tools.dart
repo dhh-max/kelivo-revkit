@@ -2830,6 +2830,7 @@ Future<Map<String, dynamic>> deobfuscate(
     } catch (e) {
       return _err(e.toString());
     }
+  }
 
   // =========================================================================
   // reverse_code_analyze — 深度代码分析
@@ -6684,6 +6685,5 @@ Future<Map<String, dynamic>> popupRemove(
       return _err(e.toString());
     }
   }
-}
 // =========================================================================
 
