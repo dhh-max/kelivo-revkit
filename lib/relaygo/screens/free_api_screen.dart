@@ -97,7 +97,7 @@ class _FreeApiScreenState extends State<FreeApiScreen> {
             Padding(
               padding: const EdgeInsets.all(16),
               child: Text(
-                L10n.fmt('加载失败：{err}', {'err': '$_error'}),
+                L10n.fmt(L10n.tr('加载失败：{err}'), {'err': '$_error'}),
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: Colors.grey, fontSize: 12),
               ),
@@ -154,20 +154,20 @@ class _FreeApiScreenState extends State<FreeApiScreen> {
                 const Icon(Icons.info_outline, color: Colors.indigo, size: 18),
                 const SizedBox(width: 6),
                 Text(
-                  L10n.fmt('数据来源：{src}', {'src': Constants.freeApiSourceName}),
+                  L10n.fmt(L10n.tr('数据来源：{src}'), {'src': Constants.freeApiSourceName}),
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
               ],
             ),
             const SizedBox(height: 4),
             Text(
-              L10n.fmt('数据版本：{v}',
+              L10n.fmt(L10n.tr('数据版本：{v}'),
                       {'v': dataset.version.isNotEmpty ? dataset.version : Constants.freeApiVersion}) +
                   '　' +
-                  L10n.fmt('生成日期：{d}',
+                  L10n.fmt(L10n.tr('生成日期：{d}'),
                       {'d': dataset.generated.isNotEmpty ? dataset.generated : L10n.tr('未知')}) +
                   '　' +
-                  L10n.fmt('本地更新：{t}', {'t': updated}),
+                  L10n.fmt(L10n.tr('本地更新：{t}'), {'t': updated}),
               style: const TextStyle(fontSize: 12, color: Colors.grey),
             ),
           ],
@@ -274,9 +274,9 @@ class FreeProviderDetailScreen extends StatelessWidget {
             spacing: 8,
             runSpacing: 6,
             children: [
-              _detailChip(L10n.fmt('免费类型：{v}', {'v': p.categoryLabel}), Colors.indigo),
-              _detailChip(L10n.fmt('免费模式：{v}', {'v': p.freeTypeLabel}), Colors.teal),
-              _detailChip(L10n.fmt('已验证：{v}', {'v': p.verifiedLabel}),
+              _detailChip(L10n.fmt(L10n.tr('免费类型：{v}'), {'v': p.categoryLabel}), Colors.indigo),
+              _detailChip(L10n.fmt(L10n.tr('免费模式：{v}'), {'v': p.freeTypeLabel}), Colors.teal),
+              _detailChip(L10n.fmt(L10n.tr('已验证：{v}'), {'v': p.verifiedLabel}),
                   p.verified ? Colors.green : Colors.orange),
             ],
           ),
@@ -292,16 +292,16 @@ class FreeProviderDetailScreen extends StatelessWidget {
 
           // 限制条件
           _section(context, L10n.tr('限制条件'),
-              L10n.fmt('需要手机验证：{v}',
+              L10n.fmt(L10n.tr('需要手机验证：{v}'),
                       {'v': FreeProvider.boolLabel(p.phoneRequired)}) +
                   '\n' +
-                  L10n.fmt('需要信用卡：{v}',
+                  L10n.fmt(L10n.tr('需要信用卡：{v}'),
                       {'v': FreeProvider.boolLabel(p.cardRequired)}) +
                   '\n' +
-                  L10n.fmt('允许商用：{v}',
+                  L10n.fmt(L10n.tr('允许商用：{v}'),
                       {'v': FreeProvider.boolLabel(p.commercialOk)}) +
                   '\n' +
-                  L10n.fmt('OpenAI 接口兼容：{v}',
+                  L10n.fmt(L10n.tr('OpenAI 接口兼容：{v}'),
                       {'v': FreeProvider.boolLabel(p.openaiCompatible)})),
 
           // 功能与模型

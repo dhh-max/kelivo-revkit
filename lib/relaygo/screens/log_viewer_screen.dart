@@ -73,7 +73,7 @@ class _LogViewerScreenState extends State<LogViewerScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-          content: Text(L10n.fmt('已导出 {n} 条到：{path}',
+          content: Text(L10n.fmt(L10n.tr('已导出 {n} 条到：{path}'),
               {'n': '${_logs.length}', 'path': file.path}))),
     );
   }
@@ -168,7 +168,7 @@ class _LogViewerScreenState extends State<LogViewerScreen> {
                 ),
                 const Spacer(),
                 Text(
-                  L10n.fmt('{n} 条记录', {'n': '${_logs.length}'}),
+                  L10n.fmt(L10n.tr('{n} 条记录'), {'n': '${_logs.length}'}),
                   style: const TextStyle(
                     fontSize: 11.5,
                     color: AppTheme.text3,

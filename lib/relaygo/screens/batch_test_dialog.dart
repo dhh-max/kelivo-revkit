@@ -72,7 +72,7 @@ class _BatchTestDialogState extends State<BatchTestDialog> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-          content: Text(L10n.fmt('已禁用 {n} 个无效 Key', {'n': '$n'})),
+          content: Text(L10n.fmt(L10n.tr('已禁用 {n} 个无效 Key'), {'n': '$n'})),
           backgroundColor: Colors.orange),
     );
     Navigator.pop(context, true);
@@ -84,7 +84,7 @@ class _BatchTestDialogState extends State<BatchTestDialog> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(L10n.tr('删除无效 Key')),
-        content: Text(L10n.fmt('确认删除 {n} 个无效/失败 Key？此操作不可撤销。',
+        content: Text(L10n.fmt(L10n.tr('确认删除 {n} 个无效/失败 Key？此操作不可撤销。'),
             {'n': '${_summary!.failed.length}'})),
         actions: [
           TextButton(
@@ -101,7 +101,7 @@ class _BatchTestDialogState extends State<BatchTestDialog> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-            content: Text(L10n.fmt('已删除 {n} 个无效 Key', {'n': '$n'})),
+            content: Text(L10n.fmt(L10n.tr('已删除 {n} 个无效 Key'), {'n': '$n'})),
             backgroundColor: Colors.red),
       );
       Navigator.pop(context, true);
@@ -154,13 +154,13 @@ class _BatchTestDialogState extends State<BatchTestDialog> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(L10n.fmt('正在测试 {done}/{total} ...',
+        Text(L10n.fmt(L10n.tr('正在测试 {done}/{total} ...'),
             {'done': '$_done', 'total': '$_total'})),
         const SizedBox(height: 8),
         LinearProgressIndicator(value: pct, minHeight: 8),
         const SizedBox(height: 8),
         Text(
-            L10n.fmt('当前：{name}',
+            L10n.fmt(L10n.tr('当前：{name}'),
                 {
                   'name': _currentName.isNotEmpty
                       ? _currentName
@@ -183,7 +183,7 @@ class _BatchTestDialogState extends State<BatchTestDialog> {
         Text('✅ ${L10n.fmt('有效：{n} 个', {'n': '${s.validCount}'})}'),
         Text('❌ ${L10n.fmt('无效：{n} 个', {'n': '${s.invalidCount}'})}'),
         Text('⚠️ ${L10n.fmt('超时：{n} 个', {'n': '${s.timeoutCount}'})}'
-            '${s.errorCount > 0 ? '  · ${L10n.fmt('异常：{n} 个', {'n': '${s.errorCount}'})}' : ''}'),
+            '${s.errorCount > 0 ? '  · ${L10n.fmt(L10n.tr('异常：{n} 个'), {'n': '${s.errorCount}'})}' : ''}'),
         const Divider(),
         Text(L10n.tr('失败 Key 列表：'),
             style: const TextStyle(fontWeight: FontWeight.bold)),
@@ -202,7 +202,7 @@ class _BatchTestDialogState extends State<BatchTestDialog> {
                     '${r.note.isNotEmpty ? '（${r.note}）' : ''}',
                     style: const TextStyle(fontSize: 13)),
                 subtitle: Text(
-                    L10n.fmt('原因：{reason}',
+                    L10n.fmt(L10n.tr('原因：{reason}'),
                         {'reason': r.outcome.error ?? r.outcome.status.label}),
                     style: const TextStyle(fontSize: 12, color: Colors.red)),
               );

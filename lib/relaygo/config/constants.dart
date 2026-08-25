@@ -100,7 +100,9 @@ class Constants {
   static const String markExhaustedPath = '/admin/mark-exhausted';
 
   // 模型列表同步（REQ-003）
-  static const String modelsPath = '/v1/models'; // 代理层对外暴露的聚合模型列表（AI 应用查询用）
+  static const String modelsPath = '/v1/models';
+  static const String imagesGenPath = '/v1/images/generations'; // 图像生成转发端点
+  static const String imagesEditsPath = '/v1/images/edits'; // 图像编辑转发端点 // 代理层对外暴露的聚合模型列表（AI 应用查询用）
   static const String modelsBox = 'relay_models';
   static const String syncHistoryBox = 'relay_sync_history';
 

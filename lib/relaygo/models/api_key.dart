@@ -73,7 +73,7 @@ class ApiKey {
 
   // —— SenseNova Key Rotator 融合：按模型计调用追踪 ——
   /// 每个模型的调用次数（5h滑动窗口）
-  final Map<String, List<int>> modelCalls = {};
+  final Map<String, int> modelCalls = {}; // 每模型窗口内调用次数
   /// 每个模型是否已耗尽
   final Map<String, bool> modelExhausted = {};
   /// 每个模型最后调用时间戳

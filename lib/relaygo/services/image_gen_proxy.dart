@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:Kelivo/relaygo/config/constants.dart';
-import 'package:Kelivo/relaygo/models/api_key.dart';
 import 'package:Kelivo/relaygo/models/user_settings.dart';
 import 'package:Kelivo/relaygo/services/key_manager.dart';
 import 'package:Kelivo/relaygo/services/model_call_tracker.dart';
@@ -60,13 +59,6 @@ class ImageGenProxy {
     final model = payload['model'] as String? ?? 'dall-e-3';
     final providerName = _detectProvider(model);
     final provider = providerForName(providerName);
-    if (provider == null) {
-      request.response.statusCode = 400;
-      request.response.headers.contentType = ContentType.json;
-      request.response.write(jsonEncode({'error': '无法识别模型 $model 的提供商'}));
-      await request.response.close();
-      return;
-    }
 
     // 候选 key 池
     var keys = keyManager.getUsableByProvider(providerName);
@@ -103,7 +95,7 @@ class ImageGenProxy {
         final result = await provider.forward(
           ProxyRequest(
             method: 'POST',
-            path: Constants.imagesPath,
+            path: Constants.imagesGenPath,
             query: '',
             headers: const {},
             body: body,

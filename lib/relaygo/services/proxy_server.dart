@@ -135,7 +135,7 @@ class ProxyServer {
   bool get isRunning => _running;
 
   int get activeKeyCount =>
-      keyManager.getAll().where((k) => k.status == KeyStatus.active && modelCallTracker.canCall(k, proxyRequest.model)).length;
+      keyManager.getAll().where((k) => k.status == KeyStatus.active).length;
 
   int get queuedRequests => _queue.length;
 
@@ -1048,7 +1048,7 @@ class ProxyServer {
               'provider': k.provider,
               'status': k.status.name,
               'masked_key': k.maskedKey,
-              'group': k.group ?? '',
+              'group': k.group,
               'failure_count': k.failureCount,
               'cooldown_until': k.cooldownUntil,
               'daily_quota': k.dailyQuota,
@@ -1196,9 +1196,6 @@ class ProxyServer {
           await _respondError(request, 405, '该接口仅支持 GET');
           return;
         }
-        final alertLimit = int.tryParse(
-                request.uri.queryParameters['limit'] ?? '50') ??
-            50;
         // 告警存储在 Hive 盒中，通过 AppState 暴露；此处返回空列表作为占位
         await _jsonResponse(request, 200, {'alerts': [], 'count': 0});
         return;
@@ -1218,7 +1215,6 @@ class ProxyServer {
         for (final providerName in allProviderNames) {
           try {
             final provider = providerForName(providerName);
-            if (provider == null) continue;
             final keys = keyManager.getByProvider(providerName)
                 .where((k) => k.status == KeyStatus.active)
                 .toList();

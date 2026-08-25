@@ -226,7 +226,7 @@ class _KeyEditDialogState extends State<KeyEditDialog> {
                     child: Text(
                       p.builtIn
                           ? p.name
-                          : L10n.fmt('{name} (自定义)', {'name': p.name}),
+                          : L10n.fmt(L10n.tr('{name} (自定义)'), {'name': p.name}),
                       overflow: TextOverflow.ellipsis,
                     ),
                   );
@@ -315,7 +315,7 @@ class _KeyEditDialogState extends State<KeyEditDialog> {
                       controller: _prioCtrl,
                       keyboardType: TextInputType.number,
                       decoration: InputDecoration(labelText: L10n.tr('优先级')),
-                      validator: (v) => Validators.validatePositiveInt(v, '优先级'),
+                      validator: (v) => Validators.validatePositiveInt(v, L10n.tr('优先级')),
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -324,7 +324,7 @@ class _KeyEditDialogState extends State<KeyEditDialog> {
                       controller: _weightCtrl,
                       keyboardType: TextInputType.number,
                       decoration: InputDecoration(labelText: L10n.tr('权重')),
-                      validator: (v) => Validators.validatePositiveInt(v, '权重'),
+                      validator: (v) => Validators.validatePositiveInt(v, L10n.tr('权重')),
                     ),
                   ),
                 ],
@@ -345,7 +345,7 @@ class _KeyEditDialogState extends State<KeyEditDialog> {
                       controller: _quotaCtrl,
                       keyboardType: TextInputType.number,
                       decoration: InputDecoration(labelText: L10n.tr('每日额度(token)')),
-                      validator: (v) => Validators.validatePositiveInt(v, '额度'),
+                      validator: (v) => Validators.validatePositiveInt(v, L10n.tr('额度')),
                     ),
                   ),
                 ],

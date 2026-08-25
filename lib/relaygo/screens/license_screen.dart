@@ -16,68 +16,68 @@ class LicenseScreen extends StatelessWidget {
   const LicenseScreen({Key? key}) : super(key: key);
 
   /// 项目运行时使用的核心 Dart/Flutter 开源依赖
-  static const List<_Dependency> _deps = [
+  static final List<_Dependency> _deps = [
     _Dependency('Flutter', 'Google', 'BSD-3-Clause',
-        '跨平台 UI 框架', 'https://flutter.dev'),
+        L10n.tr('跨平台 UI 框架'), 'https://flutter.dev'),
     _Dependency('Dart SDK', 'Google', 'BSD-3-Clause',
-        '编程语言', 'https://dart.dev'),
+        L10n.tr('编程语言'), 'https://dart.dev'),
     _Dependency('hive', 'Simon Binder', 'Apache-2.0',
-        '本地键值存储（Key、模型、日志、规则等）', 'https://pub.dev/packages/hive'),
+        L10n.tr('本地键值存储（Key、模型、日志、规则等）'), 'https://pub.dev/packages/hive'),
     _Dependency('hive_flutter', 'Simon Binder', 'Apache-2.0',
-        'Hive 的 Flutter 封装', 'https://pub.dev/packages/hive_flutter'),
+        L10n.tr('Hive 的 Flutter 封装'), 'https://pub.dev/packages/hive_flutter'),
     _Dependency('encrypt', 'Zac', 'BSD-3-Clause',
-        'API Key 的 AES-256 加密', 'https://pub.dev/packages/encrypt'),
+        L10n.tr('API Key 的 AES-256 加密'), 'https://pub.dev/packages/encrypt'),
     _Dependency('provider', 'Remi Rousselet', 'MIT',
-        '状态管理', 'https://pub.dev/packages/provider'),
+        L10n.tr('状态管理'), 'https://pub.dev/packages/provider'),
     _Dependency('http', 'Dart Team', 'BSD-3-Clause',
-        '网络请求与流式转发', 'https://pub.dev/packages/http'),
+        L10n.tr('网络请求与流式转发'), 'https://pub.dev/packages/http'),
     _Dependency('crypto', 'Dart Team', 'BSD-3-Clause',
-        'SHA-256：缓存键哈希、更新包校验', 'https://pub.dev/packages/crypto'),
+        L10n.tr('SHA-256：缓存键哈希、更新包校验'), 'https://pub.dev/packages/crypto'),
     _Dependency('intl', 'Dart Team', 'BSD-3-Clause',
-        '日期/数字格式化', 'https://pub.dev/packages/intl'),
+        L10n.tr('日期/数字格式化'), 'https://pub.dev/packages/intl'),
     _Dependency('file_selector', 'Flutter Team', 'BSD-3-Clause',
-        '跨平台文件选择器（Key 批量导入）', 'https://pub.dev/packages/file_selector'),
+        L10n.tr('跨平台文件选择器（Key 批量导入）'), 'https://pub.dev/packages/file_selector'),
     _Dependency('url_launcher', 'Flutter Team', 'BSD-3-Clause',
-        '打开外部链接', 'https://pub.dev/packages/url_launcher'),
+        L10n.tr('打开外部链接'), 'https://pub.dev/packages/url_launcher'),
     _Dependency('pointycastle', 'appsup-dart', 'MIT',
-        '加密原语（encrypt 的底层实现）', 'https://pub.dev/packages/pointycastle'),
+        L10n.tr('加密原语（encrypt 的底层实现）'), 'https://pub.dev/packages/pointycastle'),
     _Dependency('asn1lib', 'Dirk Holtwick', 'BSD-2-Clause',
-        'ASN.1 解析（加密依赖）', 'https://pub.dev/packages/asn1lib'),
+        L10n.tr('ASN.1 解析（加密依赖）'), 'https://pub.dev/packages/asn1lib'),
     _Dependency('cupertino_icons', 'Flutter Team', 'MIT',
-        'iOS 风格图标', 'https://pub.dev/packages/cupertino_icons'),
+        L10n.tr('iOS 风格图标'), 'https://pub.dev/packages/cupertino_icons'),
     _Dependency('flutter_lints', 'Dart Team', 'BSD-3-Clause',
-        '代码规范检查（开发依赖）', 'https://pub.dev/packages/flutter_lints'),
+        L10n.tr('代码规范检查（开发依赖）'), 'https://pub.dev/packages/flutter_lints'),
   ];
 
   /// 项目实现时参考的开源项目
-  static const List<_Dependency> _refs = [
+  static final List<_Dependency> _refs = [
     _Dependency('one-api', 'songquanpeng', 'MIT',
-        '功能全面的 API 管理平台', 'https://github.com/songquanpeng/one-api'),
+        L10n.tr('功能全面的 API 管理平台'), 'https://github.com/songquanpeng/one-api'),
     _Dependency('new-api', 'Calcium-Ion', 'MIT',
-        'one-api 的增强版本', 'https://github.com/QuantumNous/new-api'),
+        L10n.tr('one-api 的增强版本'), 'https://github.com/QuantumNous/new-api'),
     _Dependency('openai-forward', 'beidongjiedeguang', 'MIT',
-        '专注 OpenAI 的转发服务', 'https://github.com/beidongjiedeguang/openai-forward'),
+        L10n.tr('专注 OpenAI 的转发服务'), 'https://github.com/beidongjiedeguang/openai-forward'),
     _Dependency('LiteLLM', 'BerriAI', 'MIT',
-        '统一的多模型 API 网关', 'https://github.com/BerriAI/litellm'),
+        L10n.tr('统一的多模型 API 网关'), 'https://github.com/BerriAI/litellm'),
     _Dependency('ChatGPT-Next-Web', 'Yidadaa', 'MIT',
-        '优秀的 UI 参考', 'https://github.com/ChatGPTNextWeb/NextChat'),
+        L10n.tr('优秀的 UI 参考'), 'https://github.com/ChatGPTNextWeb/NextChat'),
   ];
 
   @override
   Widget build(BuildContext context) {
     final t = L10n.instance;
     return Scaffold(
-      appBar: AppBar(title: Text(t.t('开源协议'))),
+      appBar: AppBar(title: Text(t.t(L10n.tr('开源协议')))),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           _sectionCard(
             context,
-            title: t.t('项目许可证'),
+            title: t.t(L10n.tr('项目许可证')),
             children: [
-              _kv(context, t.t('项目'), Constants.appName),
-              _kv(context, t.t('许可证'), 'GNU AGPL v3.0'),
-              _kv(context, t.t('版本'), 'v${Constants.appVersion}'),
+              _kv(context, t.t(L10n.tr('项目')), Constants.appName),
+              _kv(context, t.t(L10n.tr('许可证')), 'GNU AGPL v3.0'),
+              _kv(context, t.t(L10n.tr('版本')), 'v${Constants.appVersion}'),
               const SizedBox(height: 8),
               Text(
                 t.t('RelayGo 基于 AGPL-3.0 协议开源。\n\n'
@@ -105,14 +105,14 @@ class LicenseScreen extends StatelessWidget {
           const SizedBox(height: 16),
           _sectionCard(
             context,
-            title: t.t('使用的开源项目'),
-            subtitle: t.t('以下为项目运行时使用的核心开源依赖'),
+            title: t.t(L10n.tr('使用的开源项目')),
+            subtitle: t.t(L10n.tr('以下为项目运行时使用的核心开源依赖')),
             children: [
               for (final d in _deps) _depTile(context, d),
               TextButton.icon(
                 icon: const Icon(Icons.shield_outlined,
                     size: 18, color: AppTheme.accent),
-                label: Text(t.t('查看第三方组件完整许可证')),
+                label: Text(t.t(L10n.tr('查看第三方组件完整许可证'))),
                 onPressed: () => showLicensePage(
                   context: context,
                   applicationName: Constants.appName,
@@ -126,8 +126,8 @@ class LicenseScreen extends StatelessWidget {
           const SizedBox(height: 16),
           _sectionCard(
             context,
-            title: t.t('参考的项目'),
-            subtitle: t.t('项目实现时参考并致谢以下开源项目'),
+            title: t.t(L10n.tr('参考的项目')),
+            subtitle: t.t(L10n.tr('项目实现时参考并致谢以下开源项目')),
             children: [
               for (final r in _refs)
                 ListTile(
@@ -262,8 +262,8 @@ class _AbstractLicenseView extends StatelessWidget {
             const SizedBox(height: 12),
             const Divider(),
             const SizedBox(height: 8),
-            const Text('完整许可证文本：',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+            Text(L10n.tr('完整许可证文本：'),
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
             const SizedBox(height: 6),
             const Text('https://www.gnu.org/licenses/agpl-3.0.html',
                 style: TextStyle(fontSize: 12, color: AppTheme.info)),

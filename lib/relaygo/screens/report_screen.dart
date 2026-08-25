@@ -41,21 +41,21 @@ class _ReportScreenState extends State<ReportScreen> {
     final s = _report.stats;
     return Scaffold(
       appBar: AppBar(
-        title: Text(t.t('统计报表')),
+        title: Text(t.t(L10n.tr('统计报表'))),
         actions: [
           IconButton(
             icon: const Icon(Icons.download),
-            tooltip: t.t('导出 JSON'),
+            tooltip: t.t(L10n.tr('导出 JSON')),
             onPressed: () => _export(context, 'json'),
           ),
           IconButton(
             icon: const Icon(Icons.table_chart),
-            tooltip: t.t('导出 CSV'),
+            tooltip: t.t(L10n.tr('导出 CSV')),
             onPressed: () => _export(context, 'csv'),
           ),
           IconButton(
             icon: const Icon(Icons.article),
-            tooltip: t.t('导出 Markdown'),
+            tooltip: t.t(L10n.tr('导出 Markdown')),
             onPressed: () => _export(context, 'md'),
           ),
         ],
@@ -121,18 +121,18 @@ class _ReportScreenState extends State<ReportScreen> {
             ],
           ),
           const SizedBox(height: 14),
-          _chartCard(t.t('每日请求趋势'),
+          _chartCard(t.t(L10n.tr('每日请求趋势')),
               SimpleBarChart(data: _dailyMap())),
           const SizedBox(height: 12),
-          _chartCard(t.t('每日错误趋势'),
+          _chartCard(t.t(L10n.tr('每日错误趋势')),
               SimpleBarChart(
                   data: _dailyMap(errors: true), color: Colors.red)),
           const SizedBox(height: 12),
-          _rankCard(t.t('Top 模型'), _report.topModels),
+          _rankCard(t.t(L10n.tr('Top 模型')), _report.topModels),
           const SizedBox(height: 12),
           _rankCard(t.t('Top Key'), _report.topKeys),
           const SizedBox(height: 12),
-          _rankCard(t.t('Top 提供商'), _report.topProviders),
+          _rankCard(t.t(L10n.tr('Top 提供商')), _report.topProviders),
           const SizedBox(height: 12),
           if (_report.rateLimitedByDimension.isNotEmpty)
             _rateLimitCard(t, _report.rateLimitedByDimension),
@@ -203,7 +203,7 @@ class _ReportScreenState extends State<ReportScreen> {
                       dense: true,
                       contentPadding: EdgeInsets.zero,
                       title: Text(e.name.isEmpty ? L10n.tr('(未知)') : e.name),
-                      trailing: Text(L10n.fmt('{count} 次 · {tokens} tok',
+                      trailing: Text(L10n.fmt(L10n.tr('{count} 次 · {tokens} tok'),
                           {
                             'count': '${e.count}',
                             'tokens': Formatters.formatNumber(e.tokens)
@@ -222,10 +222,10 @@ class _ReportScreenState extends State<ReportScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(t.t('限流触发'),
+              Text(t.t(L10n.tr('限流触发')),
                   style: const TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
-              ...data.entries.map((e) => Text(L10n.fmt('{key}：{value} 次',
+              ...data.entries.map((e) => Text(L10n.fmt(L10n.tr('{key}：{value} 次'),
                   {'key': e.key, 'value': '${e.value}'}))),
             ],
           ),
@@ -239,11 +239,11 @@ class _ReportScreenState extends State<ReportScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(t.t('缓存统计'),
+              Text(t.t(L10n.tr('缓存统计')),
                   style: const TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
               Text(L10n.fmt(
-                  '命中 {hits} / 未命中 {misses} · 命中率 {rate}% · 条目 {entries} · {kb} KB',
+                  L10n.tr('命中 {hits} / 未命中 {misses} · 命中率 {rate}% · 条目 {entries} · {kb} KB'),
                   {
                     'hits': '${stats.hits}',
                     'misses': '${stats.misses}',

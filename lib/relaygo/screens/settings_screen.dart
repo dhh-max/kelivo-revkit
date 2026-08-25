@@ -229,14 +229,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final app = Provider.of<AppState>(context);
     final t = L10n.instance;
     return Scaffold(
-      appBar: AppBar(title: Text(t.t('设置'))),
+      appBar: AppBar(title: Text(t.t(L10n.tr('设置')))),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
         children: [
-          _section(t.t('服务器配置')),
+          _section(t.t(L10n.tr('服务器配置'))),
           _card([
             _row(
-              title: t.t('端口'),
+              title: t.t(L10n.tr('端口')),
               subtitle: L10n.tr('Relay 服务监听端口'),
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -256,12 +256,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             _row(
-              title: t.t('监听地址'),
+              title: t.t(L10n.tr('监听地址')),
               subtitle: L10n.tr('0.0.0.0（所有网卡）或 127.0.0.1（仅本机）'),
               trailing: _monoTag(_host),
             ),
             _row(
-              title: t.t('负载均衡策略'),
+              title: t.t(L10n.tr('负载均衡策略')),
               trailing: _select<String>(
                 value: _strategy,
                 items: [
@@ -283,13 +283,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             _row(
-              title: t.t('自动启动'),
+              title: t.t(L10n.tr('自动启动')),
               subtitle: L10n.tr('开机后自动运行服务'),
               trailing: _switch(_autoStartOnBoot,
                   (v) => setState(() => _autoStartOnBoot = v)),
             ),
             _row(
-              title: t.t('局域网访问'),
+              title: t.t(L10n.tr('局域网访问')),
               subtitle: L10n.tr('允许局域网内设备连接'),
               trailing: _switch(
                   _host != '127.0.0.1',
@@ -297,10 +297,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       () => _host = v ? '0.0.0.0' : '127.0.0.1')),
             ),
           ]),
-          _section(t.t('Key 管理')),
+          _section(t.t(L10n.tr('Key 管理'))),
           _card([
             _row(
-              title: t.t('自动测试间隔'),
+              title: t.t(L10n.tr('自动测试间隔')),
               trailing: _select<int>(
                 value: _modelSyncInterval,
                 items: [
@@ -313,96 +313,96 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             _row(
-              title: t.t('失效自动禁用'),
+              title: t.t(L10n.tr('失效自动禁用')),
               subtitle: L10n.tr('测试失败自动停用 Key'),
               trailing: _switch(_rateLimitEnabled,
                   (v) => setState(() => _rateLimitEnabled = v)),
             ),
             _row(
-              title: t.t('启用规则引擎'),
+              title: t.t(L10n.tr('启用规则引擎')),
               subtitle: L10n.tr('按规则智能路由请求'),
               trailing: _switch(
                   _rulesEnabled, (v) => setState(() => _rulesEnabled = v)),
             ),
             _row(
-              title: t.t('单请求最多切换 key 数'),
+              title: t.t(L10n.tr('单请求最多切换 key 数')),
               trailing: _numberField(_retryCtrl, '$_maxRetryKeys'),
             ),
           ]),
-          _section(t.t('响应缓存与限流')),
+          _section(t.t(L10n.tr('响应缓存与限流'))),
           _card([
             _row(
-              title: t.t('启用响应缓存'),
+              title: t.t(L10n.tr('启用响应缓存')),
               subtitle: L10n.tr('缓存可复用幂等的 2xx 响应'),
               trailing: _switch(
                   _cacheEnabled, (v) => setState(() => _cacheEnabled = v)),
             ),
             _row(
-              title: t.t('缓存 TTL (秒)'),
+              title: t.t(L10n.tr('缓存 TTL (秒)')),
               trailing: _numberField(_cacheTtlCtrl, '$_cacheTtl'),
             ),
             _row(
-              title: t.t('缓存条目上限'),
+              title: t.t(L10n.tr('缓存条目上限')),
               trailing: _numberField(_cacheMaxCtrl, '$_cacheMaxEntries'),
             ),
             _row(
-              title: t.t('单 IP 每分钟请求上限'),
+              title: t.t(L10n.tr('单 IP 每分钟请求上限')),
               subtitle: L10n.tr('0 = 不限制'),
               trailing: _numberField(_ipRpmCtrl, '$_ipRpm'),
             ),
             _row(
-              title: t.t('全局每分钟请求上限'),
+              title: t.t(L10n.tr('全局每分钟请求上限')),
               subtitle: L10n.tr('0 = 不限制'),
               trailing: _numberField(_globalRpmCtrl, '$_globalRpm'),
             ),
             _row(
-              title: t.t('单 key 每分钟 Token 上限'),
+              title: t.t(L10n.tr('单 key 每分钟 Token 上限')),
               subtitle: L10n.tr('0 = 不限制'),
               trailing: _numberField(_tokenRpmCtrl, '$_tokenRpm'),
             ),
             _row(
-              title: t.t('令牌桶突发倍数'),
+              title: t.t(L10n.tr('令牌桶突发倍数')),
               trailing: _numberField(_burstCtrl, _burst.toString()),
             ),
             _row(
-              title: t.t('自适应 TPM 限流'),
+              title: t.t(L10n.tr('自适应 TPM 限流')),
               subtitle: L10n.tr('默认开启。学习上游速率上限并提前挡板，遇到临时 TPM 限流(429)时在同一 key 上等待窗口刷新后自动重试；超出等待预算才提示客户端稍后重发，尽量不中断'),
               trailing: _switch(
                   _adaptiveTpm, (v) => setState(() => _adaptiveTpm = v)),
             ),
           ]),
-          _section(t.t('模型同步')),
+          _section(t.t(L10n.tr('模型同步'))),
           _card([
             _row(
-              title: t.t('启动时自动同步模型列表'),
+              title: t.t(L10n.tr('启动时自动同步模型列表')),
               subtitle: L10n.tr('应用启动时从各服务商拉取最新模型'),
               trailing: _switch(
                   _autoSyncModels, (v) => setState(() => _autoSyncModels = v)),
             ),
             _row(
-              title: t.t('自动禁用已下线的模型'),
+              title: t.t(L10n.tr('自动禁用已下线的模型')),
               subtitle: L10n.tr('同步后未出现的历史模型标记为已下线'),
               trailing: _switch(_autoDisableRemoved,
                   (v) => setState(() => _autoDisableRemoved = v)),
             ),
             _row(
-              title: t.t('虚拟模型层'),
+              title: t.t(L10n.tr('虚拟模型层')),
               subtitle: L10n.tr('默认关闭。关闭时返回真实模型并原样透传；开启后按能力档位收敛为少量虚拟模型'),
               trailing: _switch(_virtualModelsEnabled,
                   (v) => setState(() => _virtualModelsEnabled = v)),
             ),
           ]),
-          _section(t.t('通知与告警')),
+          _section(t.t(L10n.tr('通知与告警'))),
           _card([
             _row(
-              title: t.t('启用告警'),
+              title: t.t(L10n.tr('启用告警')),
               subtitle: L10n.tr('额度 / 错误率触发时通知'),
               trailing: _switch(
                   _alertsEnabled, (v) => setState(() => _alertsEnabled = v)),
             ),
             _row(
-              title: t.t('额度预警阈值'),
-              subtitle: L10n.fmt('达到 {pct}% 触发预警',
+              title: t.t(L10n.tr('额度预警阈值')),
+              subtitle: L10n.fmt(L10n.tr('达到 {pct}% 触发预警'),
                   {'pct': '${(_quotaWarn * 100).toStringAsFixed(0)}'}),
               trailing: _slider(
                 value: _quotaWarn,
@@ -414,8 +414,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             _row(
-              title: t.t('错误率告警阈值'),
-              subtitle: L10n.fmt('超过 {pct}% 触发',
+              title: t.t(L10n.tr('错误率告警阈值')),
+              subtitle: L10n.fmt(L10n.tr('超过 {pct}% 触发'),
                   {'pct': '${(_errorRate * 100).toStringAsFixed(0)}'}),
               trailing: _slider(
                 value: _errorRate,
@@ -427,32 +427,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ]),
-          _section(t.t('日志管理')),
+          _section(t.t(L10n.tr('日志管理'))),
           _card([
             _row(
-              title: t.t('日志保留天数'),
+              title: t.t(L10n.tr('日志保留天数')),
               subtitle: L10n.tr('0 = 不自动清理'),
               trailing: _numberField(_logRetentionCtrl, '$_logRetentionDays'),
             ),
             _row(
-              title: t.t('日志条数上限'),
+              title: t.t(L10n.tr('日志条数上限')),
               trailing: _numberField(_maxLogCtrl, '$_maxLogEntries'),
             ),
             _row(
-              title: t.t('上游超时 (秒)'),
+              title: t.t(L10n.tr('上游超时 (秒)')),
               trailing: _numberField(_timeoutCtrl, '$_upstreamTimeout'),
             ),
           ]),
-          _section(t.t('后台保活')),
+          _section(t.t(L10n.tr('后台保活'))),
           _card([
             _row(
-              title: t.t('后台保活'),
+              title: t.t(L10n.tr('后台保活')),
               subtitle: L10n.tr('前台服务 + 常驻通知，防止系统回收进程'),
               trailing: _switch(
                   _keepAliveEnabled, (v) => setState(() => _keepAliveEnabled = v)),
             ),
             _row(
-              title: t.t('忽略电池优化'),
+              title: t.t(L10n.tr('忽略电池优化')),
               subtitle: L10n.tr('加入白名单，避免 Doze 模式被杀'),
               trailing: _switch(_ignoreBatteryOptimization, (v) async {
                 setState(() => _ignoreBatteryOptimization = v);
@@ -460,10 +460,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               }),
             ),
           ]),
-          _section(t.t('外观与安全')),
+          _section(t.t(L10n.tr('外观与安全'))),
           _card([
             _row(
-              title: t.t('语言'),
+              title: t.t(L10n.tr('语言')),
               trailing: _select<String>(
                 value: _lang,
                 items: [
@@ -479,13 +479,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             _row(
-              title: t.t('应用锁'),
+              title: t.t(L10n.tr('应用锁')),
               subtitle: L10n.tr('（生物识别 / PIN）'),
               trailing:
                   _switch(_appLock, (v) => setState(() => _appLock = v)),
             ),
             _row(
-              title: t.t('管理令牌'),
+              title: t.t(L10n.tr('管理令牌')),
               subtitle: _adminToken.isEmpty
                   ? L10n.tr('未设置，管理接口无鉴权')
                   : '••••••••••••',
@@ -501,7 +501,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ]),
-          _section(t.t('关于')),
+          _section(t.t(L10n.tr('关于'))),
           _card([
             _row(
               leading: const Icon(Icons.info_outline,
@@ -511,7 +511,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               trailing: _chip(L10n.tr('最新版'), AppTheme.surface2, AppTheme.text2),
             ),
             _row(
-              title: t.t('检查更新'),
+              title: t.t(L10n.tr('检查更新')),
               trailing: TextButton(
                 style: TextButton.styleFrom(
                   minimumSize: const Size(0, 32),
@@ -524,7 +524,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             _row(
-              title: t.t('GitHub 发布仓库'),
+              title: t.t(L10n.tr('GitHub 发布仓库')),
               subtitle: _githubRepo.isEmpty
                   ? L10n.tr('未配置，走静态清单回退')
                   : _githubRepo,
@@ -540,7 +540,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             _row(
-              title: t.t('开源协议'),
+              title: t.t(L10n.tr('开源协议')),
               trailing: TextButton(
                 style: TextButton.styleFrom(
                   minimumSize: const Size(0, 32),
@@ -560,7 +560,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
           child: FilledButton.icon(
             icon: const Icon(Icons.save),
-            label: Text(t.t('保存设置')),
+            label: Text(t.t(L10n.tr('保存设置'))),
             style: FilledButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 14),
             ),

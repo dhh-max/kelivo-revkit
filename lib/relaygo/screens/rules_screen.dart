@@ -76,7 +76,7 @@ class RulesScreen extends StatelessWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(L10n.tr('删除规则')),
-        content: Text(L10n.fmt('确认删除「{name}」？', {'name': rule.name})),
+        content: Text(L10n.fmt(L10n.tr('确认删除「{name}」？'), {'name': rule.name})),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false), child: Text(L10n.tr('取消'))),

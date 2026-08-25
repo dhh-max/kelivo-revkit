@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:Kelivo/relaygo/config/theme.dart';
 import 'package:Kelivo/relaygo/models/api_key.dart';
 import 'package:Kelivo/relaygo/models/key_test.dart';
-import 'package:Kelivo/relaygo/models/provider_config.dart';
 import 'package:Kelivo/relaygo/l10n/app_strings.dart';
 
 /// Key 状态对应的颜色（对应设计稿 m3-dot：绿=有效 / 灰=禁用 / 橙=用尽 / 红=错误）

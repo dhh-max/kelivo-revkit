@@ -227,7 +227,7 @@ class _KeyManagementScreenState extends State<KeyManagementScreen> {
                       fontSize: 13, fontWeight: FontWeight.w600),
                 ),
                 onPressed: () => _batchTest(
-                    app, keys, L10n.fmt('测试 {name}', {'name': displayName})),
+                    app, keys, L10n.fmt(L10n.tr('测试 {name}'), {'name': displayName})),
                 child: Text(L10n.tr('测试全部')),
               ),
             ],
@@ -281,20 +281,20 @@ class _KeyManagementScreenState extends State<KeyManagementScreen> {
     var color = Colors.grey;
     switch (outcome.status) {
       case KeyTestStatus.valid:
-        msg = L10n.fmt('连接成功：{name}', {'name': k.name});
+        msg = L10n.fmt(L10n.tr('连接成功：{name}'), {'name': k.name});
         color = Colors.green;
         break;
       case KeyTestStatus.invalid:
-        msg = L10n.fmt('连接失败：{name}（{err}）',
+        msg = L10n.fmt(L10n.tr('连接失败：{name}（{err}）'),
             {'name': k.name, 'err': outcome.error ?? L10n.tr('无效')});
         color = Colors.red;
         break;
       case KeyTestStatus.timeout:
-        msg = L10n.fmt('连接超时：{name}', {'name': k.name});
+        msg = L10n.fmt(L10n.tr('连接超时：{name}'), {'name': k.name});
         color = Colors.orange;
         break;
       case KeyTestStatus.error:
-        msg = L10n.fmt('连接异常：{name}（{err}）',
+        msg = L10n.fmt(L10n.tr('连接异常：{name}（{err}）'),
             {'name': k.name, 'err': outcome.error ?? L10n.tr('错误')});
         color = Colors.orange;
         break;
@@ -315,7 +315,7 @@ class _KeyManagementScreenState extends State<KeyManagementScreen> {
       builder: (ctx) => AlertDialog(
         title: Text(L10n.tr('删除 Key')),
         content: Text(
-            L10n.fmt('确认删除「{name}」？此操作不可撤销。', {'name': k.name})),
+            L10n.fmt(L10n.tr('确认删除「{name}」？此操作不可撤销。'), {'name': k.name})),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
@@ -366,7 +366,7 @@ class _KeyManagementScreenState extends State<KeyManagementScreen> {
     );
     if (n != null && n > 0 && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(L10n.fmt('成功导入 {n} 个 Key', {'n': '$n'}))));
+        SnackBar(content: Text(L10n.fmt(L10n.tr('成功导入 {n} 个 Key'), {'n': '$n'}))));
     }
   }
 

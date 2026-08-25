@@ -49,7 +49,7 @@ class _KeyImportDialogState extends State<KeyImportDialog> {
       content = await file.readAsString();
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = L10n.fmt('读取文件失败：{err}', {'err': '$e'}));
+      setState(() => _error = L10n.fmt(L10n.tr('读取文件失败：{err}'), {'err': '$e'}));
       return;
     }
     if (!mounted) return;
@@ -80,7 +80,7 @@ class _KeyImportDialogState extends State<KeyImportDialog> {
       if (!mounted) return;
       setState(() {
         _busy = false;
-        _error = L10n.fmt('导入失败：{err}', {'err': '$e'});
+        _error = L10n.fmt(L10n.tr('导入失败：{err}'), {'err': '$e'});
       });
       return;
     }
@@ -119,11 +119,11 @@ class _KeyImportDialogState extends State<KeyImportDialog> {
               const Divider(height: 16),
               Text(L10n.tr('格式说明：'),
                   style: const TextStyle(fontSize: 12, color: Colors.grey)),
-              const Text(
-                  '① JSON：[{"provider":"openai","key":"sk-xxx","name":"账号A","note":"免费"}]',
-                  style: TextStyle(fontSize: 12)),
-              const Text('② 文本：openai,sk-xxx,账号A,免费额度',
-                  style: TextStyle(fontSize: 12)),
+              Text(
+                  L10n.tr('① JSON：[{"provider":"openai","key":"sk-xxx","name":"账号A","note":"免费"}]'),
+                  style: const TextStyle(fontSize: 12)),
+              Text(L10n.tr('② 文本：openai,sk-xxx,账号A,免费额度'),
+                  style: const TextStyle(fontSize: 12)),
               const SizedBox(height: 8),
               TextField(
                 controller: _ctrl,
@@ -138,7 +138,7 @@ class _KeyImportDialogState extends State<KeyImportDialog> {
                 Padding(
                   padding: const EdgeInsets.only(top: 6),
                   child: Text(
-                      L10n.fmt('已识别 {n} 个 Key', {'n': '$_preview'}),
+                      L10n.fmt(L10n.tr('已识别 {n} 个 Key'), {'n': '$_preview'}),
                       style: const TextStyle(color: Colors.green, fontSize: 12)),
                 ),
               if (_error != null)

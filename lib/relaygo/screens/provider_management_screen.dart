@@ -85,7 +85,7 @@ class ProviderManagementScreen extends StatelessWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(L10n.tr('删除提供商')),
-        content: Text(L10n.fmt('确认删除「{name}」？\n已关联该提供商的 API Key 需要重新选择提供商。', {'name': p.name})),
+        content: Text(L10n.fmt(L10n.tr('确认删除「{name}」？\n已关联该提供商的 API Key 需要重新选择提供商。'), {'name': p.name})),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -166,7 +166,7 @@ class _ProviderTile extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
             Text(
-              L10n.fmt('API 路径: {path}', {'path': provider.apiPath}),
+              L10n.fmt(L10n.tr('API 路径: {path}'), {'path': provider.apiPath}),
               style: const TextStyle(fontSize: 11, color: Colors.grey),
             ),
           ],

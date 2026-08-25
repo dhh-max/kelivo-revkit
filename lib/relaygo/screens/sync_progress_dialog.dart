@@ -42,7 +42,7 @@ class _SyncProgressDialogState extends State<SyncProgressDialog> {
         if (_cancelled) break;
         if (!mounted) return;
         setState(() => _progress[p] = SyncProgress(
-            p, SyncStatus.syncing, L10n.fmt('正在同步 {p} 的模型列表...', {'p': p})));
+            p, SyncStatus.syncing, L10n.fmt(L10n.tr('正在同步 {p} 的模型列表...'), {'p': p})));
         try {
           final r = await widget.app
               .syncProviderModels(p, isCancelled: () => _cancelled);
@@ -51,7 +51,7 @@ class _SyncProgressDialogState extends State<SyncProgressDialog> {
           setState(() => _progress[p] = SyncProgress(
               p,
               SyncStatus.completed,
-              L10n.fmt('{p} 同步完成，共 {n} 个模型',
+              L10n.fmt(L10n.tr('{p} 同步完成，共 {n} 个模型'),
                   {'p': p, 'n': '${r.models.length}'})));
         } catch (e) {
           results[p] = ProviderSyncResult(
@@ -62,7 +62,7 @@ class _SyncProgressDialogState extends State<SyncProgressDialog> {
           setState(() => _progress[p] = SyncProgress(
               p,
               SyncStatus.failed,
-              L10n.fmt('{p} 同步失败：{err}',
+              L10n.fmt(L10n.tr('{p} 同步失败：{err}'),
                   {'p': p, 'err': '${results[p]!.error}'})));
         }
       }
@@ -109,7 +109,7 @@ class _SyncProgressDialogState extends State<SyncProgressDialog> {
             LinearProgressIndicator(value: _syncing ? overall : 1.0),
             const SizedBox(height: 12),
             Text(_syncing
-                ? L10n.fmt('正在同步 {done}/{total} 个服务商',
+                ? L10n.fmt(L10n.tr('正在同步 {done}/{total} 个服务商'),
                     {'done': '$done', 'total': '$total'})
                 : L10n.tr('同步完成')),
             const SizedBox(height: 12),
@@ -155,10 +155,10 @@ class _SyncProgressDialogState extends State<SyncProgressDialog> {
     return [
       const Divider(),
       Text(
-          L10n.fmt('成功 {ok} 个服务商，失败 {fail} 个',
+          L10n.fmt(L10n.tr('成功 {ok} 个服务商，失败 {fail} 个'),
               {'ok': '${r.successCount}', 'fail': '${r.failedCount}'}),
           style: const TextStyle(fontWeight: FontWeight.bold)),
-      Text(L10n.fmt('新增 {n} · 更新 {u} · 下线 {r} · 共 {t} 个模型', {
+      Text(L10n.fmt(L10n.tr('新增 {n} · 更新 {u} · 下线 {r} · 共 {t} 个模型'), {
         'n': '${r.newCount}',
         'u': '${r.updatedCount}',
         'r': '${r.removedCount}',

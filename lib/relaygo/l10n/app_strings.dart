@@ -388,16 +388,8 @@ class L10n {
 
     // ===== 导出 Key =====
     '导出全部 Key': 'Export All Keys',
-    '共 {n} 个 Key，已生成 JSON 备份内容。\n'
-        '使用方法：\n'
-        '1. 点击「一键复制」复制全部内容；\n'
-        '2. 粘贴到备忘录 / 文件管理器保存为 .json 文件；\n'
-        '3. 重装应用后，在 Key 管理 → 批量导入中粘贴或选择该文件即可恢复。':
-        '{n} keys, JSON backup generated.\n'
-            'How to use:\n'
-            '1. Tap "Copy All" to copy everything;\n'
-            '2. Paste into Notes / File Manager and save as .json;\n'
-            '3. After reinstalling, paste or select this file in Key Management → Import.',
+    '共 {n} 个 Key，已生成 JSON 备份内容。\n使用方法：\n1. 点击「一键复制」复制全部内容；\n2. 粘贴到备忘录 / 文件管理器保存为 .json 文件；\n3. 重装应用后，在 Key 管理 → 批量导入中粘贴或选择该文件即可恢复。':
+        'Total of {n} keys, JSON backup generated.\nHow to use:\n1. Tap "Copy All" to copy everything;\n2. Paste into Notes / File Manager and save as .json;\n3. After reinstalling, paste or select this file in Key Management → Import.',
 
     // ===== 模型同步进度 =====
     '同步模型': 'Sync Models',
@@ -554,6 +546,65 @@ class L10n {
         "Today's error rate {pct}% ({err}/{req})",
     '来源 {ip} 因「{dim}」被限流：{msg}':
         'Client {ip} rate limited by "{dim}": {msg}',
+
+    'API Key 的 AES-256 加密': 'API Key 的 AES-256 加密',
+    'ASN.1 解析（加密依赖）': 'ASN.1 解析（加密依赖）',
+    'Hive 的 Flutter 封装': 'Hive 的 Flutter 封装',
+    'RelayGo 基于 AGPL-3.0 协议开源。\\n\\n': 'RelayGo 基于 AGPL-3.0 协议开源。\\n\\n',
+    'RelayGo 采用 GNU Affero General Public License v3.0 (AGPL-3.0)。\\n\\n': 'RelayGo 采用 GNU Affero General Public License v3.0 (AGPL-3.0)。\\n\\n',
+    'SHA-256：缓存键哈希、更新包校验': 'SHA-256：缓存键哈希、更新包校验',
+    'iOS 风格图标': 'iOS 风格图标',
+    'one-api 的增强版本': 'one-api 的增强版本',
+    '① JSON：[{"provider":"openai","key":"sk-xxx","name":"账号A","note":"免费"}]': '① JSON：[{"provider":"openai","key":"sk-xxx","name":"账号A","note":"免费"}]',
+    '② 文本：openai,sk-xxx,账号A,免费额度': '② 文本：openai,sk-xxx,账号A,免费额度',
+    '上游超时 (秒)': '上游超时 (秒)',
+    '专注 OpenAI 的转发服务': '专注 OpenAI 的转发服务',
+    '代码规范检查（开发依赖）': '代码规范检查（开发依赖）',
+    '令牌桶突发倍数': '令牌桶突发倍数',
+    '优秀的 UI 参考': '优秀的 UI 参考',
+    '全局每分钟请求上限': '全局每分钟请求上限',
+    '共 {n} 个 Key，已生成 JSON 备份内容。\\n': '共 {n} 个 Key，已生成 JSON 备份内容。\\n',
+    '关于': '关于',
+    '功能全面的 API 管理平台': '功能全面的 API 管理平台',
+    '加密原语（encrypt 的底层实现）': '加密原语（encrypt 的底层实现）',
+    '单 IP 每分钟请求上限': '单 IP 每分钟请求上限',
+    '单 key 每分钟 Token 上限': '单 key 每分钟 Token 上限',
+    '后台保活': '后台保活',
+    '否': '否',
+    '启动时自动同步模型列表': '启动时自动同步模型列表',
+    '启用告警': '启用告警',
+    '启用响应缓存': '启用响应缓存',
+    '响应字节': '响应字节',
+    '响应缓存与限流': '响应缓存与限流',
+    '外观与安全': '外观与安全',
+    '完整许可证文本：': '完整许可证文本：',
+    '应用锁': '应用锁',
+    '忽略电池优化': '忽略电池优化',
+    '总 tokens': '总 tokens',
+    '打开外部链接': '打开外部链接',
+    '无': '无',
+    '日志保留天数': '日志保留天数',
+    '日志条数上限': '日志条数上限',
+    '日期/数字格式化': '日期/数字格式化',
+    '是': '是',
+    '本地键值存储（Key、模型、日志、规则等）': '本地键值存储（Key、模型、日志、规则等）',
+    '状态管理': '状态管理',
+    '管理令牌': '管理令牌',
+    '统一的多模型 API 网关': '统一的多模型 API 网关',
+    '缓存 TTL (秒)': '缓存 TTL (秒)',
+    '缓存条目上限': '缓存条目上限',
+    '编程语言': 'Programming language',
+    '网络请求与流式转发': '网络请求与流式转发',
+    '自动禁用已下线的模型': '自动禁用已下线的模型',
+    '自适应 TPM 限流': '自适应 TPM 限流',
+    '虚拟模型层': '虚拟模型层',
+    '请求字节': '请求字节',
+    '跨平台 UI 框架': 'Cross-platform UI framework',
+    '跨平台文件选择器（Key 批量导入）': '跨平台文件选择器（Key 批量导入）',
+    '通知与告警': '通知与告警',
+    '错误率告警阈值': '错误率告警阈值',
+    '额度': '额度',
+    '额度预警阈值': '额度预警阈值',
   };
 
   /// 取翻译文本

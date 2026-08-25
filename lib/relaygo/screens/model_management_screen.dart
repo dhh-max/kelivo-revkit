@@ -79,14 +79,14 @@ class _ModelManagementScreenState extends State<ModelManagementScreen> {
       return;
     }
     final detail = counts.entries
-        .map((e) => L10n.fmt('{provider}：{count} 个',
+        .map((e) => L10n.fmt(L10n.tr('{provider}：{count} 个'),
             {'provider': app.getProvider(e.key)?.name ?? e.key, 'count': '${e.value}'}))
         .join('\n');
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
         title: Text(L10n.tr('清理已下线模型')),
-        content: Text(L10n.fmt('将从模型库中删除以下已下线（deprecated）模型：\n\n{detail}\n\n删除后第三方将无法再获取这些模型。', {'detail': detail})),
+        content: Text(L10n.fmt(L10n.tr('将从模型库中删除以下已下线（deprecated）模型：\n\n{detail}\n\n删除后第三方将无法再获取这些模型。'), {'detail': detail})),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -104,7 +104,7 @@ class _ModelManagementScreenState extends State<ModelManagementScreen> {
     _load();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(L10n.fmt('已清理 {n} 个已下线模型', {'n': '$removed'}))),
+      SnackBar(content: Text(L10n.fmt(L10n.tr('已清理 {n} 个已下线模型'), {'n': '$removed'}))),
     );
   }
 
@@ -171,13 +171,13 @@ class _ModelManagementScreenState extends State<ModelManagementScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                              L10n.fmt('模型总数：{total}（已启用 {enabled}）',
+                              L10n.fmt(L10n.tr('模型总数：{total}（已启用 {enabled}）'),
                                   {'total': '${all.length}', 'enabled': '$enabledCount'}),
                               style: const TextStyle(fontWeight: FontWeight.bold)),
                           const SizedBox(height: 2),
                           Text(
                             last > 0
-                                ? L10n.fmt('最后同步：{time}', {
+                                ? L10n.fmt(L10n.tr('最后同步：{time}'), {
                                     'time': DateFormat('yyyy-MM-dd HH:mm')
                                         .format(DateTime.fromMillisecondsSinceEpoch(last))
                                   })
@@ -187,7 +187,7 @@ class _ModelManagementScreenState extends State<ModelManagementScreen> {
                           if (deprecatedCount > 0) ...[
                             const SizedBox(height: 2),
                             Text(
-                              L10n.fmt('已下线 {count} 个，点击右上角清理',
+                              L10n.fmt(L10n.tr('已下线 {count} 个，点击右上角清理'),
                                   {'count': '$deprecatedCount'}),
                               style: const TextStyle(fontSize: 12, color: Colors.red),
                             ),
@@ -332,12 +332,12 @@ class _ModelManagementScreenState extends State<ModelManagementScreen> {
                           final pname = app.getProvider(pid)?.name ??
                               ProviderTypeX.fromString(pid).displayName;
                           return p['success'] == true
-                              ? L10n.fmt('{name} {count} 个（新增 {new}）', {
+                              ? L10n.fmt(L10n.tr('{name} {count} 个（新增 {new}）'), {
                                   'name': pname,
                                   'count': '${p['count']}',
                                   'new': '${p['new']}',
                                 })
-                              : L10n.fmt('失败：{err}', {'err': '${p['error'] ?? ''}'});
+                              : L10n.fmt(L10n.tr('失败：{err}'), {'err': '${p['error'] ?? ''}'});
                         })
                         .join('\n');
                     return ListTile(

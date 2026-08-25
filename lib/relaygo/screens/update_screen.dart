@@ -80,7 +80,7 @@ class _UpdateScreenState extends State<UpdateScreen> {
     final release = _result?.release;
 
     return Scaffold(
-      appBar: AppBar(title: Text(t.t('关于与更新'))),
+      appBar: AppBar(title: Text(t.t(L10n.tr('关于与更新')))),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -102,10 +102,10 @@ class _UpdateScreenState extends State<UpdateScreen> {
                     ],
                   ),
                   const SizedBox(height: 12),
-                  _kv(t.t('当前版本'),
+                  _kv(t.t(L10n.tr('当前版本')),
                       '${Constants.appVersion}+${Constants.appBuildNumber}'),
-                  _kv(t.t('运行平台'), platform),
-                  _kv(t.t('更新渠道'),
+                  _kv(t.t(L10n.tr('运行平台')), platform),
+                  _kv(t.t(L10n.tr('更新渠道')),
                       app.settings.updateChannel == 'beta' ? 'Beta' : 'Stable'),
                 ],
               ),
@@ -121,7 +121,7 @@ class _UpdateScreenState extends State<UpdateScreen> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.system_update),
-            label: Text(_checking ? t.t('正在检查') : t.t('检查更新')),
+            label: Text(_checking ? t.t(L10n.tr('正在检查')) : t.t(L10n.tr('检查更新'))),
             onPressed: _checking ? null : () => _check(app),
           ),
           const SizedBox(height: 16),
@@ -139,8 +139,8 @@ class _UpdateScreenState extends State<UpdateScreen> {
         color: Colors.red.shade50,
         child: ListTile(
           leading: const Icon(Icons.error, color: Colors.red),
-          title: Text(t.t('检查更新失败')),
-          subtitle: Text(r.error ?? t.t('未知')),
+          title: Text(t.t(L10n.tr('检查更新失败'))),
+          subtitle: Text(r.error ?? t.t(L10n.tr('未知'))),
         ),
       );
     }
@@ -149,7 +149,7 @@ class _UpdateScreenState extends State<UpdateScreen> {
         color: Colors.green.shade50,
         child: ListTile(
           leading: const Icon(Icons.check_circle, color: Colors.green),
-          title: Text(t.t('已是最新')),
+          title: Text(t.t(L10n.tr('已是最新'))),
           subtitle: Text('${t.t('最新版本')}：${release?.displayVersion ?? ''}'),
         ),
       );
@@ -171,25 +171,25 @@ class _UpdateScreenState extends State<UpdateScreen> {
                     color: r.mustUpdate ? Colors.red : Colors.indigo),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(t.t('发现新版本'),
+                  child: Text(t.t(L10n.tr('发现新版本')),
                       style: const TextStyle(
                           fontSize: 17, fontWeight: FontWeight.bold)),
                 ),
                 if (r.mustUpdate)
                   Chip(
-                    label: Text(t.t('强制更新')),
+                    label: Text(t.t(L10n.tr('强制更新'))),
                     backgroundColor: Colors.red.shade100,
                   ),
               ],
             ),
             const SizedBox(height: 8),
-            _kv(t.t('最新版本'), release.displayVersion),
+            _kv(t.t(L10n.tr('最新版本')), release.displayVersion),
             const SizedBox(height: 8),
-            Text(t.t('发布说明'),
+            Text(t.t(L10n.tr('发布说明')),
                 style: const TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 4),
             Text(release.releaseNotes.isEmpty
-                ? t.t('（无）')
+                ? t.t(L10n.tr('（无）'))
                 : release.releaseNotes),
             const SizedBox(height: 16),
 
@@ -211,14 +211,14 @@ class _UpdateScreenState extends State<UpdateScreen> {
             else if (_downloadedPath != null)
               Text('${t.t('已下载，可安装')}：$_downloadedPath')
             else if (artifact == null || artifact.url.isEmpty)
-              Text(t.t('该版本没有提供当前平台的安装包'),
+              Text(t.t(L10n.tr('该版本没有提供当前平台的安装包')),
                   style: const TextStyle(color: Colors.orange))
             else
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
                   icon: const Icon(Icons.download),
-                  label: Text(t.t('下载更新')),
+                  label: Text(t.t(L10n.tr('下载更新'))),
                   onPressed: () => _download(app, release),
                 ),
               ),
@@ -238,7 +238,7 @@ class _UpdateScreenState extends State<UpdateScreen> {
           children: [
             const Icon(Icons.open_in_new, color: Colors.blue),
             const SizedBox(width: 8),
-            Expanded(child: Text(t.t('该平台需前往应用商店更新'))),
+            Expanded(child: Text(t.t(L10n.tr('该平台需前往应用商店更新')))),
             TextButton(
               onPressed: () {
                 // 平台商店链接交由系统处理（此处仅提示）
