@@ -71,6 +71,14 @@ class ApiKey {
   int? cooldownUntil; // 冷却到期时间戳（毫秒）
   Map<String, dynamic> metadata;
 
+  // —— SenseNova Key Rotator 融合：按模型计调用追踪 ——
+  /// 每个模型的调用次数（5h滑动窗口）
+  final Map<String, List<int>> modelCalls = {};
+  /// 每个模型是否已耗尽
+  final Map<String, bool> modelExhausted = {};
+  /// 每个模型最后调用时间戳
+  final Map<String, int> modelCallStamps = {};
+
   ApiKey({
     required this.id,
     required this.provider,

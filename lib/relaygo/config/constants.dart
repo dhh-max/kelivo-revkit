@@ -83,6 +83,9 @@ class Constants {
     logsPath,
     alertsPath,
     modelsSyncPath,
+    overviewPath,
+    checkAllPath,
+    markExhaustedPath,
   ];
 
   // —— 管理接口鉴权 ——
@@ -90,6 +93,11 @@ class Constants {
   static const String adminTokenHeader = 'x-relay-admin-token';
   /// 管理令牌的最小长度（低于此长度视为未设置）
   static const int adminTokenMinLength = 8;
+
+  // —— SenseNova Key Rotator 融合：管理 API 路径 ——
+  static const String overviewPath = '/api/overview';
+  static const String checkAllPath = '/admin/check-all';
+  static const String markExhaustedPath = '/admin/mark-exhausted';
 
   // 模型列表同步（REQ-003）
   static const String modelsPath = '/v1/models'; // 代理层对外暴露的聚合模型列表（AI 应用查询用）

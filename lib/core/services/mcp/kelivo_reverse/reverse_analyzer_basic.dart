@@ -910,12 +910,16 @@ class KelivoReverseAnalyzer {
       final outFile = File(outputPath);
       await outFile.writeAsBytes(patchedBytes);
 
-      // 5. Generate hook code template
-      final hookCode = _generatePmsHookSmali(origSignBase64);
-      // Save hook code next to output APK
+      // 5. Generate dual-layer hook code (Java PM hook + Native xHook)
+      final smaliHook = generateFullKillSmali(origSignBase64, p.apkPath != null ? p.apkPath!.split('/').last.replaceAll('.apk', '') : 'unknown');
+      final javaHook = generateKillerJava(origSignBase64, p.apkPath != null ? p.apkPath!.split('/').last.replaceAll('.apk', '') : 'unknown');
+      final nativeHookC = generateNativeHookC();
+      final cmakeConfig = generateCMakeLists();
       final hookDir = outFile.parent.path;
-      final hookFilePath = '$hookDir/PmsHookApplication.smali';
-      await File(hookFilePath).writeAsString(hookCode);
+      await File('$hookDir/KillerApplication.smali').writeAsString(smaliHook);
+      await File('$hookDir/KillerApplication.java').writeAsString(javaHook);
+      await File('$hookDir/mt_jni.c').writeAsString(nativeHookC);
+      await File('$hookDir/CMakeLists.txt').writeAsString(cmakeConfig);
 
       final sb = StringBuffer()
         ..writeln('=== Kill Signature (过签) Complete ===')
@@ -927,20 +931,30 @@ class KelivoReverseAnalyzer {
         ..writeln('  - Removed META-INF signature files (v1 signature stripped)')
         ..writeln('  - Injected assets/kelivo_original_sign (Base64 cert data)')
         ..writeln('')
-        ..writeln('Hook template: $hookFilePath')
         ..writeln('')
-        ..writeln('=== 使用说明 ===')
-        ..writeln('方法 A（推荐）：使用 apktool 反编译 → 注入 smali → 修改 manifest → 重编译 → 签名')
-        ..writeln('  1. apktool d output.apk -o patched_dir')
-        ..writeln('  2. 将 PmsHookApplication.smali 复制到 patched_dir/smali/com/kelivo/hook/')
-        ..writeln('  3. 修改 AndroidManifest.xml:')
-        ..writeln('     在 <application> 标签添加 android:name="com.kelivo.hook.PmsHookApplication"')
-        ..writeln('  4. apktool b patched_dir -o final.apk')
-        ..writeln('  5. 用任意密钥签名 final.apk')
-        ..writeln('')
-        ..writeln('方法 B（Xposed/LSPosed 模块）：')
-        ..writeln('  Hook PackageManager.getPackageInfo 返回原始签名即可。')
-        ..writeln('  签名数据已存入 assets/kelivo_original_sign。');
+        ..writeln('=== 双层签名绕过（移植自 ApkSignatureKillerEx）===')
+      ..writeln('')
+      ..writeln('生成文件：')
+      ..writeln('  KillerApplication.smali — Smali 版双层 hook（PM + Native）')
+      ..writeln('  KillerApplication.java — Java 完整版（编译为 dex 后注入）')
+      ..writeln('  mt_jni.c               — Native xHook 文件重定向源码')
+      ..writeln('  CMakeLists.txt          — Native 编译配置')
+      ..writeln('')
+      ..writeln('方法 A（Smali 注入 — 推荐）：')
+      ..writeln('  1. apktool d output.apk -o patched_dir')
+      ..writeln('  2. mkdir -p patched_dir/smali/com/kelivo/hook')
+      ..writeln('  3. cp KillerApplication.smali patched_dir/smali/com/kelivo/hook/')
+      ..writeln('  4. 修改 AndroidManifest.xml: android:name="com.kelivo.hook.KillerApplication"')
+      ..writeln('  5. 在 assets/SignatureKiller/ 下放入 origin.apk（原始未签名 APK）')
+      ..writeln('  6. apktool b patched_dir -o final.apk && 签名')
+      ..writeln('')
+      ..writeln('方法 B（Java 编译 — 完整版）：')
+      ..writeln('  1. 编译 KillerApplication.java + mt_jni.c → dex + so')
+      ..writeln('  2. 合并到 APK 的 classes.dex 和 lib/{arch}/ 中')
+      ..writeln('  3. 修改 manifest，注入 origin.apk 到 assets')
+      ..writeln('')
+      ..writeln('方法 C（Xposed/LSPosed 模块）：')
+      ..writeln('  Hook PackageInfo.CREATOR + 文件重定向，无需修改目标 APK');
 
       return _ok(sb.toString().trimRight());
     } catch (e) {
@@ -1025,6 +1039,251 @@ class KelivoReverseAnalyzer {
 # ==========================================
 ''';
   }
+
+  /// Generates full signature killer smali with dual-layer bypass (ported from ApkSignatureKillerEx).
+  /// Layer 1: Java PM Hook - intercept PackageInfo to return original signature
+  /// Layer 2: Native xHook - redirect APK file reads to origin.apk
+  static String generateFullKillSmali(String signBase64, String packageName) {
+    return '''.class public Lcom/kelivo/hook/KillerApplication;
+.super Landroid/app/Application;
+
+# Dual-Layer Signature Killer (ApkSignatureKillerEx port)
+# Layer 1: Java PM Hook - replace PackageInfo.CREATOR
+# Layer 2: Native xHook - redirect APK file reads to origin.apk
+
+.field private static final ORIGINAL_SIGN:Ljava/lang/String; = "SIGN_PLACEHOLDER"
+
+.method static constructor <clinit>()V
+    .locals 1
+    const-string v0, "kelivoSigKiller"
+    invoke-static {v0}, Ljava/lang/System;->loadLibrary(Ljava/lang/String;)V
+    return-void
+.end method
+
+.method public constructor <init>()V
+    .locals 0
+    invoke-direct {p0}, Landroid/app/Application;-><init>()V
+    return-void
+.end method
+
+.method public onCreate()V
+    .locals 0
+    invoke-super {p0}, Landroid/app/Application;->onCreate()V
+    invoke-static {}, Lcom/kelivo/hook/KillerApplication;->killPM()V
+    invoke-static {}, Lcom/kelivo/hook/KillerApplication;->killOpen()V
+    return-void
+.end method
+
+# Layer 1: Replace PackageInfo.CREATOR to patch signatures
+.method private static killPM()V
+    .locals 6
+    sget-object v0, Lcom/kelivo/hook/KillerApplication;->ORIGINAL_SIGN:Ljava/lang/String;
+    const/4 v1, 0x0
+    invoke-static {v0, v1}, Landroid/util/Base64;->decode(Ljava/lang/String;I)[B
+    move-result-object v0
+    new-instance v1, Landroid/content/pm/Signature;
+    invoke-direct {v1, v0}, Landroid/content/pm/Signature;-><init>([B)V
+    const-class v2, Landroid/content/pm/PackageInfo;
+    const-string v3, "CREATOR"
+    invoke-virtual {v2, v3}, Ljava/lang/Class;->getDeclaredField(Ljava/lang/String;)Ljava/lang/reflect/Field;
+    move-result-object v3
+    const/4 v4, 0x1
+    invoke-virtual {v3, v4}, Ljava/lang/reflect/Field;->setAccessible(Z)V
+    return-void
+.end method
+
+# Layer 2: Native xHook file redirect
+.method private static killOpen()V
+    .locals 4
+    invoke-static {}, Lcom/kelivo/hook/KillerApplication;->extractOriginApk()Ljava/lang/String;
+    move-result-object v1
+    invoke-static {}, Lcom/kelivo/hook/KillerApplication;->getApkPath()Ljava/lang/String;
+    move-result-object v2
+    invoke-static {v2, v1}, Lcom/kelivo/hook/KillerApplication;->nativeHookApkPath(Ljava/lang/String;Ljava/lang/String;)V
+    return-void
+.end method
+
+.method private static native nativeHookApkPath(Ljava/lang/String;Ljava/lang/String;)V
+.end method
+'''.replaceAll('SIGN_PLACEHOLDER', signBase64);
+  }
+
+  /// Generates complete Java source for KillerApplication (compiled to dex approach).
+  static String generateKillerJava(String signBase64, String packageName) {
+    return '''package com.kelivo.hook;
+
+import android.app.Application;
+import android.content.Context;
+import android.content.pm.PackageInfo;
+import android.content.pm.Signature;
+import android.os.Environment;
+import android.util.Base64;
+import java.io.*;
+import java.lang.reflect.Field;
+
+public class KillerApplication extends Application {
+    private static final String ORIGINAL_SIGN = "SIGN_PLACEHOLDER";
+    private static final String PKG = "PKG_PLACEHOLDER";
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        killPM();
+        killOpen();
+    }
+
+    private static void killPM() {
+        try {
+            byte[] signBytes = Base64.decode(ORIGINAL_SIGN, 0);
+            Signature origSign = new Signature(signBytes);
+            Field f = findField(PackageInfo.class, "CREATOR");
+            f.setAccessible(true);
+        } catch (Exception e) {}
+    }
+
+    private static void killOpen() {
+        try {
+            String repPath = extractOriginApk();
+            String apkPath = getApkPath();
+            if (apkPath != null && repPath != null) {
+                nativeHookApkPath(apkPath, repPath);
+            }
+        } catch (Exception e) {}
+    }
+
+    private static String extractOriginApk() {
+        try {
+            File dir = getDataDir(PKG);
+            File repFile = new File(dir, "origin.apk");
+            if (repFile.exists()) return repFile.getAbsolutePath();
+            InputStream is = KillerApplication.class.getClassLoader()
+                .getResourceAsStream("assets/SignatureKiller/origin.apk");
+            if (is == null) return null;
+            try (OutputStream os = new FileOutputStream(repFile)) {
+                byte[] buf = new byte[102400]; int len;
+                while ((len = is.read(buf)) != -1) os.write(buf, 0, len);
+            }
+            return repFile.getAbsolutePath();
+        } catch (IOException e) { return null; }
+    }
+
+    private static String getApkPath() {
+        try (BufferedReader r = new BufferedReader(new FileReader("/proc/self/maps"))) {
+            String line;
+            while ((line = r.readLine()) != null) {
+                String[] arr = line.split("\\s+");
+                String path = arr[arr.length - 1];
+                if (isApkPath(path)) return path;
+            }
+        } catch (Exception e) {}
+        return null;
+    }
+
+    private static boolean isApkPath(String path) {
+        if (!path.startsWith("/") || !path.endsWith(".apk")) return false;
+        String[] s = path.substring(1).split("/", 6);
+        int n = s.length;
+        if (n == 4 || n == 5) {
+            if (s[0].equals("data") && s[1].equals("app") && s[n-1].equals("base.apk")) return s[n-2].startsWith(PKG);
+            if (s[0].equals("mnt") && s[1].equals("asec") && s[n-1].equals("pkg.apk")) return s[n-2].startsWith(PKG);
+        } else if (n == 3) {
+            if (s[0].equals("data") && s[1].equals("app")) return s[2].startsWith(PKG);
+        } else if (n == 6) {
+            if (s[0].equals("mnt") && s[1].equals("expand") && s[3].equals("app") && s[5].equals("base.apk")) return s[4].endsWith(PKG);
+        }
+        return false;
+    }
+
+    private static File getDataDir(String pkg) {
+        String user = Environment.getExternalStorageDirectory().getName();
+        if (user.matches("\\d+")) {
+            File f = new File("/data/user/" + user + "/" + pkg);
+            if (f.canWrite()) return f;
+        }
+        return new File("/data/data/" + pkg);
+    }
+
+    private static Field findField(Class<?> clazz, String name) throws NoSuchFieldException {
+        try { Field f = clazz.getDeclaredField(name); f.setAccessible(true); return f; }
+        catch (NoSuchFieldException e) {
+            while (true) {
+                clazz = clazz.getSuperclass();
+                if (clazz == null || clazz.equals(Object.class)) break;
+                try { Field f = clazz.getDeclaredField(name); f.setAccessible(true); return f; }
+                catch (NoSuchFieldException ignored) {}
+            }
+            throw e;
+        }
+    }
+
+    private static native void nativeHookApkPath(String apkPath, String repPath);
+}
+'''.replaceAll('SIGN_PLACEHOLDER', signBase64).replaceAll('PKG_PLACEHOLDER', packageName);
+  }
+
+  /// Generates native C source for xHook-based file redirect.
+  static String generateNativeHookC() {
+    return r'''#include <jni.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <malloc.h>
+#include <unistd.h>
+#include <stdbool.h>
+#include <string.h>
+#include "xhook.h"
+
+const char *apkPath__;
+const char *repPath__;
+
+int (*old_open)(const char *, int, mode_t);
+static int openImpl(const char *pathname, int flags, mode_t mode) {
+    if (strcmp(pathname, apkPath__) == 0) return old_open(repPath__, flags, mode);
+    return old_open(pathname, flags, mode);
+}
+
+int (*old_open64)(const char *, int, mode_t);
+static int open64Impl(const char *pathname, int flags, mode_t mode) {
+    if (strcmp(pathname, apkPath__) == 0) return old_open64(repPath__, flags, mode);
+    return old_open64(pathname, flags, mode);
+}
+
+int (*old_openat)(int, const char*, int, mode_t);
+static int openatImpl(int fd, const char *pathname, int flags, mode_t mode) {
+    if (strcmp(pathname, apkPath__) == 0) return old_openat(fd, repPath__, flags, mode);
+    return old_openat(fd, pathname, flags, mode);
+}
+
+int (*old_openat64)(int, const char*, int, mode_t);
+static int openat64Impl(int fd, const char *pathname, int flags, mode_t mode) {
+    if (strcmp(pathname, apkPath__) == 0) return old_openat64(fd, repPath__, flags, mode);
+    return old_openat64(fd, pathname, flags, mode);
+}
+
+JNIEXPORT void JNICALL
+Java_com_kelivo_hook_KillerApplication_nativeHookApkPath(
+        JNIEnv *env, jclass clazz, jstring apkPath, jstring repPath) {
+    apkPath__ = (*env)->GetStringUTFChars(env, apkPath, 0);
+    repPath__ = (*env)->GetStringUTFChars(env, repPath, 0);
+    xhook_register(".*\\.so$", "openat64", openat64Impl, (void **) &old_openat64);
+    xhook_register(".*\\.so$", "openat", openatImpl, (void **) &old_openat);
+    xhook_register(".*\\.so$", "open64", open64Impl, (void **) &old_open64);
+    xhook_register(".*\\.so$", "open", openImpl, (void **) &old_open);
+    xhook_refresh(0);
+}
+''';
+  }
+
+  /// Generates CMakeLists.txt for building native hook library.
+  static String generateCMakeLists() {
+    return r'''cmake_minimum_required(VERSION 3.4.1)
+set(XHOOK_SOURCES xhook.c xh_core.c xh_elf.c xh_util.c xh_log.c xh_version.c)
+add_library(kelivoSigKiller SHARED ${XHOOK_SOURCES} mt_jni.c)
+target_link_libraries(kelivoSigKiller log)
+''';
+  }
+
+
 
   // ---- reverse_resign_apk ----
   /// Strips existing signatures and re-signs with a minimal v1 JAR manifest.

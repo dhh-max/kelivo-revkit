@@ -14,6 +14,7 @@ import 'package:Kelivo/relaygo/services/cache_manager.dart';
 import 'package:Kelivo/relaygo/services/key_manager.dart';
 import 'package:Kelivo/relaygo/services/load_balancer.dart';
 import 'package:Kelivo/relaygo/services/log_service.dart';
+import 'package:Kelivo/relaygo/services/model_call_tracker.dart';
 import 'package:Kelivo/relaygo/services/model_normalizer.dart';
 import 'package:Kelivo/relaygo/database/database_helper.dart';
 import 'package:Kelivo/relaygo/database/model_repository.dart';
@@ -51,6 +52,9 @@ class ProxyServer {
   final RuleEngine ruleEngine;
   final QuotaMonitor quotaMonitor;
   final UserSettings settings;
+
+  /// 按模型计调用追踪器（5h 滑动窗口 + 每模型限额）
+  late final ModelCallTracker modelCallTracker;
 
   /// 响应缓存（需求 2.2.4）
   late final CacheManager cache;
@@ -125,12 +129,13 @@ class ProxyServer {
         );
     this.reportService =
         reportService ?? ReportService(logService, cacheManager: this.cache);
+    modelCallTracker = ModelCallTracker(keyManager: keyManager);
   }
 
   bool get isRunning => _running;
 
   int get activeKeyCount =>
-      keyManager.getAll().where((k) => k.status == KeyStatus.active).length;
+      keyManager.getAll().where((k) => k.status == KeyStatus.active && modelCallTracker.canCall(k, proxyRequest.model)).length;
 
   int get queuedRequests => _queue.length;
 
@@ -229,6 +234,17 @@ class ProxyServer {
           'ts': DateTime.now().millisecondsSinceEpoch,
         }));
       await request.response.close();
+      return;
+    }
+
+    // 管理接口（统计 / 版本 / 在线更新 / 报表 / 缓存），不转发到上游
+    // 管理 API：Key Rotator 融合
+    if (path == Constants.checkAllPath) {
+      await _serveCheckAll(request);
+      return;
+    }
+    if (path == Constants.markExhaustedPath) {
+      await _serveMarkExhausted(request);
       return;
     }
 
@@ -630,6 +646,7 @@ class ProxyServer {
 
       loadBalancer.incConnection(key.id);
       rateLimiter.consumeKey(key);
+      modelCallTracker.recordCall(key, proxyRequest.model);
       lastActualModel = pair.actualModel;
       ProviderResult? result;
       try {
@@ -642,6 +659,7 @@ class ProxyServer {
         );
         result = r;
         if (r.statusCode >= 200 && r.statusCode < 300) {
+          modelCallTracker.recordSuccess(key, proxyRequest.model);
           return _ForwardOutcome(key, r, attempts, pair.actualModel);
         }
         // 用错误识别器判断本响应是否需要「无感切换 key」重试。
@@ -701,6 +719,7 @@ class ProxyServer {
           // 这样本次请求后续轮询与之后的独立请求都会快速跳过它（不会再次命中
           // 一个已耗尽的 key），冷却到期后由 KeyManager 自动恢复为 active。
           if (kind == UpstreamErrorKind.quotaExhausted) {
+            modelCallTracker.markExhausted(key, proxyRequest.model, 'quota');
             quotaExhaustedCount++;
             final prev = key.status;
             if (key.status != KeyStatus.exhausted) {
@@ -719,6 +738,7 @@ class ProxyServer {
 
           // 模型不存在（modelNotFound）：key 本身正常，只是不含该模型，
           // 不标记失败（避免误冷却），继续切下一个 key。
+          modelCallTracker.markExhausted(key, proxyRequest.model, 'rate_limit');
           if (kind != UpstreamErrorKind.modelNotFound) {
             final prev = key.status;
             loadBalancer.recordFailure(key);
@@ -730,6 +750,7 @@ class ProxyServer {
         // 3xx（非 304）等其余情况：交给下面的统一处理（正常透传）
         return _ForwardOutcome(key, r, attempts, pair.actualModel);
       } catch (e) {
+        modelCallTracker.markExhausted(key, proxyRequest.model, 'exception');
         lastUpstreamError = e.toString();
         // 异常时若已拿到结果流，先排空以释放连接，避免连接池泄漏
         try {
@@ -1347,6 +1368,49 @@ class ProxyServer {
     } catch (_) {
       return req; // 无法解析/编码时原样透传，交由上游处理
     }
+  }
+
+  /// /admin/check-all — 批量检测所有 key 对某模型的可用性
+  Future<void> _serveCheckAll(HttpRequest request) async {
+    final model = request.uri.queryParameters['model'] ?? '';
+    if (model.isEmpty) {
+      await _respondError(request, 400, '缺少 model 参数');
+      return;
+    }
+    final results = await modelCallTracker.checkAll(model);
+    await _jsonResponse(request, 200, {
+      'model': model,
+      'results': results,
+      'total': results.length,
+      'available': results.where((r) => r['available'] == true).length,
+    });
+  }
+
+  /// /admin/mark-exhausted — 手动标记某 key 对某模型为耗尽
+  Future<void> _serveMarkExhausted(HttpRequest request) async {
+    if (request.method != 'POST') {
+      await _respondError(request, 405, '该接口仅支持 POST');
+      return;
+    }
+    final body = await _readBody(request);
+    final obj = jsonDecode(utf8.decode(body)) as Map<String, dynamic>;
+    final keyId = obj['key_id'] as String?;
+    final model = obj['model'] as String?;
+    if (keyId == null || model == null) {
+      await _respondError(request, 400, '缺少 key_id 或 model 参数');
+      return;
+    }
+    final key = keyManager.getById(keyId);
+    if (key == null) {
+      await _respondError(request, 404, 'Key 不存在');
+      return;
+    }
+    modelCallTracker.markExhausted(key, model, 'manual');
+    await _jsonResponse(request, 200, {
+      'key_id': keyId,
+      'model': model,
+      'marked': true,
+    });
   }
 
   /// 以 JSON 写入响应并关闭
