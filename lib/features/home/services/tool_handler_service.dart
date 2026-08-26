@@ -16,6 +16,7 @@ import '../../../core/services/mcp/mcp_tool_service.dart';
 import '../../../core/services/search/search_tool_service.dart';
 import 'ask_user_interaction_service.dart';
 import 'local_tools_service.dart';
+import '../../../core/services/local_tools/tool_call_loop_guard.dart';
 import 'tool_approval_service.dart';
 
 /// 工具调用处理服务
@@ -29,6 +30,9 @@ class ToolHandlerService {
 
   /// Build context (used for accessing providers)
   final BuildContext contextProvider;
+
+  /// Loop guard for detecting repeated tool calls with identical arguments.
+  final ToolCallLoopGuard _loopGuard = ToolCallLoopGuard();
 
   // ============================================================================
   // Tool Schema Sanitization
@@ -360,6 +364,18 @@ class ToolHandlerService {
     );
 
     return (name, args, {toolCallId}) async {
+      // Loop guard: block repeated identical tool calls
+      final loopDecision = _loopGuard.check(name, args);
+      if (!loopDecision.allowed) {
+        return _toolError(
+          error: 'loop_detected',
+          message: loopDecision.message,
+          tool: name,
+          instruction:
+              'This tool was already called with identical arguments. '
+              'Use the existing result or change the parameters.',
+        );
+      }
       try {
         // Search tool
         if (name == SearchToolService.toolName &&
@@ -367,13 +383,11 @@ class ToolHandlerService {
           final q = (args['query'] ?? '').toString();
           return await SearchToolService.executeSearch(q, settings);
         }
-
         // Memory tools
         final memoryResult = await _handleMemoryToolCall(name, args, assistant);
         if (memoryResult != null) {
           return memoryResult;
         }
-
         // 神经权能网关 tool
         if (name == AppControlToolNames.appControl) {
           if (assistant?.appControlEnabled != true) {
@@ -593,6 +607,7 @@ class ToolHandlerService {
           );
         }
         final m = await mp.add(assistantId: assistant!.id, content: content);
+        _loopGuard.advanceState(name, args);
         return m.content;
       } else if (name == 'edit_memory') {
         final id = (args['id'] as num?)?.toInt() ?? -1;
@@ -621,6 +636,7 @@ class ToolHandlerService {
                 'Use the available memory records shown in context, or create a new memory instead of editing a missing one.',
           );
         }
+        _loopGuard.advanceState(name, args);
         return m.content;
       } else if (name == 'delete_memory') {
         final id = (args['id'] as num?)?.toInt() ?? -1;
@@ -641,6 +657,7 @@ class ToolHandlerService {
                 'Use the available memory records shown in context, or skip deleting a missing memory.',
           );
         }
+        _loopGuard.advanceState(name, args);
         return 'deleted';
       }
     } catch (e) {

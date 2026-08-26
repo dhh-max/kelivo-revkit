@@ -211,6 +211,31 @@ abstract class BuiltInToolsHelper {
     return host.contains('openrouter.ai') || providerId.contains('openrouter');
   }
 
+  static bool isMimoProvider(ProviderConfig? cfg) {
+    if (cfg == null) return false;
+    final host = Uri.tryParse(cfg.baseUrl)?.host.toLowerCase() ?? '';
+    final providerId = cfg.id.toLowerCase();
+    final providerName = cfg.name.toLowerCase();
+    return host.contains('xiaomimimo') ||
+        host.contains('mimo') ||
+        providerId.contains('mimo') ||
+        providerName.contains('mimo') ||
+        providerName.contains('小米');
+  }
+
+  static bool isMoonshotProvider(ProviderConfig? cfg) {
+    if (cfg == null) return false;
+    final host = Uri.tryParse(cfg.baseUrl)?.host.toLowerCase() ?? '';
+    final providerId = cfg.id.toLowerCase();
+    final providerName = cfg.name.toLowerCase();
+    return host.contains('moonshot') ||
+        host.contains('kimi.ai') ||
+        providerId.contains('moonshot') ||
+        providerId.contains('kimi') ||
+        providerName.contains('moonshot') ||
+        providerName.contains('kimi');
+  }
+
   static bool isDeepSeekProvider(ProviderConfig? cfg) {
     if (cfg == null) return false;
     final host = Uri.tryParse(cfg.baseUrl)?.host.toLowerCase() ?? '';

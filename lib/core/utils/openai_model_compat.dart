@@ -2,13 +2,20 @@ class OpenAIReasoningSupport {
   const OpenAIReasoningSupport({
     required this.supportedEfforts,
     this.samplingRequiresNone = false,
+    this.samplingAllowsAuto = true,
+    this.effortParameterSupported = true,
+    this.offFallback,
   });
 
   final List<String> supportedEfforts;
   final bool samplingRequiresNone;
+  final bool samplingAllowsAuto;
+  final bool effortParameterSupported;
+  final String? offFallback;
 
   bool get supportsNone => supportedEfforts.contains('none');
   bool get supportsXhigh => supportedEfforts.contains('xhigh');
+  bool get supportsMax => supportedEfforts.contains('max');
 }
 
 const OpenAIReasoningSupport _gpt5Support = OpenAIReasoningSupport(
@@ -56,8 +63,35 @@ const OpenAIReasoningSupport _gpt55Support = OpenAIReasoningSupport(
 const OpenAIReasoningSupport _gpt55ProSupport = OpenAIReasoningSupport(
   supportedEfforts: <String>['medium', 'high', 'xhigh'],
 );
+const OpenAIReasoningSupport _gpt56Support = OpenAIReasoningSupport(
+  supportedEfforts: <String>['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  samplingRequiresNone: true,
+  samplingAllowsAuto: false,
+);
+const OpenAIReasoningSupport _kimiK3Support = OpenAIReasoningSupport(
+  supportedEfforts: <String>['low', 'high', 'max'],
+  offFallback: 'low',
+);
+const OpenAIReasoningSupport _grok45Support = OpenAIReasoningSupport(
+  supportedEfforts: <String>['low', 'medium', 'high'],
+  offFallback: 'low',
+);
+const OpenAIReasoningSupport _museSparkSupport = OpenAIReasoningSupport(
+  supportedEfforts: <String>[],
+  effortParameterSupported: false,
+);
 const OpenAIReasoningSupport _deepSeekSupport = OpenAIReasoningSupport(
   supportedEfforts: <String>['low', 'medium', 'high', 'xhigh'],
+);
+const OpenAIReasoningSupport _mimoSupport = OpenAIReasoningSupport(
+  supportedEfforts: <String>['none', 'low', 'medium', 'high'],
+);
+const OpenAIReasoningSupport _agnesSupport = OpenAIReasoningSupport(
+  supportedEfforts: <String>[],
+  effortParameterSupported: false,
+);
+const OpenAIReasoningSupport _hy3Support = OpenAIReasoningSupport(
+  supportedEfforts: <String>['low', 'high'],
 );
 
 String resolveApiModelIdOverride(
@@ -79,8 +113,19 @@ bool openAISupportsXhighReasoning(String modelId) {
   return openAIReasoningSupport(modelId)?.supportsXhigh ?? false;
 }
 
+bool openAISupportsMaxReasoning(String modelId) {
+  return openAIReasoningSupport(modelId)?.supportsMax ?? false;
+}
+
 bool openAISupportsNoneReasoning(String modelId) {
   return openAIReasoningSupport(modelId)?.supportsNone ?? false;
+}
+
+bool openAIChatCompletionsToolsRequireNone(String modelId) {
+  return _matchesModel(
+    modelId.trim().toLowerCase(),
+    r'(^|[/_:@])gpt-5\.6(?:-(?:sol|terra|luna))?(?:$|[.@])',
+  );
 }
 
 String openAINormalizeReasoningEffort(String effort, String modelId) {
@@ -89,10 +134,13 @@ String openAINormalizeReasoningEffort(String effort, String modelId) {
   if (normalizedEffort == 'auto') return 'auto';
 
   final support = openAIReasoningSupport(modelId);
-  if (normalizedEffort == 'off') {
-    return support?.supportsNone == true ? 'none' : 'off';
+  if (support?.effortParameterSupported == false) return 'auto';
+  if (normalizedEffort == 'off' || normalizedEffort == 'none') {
+    if (support?.supportsNone == true) return 'none';
+    return support?.offFallback ?? 'off';
   }
-  if (normalizedEffort == 'xhigh' && support == null) {
+  if ((normalizedEffort == 'xhigh' || normalizedEffort == 'max') &&
+      support == null) {
     return 'high';
   }
   if (support == null) return normalizedEffort;
@@ -108,6 +156,7 @@ String openAINormalizeReasoningEffort(String effort, String modelId) {
         'medium',
         'high',
         'xhigh',
+        'max',
       ]);
     case 'low':
       return _pickSupportedEffort(support, const <String>[
@@ -115,24 +164,37 @@ String openAINormalizeReasoningEffort(String effort, String modelId) {
         'medium',
         'high',
         'xhigh',
+        'max',
       ]);
     case 'medium':
       return _pickSupportedEffort(support, const <String>[
         'medium',
         'high',
         'xhigh',
+        'max',
         'low',
       ]);
     case 'high':
       return _pickSupportedEffort(support, const <String>[
         'high',
         'xhigh',
+        'max',
         'medium',
         'low',
         'none',
       ]);
     case 'xhigh':
       return _pickSupportedEffort(support, const <String>[
+        'xhigh',
+        'high',
+        'max',
+        'medium',
+        'low',
+        'none',
+      ]);
+    case 'max':
+      return _pickSupportedEffort(support, const <String>[
+        'max',
         'xhigh',
         'high',
         'medium',
@@ -150,14 +212,41 @@ bool openAIAllowsSamplingParams(String modelId, {required String effort}) {
   final normalizedEffort = openAINormalizeReasoningEffort(effort, modelId);
   return normalizedEffort == 'none' ||
       normalizedEffort == 'off' ||
-      normalizedEffort == 'auto';
+      (normalizedEffort == 'auto' && support.samplingAllowsAuto);
 }
 
 OpenAIReasoningSupport? openAIReasoningSupport(String modelId) {
   final normalized = modelId.trim().toLowerCase();
   if (normalized.contains('deepseek')) return _deepSeekSupport;
+  if (_matchesModel(normalized, r'(^|[/_:@])mimo-v2(?:$|[-.])')) {
+    return _mimoSupport;
+  }
+  if (_matchesModel(
+    normalized,
+    r'(^|[/_:@])agnes-(?:2\.0-flash|2\.5-(?:flash|pro(?:-alpha)?))$',
+  )) {
+    return _agnesSupport;
+  }
+  if (_matchesModel(normalized, r'(^|[/_:@])hy3(?:-preview|-\d{6})?$')) {
+    return _hy3Support;
+  }
+  if (_matchesModel(normalized, r'(^|[/_:@])kimi-k3(?:$|[-.])')) {
+    return _kimiK3Support;
+  }
+  if (_matchesModel(normalized, r'(^|[/_:@])grok-4\.5(?:$|[-.])')) {
+    return _grok45Support;
+  }
+  if (_matchesModel(normalized, r'(^|[/_:@])muse-spark-1\.[12](?:$|[-.])')) {
+    return _museSparkSupport;
+  }
   if (!isOpenAIGpt5FamilyModel(normalized)) return null;
 
+  if (_matchesModel(
+    normalized,
+    r'(^|[/_:@])gpt-5\.6(?:-(?:sol|terra|luna))?(?:$|[.@])',
+  )) {
+    return _gpt56Support;
+  }
   if (_matchesModel(normalized, r'^gpt-5\.5-pro(?:$|[-.])')) {
     return _gpt55ProSupport;
   }

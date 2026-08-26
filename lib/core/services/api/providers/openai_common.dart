@@ -98,6 +98,33 @@ void _applyCompatibleResponsesReasoning(
   int? thinkingBudget,
 }) {
   if (config.useResponseApi != true) return;
+
+  if (BuiltInToolsHelper.isMimoProvider(config)) {
+    body.remove('reasoning');
+    if (!isReasoning) return;
+    final effort = _isOff(thinkingBudget)
+        ? 'none'
+        : _openAIEffortForBudget(thinkingBudget, upstreamModelId);
+    if (effort != 'auto') {
+      body['reasoning'] = {'effort': effort};
+    }
+    return;
+  }
+
+  final host = Uri.tryParse(config.baseUrl)?.host.toLowerCase() ?? '';
+  final isDeepSeek =
+      host.contains('deepseek') ||
+      config.id.toLowerCase().contains('deepseek') ||
+      upstreamModelId.toLowerCase().contains('deepseek');
+  if (isDeepSeek) {
+    if (!isReasoning) {
+      body.remove('reasoning');
+    } else if (_isOff(thinkingBudget)) {
+      body['reasoning'] = {'effort': 'none'};
+    }
+    return;
+  }
+
   if (!BuiltInToolsHelper.isDashScopeProvider(config)) return;
 
   body.remove('reasoning');
@@ -120,9 +147,24 @@ bool _isKimiK25Model(String upstreamModelId) {
   return upstreamModelId.toLowerCase().contains('kimi-k2.5');
 }
 
+bool _isKimiK3Model(String upstreamModelId) {
+  return RegExp(
+    r'(^|[/_:@])kimi-k3(?:$|[-.:])',
+    caseSensitive: false,
+  ).hasMatch(upstreamModelId.trim());
+}
+
+bool _isKimiPreservedThinkingModel(String upstreamModelId) {
+  final normalized = upstreamModelId.trim().toLowerCase();
+  return _isKimiK3Model(normalized) ||
+      RegExp(r'(^|[/_:@])kimi-k2\.7-code(?:$|[-.:])').hasMatch(normalized);
+}
+
 bool _isKimiOmitsSamplingParamsModel(String upstreamModelId) {
   final lower = upstreamModelId.toLowerCase();
-  return lower.contains('kimi-k2.5') || lower.contains('kimi-k2.7');
+  return lower.contains('kimi-k2.5') ||
+      lower.contains('kimi-k2.7') ||
+      _isKimiK3Model(lower);
 }
 
 bool _isKimiThinkingModel(String upstreamModelId) {
@@ -130,8 +172,11 @@ bool _isKimiThinkingModel(String upstreamModelId) {
   return lower.contains('kimi-k2-thinking') ||
       lower.contains('kimi-k2.5') ||
       lower.contains('kimi-k2.6') ||
-      lower.contains('kimi-k2.7');
+      lower.contains('kimi-k2.7') ||
+      _isKimiK3Model(lower);
 }
+
+enum ReasoningContentReplayPolicy { none, toolTurns, all }
 
 void _removeMoonshotKimiUnsupportedSamplingParams(Map<String, dynamic> body) {
   body.remove('temperature');
@@ -162,6 +207,27 @@ void _normalizeMoonshotKimiChatBody(
   int? thinkingBudget,
 }) {
   if (!_isKimiThinkingModel(upstreamModelId)) return;
+
+  if (_isKimiK3Model(upstreamModelId)) {
+    body.remove('thinking');
+    _removeMoonshotKimiUnsupportedSamplingParams(body);
+    if (!isReasoning) {
+      body.remove('reasoning_effort');
+      return;
+    }
+    final rawEffort = body['reasoning_effort'];
+    if (rawEffort is! String || rawEffort.trim().isEmpty) {
+      body.remove('reasoning_effort');
+      return;
+    }
+    final effort = openAINormalizeReasoningEffort(rawEffort, upstreamModelId);
+    if (effort == 'auto') {
+      body.remove('reasoning_effort');
+    } else {
+      body['reasoning_effort'] = effort;
+    }
+    return;
+  }
 
   body.remove('reasoning_effort');
   if (!isReasoning) {
@@ -213,10 +279,14 @@ Map<String, dynamic> _buildAssistantToolCallMessage({
 
 String _openAIEffortForBudget(int? budget, String upstreamModelId) {
   final baseEffort = _effortForBudget(budget);
-  final requestedEffort =
-      baseEffort == 'high' && budget != null && budget >= 64000
-      ? 'xhigh'
-      : baseEffort;
+  var requestedEffort = baseEffort;
+  if (baseEffort == 'high' && budget != null) {
+    if (budget >= 128000 && openAISupportsMaxReasoning(upstreamModelId)) {
+      requestedEffort = 'max';
+    } else if (budget >= 64000) {
+      requestedEffort = 'xhigh';
+    }
+  }
   return openAINormalizeReasoningEffort(requestedEffort, upstreamModelId);
 }
 
@@ -255,9 +325,31 @@ void _sanitizeOpenAIGpt5SamplingParams(
   Map<String, dynamic> body,
   String upstreamModelId, {
   required String fallbackEffort,
+  required bool isOpenRouter,
 }) {
   // Must run on the final request body (after override merges), otherwise
   // we may keep/drop sampling params based on stale effort assumptions.
+  final hasChatFunctionTools =
+      body['messages'] is List &&
+      body['tools'] is List &&
+      (body['tools'] as List).isNotEmpty;
+  if (hasChatFunctionTools &&
+      openAIChatCompletionsToolsRequireNone(upstreamModelId)) {
+    if (isOpenRouter) {
+      final reasoning = body['reasoning'];
+      final normalized = reasoning is Map
+          ? Map<String, dynamic>.from(reasoning)
+          : <String, dynamic>{};
+      normalized
+        ..remove('enabled')
+        ..remove('max_tokens')
+        ..['effort'] = 'none';
+      body['reasoning'] = normalized;
+      body.remove('reasoning_effort');
+    } else {
+      body['reasoning_effort'] = 'none';
+    }
+  }
   if (!body.containsKey('temperature') &&
       !body.containsKey('top_p') &&
       !body.containsKey('logprobs')) {
@@ -295,17 +387,7 @@ bool _shouldIncludeStreamingUsageOptions(
   if (isLongCatOmniModelId(upstreamModelId) || _isLongCatHost(host)) {
     return false;
   }
-  // Only add stream_options for known official providers that support it.
-  // Transit stations (custom baseUrl) often don't support this parameter
-  // and may return empty or malformed responses when it's present.
-  return host.contains('openai.com') ||
-      host.contains('azure.com') ||
-      host.contains('deepseek.com') ||
-      host.contains('siliconflow.cn') ||
-      host.contains('dashscope') ||
-      host.contains('volcengine.com') ||
-      host.contains('xiaomimimo') ||
-      host.contains('zhipuai.cn');
+  return !host.contains('mistral.ai') && !host.contains('openrouter');
 }
 
 bool _isClaudeModelId(String modelId) {
@@ -358,14 +440,19 @@ int _readOpenAIUsageInt(dynamic value) {
 TokenUsage? _mergeOpenAICompatibleUsage(TokenUsage? current, dynamic rawUsage) {
   if (rawUsage is! Map) return current;
 
-  final details = rawUsage['prompt_tokens_details'];
+  final details =
+      rawUsage['prompt_tokens_details'] ?? rawUsage['input_tokens_details'];
   final cachedTokens = details is Map
       ? _readOpenAIUsageInt(details['cached_tokens'])
       : 0;
   return (current ?? const TokenUsage()).merge(
     TokenUsage(
-      promptTokens: _readOpenAIUsageInt(rawUsage['prompt_tokens']),
-      completionTokens: _readOpenAIUsageInt(rawUsage['completion_tokens']),
+      promptTokens: _readOpenAIUsageInt(
+        rawUsage['prompt_tokens'] ?? rawUsage['input_tokens'],
+      ),
+      completionTokens: _readOpenAIUsageInt(
+        rawUsage['completion_tokens'] ?? rawUsage['output_tokens'],
+      ),
       cachedTokens: cachedTokens,
     ),
   );
@@ -780,6 +867,22 @@ class _OpenAIProviderInfo {
       host.contains('xiaomimimo') ||
       upstreamModelId.toLowerCase().startsWith('mimo-') ||
       upstreamModelId.toLowerCase().contains('/mimo-');
+
+  bool get isAgnes {
+    final id = upstreamModelId.toLowerCase();
+    return host.contains('agnes-ai') ||
+        id.startsWith('agnes-') ||
+        id.contains('/agnes-');
+  }
+
+  bool get isHy3 {
+    final id = upstreamModelId.toLowerCase();
+    return RegExp(r'(^|[/_):@])hy3(?:-preview|-\d{6})?$').hasMatch(id);
+  }
+  bool get isLaguna {
+    final id = upstreamModelId.toLowerCase();
+    return id.startsWith('laguna-') || id.contains('/laguna-');
+  }
   bool get isSiliconFlow =>
       providerId.contains('siliconflow') || host.contains('siliconflow');
   bool get isAzureOpenAI => host.contains('openai.azure.com');
@@ -798,14 +901,21 @@ class _OpenAIProviderInfo {
       host.contains('intern') ||
       host.contains('chat.intern-ai.org.cn');
   bool get isKimiThinkingModel =>
-      upstreamModelId.toLowerCase().contains('kimi-k2-thinking') ||
-      upstreamModelId.toLowerCase().contains('kimi-k2.5') ||
-      upstreamModelId.toLowerCase().contains('kimi-k2.6') ||
-      upstreamModelId.toLowerCase().contains('kimi-k2.7');
+      _isKimiThinkingModel(upstreamModelId);
 
   bool get needsReasoningEcho =>
-      isDeepSeek || isMimo || isZhipu || isKimiThinkingModel;
+      isLaguna || isDeepSeek || isMimo || isHy3 || isZhipu ||
+      isKimiThinkingModel;
   bool get preserveReasoningDetails => isOpenRouter;
+  ReasoningContentReplayPolicy get reasoningContentReplayPolicy {
+    if (isLaguna || _isKimiPreservedThinkingModel(upstreamModelId)) {
+      return ReasoningContentReplayPolicy.all;
+    }
+    if (needsReasoningEcho) {
+      return ReasoningContentReplayPolicy.toolTurns;
+    }
+    return ReasoningContentReplayPolicy.none;
+  }
   String get completionTokensKey =>
       (isAzureOpenAI || isMimo) ? 'max_completion_tokens' : 'max_tokens';
 }
@@ -833,6 +943,26 @@ void _applyVendorReasoningKnobs(
       body.remove('reasoning');
       body.remove('reasoning_effort');
     }
+  } else if (info.isHy3) {
+    if (isReasoning) {
+      body['thinking'] = {'type': off ? 'disabled' : 'enabled'};
+      if (off) body.remove('reasoning_effort');
+    } else {
+      body.remove('thinking');
+      body.remove('reasoning_effort');
+    }
+  } else if (info.isAgnes) {
+    if (isReasoning) {
+      final raw = body['chat_template_kwargs'];
+      final options = raw is Map
+          ? Map<String, dynamic>.from(raw)
+          : <String, dynamic>{};
+      options['enable_thinking'] = !off;
+      body['chat_template_kwargs'] = options;
+    } else {
+      body.remove('chat_template_kwargs');
+    }
+    body.remove('reasoning_effort');
   } else if (info.isDashScope) {
     if (isReasoning) {
       body['enable_thinking'] = !off;
@@ -851,6 +981,13 @@ void _applyVendorReasoningKnobs(
       body['thinking'] = {'type': off ? 'disabled' : 'enabled'};
     } else {
       body.remove('thinking');
+    }
+    body.remove('reasoning_effort');
+  } else if (info.isLaguna) {
+    if (isReasoning) {
+      body['chat_template_kwargs'] = {'enable_thinking': !off};
+    } else {
+      body.remove('chat_template_kwargs');
     }
     body.remove('reasoning_effort');
   } else if (info.isVolc) {
@@ -1398,6 +1535,7 @@ Stream<ChatStreamChunk> _sendOpenAIStream(
     body,
     upstreamModelId,
     fallbackEffort: effort,
+    isOpenRouter: info.isOpenRouter,
   );
   _normalizeMoonshotKimiChatBody(
     body,
@@ -1920,6 +2058,7 @@ Stream<ChatStreamChunk> _sendOpenAIStream(
               body2,
               upstreamModelId,
               fallbackEffort: effort,
+              isOpenRouter: info.isOpenRouter,
             );
             _normalizeMoonshotKimiChatBody(
               body2,
@@ -2661,6 +2800,7 @@ Stream<ChatStreamChunk> _sendOpenAIStream(
                   body2,
                   upstreamModelId,
                   fallbackEffort: effort,
+                  isOpenRouter: info.isOpenRouter,
                 );
 
                 final req2 = http.Request('POST', url);
@@ -3323,6 +3463,7 @@ Stream<ChatStreamChunk> _sendOpenAIStream(
               body2,
               upstreamModelId,
               fallbackEffort: effort,
+              isOpenRouter: info.isOpenRouter,
             );
             _normalizeMoonshotKimiChatBody(
               body2,
@@ -3836,6 +3977,7 @@ Stream<ChatStreamChunk> _sendOpenAIStream(
                   body2,
                   upstreamModelId,
                   fallbackEffort: effort,
+                  isOpenRouter: info.isOpenRouter,
                 );
                 _normalizeMoonshotKimiChatBody(
                   body2,
