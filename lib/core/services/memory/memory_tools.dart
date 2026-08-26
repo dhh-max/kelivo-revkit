@@ -8,6 +8,8 @@ import 'memory_block_builder.dart';
 import 'memory_prompts.dart';
 import 'memory_repository.dart';
 import 'memory_smart_add.dart';
+import 'memory_quality.dart';
+import 'memory_search_utils.dart';
 import 'memory_tokenizer.dart';
 import 'memory_trace.dart';
 
@@ -341,15 +343,9 @@ abstract final class MemoryTools {
   }
 
   /// Whitespace-split, lowercase, then [MemoryTokenizer.escapeLike] (§5.9).
-  static List<String> searchTokens(String query) {
-    return query
-        .trim()
-        .toLowerCase()
-        .split(RegExp(r'\s+'))
-        .where((t) => t.isNotEmpty)
-        .map(MemoryTokenizer.escapeLike)
-        .toList(growable: false);
-  }
+  /// Delegates to [MemorySearchUtils.tokenize] (shared impl from SoLab v2).
+  static List<String> searchTokens(String query) =>
+      MemorySearchUtils.tokenize(query, escapeLike: true);
 
   // —— Handlers ——
 
@@ -405,10 +401,12 @@ abstract final class MemoryTools {
       );
     }
     final content = (args['content'] ?? '').toString();
-    if (content.trim().isEmpty) {
+    // MemoryQuality: hard-validate before LLM Smart Add (SoLab v2 fusion).
+    final qualityError = MemoryQuality.validate(content);
+    if (qualityError != null) {
       return toolError(
         error: 'invalid_memory_content',
-        message: 'Memory content must not be empty.',
+        message: qualityError,
         tool: memoryUpdate,
       );
     }

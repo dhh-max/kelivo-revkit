@@ -1,6 +1,7 @@
 import 'dart:convert';
 import '../../models/assistant.dart';
 import '../../models/memory_entry.dart';
+import 'memory_json_utils.dart';
 import 'memory_prompts.dart';
 import 'memory_repository.dart';
 import 'memory_tokenizer.dart';
@@ -206,36 +207,8 @@ class MemorySmartAdd {
     }
     return base;
   }
-  static Object? extractJson(String response) {
-    var text = response.trim();
-    final fence = RegExp(
-      r'```(?:json)?\s*([\s\S]*?)```',
-      caseSensitive: false,
-    ).firstMatch(text);
-    if (fence != null) {
-      text = fence.group(1)!.trim();
-    }
-    final startObj = text.indexOf('{');
-    final startArr = text.indexOf('[');
-    int start;
-    if (startObj < 0 && startArr < 0) return null;
-    if (startObj < 0) {
-      start = startArr;
-    } else if (startArr < 0) {
-      start = startObj;
-    } else {
-      start = startObj < startArr ? startObj : startArr;
-    }
-    final endObj = text.lastIndexOf('}');
-    final endArr = text.lastIndexOf(']');
-    final end = endObj > endArr ? endObj : endArr;
-    if (end <= start) return null;
-    try {
-      return jsonDecode(text.substring(start, end + 1));
-    } catch (_) {
-      return null;
-    }
-  }
+  /// Extract JSON from LLM response. Delegates to [MemoryJsonUtils] (SoLab v2 fusion).
+  static Object? extractJson(String response) => MemoryJsonUtils.extractJson(response);
   static SmartAddAction? _parseAction(dynamic raw) {
     final s = raw?.toString().trim().toUpperCase();
     switch (s) {
