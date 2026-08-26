@@ -2780,11 +2780,14 @@
       }
     }
   },
-  "@skillsTriggersLine": {
-    "placeholders": {
-      "keywords": {
-        "type": "String"
-      }
-    }
-  }
-}
+"@skillsTriggersLine": {
+     "placeholders": {
+       "keywords": {
+         "type": "String"
+       }
+     }
+   },
+   "searchProviderStepFunDescription": "階躍星辰官方搜尋API，專注中文互聯網內容",
+   "searchProviderFirecrawlDescription": "Firecrawl 網頁搜尋，支援多源、分類與地理位置過濾",
+   "searchProviderTinyFishDescription": "小藍搜尋服務，支援域名、地區、語言定向"
+ }

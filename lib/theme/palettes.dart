@@ -29,6 +29,7 @@ class ThemePalettes {
   static const String terracottaId = 'terracotta';
   static const String monochromeId = 'monochrome';
   static const String docThemeId = 'doc_theme';
+  static const String customPaletteId = 'custom';
 
   static const ThemePalette defaultPalette = ThemePalette(
     id: defaultId,

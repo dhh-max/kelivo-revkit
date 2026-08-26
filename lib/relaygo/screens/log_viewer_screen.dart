@@ -160,18 +160,18 @@ class _LogViewerScreenState extends State<LogViewerScreen> {
               children: [
                 Text(
                   Formatters.formatDate(DateTime.now().millisecondsSinceEpoch),
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 11.5,
                     fontWeight: FontWeight.w600,
-                    color: AppTheme.text2,
+                    color: Th.text2(context),
                   ),
                 ),
                 const Spacer(),
                 Text(
                   L10n.fmt(L10n.tr('{n} 条记录'), {'n': '${_logs.length}'}),
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 11.5,
-                    color: AppTheme.text3,
+                    color: Th.text3(context),
                   ),
                 ),
               ],
@@ -211,7 +211,7 @@ class _LogViewerScreenState extends State<LogViewerScreen> {
     return Container(
       height: 40,
       decoration: BoxDecoration(
-        border: Border.all(color: AppTheme.borderStrong),
+        border: Border.all(color: Th.borderStrong(context)),
         borderRadius: BorderRadius.circular(8),
       ),
       child: DropdownButtonFormField<String>(
@@ -220,9 +220,9 @@ class _LogViewerScreenState extends State<LogViewerScreen> {
         decoration: InputDecoration(
           labelText: label,
           border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+          contentPadding: EdgeInsets.symmetric(horizontal: 12),
           labelStyle:
-              const TextStyle(fontSize: 13, color: AppTheme.text2),
+              TextStyle(fontSize: 13, color: Th.text2(context)),
           floatingLabelBehavior: FloatingLabelBehavior.never,
         ),
         items: items,

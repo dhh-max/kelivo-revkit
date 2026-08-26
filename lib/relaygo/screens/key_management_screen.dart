@@ -123,13 +123,13 @@ class _KeyManagementScreenState extends State<KeyManagementScreen> {
                     onChanged: (v) => setState(() => _query = v.trim()),
                   ),
                 ),
-                const SizedBox(width: 8),
+                SizedBox(width: 8),
                 // 筛选按钮（对应设计稿 tune）
                 Container(
                   width: 48,
                   height: 48,
                   decoration: BoxDecoration(
-                    border: Border.all(color: AppTheme.borderStrong),
+                    border: Border.all(color: Th.borderStrong(context)),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: PopupMenuButton<String>(
@@ -194,27 +194,27 @@ class _KeyManagementScreenState extends State<KeyManagementScreen> {
             children: [
               // 提供商小 Logo
               ProviderLogo(providerId: providerId, providerName: displayName),
-              const SizedBox(width: 8),
+              SizedBox(width: 8),
               Text(displayName,
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
-                      color: AppTheme.text)),
+                      color: Th.text(context))),
               const SizedBox(width: 8),
               // 数量（mono-tag）
               Container(
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
-                  color: AppTheme.surface2,
+                  color: Th.surface2(context),
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
                   L10n.count(keys.length),
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontFamily: AppTheme.monoFontFamily,
                       fontSize: 11.5,
-                      color: AppTheme.text2),
+                      color: Th.text2(context)),
                 ),
               ),
               const Spacer(),
@@ -238,7 +238,7 @@ class _KeyManagementScreenState extends State<KeyManagementScreen> {
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-            border: Border.all(color: AppTheme.border),
+            border: Border.all(color: Th.border(context)),
           ),
           child: Column(
             children: List.generate(keys.length, (i) {
@@ -246,11 +246,11 @@ class _KeyManagementScreenState extends State<KeyManagementScreen> {
               return Column(
                 children: [
                   if (i > 0)
-                    const Divider(
+                    Divider(
                         height: 1,
                         thickness: 1,
                         indent: 26,
-                        color: AppTheme.border),
+                        color: Th.border(context)),
                   KeyCard(
                     key: ValueKey(k.id),
                     apiKey: k,

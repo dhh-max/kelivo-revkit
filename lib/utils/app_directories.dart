@@ -121,3 +121,28 @@ class AppDirectories {
     }
   }
 }
+
+String inferAttachmentMime({String? uri, String? path}) {
+  final p = (uri ?? path ?? '').toLowerCase();
+  if (p.endsWith('.png')) return 'image/png';
+  if (p.endsWith('.jpg') || p.endsWith('.jpeg')) return 'image/jpeg';
+  if (p.endsWith('.gif')) return 'image/gif';
+  if (p.endsWith('.webp')) return 'image/webp';
+  if (p.endsWith('.bmp')) return 'image/bmp';
+  if (p.endsWith('.svg')) return 'image/svg+xml';
+  if (p.endsWith('.mp3')) return 'audio/mpeg';
+  if (p.endsWith('.wav')) return 'audio/wav';
+  if (p.endsWith('.mp4')) return 'video/mp4';
+  if (p.endsWith('.pdf')) return 'application/pdf';
+  if (p.endsWith('.zip')) return 'application/zip';
+  if (p.endsWith('.json')) return 'application/json';
+  if (p.endsWith('.txt')) return 'text/plain';
+  return 'application/octet-stream';
+}
+
+bool isRemoteOrDataUri(String uri) {
+  if (uri.isEmpty) return false;
+  final lower = uri.toLowerCase();
+  return lower.startsWith('http://') || lower.startsWith('https://')
+      || lower.startsWith('data:');
+}

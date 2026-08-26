@@ -232,4 +232,21 @@ class SandboxPathResolver {
   // Expose current dirs for diagnostic purposes
   static String? get docsDir => _docsDir;
   static String? get supportDir => _supportDir;
+
+  static String canonicalize(String path) {
+    String p = path;
+    if (p.startsWith('file://')) p = p.substring(7);
+    p = p.replaceAll('\\', '/');
+    return fix(p);
+  }
+
+  static bool localFileExists(String path) {
+    try {
+      final canon = canonicalize(path);
+      if (isRemoteOrDataUri(canon)) return false;
+      return File(canon).existsSync();
+    } catch (_) {
+      return false;
+    }
+  }
 }

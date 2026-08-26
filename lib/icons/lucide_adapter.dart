@@ -210,4 +210,11 @@ class Lucide {
   static const IconData BarChart3 = lucide.LucideIcons.barChart3;
   static const IconData RefreshCcw = lucide.LucideIcons.refreshCcw;
   static const IconData TriangleAlert = lucide.LucideIcons.triangleAlert;
+   static const IconData AlertCircle = lucide.LucideIcons.alertCircle;
+   static const IconData FolderPlus = lucide.LucideIcons.folderPlus;
+   static const IconData ArrowRight = lucide.LucideIcons.arrowRight;
+   static const IconData Play = lucide.LucideIcons.play;
+   static const IconData SearchX = lucide.LucideIcons.searchX;
+   static const IconData ExternalLink = lucide.LucideIcons.externalLink;
+   static const IconData Mic = lucide.LucideIcons.mic;
 }

@@ -54,6 +54,10 @@ class Conversation extends HiveObject {
   @HiveField(13)
   int lastMemoryExtractedOrder;
 
+  // Hash of the last memory chunk injected into the conversation context.
+  // Used to avoid re-injecting identical memory across turns.
+  String? injectedMemoryHash;
+
   Conversation({
     String? id,
     required this.title,
@@ -69,6 +73,7 @@ class Conversation extends HiveObject {
     int? lastSummarizedMessageCount,
     List<String>? chatSuggestions,
     int? lastMemoryExtractedOrder,
+    this.injectedMemoryHash,
   }) : id = id ?? const Uuid().v4(),
        createdAt = createdAt ?? DateTime.now(),
        updatedAt = updatedAt ?? DateTime.now(),
@@ -133,7 +138,8 @@ class Conversation extends HiveObject {
       'lastSummarizedMessageCount': lastSummarizedMessageCount,
       'chatSuggestions': chatSuggestions,
       'lastMemoryExtractedOrder': lastMemoryExtractedOrder,
-    };
+    if (injectedMemoryHash != null) 'injectedMemoryHash': injectedMemoryHash,
+  };
   }
 
   factory Conversation.fromJson(Map<String, dynamic> json) {

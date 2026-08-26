@@ -16,10 +16,10 @@ class LogListItem extends StatelessWidget {
       : super(key: key);
 
   /// 状态颜色编码：5xx/代理错误=红，4xx=橙，其余=绿
-  Color get _statusColor {
-    if (log.isError) return AppTheme.danger;
-    if (log.statusCode >= 400 && log.statusCode < 500) return AppTheme.warning;
-    return AppTheme.success;
+  Color _statusColor(BuildContext context) {
+    if (log.isError) return Th.danger(context);
+    if (log.statusCode >= 400 && log.statusCode < 500) return Th.warning(context);
+    return Th.success(context);
   }
 
   /// 状态徽章配色（对应设计稿 status-chip ok/bad）
@@ -39,7 +39,7 @@ class LogListItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = _statusColor;
+    final color = _statusColor(context);
     final chipBg = _chipBg;
     final chipFg = _chipFg;
 
@@ -50,11 +50,11 @@ class LogListItem extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppTheme.radiusMd),
         child: Container(
           margin: const EdgeInsets.symmetric(vertical: 5),
-          padding: const EdgeInsets.all(14),
+          padding: EdgeInsets.all(14),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-            border: Border.all(color: AppTheme.border),
+            border: Border.all(color: Th.border(context)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -63,32 +63,32 @@ class LogListItem extends StatelessWidget {
               Row(
                 children: [
                   Icon(Icons.arrow_upward, size: 18, color: color),
-                  const SizedBox(width: 8),
+                  SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       '${log.method} ${log.path}',
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontFamily: AppTheme.monoFontFamily,
                         fontSize: 12.5,
                         fontWeight: FontWeight.w600,
-                        color: AppTheme.text,
+                        color: Th.text(context),
                       ),
                     ),
                   ),
                   if (onTap != null)
-                    const Icon(Icons.chevron_right,
-                        size: 18, color: AppTheme.text3),
+                    Icon(Icons.chevron_right,
+                        size: 18, color: Th.text3(context)),
                 ],
               ),
               // 中行：服务商/模型标签 + 状态徽章
               const SizedBox(height: 8),
               Row(
                 children: [
-                  _monoTag(log.provider),
+                  _monoTag(context, log.provider),
                   if (log.model.isNotEmpty) ...[
                     const SizedBox(width: 6),
-                    _monoTag(log.model),
+                    _monoTag(context, log.model),
                   ],
                   const Spacer(),
                   Container(
@@ -111,41 +111,41 @@ class LogListItem extends StatelessWidget {
                 ],
               ),
               // 下行：耗时 + token + 错误信息
-              const SizedBox(height: 10),
+              SizedBox(height: 10),
               Row(
                 children: [
-                  const Icon(Icons.schedule, size: 13, color: AppTheme.text3),
+                  Icon(Icons.schedule, size: 13, color: Th.text3(context)),
                   const SizedBox(width: 4),
                   Text(
                     Formatters.formatDuration(log.durationMs),
-                    style: const TextStyle(fontSize: 11.5, color: AppTheme.text2),
+                    style: TextStyle(fontSize: 11.5, color: Th.text2(context)),
                   ),
                   if (log.totalTokens > 0) ...[
-                    const SizedBox(width: 14),
-                    const Icon(Icons.token, size: 13, color: AppTheme.text3),
-                    const SizedBox(width: 4),
+                    SizedBox(width: 14),
+                    Icon(Icons.token, size: 13, color: Th.text3(context)),
+                    SizedBox(width: 4),
                     Text(
                       '${Formatters.formatNumber(log.totalTokens)} tokens',
                       style:
-                          const TextStyle(fontSize: 11.5, color: AppTheme.text2),
+                          TextStyle(fontSize: 11.5, color: Th.text2(context)),
                     ),
                   ],
-                  const Spacer(),
+                  Spacer(),
                   if (log.error != null && log.error!.isNotEmpty)
                     Flexible(
                       child: Text(
                         log.error!,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            fontSize: 11.5, color: AppTheme.danger),
+                        style: TextStyle(
+                            fontSize: 11.5, color: Th.danger(context)),
                       ),
                     )
                   else
                     Text(
                       Formatters.formatRelative(log.timestamp),
                       style:
-                          const TextStyle(fontSize: 11.5, color: AppTheme.text3),
+                          TextStyle(fontSize: 11.5, color: Th.text3(context)),
                     ),
                 ],
               ),
@@ -156,19 +156,19 @@ class LogListItem extends StatelessWidget {
     );
   }
 
-  Widget _monoTag(String text) {
+  Widget _monoTag(BuildContext context, String text) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: AppTheme.surface2,
+        color: Th.surface2(context),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Text(
         text,
-        style: const TextStyle(
+        style: TextStyle(
           fontFamily: AppTheme.monoFontFamily,
           fontSize: 11.5,
-          color: AppTheme.text2,
+          color: Th.text2(context),
         ),
       ),
     );

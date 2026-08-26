@@ -7412,23 +7412,14 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get skillsSaveButton => 'Save';
-@override
+ @override
   String get skillsNameLabel => 'Name';
-@override
-  String get skillsNoValidImported => 'No valid skill files imported.';
-@override
-  String get skillsSaveButton => 'Save';
-@override
+ @override
   String get skillsTitle => 'Skills';
-@override
+ @override
   String get skillsTriggerKeywordsHint => 'code review, dcf, rewrite';
-@override
+ @override
   String get skillsTriggerKeywordsLabel => 'Trigger keywords';
-@override
-  String skillsTriggersLine(String keywords) {
-    return 'Triggers: $keywords';
-  }
-
   @override
-  String get skillsSaveButton => 'Save';
+   String get _skillsPlaceholder => '';
 }

@@ -161,10 +161,10 @@ class _ModelManagementScreenState extends State<ModelManagementScreen> {
             Card(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               child: Padding(
-                padding: const EdgeInsets.all(14),
+                padding: EdgeInsets.all(14),
                 child: Row(
                   children: [
-                    const Icon(Icons.model_training, color: AppTheme.brandGreen),
+                    Icon(Icons.model_training, color: Th.brandGreen(context)),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Column(
@@ -283,7 +283,7 @@ class _ModelManagementScreenState extends State<ModelManagementScreen> {
                                 style: TextStyle(
                                     fontSize: 11,
                                     color: allEnabled
-                                        ? AppTheme.brandGreen
+                                        ? Th.brandGreen(context)
                                         : Colors.grey),
                               ),
                               Switch.adaptive(

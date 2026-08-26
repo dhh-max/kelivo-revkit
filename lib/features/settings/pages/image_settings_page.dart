@@ -207,9 +207,8 @@ class _QualityRow extends StatelessWidget {
 
 class _CustomQualityRow extends StatelessWidget {
   const _CustomQualityRow({required this.value, required this.onChanged});
-
-  final int value;
-  final ValueChanged<int> onChanged;
+  final double value;
+  final ValueChanged<double> onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -292,7 +291,7 @@ class _CustomQualityRow extends StatelessWidget {
                         ],
                 ),
               ),
-              onChanged: (next) => onChanged((next as double).round()),
+              onChanged: (next) => onChanged(next),
             ),
           ),
         ],

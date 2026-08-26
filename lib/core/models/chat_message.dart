@@ -1,5 +1,6 @@
 import 'package:hive/hive.dart';
 import 'package:uuid/uuid.dart';
+import 'message_part.dart';
 
 part 'chat_message.g.dart';
 
@@ -70,6 +71,10 @@ class ChatMessage extends HiveObject {
   @HiveField(19)
   final int? durationMs;
 
+  // Structured message parts — populated at runtime by ChatDatabaseRepository.
+  // Not persisted via Hive; carried in memory and serialized via toJson().
+  List<MessagePart>? parts;
+
   ChatMessage({
     String? id,
     required this.role,
@@ -117,8 +122,9 @@ class ChatMessage extends HiveObject {
     int? completionTokens,
     int? cachedTokens,
     int? durationMs,
+    List<MessagePart>? parts,
   }) {
-    return ChatMessage(
+    final copy = ChatMessage(
       id: id ?? this.id,
       role: role ?? this.role,
       content: content ?? this.content,
@@ -141,6 +147,8 @@ class ChatMessage extends HiveObject {
       cachedTokens: cachedTokens ?? this.cachedTokens,
       durationMs: durationMs ?? this.durationMs,
     );
+    copy.parts = parts ?? this.parts;
+    return copy;
   }
 
   Map<String, dynamic> toJson() {
@@ -165,11 +173,14 @@ class ChatMessage extends HiveObject {
       'completionTokens': completionTokens,
       'cachedTokens': cachedTokens,
       'durationMs': durationMs,
-    };
+    if (parts != null) 'parts': parts!
+        .map((p) => {'kind': p.kind, 'payload': p.encodePayload()})
+        .toList(),
+  };
   }
 
   factory ChatMessage.fromJson(Map<String, dynamic> json) {
-    return ChatMessage(
+    final msg = ChatMessage(
       id: json['id'] as String,
       role: json['role'] as String,
       content: json['content'] as String,
@@ -195,5 +206,44 @@ class ChatMessage extends HiveObject {
       cachedTokens: json['cachedTokens'] as int?,
       durationMs: json['durationMs'] as int?,
     );
+    // Hydrate structured parts if present in json.
+    if (json.containsKey('parts')) {
+      try {
+        final raw = json['parts'] as List<dynamic>? ?? const [];
+        msg.parts = raw
+            .map((e) {
+              final m = (e as Map).cast<String, dynamic>();
+              return MessagePart.fromRow(m['kind'] as String, m['payload'] as String);
+            })
+            .toList();
+      } catch (_) {}
+    }
+    return msg;
+  }
+
+  /// Return a new list of parts where the text in each [TextPart] has had
+  /// the given placeholder substituted with [replacement].
+  List<MessagePart> partsWithReplacedText(String placeholder, String replacement) {
+    if (parts == null) return const [];
+    return parts!.map((p) {
+      if (p is TextPart) {
+        return TextPart(p.text.replaceAll(placeholder, replacement));
+      }
+      return p;
+    }).toList();
+  }
+
+  String get plainText {
+    if (parts != null) {
+      return parts!.whereType<TextPart>().map((p) => p.text).join('\n');
+    }
+    return content;
+  }
+
+  String get reasoningTextFromParts {
+    if (parts != null) {
+      return parts!.whereType<ReasoningPart>().map((p) => p.text).join('\n');
+    }
+    return reasoningText ?? '';
   }
 }

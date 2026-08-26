@@ -102,10 +102,10 @@ class _UpdateScreenState extends State<UpdateScreen> {
                     ],
                   ),
                   const SizedBox(height: 12),
-                  _kv(t.t(L10n.tr('当前版本')),
+                  _kv(context, t.t(L10n.tr('当前版本')),
                       '${Constants.appVersion}+${Constants.appBuildNumber}'),
-                  _kv(t.t(L10n.tr('运行平台')), platform),
-                  _kv(t.t(L10n.tr('更新渠道')),
+                  _kv(context, t.t(L10n.tr('运行平台')), platform),
+                  _kv(context, t.t(L10n.tr('更新渠道')),
                       app.settings.updateChannel == 'beta' ? 'Beta' : 'Stable'),
                 ],
               ),
@@ -183,7 +183,7 @@ class _UpdateScreenState extends State<UpdateScreen> {
               ],
             ),
             const SizedBox(height: 8),
-            _kv(t.t(L10n.tr('最新版本')), release.displayVersion),
+            _kv(context, t.t(L10n.tr('最新版本')), release.displayVersion),
             const SizedBox(height: 8),
             Text(t.t(L10n.tr('发布说明')),
                 style: const TextStyle(fontWeight: FontWeight.bold)),
@@ -249,7 +249,7 @@ class _UpdateScreenState extends State<UpdateScreen> {
         ),
       );
 
-  Widget _kv(String k, String v) => Padding(
+  Widget _kv(context, String k, String v) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 2),
         child: Row(
           children: [

@@ -3265,11 +3265,14 @@
       }
     }
   },
-  "@skillsTriggersLine": {
-    "placeholders": {
-      "keywords": {
-        "type": "String"
-      }
-    }
-  }
-}
+   "@skillsTriggersLine": {
+     "placeholders": {
+       "keywords": {
+         "type": "String"
+       }
+     }
+   },
+   "searchProviderStepFunDescription": "StepFun's official search API for Chinese internet content",
+   "searchProviderFirecrawlDescription": "Firecrawl web search with multi-source, category, and geolocation filtering",
+   "searchProviderTinyFishDescription": "TinyFish search service with domain/geo/language targeting"
+ }

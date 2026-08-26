@@ -26,6 +26,12 @@ import '../../utils/avatar_cache.dart';
 import '../utils/openai_model_compat.dart';
 import '../../utils/provider_grouping_logic.dart';
 import '../../utils/brand_assets.dart';
+import '../services/asr/asr_service_options.dart';
+import '../services/model_override_payload_parser.dart';
+import '../../theme/custom_theme.dart';
+
+/// Quality levels for image upload/compression.
+enum ImageUploadQuality { original, high, balanced, saver, custom }
 
 // Desktop: topic list position
 enum DesktopTopicPosition { left, right }
@@ -4601,6 +4607,57 @@ DO NOT GIVE ANSWERS OR DO HOMEWORK FOR THE USER. If the user asks a math or logi
     MemoryTraceRecorder.instance.setEnabled(v);
   }
 
+  // ─── ASR services (minimal stub) ─────────────────────────────────
+  List<AsrServiceOptions> _asrServices = const [];
+  String? _selectedAsrServiceId;
+
+  List<AsrServiceOptions> get asrServices => List.unmodifiable(_asrServices);
+  AsrServiceOptions? get selectedAsrService =>
+      _selectedAsrServiceId == null
+          ? null
+          : _asrServices
+              .where((s) => s.id == _selectedAsrServiceId)
+              .firstOrNull;
+  String? get selectedAsrServiceId => _selectedAsrServiceId;
+
+  Future<void> setAsrServices(List<AsrServiceOptions> services) async {
+    _asrServices = List.from(services);
+    notifyListeners();
+  }
+
+  Future<void> setSelectedAsrServiceId(String? id) async {
+    _selectedAsrServiceId = id;
+    notifyListeners();
+  }
+
+  // ─── Image upload quality (minimal stub) ───────────────────────────
+  ImageUploadQuality _imageUploadQuality = ImageUploadQuality.original;
+  double _imageCompressCustomQuality = 0.75;
+  bool _imageCompressTransparentEnabled = true;
+
+  ImageUploadQuality get imageUploadQuality => _imageUploadQuality;
+  double get imageCompressCustomQuality => _imageCompressCustomQuality;
+  bool get imageCompressTransparentEnabled => _imageCompressTransparentEnabled;
+
+  void setImageUploadQuality(ImageUploadQuality value) {
+    _imageUploadQuality = value;
+    notifyListeners();
+  }
+
+  void setImageCompressCustomQuality(double value) {
+    _imageCompressCustomQuality = value;
+    notifyListeners();
+  }
+
+  void setImageCompressTransparentEnabled(bool value) {
+    _imageCompressTransparentEnabled = value;
+    notifyListeners();
+  }
+
+  // ─── Custom themes (minimal stub) ──────────────────────────────────
+  Future<CustomTheme> saveCustomTheme(CustomTheme theme) async => theme;
+  Future<void> selectCustomTheme(String id) async {}
+  Future<void> importCustomTheme(String exportedJson) async {}
 }
 
 String _normalizeProxyHost(String host) {
@@ -4832,11 +4889,17 @@ class ProviderConfig {
   // Google Vertex AI via service account JSON (paste or import)
   final String? serviceAccountJson; // google vertex ai only
   final List<String> models; // placeholder for future model management
+final Map<String, dynamic> modelOverrides;
   // Per-model overrides (by logical model key).
   // Each entry may point to an upstream/vendor model id via `apiModelId` so that
   // multiple logical models can share the same backend model with different params.
   // {'<key>': {'apiModelId': String?, 'name': String?, 'type': 'chat'|'embedding', 'input': ['text','image'], 'output': [...], 'abilities': ['tool','reasoning']}}
-  final Map<String, dynamic> modelOverrides;
+
+  Map<String, String> get customHeaders =>
+      ModelOverridePayloadParser.customHeaders(modelOverrides);
+
+  Map<String, dynamic> get customBody =>
+      ModelOverridePayloadParser.customBody(modelOverrides);
   // Per-provider proxy
   final bool? proxyEnabled;
   final String? proxyType; // http|https|socks5

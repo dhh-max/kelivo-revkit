@@ -86,12 +86,12 @@ class LicenseScreen extends StatelessWidget {
                     '本项目仅供学习与个人使用，请遵守各 AI 服务商的使用条款。'),
                 style: const TextStyle(fontSize: 13, height: 1.6),
               ),
-              const SizedBox(height: 8),
+              SizedBox(height: 8),
               Row(
                   children: [
                   TextButton.icon(
-                    icon: const Icon(Icons.description_outlined,
-                        size: 18, color: AppTheme.accent),
+                    icon: Icon(Icons.description_outlined,
+                        size: 18, color: Th.accent(context)),
                     label: const Text('LICENSE (GNU AGPL v3.0)'),
                     onPressed: () =>
                         Navigator.of(context).push(MaterialPageRoute<void>(
@@ -110,15 +110,15 @@ class LicenseScreen extends StatelessWidget {
             children: [
               for (final d in _deps) _depTile(context, d),
               TextButton.icon(
-                icon: const Icon(Icons.shield_outlined,
-                    size: 18, color: AppTheme.accent),
+                icon: Icon(Icons.shield_outlined,
+                    size: 18, color: Th.accent(context)),
                 label: Text(t.t(L10n.tr('查看第三方组件完整许可证'))),
                 onPressed: () => showLicensePage(
                   context: context,
                   applicationName: Constants.appName,
                   applicationVersion: '${Constants.appVersion}+${Constants.appBuildNumber}',
-                  applicationIcon: const Icon(Icons.swap_horiz,
-                      size: 32, color: AppTheme.brandGreen),
+                  applicationIcon: Icon(Icons.swap_horiz,
+                      size: 32, color: Th.brandGreen(context)),
                 ),
               ),
             ],
@@ -131,9 +131,9 @@ class LicenseScreen extends StatelessWidget {
             children: [
               for (final r in _refs)
                 ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-                  leading: const Icon(Icons.star_outline,
-                      size: 20, color: AppTheme.brandTeal),
+                  contentPadding: EdgeInsets.symmetric(horizontal: 4),
+                  leading: Icon(Icons.star_outline,
+                      size: 20, color: Th.brandTeal(context)),
                   title: Text(r.name,
                       style: const TextStyle(fontWeight: FontWeight.w600)),
                   subtitle: Text(r.purpose),
@@ -142,11 +142,11 @@ class LicenseScreen extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       Text(r.author,
-                          style: const TextStyle(fontSize: 11, color: AppTheme.text3)),
+                          style: TextStyle(fontSize: 11, color: Th.text3(context))),
                       Text(r.license,
-                          style: const TextStyle(
+                          style: TextStyle(
                               fontSize: 11,
-                              color: AppTheme.accent,
+                              color: Th.accent(context),
                               fontWeight: FontWeight.bold)),
                     ],
                   ),
@@ -154,11 +154,11 @@ class LicenseScreen extends StatelessWidget {
                 ),
             ],
           ),
-          const SizedBox(height: 16),
+          SizedBox(height: 16),
           Center(
             child: Text(
               'AGPL-3.0 · ${t.t('仅供学习与个人使用')}',
-              style: const TextStyle(fontSize: 12, color: AppTheme.text3),
+              style: TextStyle(fontSize: 12, color: Th.text3(context)),
             ),
           ),
           const SizedBox(height: 24),
@@ -180,9 +180,9 @@ class LicenseScreen extends StatelessWidget {
                 style: const TextStyle(
                     fontSize: 16, fontWeight: FontWeight.bold)),
             if (subtitle != null) ...[
-              const SizedBox(height: 4),
+              SizedBox(height: 4),
               Text(subtitle,
-                  style: const TextStyle(fontSize: 12, color: AppTheme.text3)),
+                  style: TextStyle(fontSize: 12, color: Th.text3(context))),
             ],
             const SizedBox(height: 8),
             ...children,
@@ -194,12 +194,12 @@ class LicenseScreen extends StatelessWidget {
 
   Widget _kv(BuildContext context, String k, String v) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
+      padding: EdgeInsets.symmetric(vertical: 3),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text('$k：',
-              style: const TextStyle(fontSize: 13, color: AppTheme.text2)),
+              style: TextStyle(fontSize: 13, color: Th.text2(context))),
           const SizedBox(width: 6),
           Expanded(
               child: Text(v,
@@ -212,9 +212,9 @@ class LicenseScreen extends StatelessWidget {
 
   Widget _depTile(BuildContext context, _Dependency d) {
     return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+      contentPadding: EdgeInsets.symmetric(horizontal: 4),
       leading:
-          const Icon(Icons.inventory_2_outlined, size: 20, color: AppTheme.brandGreen),
+          Icon(Icons.inventory_2_outlined, size: 20, color: Th.brandGreen(context)),
       title: Text(d.name, style: const TextStyle(fontWeight: FontWeight.w600)),
       subtitle: Text(d.purpose),
       trailing: Column(
@@ -222,10 +222,10 @@ class LicenseScreen extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           Text(d.author,
-              style: const TextStyle(fontSize: 11, color: AppTheme.text3)),
+              style: TextStyle(fontSize: 11, color: Th.text3(context))),
           Text(d.license,
-              style: const TextStyle(
-                  fontSize: 11, color: AppTheme.accent, fontWeight: FontWeight.bold)),
+              style: TextStyle(
+                  fontSize: 11, color: Th.accent(context), fontWeight: FontWeight.bold)),
         ],
       ),
       onTap: () => _openUrl(d.url),
@@ -264,9 +264,9 @@ class _AbstractLicenseView extends StatelessWidget {
             const SizedBox(height: 8),
             Text(L10n.tr('完整许可证文本：'),
                 style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 6),
-            const Text('https://www.gnu.org/licenses/agpl-3.0.html',
-                style: TextStyle(fontSize: 12, color: AppTheme.info)),
+            SizedBox(height: 6),
+            Text('https://www.gnu.org/licenses/agpl-3.0.html',
+                style: TextStyle(fontSize: 12, color: Th.info(context))),
           ],
         ),
       ),

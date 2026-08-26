@@ -5,16 +5,16 @@ import 'package:Kelivo/relaygo/models/key_test.dart';
 import 'package:Kelivo/relaygo/l10n/app_strings.dart';
 
 /// Key 状态对应的颜色（对应设计稿 m3-dot：绿=有效 / 灰=禁用 / 橙=用尽 / 红=错误）
-Color statusColor(KeyStatus status) {
+Color statusColor(KeyStatus status, BuildContext context) {
   switch (status) {
     case KeyStatus.active:
-      return AppTheme.brandGreen;
+      return Th.brandGreen(context);
     case KeyStatus.inactive:
-      return AppTheme.text3;
+      return Th.text3(context);
     case KeyStatus.exhausted:
-      return AppTheme.warning;
+      return Th.warning(context);
     case KeyStatus.error:
-      return AppTheme.danger;
+      return Th.danger(context);
   }
 }
 
@@ -58,7 +58,7 @@ class KeyCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final k = apiKey;
     final testStatus = k.lastTestStatus;
-    final sc = statusColor(k.status);
+    final sc = statusColor(k.status, context);
     final dotColor = testStatus != null
         ? Color(testStatus.colorValue)
         : sc;
@@ -84,7 +84,7 @@ class KeyCard extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(width: 12),
+            SizedBox(width: 12),
             // 中部：Key 名称 + 掩码 Key + 备注
             Expanded(
               child: Column(
@@ -92,19 +92,19 @@ class KeyCard extends StatelessWidget {
                 children: [
                   Text(
                     k.name.isEmpty ? k.maskedKey : k.name,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
-                      color: AppTheme.text,
+                      color: Th.text(context),
                     ),
                     overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 2),
                   Text(
                     _subtitle(k),
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
-                      color: AppTheme.text2,
+                      color: Th.text2(context),
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -114,12 +114,12 @@ class KeyCard extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             // 状态徽章（status-chip）
-            _statusChip(k, testStatus),
+            _statusChip(context, k, testStatus),
             const SizedBox(width: 4),
             // 更多操作
             PopupMenuButton<String>(
               tooltip: L10n.tr('更多操作'),
-              icon: const Icon(Icons.more_vert, size: 20, color: AppTheme.text3),
+              icon: Icon(Icons.more_vert, size: 20, color: Th.text3(context)),
               onSelected: (v) {
                 if (v == 'test') onTest?.call();
                 if (v == 'edit') onEdit?.call();
@@ -156,9 +156,9 @@ class KeyCard extends StatelessWidget {
   }
 
   /// 状态徽章（对应设计稿 status-chip ok/bad/warn）
-  Widget _statusChip(ApiKey k, KeyTestStatus? testStatus) {
+  Widget _statusChip(BuildContext context, ApiKey k, KeyTestStatus? testStatus) {
     // 优先展示最近测试结果；无测试记录时展示路由状态
-    final style = _chipStyle(k, testStatus);
+    final style = _chipStyle(context, k, testStatus);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
@@ -176,7 +176,7 @@ class KeyCard extends StatelessWidget {
     );
   }
 
-  _ChipStyle _chipStyle(ApiKey k, KeyTestStatus? testStatus) {
+  _ChipStyle _chipStyle(BuildContext context, ApiKey k, KeyTestStatus? testStatus) {
     if (testStatus != null) {
       switch (testStatus) {
         case KeyTestStatus.valid:
@@ -194,9 +194,9 @@ class KeyCard extends StatelessWidget {
     switch (k.status) {
       case KeyStatus.active:
         return _ChipStyle(
-            L10n.tr('有效'), const Color(0xFFA6F5C4), const Color(0xFF00210F));
+            L10n.tr('有效'), Color(0xFFA6F5C4), Color(0xFF00210F));
       case KeyStatus.inactive:
-        return _ChipStyle(L10n.tr('禁用'), const Color(0xFFF0F2F5), AppTheme.text2);
+        return _ChipStyle(L10n.tr('禁用'), Color(0xFFF0F2F5), Th.text2(context));
       case KeyStatus.exhausted:
         return _ChipStyle(
             L10n.tr('用尽'), const Color(0x29FF9800), const Color(0xFFB26A00));

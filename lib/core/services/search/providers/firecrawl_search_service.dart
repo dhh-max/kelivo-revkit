@@ -53,7 +53,7 @@ class FirecrawlSearchService extends SearchService<FirecrawlOptions> {
           'location': serviceOptions.location.trim(),
       };
 
-      final response = await withHttpClient(
+      final response = await SearchService.withHttpClient(
         (client) => client
             .post(
               Uri.parse(serviceOptions.resolvedUrl),

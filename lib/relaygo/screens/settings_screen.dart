@@ -233,7 +233,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
         children: [
-          _section(t.t(L10n.tr('服务器配置'))),
+          _section(context, t.t(L10n.tr('服务器配置'))),
           _card([
             _row(
               title: t.t(L10n.tr('端口')),
@@ -297,7 +297,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       () => _host = v ? '0.0.0.0' : '127.0.0.1')),
             ),
           ]),
-          _section(t.t(L10n.tr('Key 管理'))),
+          _section(context, t.t(L10n.tr('Key 管理'))),
           _card([
             _row(
               title: t.t(L10n.tr('自动测试间隔')),
@@ -329,7 +329,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               trailing: _numberField(_retryCtrl, '$_maxRetryKeys'),
             ),
           ]),
-          _section(t.t(L10n.tr('响应缓存与限流'))),
+          _section(context, t.t(L10n.tr('响应缓存与限流'))),
           _card([
             _row(
               title: t.t(L10n.tr('启用响应缓存')),
@@ -371,7 +371,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _adaptiveTpm, (v) => setState(() => _adaptiveTpm = v)),
             ),
           ]),
-          _section(t.t(L10n.tr('模型同步'))),
+          _section(context, t.t(L10n.tr('模型同步'))),
           _card([
             _row(
               title: t.t(L10n.tr('启动时自动同步模型列表')),
@@ -392,7 +392,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   (v) => setState(() => _virtualModelsEnabled = v)),
             ),
           ]),
-          _section(t.t(L10n.tr('通知与告警'))),
+          _section(context, t.t(L10n.tr('通知与告警'))),
           _card([
             _row(
               title: t.t(L10n.tr('启用告警')),
@@ -427,7 +427,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ]),
-          _section(t.t(L10n.tr('日志管理'))),
+          _section(context, t.t(L10n.tr('日志管理'))),
           _card([
             _row(
               title: t.t(L10n.tr('日志保留天数')),
@@ -443,7 +443,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               trailing: _numberField(_timeoutCtrl, '$_upstreamTimeout'),
             ),
           ]),
-          _section(t.t(L10n.tr('后台保活'))),
+          _section(context, t.t(L10n.tr('后台保活'))),
           _card([
             _row(
               title: t.t(L10n.tr('后台保活')),
@@ -460,7 +460,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               }),
             ),
           ]),
-          _section(t.t(L10n.tr('外观与安全'))),
+          _section(context, t.t(L10n.tr('外观与安全'))),
           _card([
             _row(
               title: t.t(L10n.tr('语言')),
@@ -501,14 +501,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ]),
-          _section(t.t(L10n.tr('关于'))),
+          _section(context, t.t(L10n.tr('关于'))),
           _card([
             _row(
-              leading: const Icon(Icons.info_outline,
-                  size: 20, color: AppTheme.brandGreen),
+              leading: Icon(Icons.info_outline,
+                  size: 20, color: Th.brandGreen(context)),
               title: Constants.appName,
               subtitle: 'v${Constants.appVersion}',
-              trailing: _chip(L10n.tr('最新版'), AppTheme.surface2, AppTheme.text2),
+              trailing: _chip(L10n.tr('最新版'), Th.surface2(context), Th.text2(context)),
             ),
             _row(
               title: t.t(L10n.tr('检查更新')),
@@ -572,7 +572,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   // ———————— 分组标题（对应设计稿 section label）———————
-  Widget _section(String title) => Padding(
+  Widget _section(context, String title) => Padding(
         padding: const EdgeInsets.only(top: 14, bottom: 6),
         child: Text(
           title.toUpperCase(),
@@ -591,15 +591,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(AppTheme.radiusLg),
-        border: Border.all(color: AppTheme.border),
+        border: Border.all(color: Th.border(context)),
       ),
       child: Column(
         children: List.generate(rows.length, (i) {
           return Column(
             children: [
               if (i > 0)
-                const Divider(
-                    height: 1, thickness: 1, indent: 16, color: AppTheme.border),
+                Divider(
+                    height: 1, thickness: 1, indent: 16, color: Th.border(context)),
               rows[i],
             ],
           );
@@ -616,24 +616,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required Widget trailing,
   }) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       child: Row(
         children: [
-          if (leading != null) ...[leading, const SizedBox(width: 12)],
+          if (leading != null) ...[leading, SizedBox(width: 12)],
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(title,
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
-                        color: AppTheme.text)),
+                        color: Th.text(context))),
                 if (subtitle != null) ...[
-                  const SizedBox(height: 2),
+                  SizedBox(height: 2),
                   Text(subtitle,
-                      style: const TextStyle(
-                          fontSize: 12, color: AppTheme.text2)),
+                      style: TextStyle(
+                          fontSize: 12, color: Th.text2(context))),
                 ],
               ],
             ),
@@ -647,17 +647,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _monoTag(String text) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: AppTheme.surface2,
+        color: Th.surface2(context),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Text(
         text,
-        style: const TextStyle(
+        style: TextStyle(
           fontFamily: AppTheme.monoFontFamily,
           fontSize: 12,
-          color: AppTheme.text2,
+          color: Th.text2(context),
         ),
       ),
     );
@@ -682,7 +682,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Switch(
       value: value,
       onChanged: onChanged,
-      activeTrackColor: AppTheme.brandGreen,
+      activeTrackColor: Th.brandGreen(context),
     );
   }
 
@@ -708,8 +708,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           isDense: true,
           items: items,
           onChanged: onChanged,
-          style: const TextStyle(
-              fontSize: 13, color: AppTheme.text, fontWeight: FontWeight.w600),
+          style: TextStyle(
+              fontSize: 13, color: Th.text(context), fontWeight: FontWeight.w600),
           icon: const Icon(Icons.expand_more, size: 18),
         ),
       ),
@@ -739,7 +739,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         max: max,
         divisions: divisions,
         label: label,
-        activeColor: AppTheme.brandGreen,
+        activeColor: Th.brandGreen(context),
         onChanged: onChanged,
       ),
     );
@@ -818,7 +818,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 6),
             Text(
               L10n.tr('设置后，访问管理接口需在请求头中携带此令牌。留空则移除鉴权。'),
-              style: const TextStyle(fontSize: 12, color: AppTheme.text2),
+              style: TextStyle(fontSize: 12, color: Th.text2(context)),
             ),
           ],
         ),
@@ -859,7 +859,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 6),
             Text(
               L10n.tr('留空将回退到静态更新清单'),
-              style: const TextStyle(fontSize: 12, color: AppTheme.text2),
+              style: TextStyle(fontSize: 12, color: Th.text2(context)),
             ),
           ],
         ),

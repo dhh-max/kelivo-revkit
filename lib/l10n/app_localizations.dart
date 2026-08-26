@@ -13470,10 +13470,8 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Collapse'**
   String get memoryTraceShowLess;
-}
 
-
-/// No description provided for @assistantEditManageSkillsButton.
+  /// No description provided for @assistantEditManageSkillsButton.
   ///
   /// In en, this message translates to:
   /// **'Manage Skills'**
@@ -13574,7 +13572,33 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Paste skill instructions here.'**
   String get skillsContentHint;
+
+  /// No description provided for @assistantEditPageSkillsTab.
+  ///
+  /// In en, this message translates to:
+  /// **'Skills'**
+  String get assistantEditPageSkillsTab;
+
+  /// No description provided for @assistantEditSkillsEmptyMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'No skills installed yet.'**
+  String get assistantEditSkillsEmptyMessage;
+
+  /// No description provided for @chatMessageWidgetEditMemory.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit Memory'**
+  String get chatMessageWidgetEditMemory;
+
+  /// No description provided for @chatMessageWidgetDeleteMemory.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete Memory'**
+  String get chatMessageWidgetDeleteMemory;
 }
+
+
 class _AppLocalizationsDelegate
     extends LocalizationsDelegate<AppLocalizations> {
   const _AppLocalizationsDelegate();

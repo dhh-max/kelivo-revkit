@@ -699,22 +699,26 @@ class AppState extends ChangeNotifier {
   Future<int> cleanupLogs() => logService.cleanup();
 }
 
-/// 应用根组件
+/// 应用根组件（独立运行模式）
+///
+/// 当 RelayGo 作为独立 App 运行时使用此入口。
+/// 嵌入主应用时，RelayGo 页面直接通过 Navigator.push 进入，
+/// 继承主应用的 theme/locale/themeMode，无需此组件。
 class MyApp extends StatelessWidget {
   const MyApp({Key? key}) : super(key: key);
-
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
       create: (_) => AppState(),
       child: Consumer<AppState>(
         builder: (ctx, app, _) {
-          // 依赖 settings.language：语言切换时整个 MaterialApp 重建，
-          // 保证所有页面（含已入栈路由）立即刷新为新的语言。
           app.settings.language;
+          final isDark = Theme.of(ctx).brightness == Brightness.dark;
           return MaterialApp(
             title: Constants.appName,
             theme: AppTheme.light,
+            darkTheme: AppTheme.dark,
+            themeMode: ThemeMode.system,
             debugShowCheckedModeBanner: false,
             home: const HomeScreen(),
           );

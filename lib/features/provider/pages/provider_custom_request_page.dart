@@ -27,9 +27,9 @@ class ProviderCustomRequestPage extends StatelessWidget {
       defaultName: providerDisplayName,
     );
 
-    return Scaffold(
-      appBar: AppBar(
-        leadingWidth: 52,
+return Scaffold(
+       appBar: AppBar(
+         leadingWidth: 52,
         leading: Padding(
           padding: const EdgeInsets.only(left: 8),
           child: IosIconButton(
@@ -55,8 +55,8 @@ class ProviderCustomRequestPage extends StatelessWidget {
           ProviderCustomRequestEditor(
             key: ValueKey('provider-custom-request-$providerKey'),
             showHeader: false,
-            headers: config.customHeaders,
-            body: config.customBody,
+headers: _mapToEditorHeaders(config.customHeaders),
+             body: _mapToEditorBody(config.customBody),
             onHeadersChanged: (rows) async {
               final old = settings.getProviderConfig(
                 providerKey,
@@ -64,7 +64,7 @@ class ProviderCustomRequestPage extends StatelessWidget {
               );
               await settings.setProviderConfig(
                 providerKey,
-                old.copyWith(customHeaders: rows),
+                old.copyWith(modelOverrides: _copyWithHeaders(config.modelOverrides, _headersToList(rows))),
               );
             },
             onBodyChanged: (rows) async {
@@ -74,12 +74,42 @@ class ProviderCustomRequestPage extends StatelessWidget {
               );
               await settings.setProviderConfig(
                 providerKey,
-                old.copyWith(customBody: rows),
+                old.copyWith(modelOverrides: _copyWithBody(config.modelOverrides, _bodyToList(rows))),
               );
             },
-          ),
-        ],
-      ),
-    );
-  }
-}
+),
+         ],
+       ),
+     );
+   }
+
+   static Map<String, dynamic> _copyWithHeaders(
+     Map<String, dynamic> ov,
+     List<Map<String, String>> rows,
+   ) {
+     return {
+       ...ov,
+       'headers': rows,
+     };
+   }
+
+   static Map<String, dynamic> _copyWithBody(
+     Map<String, dynamic> ov,
+     List<Map<String, String>> rows,
+   ) {
+     return {
+       ...ov,
+       'body': rows,
+     };
+   }
+
+   static List<Map<String, String>> _mapToEditorHeaders(Map<String, String> m) =>
+       m.entries.map((e) => {'name': e.key, 'value': e.value}).toList();
+
+   static List<Map<String, String>> _mapToEditorBody(Map<String, dynamic> m) =>
+       m.entries.map((e) => {'key': e.key.toString(), 'value': e.value.toString()}).toList();
+
+   static List<Map<String, String>> _headersToList(List<Map<String, String>> l) => l;
+
+   static List<Map<String, String>> _bodyToList(List<Map<String, String>> l) => l;
+ }

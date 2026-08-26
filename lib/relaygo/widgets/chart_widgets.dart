@@ -6,12 +6,12 @@ import 'package:Kelivo/relaygo/l10n/app_strings.dart';
 /// 简易横向柱状图（避免引入额外图表依赖）
 class SimpleBarChart extends StatelessWidget {
   final Map<String, int> data; // 标签 -> 数值
-  final Color color;
+  final Color? color;
 
-  const SimpleBarChart({
+  SimpleBarChart({
     Key? key,
     required this.data,
-    this.color = AppTheme.accent,
+    this.color,
   }) : super(key: key);
 
   @override
@@ -19,21 +19,21 @@ class SimpleBarChart extends StatelessWidget {
     if (data.isEmpty) {
       return Center(
           child: Text(L10n.tr('暂无数据'),
-              style: const TextStyle(color: AppTheme.text3)));
+              style: TextStyle(color: Th.text3(context))));
     }
     final max = data.values.reduce((a, b) => a > b ? a : b).toDouble();
     return Column(
       children: data.entries.map((e) {
         final ratio = max > 0 ? e.value / max : 0.0;
         return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 5),
+          padding: EdgeInsets.symmetric(vertical: 5),
           child: Row(
             children: [
               SizedBox(
                 width: 90,
                 child: Text(e.key,
-                    style: const TextStyle(
-                        fontSize: 12, color: AppTheme.text2),
+                    style: TextStyle(
+                        fontSize: 12, color: Th.text2(context)),
                     overflow: TextOverflow.ellipsis),
               ),
               Expanded(
@@ -42,7 +42,7 @@ class SimpleBarChart extends StatelessWidget {
                     Container(
                       height: 18,
                       decoration: BoxDecoration(
-                        color: AppTheme.surface3,
+                        color: Th.surface3(context),
                         borderRadius: BorderRadius.circular(4),
                       ),
                     ),
@@ -59,11 +59,11 @@ class SimpleBarChart extends StatelessWidget {
                   ],
                 ),
               ),
-              const SizedBox(width: 8),
+              SizedBox(width: 8),
               Text('${e.value}',
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: 12,
-                      color: AppTheme.text2,
+                      color: Th.text2(context),
                       fontFamily: AppTheme.monoFontFamily)),
             ],
           ),
@@ -86,14 +86,14 @@ class DonutChart extends StatelessWidget {
     this.strokeWidth = 22,
   }) : super(key: key);
 
-  static const List<Color> _palette = [
-    AppTheme.accent,
-    AppTheme.accentStrong,
-    AppTheme.info,
-    AppTheme.warning,
+  static List<Color> _palette(BuildContext context) => [
+    Th.accent(context),
+    Th.brandTeal(context),
+    Th.info(context),
+    Th.warning(context),
     Color(0xFF9C27B0),
-    AppTheme.danger,
-    AppTheme.success,
+    Th.danger(context),
+    Th.success(context),
     Color(0xFFF59E0B),
   ];
 
@@ -102,7 +102,7 @@ class DonutChart extends StatelessWidget {
     if (data.isEmpty) {
       return Center(
           child: Text(L10n.tr('暂无数据'),
-              style: const TextStyle(color: AppTheme.text3)));
+              style: TextStyle(color: Th.text3(context))));
     }
     final total = data.values.fold<int>(0, (a, b) => a + b).toDouble();
     final entries = data.entries.toList();
@@ -113,22 +113,22 @@ class DonutChart extends StatelessWidget {
           width: size,
           height: size,
           child: CustomPaint(
-            painter: _DonutPainter(entries, total, strokeWidth),
+            painter: _DonutPainter(entries, total, strokeWidth, _palette(context)),
             child: Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
                     '${total.round()}',
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
-                        color: AppTheme.text,
+                        color: Th.text(context),
                         fontFamily: AppTheme.monoFontFamily),
                   ),
                   Text(L10n.tr('总数'),
-                      style: const TextStyle(
-                          fontSize: 11, color: AppTheme.text3)),
+                      style: TextStyle(
+                          fontSize: 11, color: Th.text3(context))),
                 ],
               ),
             ),
@@ -148,23 +148,23 @@ class DonutChart extends StatelessWidget {
                       width: 10,
                       height: 10,
                       decoration: BoxDecoration(
-                        color: _palette[idx % _palette.length],
+                        color: _palette(context)[idx % _palette(context).length],
                         shape: BoxShape.circle,
                       ),
                     ),
-                    const SizedBox(width: 6),
+                    SizedBox(width: 6),
                     Expanded(
                       child: Text(e.key,
-                          style: const TextStyle(
-                              fontSize: 12, color: AppTheme.text2),
+                          style: TextStyle(
+                              fontSize: 12, color: Th.text2(context)),
                           overflow: TextOverflow.ellipsis),
                     ),
                     Text(
                       '${(ratio * 100).toStringAsFixed(1)}%',
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
-                          color: AppTheme.text2,
+                          color: Th.text2(context),
                           fontFamily: AppTheme.monoFontFamily),
                     ),
                   ],
@@ -183,7 +183,8 @@ class _DonutPainter extends CustomPainter {
   final double total;
   final double strokeWidth;
 
-  _DonutPainter(this.entries, this.total, this.strokeWidth);
+  final List<Color> palette;
+  _DonutPainter(this.entries, this.total, this.strokeWidth, this.palette);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -199,7 +200,7 @@ class _DonutPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = strokeWidth
         ..strokeCap = StrokeCap.butt
-        ..color = DonutChart._palette[i % DonutChart._palette.length];
+        ..color = palette[i % palette.length];
       canvas.drawArc(rect, start, sweep - 0.02, false, paint);
       start += sweep;
     }
@@ -214,14 +215,14 @@ class _DonutPainter extends CustomPainter {
 class SimpleLineChart extends StatelessWidget {
   final List<int> data; // 按小时/时段的有序数值
   final List<String> labels; // 与 data 等长的横轴标签
-  final Color color;
+  final Color? color;
   final double height;
 
-  const SimpleLineChart({
+  SimpleLineChart({
     Key? key,
     required this.data,
     required this.labels,
-    this.color = AppTheme.accent,
+    this.color,
     this.height = 140,
   }) : super(key: key);
 
@@ -230,7 +231,7 @@ class SimpleLineChart extends StatelessWidget {
     if (data.isEmpty) {
       return Center(
           child: Text(L10n.tr('暂无数据'),
-              style: const TextStyle(color: AppTheme.text3)));
+              style: TextStyle(color: Th.text3(context))));
     }
     final maxV = data.reduce((a, b) => a > b ? a : b).toDouble();
     final minV = data.reduce((a, b) => a < b ? a : b).toDouble();
@@ -240,7 +241,7 @@ class SimpleLineChart extends StatelessWidget {
       height: height,
       width: double.infinity,
       child: CustomPaint(
-        painter: _LinePainter(data, labels, color, maxV, minV, range),
+        painter: _LinePainter(data, labels, color ?? Th.accent(context), maxV, minV, range, Th.text3(context)),
       ),
     );
   }
@@ -253,8 +254,9 @@ class _LinePainter extends CustomPainter {
   final double maxV;
   final double minV;
   final double range;
+  final Color labelColor;
 
-  _LinePainter(this.data, this.labels, this.color, this.maxV, this.minV, this.range);
+  _LinePainter(this.data, this.labels, this.color, this.maxV, this.minV, this.range, this.labelColor);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -265,7 +267,7 @@ class _LinePainter extends CustomPainter {
 
     // 网格线
     final gridPaint = Paint()
-      ..color = const Color(0xFF3B332A) // AppTheme.border
+      ..color = Color(0xFF3B332A) // Th.border(context)
       ..strokeWidth = 1;
     for (var i = 0; i <= 3; i++) {
       final y = padT + chartH * i / 3;
@@ -312,8 +314,8 @@ class _LinePainter extends CustomPainter {
     }
 
     // 横轴标签（最多显示 6 个）
-    final labelStyle = const TextStyle(
-        fontSize: 9, color: AppTheme.text3, fontFamily: AppTheme.monoFontFamily);
+    final labelStyle = TextStyle(
+        fontSize: 9, color: labelColor, fontFamily: AppTheme.monoFontFamily);
     final step = math.max(1, (data.length / 6).ceil());
     for (var i = 0; i < data.length; i += step) {
       final x = padL + chartW * i / (data.length - 1);

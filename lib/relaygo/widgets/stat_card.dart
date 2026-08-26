@@ -58,19 +58,19 @@ class StatCard extends StatelessWidget {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.all(16),
+            padding: EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
-                    Icon(icon, color: AppTheme.text3, size: 14),
-                    const SizedBox(width: 6),
+                    Icon(icon, color: Th.text3(context), size: 14),
+                    SizedBox(width: 6),
                     Expanded(
                       child: Text(
                         label,
-                        style: const TextStyle(
-                            fontSize: 12, color: AppTheme.text2),
+                        style: TextStyle(
+                            fontSize: 12, color: Th.text2(context)),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -88,13 +88,13 @@ class StatCard extends StatelessWidget {
                   ),
                 ),
                 if (delta != null) ...[
-                  const SizedBox(height: 4),
+                  SizedBox(height: 4),
                   Text(
                     delta!,
                     style: TextStyle(
                       fontFamily: AppTheme.monoFontFamily,
                       fontSize: 11.5,
-                      color: deltaUp ? AppTheme.success : AppTheme.danger,
+                      color: deltaUp ? Th.success(context) : Th.danger(context),
                     ),
                   ),
                 ],

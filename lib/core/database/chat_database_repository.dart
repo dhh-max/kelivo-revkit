@@ -13,6 +13,7 @@ import '../models/message_part.dart';
 import '../utils/multimodal_input_utils.dart';
 import '../../utils/sandbox_path_resolver.dart';
 import '../../utils/kelivo_file_uri.dart';
+import '../../utils/app_directories.dart';
 import '../models/memory_entry.dart';
 import '../models/user_profile_field.dart';
 import 'app_database.dart';
@@ -4165,16 +4166,13 @@ class ChatDatabaseRepository {
       if (parts != null) {
         resolvedParts = parts;
       } else {
-        final original = await _messageFromRowWithParts(originalRow);
-        resolvedParts = ChatMessage.partsWithReplacedText(
-          original.parts,
-          content,
-        );
+         final original = await _messageFromRowWithParts(originalRow);
+         resolvedParts = _textPartReplaceAll(original, content, content);
       }
-      final message = ChatMessage(
-        role: originalRow.role,
-        parts: resolvedParts,
-        conversationId: originalRow.conversationId,
+       final message = ChatMessage(
+         role: originalRow.role,
+         content: content,
+         conversationId: originalRow.conversationId,
         modelId: originalRow.modelId,
         providerId: originalRow.providerId,
         totalTokens: null,
@@ -4525,7 +4523,7 @@ class ChatDatabaseRepository {
       for (final message in messages) {
         final nextParts = <MessagePart>[];
         var changed = false;
-        for (final part in message.parts) {
+         for (final part in message.parts ?? const []) {
           if (part is ImagePart) {
             final unavailable = await _unavailableForRestoredPart(
               uri: part.uri,
@@ -4560,7 +4558,7 @@ class ChatDatabaseRepository {
           }
         }
         if (!changed) continue;
-        await updateMessage(message.copyWith(parts: nextParts));
+         await updateMessage(message.copyWith(content: _joinTextParts(nextParts)));
         updated += 1;
       }
     }
@@ -5941,14 +5939,15 @@ class ChatDatabaseRepository {
           payload: part.payload,
         ),
     ];
-    final reasoningParts = parts.whereType<ReasoningPart>().toList(
-      growable: false,
-    );
-    return ChatMessage(
-      id: row.id,
-      role: row.role,
-      parts: parts,
-      timestamp: row.timestamp,
+     final reasoningParts = parts.whereType<ReasoningPart>().toList(
+       growable: false,
+     );
+     final content = parts.whereType<TextPart>().map((p) => p.text).join('\n');
+     return ChatMessage(
+       id: row.id,
+       role: row.role,
+       content: content,
+       timestamp: row.timestamp,
       modelId: row.modelId,
       providerId: row.providerId,
       totalTokens: row.totalTokens,
@@ -5971,7 +5970,7 @@ class ChatDatabaseRepository {
   }
 
   bool _messageHasAttachmentParts(ChatMessage message) {
-    return message.parts.any(
+     return (message.parts ?? const []).any(
       (part) =>
           part is ImagePart ||
           part is FilePart ||
@@ -5983,8 +5982,8 @@ class ChatDatabaseRepository {
   /// tool_call continue to be sourced from [ChatMessage.reasoningText] /
   /// tool-event arguments so streaming overlays stay equivalent.
   List<MessagePart> _bodyPartsForPersistence(ChatMessage message) {
-    final body = <MessagePart>[
-      for (final part in message.parts)
+     final body = <MessagePart>[
+       for (final part in (message.parts ?? const []))
         if (part is TextPart ||
             part is ImagePart ||
             part is FilePart ||
@@ -5992,11 +5991,29 @@ class ChatDatabaseRepository {
             part is UnknownPart)
           part,
     ];
-    if (body.isEmpty) {
-      return <MessagePart>[TextPart(message.content)];
-    }
-    return body;
-  }
+if (body.isEmpty) {
+       return <MessagePart>[TextPart(message.content ?? '')];
+     }
+     return body;
+   }
+
+   List<MessagePart> _textPartReplaceAll(
+     ChatMessage msg,
+     String placeholder,
+     String replacement,
+   ) {
+     final parts = msg.parts ?? const [];
+     return parts.map((p) {
+       if (p is TextPart) {
+         return TextPart(p.text.replaceAll(placeholder, replacement));
+       }
+       return p;
+     }).toList();
+   }
+
+   String _joinTextParts(List<MessagePart> parts) {
+     return parts.whereType<TextPart>().map((p) => p.text).join('\n');
+   }
 
   MessagePart _hydratePart({
     required String revisionId,

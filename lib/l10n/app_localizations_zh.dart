@@ -7069,8 +7069,49 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get memoryTraceShowLess => '收起';
+  @override
+  String get assistantEditManageSkillsButton => '管理技能';
+  @override
+  String get assistantEditPageSkillsTab => '技能';
+  @override
+  String get assistantEditSkillsEmptyMessage => '还没有安装技能。先导入一个技能文件吧。';
+  @override
+  String get chatMessageWidgetDeleteMemory => '删除记忆';
+  @override
+  String get chatMessageWidgetEditMemory => '编辑记忆';
+  @override
+  String get skillsAddTooltip => '添加技能';
+  @override
+  String get skillsContentHint => '在这里粘贴技能指令。';
+  @override
+  String get skillsDeleteAction => '删除';
+  @override
+  String get skillsDescriptionLabel => '描述';
+  @override
+  String get skillsEmptyMessage => '支持导入 Markdown、JSON、YAML、PDF、DOCX 或 ZIP 技能文件。';
+  @override
+  String get skillsImportButton => '导入技能';
+  @override
+  String skillsImportFailed(String error) => '技能导入失败：$error';
+  @override
+  String get skillsNoValidImported => '没有导入有效的技能文件。';
+  @override
+  String get skillsImportTooltip => '导入技能';
+  @override
+  String skillsImportedCount(int count) => '已导入 $count 个技能。';
+  @override
+  String skillsTriggersLine(String keywords) => '触发词：$keywords';
+  @override
+  String get skillsSaveButton => '保存';
+  @override
+  String get skillsNameLabel => '名称';
+  @override
+  String get skillsTitle => '技能';
+  @override
+  String get skillsTriggerKeywordsHint => '代码审查、DCF、润色';
+  @override
+  String get skillsTriggerKeywordsLabel => '触发关键词';
 }
-
 /// The translations for Chinese, using the Han script (`zh_Hans`).
 class AppLocalizationsZhHans extends AppLocalizationsZh {
   AppLocalizationsZhHans() : super('zh_Hans');
@@ -21174,23 +21215,12 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get skillsSaveButton => '保存';
-@override
+ @override
   String get skillsNameLabel => '名称';
-@override
-  String get skillsNoValidImported => '没有导入有效的技能文件。';
-@override
-  String get skillsSaveButton => '保存';
-@override
+ @override
   String get skillsTitle => '技能';
-@override
+ @override
   String get skillsTriggerKeywordsHint => '代码审查、DCF、润色';
-@override
+ @override
   String get skillsTriggerKeywordsLabel => '触发关键词';
-@override
-  String skillsTriggersLine(String keywords) {
-    return '触发词：$keywords';
-  }
-
-  @override
-  String get skillsSaveButton => '保存';
 }

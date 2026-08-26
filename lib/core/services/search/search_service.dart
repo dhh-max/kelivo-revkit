@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/http.dart';
 // Import statements for service implementations
 import 'providers/bing_search_service.dart';
 import 'providers/baidu_search_service.dart';
@@ -20,6 +22,9 @@ import 'providers/duckduckgo_search_service.dart';
 import 'providers/serper_search_service.dart';
 import 'providers/grok_search_service.dart';
 import 'providers/querit_search_service.dart';
+import 'providers/stepfun_search_service.dart';
+import 'providers/firecrawl_search_service.dart';
+import 'providers/tinyfish_search_service.dart';
 
 // Base interface for all search services
 abstract class SearchService<T extends SearchServiceOptions> {
@@ -32,6 +37,21 @@ abstract class SearchService<T extends SearchServiceOptions> {
     required SearchCommonOptions commonOptions,
     required T serviceOptions,
   });
+
+  final http.Client client;
+
+  SearchService({http.Client? client}) : client = client ?? http.Client();
+
+  /// Execute [fn] against this service's [client].
+  static Future<R> withHttpClient<R>(Future<R> Function(http.Client c) fn) {
+    final c = http.Client();
+    return fn(c).whenComplete(() => c.close());
+  }
+
+  /// Convenience overload using the instance's [client].
+  Future<R> withInstanceClient<R>(Future<R> Function(http.Client c) fn) {
+    return fn(client);
+  }
 
   // Factory method to get service instance based on options type
   static SearchService getService(SearchServiceOptions options) {
@@ -76,6 +96,12 @@ abstract class SearchService<T extends SearchServiceOptions> {
         return GrokSearchService() as SearchService;
       case QueritOptions _:
         return QueritSearchService() as SearchService;
+      case StepFunOptions _:
+        return StepFunSearchService() as SearchService;
+      case FirecrawlOptions _:
+        return FirecrawlSearchService() as SearchService;
+      case TinyFishOptions _:
+        return TinyFishSearchService() as SearchService;
       default:
         return BingSearchService() as SearchService;
     }
@@ -157,8 +183,24 @@ class SearchCommonOptions {
 // Base class for service-specific options
 abstract class SearchServiceOptions {
   final String id;
+  final List<String> extraApiKeys;
 
-  const SearchServiceOptions({required this.id});
+  const SearchServiceOptions({required this.id, List<String>? extraApiKeys})
+      : extraApiKeys = extraApiKeys ?? const [];
+
+  /// Return the primary apiKey, falling back to the first extra key.
+  String effectiveApiKey(String primary) {
+    final trimmed = primary.trim();
+    if (trimmed.isNotEmpty) return trimmed;
+    for (final key in extraApiKeys) {
+      final k = key.trim();
+      if (k.isNotEmpty) return k;
+    }
+    return '';
+  }
+
+  /// The primary API key (subclasses must override).
+  String get primaryApiKey => '';
 
   Map<String, dynamic> toJson();
 
@@ -205,6 +247,12 @@ abstract class SearchServiceOptions {
         return GrokOptions.fromJson(json);
       case 'querit':
         return QueritOptions.fromJson(json);
+      case 'stepfun':
+        return StepFunOptions.fromJson(json);
+      case 'firecrawl':
+        return FirecrawlOptions.fromJson(json);
+      case 'tinyfish':
+        return TinyFishOptions.fromJson(json);
       default:
         return HybridLocalSearchOptions(id: json['id']);
     }
@@ -408,7 +456,8 @@ class TavilyOptions extends SearchServiceOptions {
   final String apiKey;
   final String url;
 
-  TavilyOptions({required super.id, required this.apiKey, this.url = ''});
+  TavilyOptions({required super.id, required this.apiKey, this.url = '', List<String>? extraApiKeys})
+    : super(extraApiKeys: extraApiKeys);
 
   String get resolvedUrl {
     final trimmed = url.trim();
@@ -436,7 +485,8 @@ class ExaOptions extends SearchServiceOptions {
   final String apiKey;
   final String url;
 
-  ExaOptions({required super.id, required this.apiKey, this.url = ''});
+  ExaOptions({required super.id, required this.apiKey, this.url = '', List<String>? extraApiKeys})
+    : super(extraApiKeys: extraApiKeys);
 
   String get resolvedUrl {
     final trimmed = url.trim();
@@ -461,7 +511,8 @@ class ExaOptions extends SearchServiceOptions {
 class ZhipuOptions extends SearchServiceOptions {
   final String apiKey;
 
-  ZhipuOptions({required super.id, required this.apiKey});
+  ZhipuOptions({required super.id, required this.apiKey, List<String>? extraApiKeys})
+    : super(extraApiKeys: extraApiKeys);
 
   @override
   Map<String, dynamic> toJson() => {
@@ -514,7 +565,8 @@ class SearXNGOptions extends SearchServiceOptions {
 class LinkUpOptions extends SearchServiceOptions {
   final String apiKey;
 
-  LinkUpOptions({required super.id, required this.apiKey});
+  LinkUpOptions({required super.id, required this.apiKey, List<String>? extraApiKeys})
+    : super(extraApiKeys: extraApiKeys);
 
   @override
   Map<String, dynamic> toJson() => {
@@ -530,7 +582,8 @@ class LinkUpOptions extends SearchServiceOptions {
 class BraveOptions extends SearchServiceOptions {
   final String apiKey;
 
-  BraveOptions({required super.id, required this.apiKey});
+  BraveOptions({required super.id, required this.apiKey, List<String>? extraApiKeys})
+    : super(extraApiKeys: extraApiKeys);
 
   @override
   Map<String, dynamic> toJson() => {
@@ -546,7 +599,8 @@ class BraveOptions extends SearchServiceOptions {
 class MetasoOptions extends SearchServiceOptions {
   final String apiKey;
 
-  MetasoOptions({required super.id, required this.apiKey});
+  MetasoOptions({required super.id, required this.apiKey, List<String>? extraApiKeys})
+    : super(extraApiKeys: extraApiKeys);
 
   @override
   Map<String, dynamic> toJson() => {
@@ -562,7 +616,8 @@ class MetasoOptions extends SearchServiceOptions {
 class OllamaOptions extends SearchServiceOptions {
   final String apiKey;
 
-  OllamaOptions({required super.id, required this.apiKey});
+  OllamaOptions({required super.id, required this.apiKey, List<String>? extraApiKeys})
+    : super(extraApiKeys: extraApiKeys);
 
   @override
   Map<String, dynamic> toJson() => {
@@ -578,7 +633,8 @@ class OllamaOptions extends SearchServiceOptions {
 class JinaOptions extends SearchServiceOptions {
   final String apiKey;
 
-  JinaOptions({required super.id, required this.apiKey});
+  JinaOptions({required super.id, required this.apiKey, List<String>? extraApiKeys})
+    : super(extraApiKeys: extraApiKeys);
 
   @override
   Map<String, dynamic> toJson() => {'type': 'jina', 'id': id, 'apiKey': apiKey};
@@ -612,10 +668,11 @@ class PerplexityOptions extends SearchServiceOptions {
   PerplexityOptions({
     required super.id,
     required this.apiKey,
+    List<String>? extraApiKeys,
     this.country,
     this.searchDomainFilter,
     this.maxTokensPerPage,
-  });
+  }) : super(extraApiKeys: extraApiKeys);
 
   @override
   Map<String, dynamic> toJson() => {
@@ -650,11 +707,12 @@ class BochaOptions extends SearchServiceOptions {
   BochaOptions({
     required super.id,
     required this.apiKey,
+    List<String>? extraApiKeys,
     this.freshness,
     this.summary = true,
     this.include,
     this.exclude,
-  });
+  }) : super(extraApiKeys: extraApiKeys);
 
   @override
   Map<String, dynamic> toJson() => {
@@ -687,11 +745,12 @@ class SerperOptions extends SearchServiceOptions {
   SerperOptions({
     required super.id,
     required this.apiKey,
+    List<String>? extraApiKeys,
     this.gl = '',
     this.hl = '',
     this.tbs = '',
     this.page = 1,
-  });
+  }) : super(extraApiKeys: extraApiKeys);
 
   @override
   Map<String, dynamic> toJson() => {
@@ -723,6 +782,7 @@ class GrokOptions extends SearchServiceOptions {
 
   final String apiKey;
   final String model;
+  final String reasoningEffort;
   final String customUrl;
   final String systemPrompt;
 
@@ -730,9 +790,11 @@ class GrokOptions extends SearchServiceOptions {
     required super.id,
     required this.apiKey,
     this.model = defaultModel,
+    this.reasoningEffort = '',
     this.customUrl = defaultUrl,
     this.systemPrompt = defaultSystemPrompt,
-  });
+    List<String>? extraApiKeys,
+  }) : super(extraApiKeys: extraApiKeys);
 
   String get resolvedUrl {
     final trimmed = customUrl.trim();
@@ -745,11 +807,8 @@ class GrokOptions extends SearchServiceOptions {
   }
 
   String get resolvedReasoningEffort {
-    final trimmed = model.trim();
-    if (trimmed.isEmpty || trimmed == defaultModel) {
-      return defaultReasoningEffort;
-    }
-    return '';
+    final trimmed = reasoningEffort.trim();
+    return trimmed.isEmpty ? defaultReasoningEffort : trimmed;
   }
 
   String get resolvedSystemPrompt {
@@ -763,6 +822,7 @@ class GrokOptions extends SearchServiceOptions {
     'id': id,
     'apiKey': apiKey,
     'model': model.trim(),
+    'reasoningEffort': reasoningEffort.trim(),
     'customUrl': customUrl.trim(),
     'systemPrompt': systemPrompt,
   };
@@ -771,6 +831,7 @@ class GrokOptions extends SearchServiceOptions {
     id: json['id'],
     apiKey: json['apiKey'] ?? '',
     model: json['model'] ?? defaultModel,
+    reasoningEffort: json['reasoningEffort'] ?? '',
     customUrl: json['customUrl'] ?? defaultUrl,
     systemPrompt: json['systemPrompt'] ?? defaultSystemPrompt,
   );
@@ -787,12 +848,13 @@ class QueritOptions extends SearchServiceOptions {
   QueritOptions({
     required super.id,
     required this.apiKey,
+    List<String>? extraApiKeys,
     this.sitesInclude = '',
     this.sitesExclude = '',
     this.timeRange = '',
     this.countries = '',
     this.languages = '',
-  });
+  }) : super(extraApiKeys: extraApiKeys);
 
   @override
   Map<String, dynamic> toJson() => {
@@ -814,5 +876,131 @@ class QueritOptions extends SearchServiceOptions {
     timeRange: json['timeRange'] ?? '',
     countries: json['countries'] ?? '',
     languages: json['languages'] ?? '',
+  );
+}
+
+class StepFunOptions extends SearchServiceOptions {
+  static const String defaultUrl = 'https://api.stepfun.com/v1/search';
+
+  final String apiKey;
+  final String url;
+  final String category;
+
+  StepFunOptions({
+    required super.id,
+    required this.apiKey,
+    this.url = '',
+    this.category = '',
+    List<String>? extraApiKeys,
+  }) : super(extraApiKeys: extraApiKeys);
+
+  String get resolvedUrl => url.trim().isEmpty ? defaultUrl : url;
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'type': 'stepfun',
+    'id': id,
+    'apiKey': apiKey,
+    'url': url.trim(),
+    'category': category.trim(),
+  };
+
+  factory StepFunOptions.fromJson(Map<String, dynamic> json) => StepFunOptions(
+    id: json['id'],
+    apiKey: json['apiKey'] ?? '',
+    url: json['url'] ?? '',
+    category: json['category'] ?? '',
+  );
+}
+
+class FirecrawlOptions extends SearchServiceOptions {
+  static const String defaultUrl = 'https://api.firecrawl.dev/v1/search';
+
+  final String apiKey;
+  final String url;
+  final List<String> sources;
+  final List<String> categories;
+  final String country;
+  final String location;
+
+  FirecrawlOptions({
+    required super.id,
+    required this.apiKey,
+    this.url = '',
+    this.sources = const ['web'],
+    this.categories = const [],
+    this.country = '',
+    this.location = '',
+    List<String>? extraApiKeys,
+  }) : super(extraApiKeys: extraApiKeys);
+
+  String get resolvedUrl => url.trim().isEmpty ? defaultUrl : url;
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'type': 'firecrawl',
+    'id': id,
+    'apiKey': apiKey,
+    'url': url.trim(),
+    'sources': sources,
+    'categories': categories,
+    'country': country.trim(),
+    'location': location.trim(),
+  };
+
+  factory FirecrawlOptions.fromJson(Map<String, dynamic> json) => FirecrawlOptions(
+    id: json['id'],
+    apiKey: json['apiKey'] ?? '',
+    url: json['url'] ?? '',
+    sources: (json['sources'] as List?)?.map((e) => e.toString()).toList() ?? const ['web'],
+    categories: (json['categories'] as List?)?.map((e) => e.toString()).toList() ?? const [],
+    country: json['country'] ?? '',
+    location: json['location'] ?? '',
+  );
+}
+
+class TinyFishOptions extends SearchServiceOptions {
+  static const String defaultUrl = 'https://api.tinyfish.tools/v1/search';
+
+  final String apiKey;
+  final String url;
+  final String location;
+  final String language;
+  final String includeDomains;
+  final String excludeDomains;
+
+  TinyFishOptions({
+    required super.id,
+    required this.apiKey,
+    this.url = '',
+    this.location = '',
+    this.language = '',
+    this.includeDomains = '',
+    this.excludeDomains = '',
+    List<String>? extraApiKeys,
+  }) : super(extraApiKeys: extraApiKeys);
+
+  String get resolvedUrl => url.trim().isEmpty ? defaultUrl : url;
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'type': 'tinyfish',
+    'id': id,
+    'apiKey': apiKey,
+    'url': url.trim(),
+    'location': location.trim(),
+    'language': language.trim(),
+    'includeDomains': includeDomains.trim(),
+    'excludeDomains': excludeDomains.trim(),
+  };
+
+  factory TinyFishOptions.fromJson(Map<String, dynamic> json) => TinyFishOptions(
+    id: json['id'],
+    apiKey: json['apiKey'] ?? '',
+    url: json['url'] ?? '',
+    location: json['location'] ?? '',
+    language: json['language'] ?? '',
+    includeDomains: json['includeDomains'] ?? '',
+    excludeDomains: json['excludeDomains'] ?? '',
   );
 }

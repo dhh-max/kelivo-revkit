@@ -50,19 +50,33 @@ class CustomRequestMerger {
             : value;
       }
     }
-    merged.addAll(ModelOverridePayloadParser.customBodyFromRows(providerRows));
+    merged.addAll(_customBodyFromRows(providerRows));
     merged.addAll(model);
     return merged;
   }
 
-  static void _addHeadersCaseInsensitive(
-    Map<String, String> target,
-    Map<String, String> layer,
-  ) {
-    for (final entry in layer.entries) {
-      final normalized = entry.key.toLowerCase();
-      target.removeWhere((key, _) => key.toLowerCase() == normalized);
-      target[entry.key] = entry.value;
-    }
-  }
-}
+static void _addHeadersCaseInsensitive(
+     Map<String, String> target,
+     Map<String, String> layer,
+   ) {
+     for (final entry in layer.entries) {
+       final normalized = entry.key.toLowerCase();
+       target.removeWhere((key, _) => key.toLowerCase() == normalized);
+       target[entry.key] = entry.value;
+     }
+   }
+
+   static Map<String, dynamic> _customBodyFromRows(Object? rows) {
+     if (rows is Map<String, dynamic>) {
+       return ModelOverridePayloadParser.customBody(rows);
+     }
+     if (rows is Map) {
+       final cast =
+           <String, dynamic>{
+             for (final e in rows.entries) e.key.toString(): e.value,
+           };
+       return ModelOverridePayloadParser.customBody(cast);
+     }
+     return const <String, dynamic>{};
+   }
+ }

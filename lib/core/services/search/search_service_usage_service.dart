@@ -40,7 +40,7 @@ class SearchServiceUsageService {
     Duration timeout = const Duration(seconds: 10),
   }) async {
     final ownsClient = client == null;
-    final baseClient = client ?? DioHttpClient(timeout: timeout);
+    final baseClient = client ?? http.Client();
     final effectiveClient = RetryClient.withDelays(
       baseClient,
       const <Duration>[

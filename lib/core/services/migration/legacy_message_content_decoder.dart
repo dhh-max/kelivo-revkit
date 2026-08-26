@@ -1,5 +1,6 @@
 import '../../models/message_part.dart';
 import '../../utils/multimodal_input_utils.dart';
+import '../../../utils/app_directories.dart';
 import '../../../utils/sandbox_path_resolver.dart';
 
 class LegacyDecodeResult {
@@ -112,7 +113,7 @@ Future<LegacyDecodeResult> decodeLegacyContent(
       final local = _isLocalPath(imageUri);
       final missing = local && !exists(imageUri);
       if (missing) missingFiles += 1;
-      final mime = await inferAttachmentMime(uri: imageUri);
+      final mime = inferAttachmentMime(uri: imageUri);
       parts.add(
         ImagePart(
           uri: SandboxPathResolver.canonicalize(imageUri),
@@ -136,11 +137,9 @@ Future<LegacyDecodeResult> decodeLegacyContent(
       final local = _isLocalPath(parsed.uri);
       final missing = local && !exists(parsed.uri);
       if (missing) missingFiles += 1;
-      final mime = await inferAttachmentMime(
-        uri: parsed.uri,
-        explicitMime: parsed.mime,
-        fileName: parsed.name,
-      );
+final mime = inferAttachmentMime(
+         uri: parsed.uri,
+       );
       parts.add(
         FilePart(
           uri: SandboxPathResolver.canonicalize(parsed.uri),
