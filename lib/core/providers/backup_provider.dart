@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import '../models/backup.dart';
+import '../database/business_repository.dart';
+import '../database/business_preferences.dart';
 import '../services/chat/chat_service.dart';
 import '../services/backup/backup_cancel_token.dart';
 import '../services/backup/data_sync.dart';
@@ -16,8 +18,14 @@ class BackupProvider extends ChangeNotifier {
   BackupCancelToken? _activeCancelToken;
   BackupProvider({
     required ChatService chatService,
+    BusinessRepository? businessRepository,
+    BusinessPreferences? businessPreferences,
     WebDavConfig? initialConfig,
-  }) : _dataSync = DataSync(chatService: chatService),
+  }) : _dataSync = DataSync(
+         chatService: chatService,
+         businessRepository: businessRepository!,
+         businessPreferences: businessPreferences,
+       ),
        _cfg = initialConfig ?? const WebDavConfig();
   WebDavConfig get config => _cfg;
   bool get busy => _busy;

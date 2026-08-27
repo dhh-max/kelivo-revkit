@@ -20,6 +20,7 @@ import '../../shared/widgets/snackbar.dart';
 import '../../features/backup/widgets/backup_reminder_helpers.dart';
 import '../widgets/desktop_select_dropdown.dart';
 import '../../theme/app_font_weights.dart';
+import '../../core/database/business_repository.dart';
 
 class DesktopBackupPane extends StatefulWidget {
   const DesktopBackupPane({super.key});
@@ -935,7 +936,6 @@ class _DesktopBackupPaneState extends State<DesktopBackupPane> {
                     await CherryImporter.importFromCherryStudio(
                       file: f,
                       mode: mode,
-                      settings: settings,
                       chatService: chat,
                     );
                     if (!rootCtx.mounted) return;
@@ -1011,7 +1011,6 @@ class _DesktopBackupPaneState extends State<DesktopBackupPane> {
                     final res = await ChatboxImporter.importFromChatbox(
                       file: f,
                       mode: mode,
-                      settings: settings,
                       chatService: chat,
                     );
                     if (!rootCtx.mounted) return;

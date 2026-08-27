@@ -5075,22 +5075,20 @@ class AppLocalizationsZh extends AppLocalizations {
   String get searchServiceNameStepFun => 'StepFun';
 
   @override
-  String get searchProviderStepFunDescription =>
-      '通过 StepFun POST /v1/search 进行网页搜索。';
+  String get searchProviderStepFunDescription => '阶跃星辰官方搜索API，专注中文互联网内容';
 
   @override
   String get searchServiceNameFirecrawl => 'Firecrawl';
 
   @override
   String get searchProviderFirecrawlDescription =>
-      'Firecrawl Search API v2。需要 Bearer API Key。此处不支持 Scrape。';
+      'Firecrawl 网页搜索，支持多源、分类与地理位置过滤';
 
   @override
   String get searchServiceNameTinyFish => 'TinyFish';
 
   @override
-  String get searchProviderTinyFishDescription =>
-      'TinyFish Search API，支持地区与语言参数。需要 API Key。此处不支持 Fetch/Scrape。';
+  String get searchProviderTinyFishDescription => '小蓝搜索服务，支持域名、地区、语言定向';
 
   @override
   String get searchServicesDialogCountryOptional => '国家/地区（可选）';
@@ -7069,49 +7067,78 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get memoryTraceShowLess => '收起';
-  @override
-  String get assistantEditManageSkillsButton => '管理技能';
-  @override
-  String get assistantEditPageSkillsTab => '技能';
-  @override
-  String get assistantEditSkillsEmptyMessage => '还没有安装技能。先导入一个技能文件吧。';
-  @override
-  String get chatMessageWidgetDeleteMemory => '删除记忆';
+
   @override
   String get chatMessageWidgetEditMemory => '编辑记忆';
+
   @override
-  String get skillsAddTooltip => '添加技能';
+  String get chatMessageWidgetDeleteMemory => '删除记忆';
+
   @override
-  String get skillsContentHint => '在这里粘贴技能指令。';
+  String get assistantEditPageSkillsTab => '技能';
+
   @override
-  String get skillsDeleteAction => '删除';
+  String get assistantEditSkillsEmptyMessage => '还没有安装技能。先导入一个技能文件吧。';
+
   @override
-  String get skillsDescriptionLabel => '描述';
-  @override
-  String get skillsEmptyMessage => '支持导入 Markdown、JSON、YAML、PDF、DOCX 或 ZIP 技能文件。';
-  @override
-  String get skillsImportButton => '导入技能';
-  @override
-  String skillsImportFailed(String error) => '技能导入失败：$error';
-  @override
-  String get skillsNoValidImported => '没有导入有效的技能文件。';
-  @override
-  String get skillsImportTooltip => '导入技能';
-  @override
-  String skillsImportedCount(int count) => '已导入 $count 个技能。';
-  @override
-  String skillsTriggersLine(String keywords) => '触发词：$keywords';
-  @override
-  String get skillsSaveButton => '保存';
-  @override
-  String get skillsNameLabel => '名称';
+  String get assistantEditManageSkillsButton => '管理技能';
+
   @override
   String get skillsTitle => '技能';
+
   @override
-  String get skillsTriggerKeywordsHint => '代码审查、DCF、润色';
+  String get skillsImportTooltip => '导入技能';
+
+  @override
+  String get skillsAddTooltip => '添加技能';
+
+  @override
+  String get skillsEmptyMessage =>
+      '支持导入 Markdown、JSON、YAML、PDF、DOCX 或 ZIP 技能文件。';
+
+  @override
+  String get skillsImportButton => '导入技能';
+
+  @override
+  String get skillsDeleteAction => '删除';
+
+  @override
+  String skillsImportFailed(String error) {
+    return '技能导入失败：$error';
+  }
+
+  @override
+  String get skillsNoValidImported => '没有导入有效的技能文件。';
+
+  @override
+  String skillsImportedCount(int count) {
+    return '已导入 $count 个技能。';
+  }
+
+  @override
+  String skillsTriggersLine(String keywords) {
+    return '触发词：$keywords';
+  }
+
+  @override
+  String get skillsSaveButton => '保存';
+
+  @override
+  String get skillsNameLabel => '名称';
+
+  @override
+  String get skillsDescriptionLabel => '描述';
+
   @override
   String get skillsTriggerKeywordsLabel => '触发关键词';
+
+  @override
+  String get skillsTriggerKeywordsHint => '代码审查、DCF、润色';
+
+  @override
+  String get skillsContentHint => '在这里粘贴技能指令。';
 }
+
 /// The translations for Chinese, using the Han script (`zh_Hans`).
 class AppLocalizationsZhHans extends AppLocalizationsZh {
   AppLocalizationsZhHans() : super('zh_Hans');
@@ -12109,22 +12136,20 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get searchServiceNameStepFun => 'StepFun';
 
   @override
-  String get searchProviderStepFunDescription =>
-      '通过 StepFun POST /v1/search 进行网页搜索。';
+  String get searchProviderStepFunDescription => '阶跃星辰官方搜索API，专注中文互联网内容';
 
   @override
   String get searchServiceNameFirecrawl => 'Firecrawl';
 
   @override
   String get searchProviderFirecrawlDescription =>
-      'Firecrawl Search API v2。需要 Bearer API Key。此处不支持 Scrape。';
+      'Firecrawl 网页搜索，支持多源、分类与地理位置过滤';
 
   @override
   String get searchServiceNameTinyFish => 'TinyFish';
 
   @override
-  String get searchProviderTinyFishDescription =>
-      'TinyFish Search API，支持地区与语言参数。需要 API Key。此处不支持 Fetch/Scrape。';
+  String get searchProviderTinyFishDescription => '小蓝搜索服务，支持域名、地区、语言定向';
 
   @override
   String get searchServicesDialogCountryOptional => '国家/地区（可选）';
@@ -14103,6 +14128,76 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get memoryTraceShowLess => '收起';
+
+  @override
+  String get chatMessageWidgetEditMemory => '编辑记忆';
+
+  @override
+  String get chatMessageWidgetDeleteMemory => '删除记忆';
+
+  @override
+  String get assistantEditPageSkillsTab => '技能';
+
+  @override
+  String get assistantEditSkillsEmptyMessage => '还没有安装技能。先导入一个技能文件吧。';
+
+  @override
+  String get assistantEditManageSkillsButton => '管理技能';
+
+  @override
+  String get skillsTitle => '技能';
+
+  @override
+  String get skillsImportTooltip => '导入技能';
+
+  @override
+  String get skillsAddTooltip => '添加技能';
+
+  @override
+  String get skillsEmptyMessage =>
+      '支持导入 Markdown、JSON、YAML、PDF、DOCX 或 ZIP 技能文件。';
+
+  @override
+  String get skillsImportButton => '导入技能';
+
+  @override
+  String get skillsDeleteAction => '删除';
+
+  @override
+  String skillsImportFailed(String error) {
+    return '技能导入失败：$error';
+  }
+
+  @override
+  String get skillsNoValidImported => '没有导入有效的技能文件。';
+
+  @override
+  String skillsImportedCount(int count) {
+    return '已导入 $count 个技能。';
+  }
+
+  @override
+  String skillsTriggersLine(String keywords) {
+    return '触发词：$keywords';
+  }
+
+  @override
+  String get skillsSaveButton => '保存';
+
+  @override
+  String get skillsNameLabel => '名称';
+
+  @override
+  String get skillsDescriptionLabel => '描述';
+
+  @override
+  String get skillsTriggerKeywordsLabel => '触发关键词';
+
+  @override
+  String get skillsTriggerKeywordsHint => '代码审查、DCF、润色';
+
+  @override
+  String get skillsContentHint => '在这里粘贴技能指令。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -19175,22 +19270,20 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get searchServiceNameStepFun => 'StepFun';
 
   @override
-  String get searchProviderStepFunDescription =>
-      '透過 StepFun POST /v1/search 進行網頁搜尋。';
+  String get searchProviderStepFunDescription => '階躍星辰官方搜尋API，專注中文互聯網內容';
 
   @override
   String get searchServiceNameFirecrawl => 'Firecrawl';
 
   @override
   String get searchProviderFirecrawlDescription =>
-      'Firecrawl Search API v2。需要 Bearer API Key。此處不支援 Scrape。';
+      'Firecrawl 網頁搜尋，支援多源、分類與地理位置過濾';
 
   @override
   String get searchServiceNameTinyFish => 'TinyFish';
 
   @override
-  String get searchProviderTinyFishDescription =>
-      'TinyFish Search API，支援地區與語言參數。需要 API Key。此處不支援 Fetch/Scrape。';
+  String get searchProviderTinyFishDescription => '小藍搜尋服務，支援域名、地區、語言定向';
 
   @override
   String get searchServicesDialogCountryOptional => '國家/地區（可選）';
@@ -21171,56 +21264,73 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   @override
   String get memoryTraceShowLess => '收合';
 
-@override
-  String get assistantEditManageSkillsButton => '管理技能';
-@override
+  @override
+  String get chatMessageWidgetEditMemory => '編輯記憶';
+
+  @override
+  String get chatMessageWidgetDeleteMemory => '刪除記憶';
+
+  @override
   String get assistantEditPageSkillsTab => '技能';
-@override
-  String get assistantEditSkillsEmptyMessage => '还没有安装技能。先导入一个技能文件吧。';
-@override
-  String get chatMessageWidgetDeleteMemory => '删除记忆';
-@override
-  String get chatMessageWidgetEditMemory => '编辑记忆';
-@override
-  String get skillsAddTooltip => '添加技能';
-@override
-  String get skillsContentHint => '在这里粘贴技能指令。';
-@override
-  String get skillsDeleteAction => '删除';
-@override
-  String get skillsDescriptionLabel => '描述';
-@override
+
+  @override
+  String get assistantEditSkillsEmptyMessage => '還沒有安裝技能。先匯入一個技能檔案吧。';
+
+  @override
+  String get assistantEditManageSkillsButton => '管理技能';
+
+  @override
+  String get skillsTitle => '技能';
+
+  @override
+  String get skillsImportTooltip => '匯入技能';
+
+  @override
+  String get skillsAddTooltip => '新增技能';
+
+  @override
   String get skillsEmptyMessage =>
-      '支持导入 Markdown、JSON、YAML、PDF、DOCX 或 ZIP 技能文件。';
-@override
-  String get skillsImportButton => '导入技能';
-@override
+      '支援匯入 Markdown、JSON、YAML、PDF、DOCX 或 ZIP 技能檔案。';
+
+  @override
+  String get skillsImportButton => '匯入技能';
+
+  @override
+  String get skillsDeleteAction => '刪除';
+
+  @override
   String skillsImportFailed(String error) {
-    return '技能导入失败：$error';
+    return '技能匯入失敗：$error';
   }
 
   @override
-  String get skillsNoValidImported => '没有导入有效的技能文件。';
-@override
-  String get skillsImportTooltip => '导入技能';
-@override
+  String get skillsNoValidImported => '沒有匯入有效的技能檔案。';
+
+  @override
   String skillsImportedCount(int count) {
-    return '已导入 $count 个技能。';
+    return '已匯入 $count 個技能。';
   }
 
   @override
   String skillsTriggersLine(String keywords) {
-    return '触发词：$keywords';
+    return '觸發詞：$keywords';
   }
 
   @override
-  String get skillsSaveButton => '保存';
- @override
-  String get skillsNameLabel => '名称';
- @override
-  String get skillsTitle => '技能';
- @override
-  String get skillsTriggerKeywordsHint => '代码审查、DCF、润色';
- @override
-  String get skillsTriggerKeywordsLabel => '触发关键词';
+  String get skillsSaveButton => '儲存';
+
+  @override
+  String get skillsNameLabel => '名稱';
+
+  @override
+  String get skillsDescriptionLabel => '描述';
+
+  @override
+  String get skillsTriggerKeywordsLabel => '觸發關鍵詞';
+
+  @override
+  String get skillsTriggerKeywordsHint => '程式碼審查、DCF、潤飾';
+
+  @override
+  String get skillsContentHint => '在這裡貼上技能指令。';
 }

@@ -9754,7 +9754,7 @@ abstract class AppLocalizations {
   /// No description provided for @searchProviderStepFunDescription.
   ///
   /// In en, this message translates to:
-  /// **'StepFun web search via POST /v1/search.'**
+  /// **'StepFun\'s official search API for Chinese internet content'**
   String get searchProviderStepFunDescription;
 
   /// No description provided for @searchServiceNameFirecrawl.
@@ -9766,7 +9766,7 @@ abstract class AppLocalizations {
   /// No description provided for @searchProviderFirecrawlDescription.
   ///
   /// In en, this message translates to:
-  /// **'Firecrawl Search API v2. Requires a Bearer API key. Scrape is not supported here.'**
+  /// **'Firecrawl web search with multi-source, category, and geolocation filtering'**
   String get searchProviderFirecrawlDescription;
 
   /// No description provided for @searchServiceNameTinyFish.
@@ -9778,7 +9778,7 @@ abstract class AppLocalizations {
   /// No description provided for @searchProviderTinyFishDescription.
   ///
   /// In en, this message translates to:
-  /// **'TinyFish Search API with region/language filters. Requires an API key. Fetch/Scrape is not supported here.'**
+  /// **'TinyFish search service with domain/geo/language targeting'**
   String get searchProviderTinyFishDescription;
 
   /// No description provided for @searchServicesDialogCountryOptional.
@@ -13471,6 +13471,30 @@ abstract class AppLocalizations {
   /// **'Collapse'**
   String get memoryTraceShowLess;
 
+  /// No description provided for @chatMessageWidgetEditMemory.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit Memory'**
+  String get chatMessageWidgetEditMemory;
+
+  /// No description provided for @chatMessageWidgetDeleteMemory.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete Memory'**
+  String get chatMessageWidgetDeleteMemory;
+
+  /// No description provided for @assistantEditPageSkillsTab.
+  ///
+  /// In en, this message translates to:
+  /// **'Skills'**
+  String get assistantEditPageSkillsTab;
+
+  /// No description provided for @assistantEditSkillsEmptyMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'No skills installed yet. Import a skill file first.'**
+  String get assistantEditSkillsEmptyMessage;
+
   /// No description provided for @assistantEditManageSkillsButton.
   ///
   /// In en, this message translates to:
@@ -13572,32 +13596,7 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Paste skill instructions here.'**
   String get skillsContentHint;
-
-  /// No description provided for @assistantEditPageSkillsTab.
-  ///
-  /// In en, this message translates to:
-  /// **'Skills'**
-  String get assistantEditPageSkillsTab;
-
-  /// No description provided for @assistantEditSkillsEmptyMessage.
-  ///
-  /// In en, this message translates to:
-  /// **'No skills installed yet.'**
-  String get assistantEditSkillsEmptyMessage;
-
-  /// No description provided for @chatMessageWidgetEditMemory.
-  ///
-  /// In en, this message translates to:
-  /// **'Edit Memory'**
-  String get chatMessageWidgetEditMemory;
-
-  /// No description provided for @chatMessageWidgetDeleteMemory.
-  ///
-  /// In en, this message translates to:
-  /// **'Delete Memory'**
-  String get chatMessageWidgetDeleteMemory;
 }
-
 
 class _AppLocalizationsDelegate
     extends LocalizationsDelegate<AppLocalizations> {
@@ -13645,7 +13644,4 @@ AppLocalizations lookupAppLocalizations(Locale locale) {
     'on GitHub with a reproducible sample app and the gen-l10n configuration '
     'that was used.',
   );
-
-@override
-  bool shouldReload(_AppLocalizationsDelegate old) => false;
 }

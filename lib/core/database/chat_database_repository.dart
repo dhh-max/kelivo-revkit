@@ -6,14 +6,14 @@ import 'package:crypto/crypto.dart';
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:sqlite3/sqlite3.dart' as sqlite;
+import 'package:uuid/uuid.dart';
 
 import '../models/chat_message.dart';
 import '../models/conversation.dart';
 import '../models/message_part.dart';
 import '../utils/multimodal_input_utils.dart';
 import '../../utils/sandbox_path_resolver.dart';
-import '../../utils/kelivo_file_uri.dart';
-import '../../utils/app_directories.dart';
+import '../../utils/solab_file_uri.dart';
 import '../models/memory_entry.dart';
 import '../models/user_profile_field.dart';
 import 'app_database.dart';
@@ -22,6 +22,7 @@ import 'business_repository.dart';
 import 'chat_database_observer.dart';
 import 'generation_run.dart';
 import 'generation_run_commands.dart';
+import '../services/api/stream/stream_chunk_handler.dart';
 
 typedef ChatDatabaseSnapshotInfo = ({
   int schemaVersion,
@@ -226,10 +227,17 @@ class ChatDatabaseRepository {
     late final int schemaVersion;
     try {
       schemaVersion = database.userVersion;
-      if (schemaVersion != AppDatabase.currentSchemaVersion) {
+      // v1-v4 (legacy) are accepted: AppDatabase's onUpgrade migrates them to
+      // the current schema on open. Anything newer or uninitialized is rejected.
+      if (schemaVersion == 0 ||
+          schemaVersion > AppDatabase.currentSchemaVersion) {
         throw StateError('database_schema_version');
       }
-      _validateRawStructure(database);
+      _validateRawStructure(
+        database,
+        allowLegacyV1: schemaVersion == 1,
+        allowLegacyV2: schemaVersion == 2,
+      );
     } on sqlite.SqliteException {
       throw StateError('database_corrupt');
     } finally {
@@ -252,13 +260,23 @@ class ChatDatabaseRepository {
       if (schemaVersion > AppDatabase.currentSchemaVersion) {
         throw StateError('database_schema_too_new');
       }
-      if (validateContents) {
-        _validateRawSnapshot(database);
-      } else {
-        _validateRawStructure(database);
-      }
-      if (schemaVersion != AppDatabase.currentSchemaVersion) {
+      // v1-v4 (legacy) are accepted and migrated on open; 0 is uninitialized.
+      if (schemaVersion == 0 ||
+          schemaVersion > AppDatabase.currentSchemaVersion) {
         throw StateError('database_schema_version');
+      }
+      if (validateContents) {
+        _validateRawSnapshot(
+          database,
+          allowLegacyV1: schemaVersion == 1,
+          allowLegacyV2: schemaVersion == 2,
+        );
+      } else {
+        _validateRawStructure(
+          database,
+          allowLegacyV1: schemaVersion == 1,
+          allowLegacyV2: schemaVersion == 2,
+        );
       }
       final identityRows = database.select(
         'SELECT value FROM chat_storage_meta_rows WHERE key = ?;',
@@ -295,10 +313,18 @@ class ChatDatabaseRepository {
       if (database.select('PRAGMA foreign_key_check;').isNotEmpty) {
         throw StateError('foreign_key_check');
       }
-      _validateRawStructure(database);
-      if (database.userVersion != AppDatabase.currentSchemaVersion) {
+      final schemaVersion = database.userVersion;
+      // v1/v2 (legacy) are accepted and migrated to v3 on open.
+      if (schemaVersion != 1 &&
+          schemaVersion != 2 &&
+          schemaVersion != AppDatabase.currentSchemaVersion) {
         throw StateError('database_schema_version');
       }
+      _validateRawStructure(
+        database,
+        allowLegacyV1: schemaVersion == 1,
+        allowLegacyV2: schemaVersion == 2,
+      );
       final identityRows = database.select(
         'SELECT value FROM chat_storage_meta_rows WHERE key = ?;',
         [ChatStorageMetaKeys.databaseIdentity],
@@ -357,6 +383,8 @@ class ChatDatabaseRepository {
   static Future<ChatDatabaseSnapshotInfo> createConsistentSnapshot({
     required File sourceFile,
     required File destinationFile,
+    void Function(int handleAddress)? registerSourceHandle,
+    Future<void> Function()? waitForSourceCloseAck,
   }) async {
     final sourcePath = sourceFile.absolute.path;
     final destinationPath = destinationFile.absolute.path;
@@ -375,38 +403,28 @@ class ChatDatabaseRepository {
     await _deleteDatabaseFamily(destinationFile);
 
     try {
-      late final ChatDatabaseSnapshotInfo initialInfo;
       final source = sqlite.sqlite3.open(sourcePath);
       try {
-        source.execute('PRAGMA query_only = ON;');
-        final destination = sqlite.sqlite3.open(destinationPath);
-        try {
-          final pageSizeRows = source.select('PRAGMA page_size;');
-          final pageSize = pageSizeRows.first.values.first as int;
-          final pagesPerStep = (8 * 1024 * 1024 ~/ pageSize).clamp(1, 1 << 20);
-          await source.backup(destination, nPage: pagesPerStep).drain<void>();
-          initialInfo = _validateRawSnapshot(destination);
-          destination.execute('PRAGMA wal_checkpoint(TRUNCATE);');
-          destination.select('PRAGMA journal_mode = DELETE;');
-        } finally {
-          destination.close();
-        }
+        source.execute('PRAGMA busy_timeout = 30000;');
+        registerSourceHandle?.call(source.handle.address);
+        // VACUUM INTO does not write the source. query_only is omitted because
+        // SQLite rejects VACUUM INTO while query_only is ON.
+        // Parent timeout/cancel calls sqlite3_interrupt on [source.handle]
+        // before isolate.kill so a stuck step can return and release WAL.
+        source.execute('VACUUM INTO ?', [destinationPath]);
       } finally {
+        if (waitForSourceCloseAck != null) {
+          await waitForSourceCloseAck();
+        }
         source.close();
       }
 
-      await _deleteDatabaseSidecars(destinationFile);
-      final reopened = sqlite.sqlite3.open(destinationPath);
+      final snapshot = sqlite.sqlite3.open(destinationPath);
       try {
-        final reopenedInfo = _validateRawSnapshot(reopened);
-        if (reopenedInfo != initialInfo) {
-          throw StateError('snapshot_reopen_mismatch');
-        }
+        return _validateRawSnapshot(snapshot);
       } finally {
-        reopened.close();
+        snapshot.close();
       }
-      await _deleteDatabaseSidecars(destinationFile);
-      return initialInfo;
     } catch (_) {
       await _deleteDatabaseFamily(destinationFile);
       rethrow;
@@ -527,8 +545,10 @@ class ChatDatabaseRepository {
   }
 
   static ChatDatabaseSnapshotInfo _validateRawSnapshot(
-    sqlite.Database database,
-  ) {
+    sqlite.Database database, {
+    bool allowLegacyV1 = false,
+    bool allowLegacyV2 = false,
+  }) {
     final integrityRows = database.select('PRAGMA integrity_check;');
     if (integrityRows.length != 1 ||
         integrityRows.single.values.single != 'ok') {
@@ -538,7 +558,19 @@ class ChatDatabaseRepository {
       throw StateError('foreign_key_check');
     }
 
-    _validateRawStructure(database);
+    _validateRawStructure(
+      database,
+      allowLegacyV1: allowLegacyV1,
+      allowLegacyV2: allowLegacyV2,
+    );
+    // 完整验证路径才做严格结构校验（列/索引/FK/CHECK）。此路径只用于
+    // 全新安装后（validateContents=true），此时库已经过 drift 迁移 +
+    // ensureReady 收敛，结构必然是权威定义的形态。
+    _validateRawSchema(
+      database,
+      allowLegacyV1: allowLegacyV1,
+      allowLegacyV2: allowLegacyV2,
+    );
 
     return (
       schemaVersion: database.userVersion,
@@ -547,12 +579,21 @@ class ChatDatabaseRepository {
     );
   }
 
-  static void _validateRawStructure(sqlite.Database database) {
-    if (database.userVersion != AppDatabase.currentSchemaVersion) {
+  static void _validateRawStructure(
+    sqlite.Database database, {
+    bool allowLegacyV1 = false,
+    bool allowLegacyV2 = false,
+  }) {
+    // 旧 schema（1..current-1）放行：打开时由 drift onUpgrade 迁移；
+    // 0（未初始化）与更新 schema 拒绝。
+    if (database.userVersion == 0 ||
+        database.userVersion > AppDatabase.currentSchemaVersion) {
       throw StateError('database_schema_version');
     }
 
-    const requiredTables = {
+    const v2Tables = {'apk_project_rows'};
+    const v3Tables = {'modify_rule_rows'};
+    final requiredTables = <String>{
       'conversation_rows',
       'conversation_mcp_server_rows',
       'message_rows',
@@ -580,6 +621,10 @@ class ChatDatabaseRepository {
       'memory_entry_rows',
       'user_profile_field_rows',
       'message_prompt_rows',
+      // v1 (legacy) lacks the APK project table; it is migrated on open.
+      if (!allowLegacyV1) ...v2Tables,
+      // v1/v2 (legacy) lack the rule-library table; migrated on open.
+      if (!allowLegacyV1 && !allowLegacyV2) ...v3Tables,
     };
     final tableRows = database.select(
       "SELECT name FROM sqlite_master WHERE type = 'table';",
@@ -599,10 +644,23 @@ class ChatDatabaseRepository {
     if (!tables.containsAll(requiredTables)) {
       throw StateError('required_tables');
     }
-    _validateRawSchema(database);
+    // 注意：迁移前的只读预检（migrateInstalledDatabase / 安装门禁的
+    // inspectInstalledDatabase(validateContents=false)）到此为止——只校验
+    // 表存在性。列/索引/FK/CHECK 的严格结构校验交给 _validateRawSchema，
+    // 且只在 validateContents=true（全新安装后的完整验证）时执行，否则
+    // 历史迁移遗留的中间态（如 userVersion 已提交但索引列序错误）会在
+    // drift 迁移与 ensureReady 的收敛修复之前就被误拒，永远卡死。
   }
 
-  static void _validateRawSchema(sqlite.Database database) {
+  static void _validateRawSchema(
+    sqlite.Database database, {
+    bool allowLegacyV1 = false,
+    bool allowLegacyV2 = false,
+  }) {
+    // 只在 validateContents=true（全新安装后完整验证）时调用；此时库
+    // 已经过 drift 迁移 + ensureReady 收敛，userVersion 必为当前版本，
+    // 结构必为权威定义形态。这里只做完整结构断言，不做修复。
+
     const expectedColumns = <String, List<String>>{
       'conversation_rows': [
         'id',
@@ -618,6 +676,22 @@ class ChatDatabaseRepository {
         'chat_suggestions_json',
         'injected_memory_hash',
         'last_memory_extracted_order',
+      ],
+      'apk_project_rows': [
+        'id',
+        'source_path',
+        'file_name',
+        'package_name',
+        'version_name',
+        'version_code',
+        'apk_sha256',
+        'certificate_sha256',
+        'analysis_version',
+        'rule_set_version',
+        'conversation_id',
+        'latest_report_id',
+        'created_at',
+        'last_opened_at',
       ],
       'conversation_mcp_server_rows': [
         'conversation_id',
@@ -741,8 +815,28 @@ class ChatDatabaseRepository {
         'carries_memory_snapshot',
         'created_at',
       ],
+      'modify_rule_rows': [
+        'id',
+        'name',
+        'category',
+        'matcher_json',
+        'enabled',
+        'source',
+        'risk',
+        'hit_count',
+        'success_count',
+        'failure_count',
+        'version',
+        'updated_at',
+      ],
     };
     for (final entry in expectedColumns.entries) {
+      // v1 (legacy) databases predate apk_project_rows; v1/v2 predate
+      // modify_rule_rows; skip their column checks.
+      if (allowLegacyV1 && entry.key == 'apk_project_rows') continue;
+      if ((allowLegacyV1 || allowLegacyV2) && entry.key == 'modify_rule_rows') {
+        continue;
+      }
       final tableInfo = database.select('PRAGMA table_info(${entry.key});');
       final actual = tableInfo
           .map((row) => row['name'])
@@ -774,6 +868,8 @@ class ChatDatabaseRepository {
       'memory_entry_rows': ['id'],
       'user_profile_field_rows': ['id'],
       'message_prompt_rows': ['revision_id'],
+      'apk_project_rows': ['id'],
+      'modify_rule_rows': ['id'],
     };
     const sortOrderTables = {
       'assistant_rows',
@@ -791,6 +887,12 @@ class ChatDatabaseRepository {
       'user_profile_field_rows',
     };
     for (final entry in expectedPrimaryKeys.entries) {
+      // v1 (legacy) databases predate apk_project_rows; v1/v2 predate
+      // modify_rule_rows; skip their checks.
+      if (allowLegacyV1 && entry.key == 'apk_project_rows') continue;
+      if ((allowLegacyV1 || allowLegacyV2) && entry.key == 'modify_rule_rows') {
+        continue;
+      }
       final primaryRows =
           database
               .select('PRAGMA table_info(${entry.key});')
@@ -925,7 +1027,14 @@ class ChatDatabaseRepository {
       throw StateError('index_schema:asset_rows.content_hash');
     }
 
-    const expectedForeignKeys = <String, Set<String>>{
+    // schema 4 起 message_prompt_rows 无外键（派生缓存，合成修订不落
+    // message_rows；删除由 _deleteMessages 显式清理）。旧库（1-3）迁移前
+    // 校验时该表仍带 FK，期望必须按 userVersion 分支，否则旧库升级在
+    // drift 迁移之前就 fail-closed。
+    final messagePromptFk = database.userVersion >= 4
+        ? <String>{}
+        : {'revision_id->message_rows.id:CASCADE'};
+    final expectedForeignKeys = <String, Set<String>>{
       'conversation_mcp_server_rows': {
         'conversation_id->conversation_rows.id:CASCADE',
       },
@@ -958,7 +1067,7 @@ class ChatDatabaseRepository {
       'preference_rows': <String>{},
       'memory_entry_rows': <String>{},
       'user_profile_field_rows': <String>{},
-      'message_prompt_rows': {'revision_id->message_rows.id:CASCADE'},
+      'message_prompt_rows': messagePromptFk,
     };
     for (final entry in expectedForeignKeys.entries) {
       final actual = database
@@ -1015,6 +1124,47 @@ class ChatDatabaseRepository {
 
   Future<void> ensureReady() async {
     await _db.customSelect('SELECT 1').get();
+    await _repairMemoryEntryIndexes();
+  }
+
+  /// 收敛 memory_entry_rows 的索引（幂等，迁移完成后执行）。
+  ///
+  /// 早期 schema-5 迁移可能遗留缺失或错误列序的索引（IF NOT EXISTS 不会
+  /// 修正已存在的错索引），这里无条件 DROP+CREATE 重建为与表定义
+  /// （@TableIndex）一致的三个索引——任何历史状态都能收敛，不依赖
+  /// userVersion，杜绝"部分迁移卡死"反复出现。
+  Future<void> _repairMemoryEntryIndexes() async {
+    const indexes = <String, String>{
+      'idx_memory_entries_visible':
+          'CREATE INDEX idx_memory_entries_visible ON memory_entry_rows '
+          '(status, type, scope, assistant_id)',
+      'idx_memory_entries_recent':
+          'CREATE INDEX idx_memory_entries_recent ON memory_entry_rows '
+          '(status, type, entry_updated_at, id)',
+      'idx_memory_entries_dedupe':
+          'CREATE INDEX idx_memory_entries_dedupe ON memory_entry_rows '
+          '(scope, assistant_id, type, content_normalized)',
+    };
+    for (final entry in indexes.entries) {
+      await _db.customStatement('DROP INDEX IF EXISTS ${entry.key};');
+      await _db.customStatement('${entry.value};');
+    }
+    // 诊断：schema 版本与收敛后的索引清单（logcat 可见，排查用）。
+    try {
+      final version = await _db
+          .customSelect('PRAGMA user_version;')
+          .getSingle();
+      final rows = await _db
+          .customSelect(
+            "SELECT name FROM sqlite_master WHERE type='index' "
+            "AND tbl_name='memory_entry_rows' ORDER BY name;",
+          )
+          .get();
+      debugPrint(
+        '[DbDiagnostics] user_version=${version.data.values.single} '
+        'memory_indexes=${rows.map((r) => r.data.values.single).toList()}',
+      );
+    } catch (_) {}
   }
 
   Future<ChatDatabaseConnectionContract> validateConnectionContract() async {
@@ -1501,17 +1651,13 @@ class ChatDatabaseRepository {
   }
 
   Future<Conversation?> getConversation(String id) async {
-    return _observer.measure(
-      ChatDatabaseOperation.queryConversation,
-      () async {
-        final row = await (_db.select(
-          _db.conversationRows,
-        )..where((t) => t.id.equals(id))).getSingleOrNull();
-        if (row == null) return null;
-        return _conversationFromRow(row);
-      },
-      resultCount: (conversation) => conversation == null ? 0 : 1,
-    );
+    return _observer.measure(ChatDatabaseOperation.queryConversation, () async {
+      final row = await (_db.select(
+        _db.conversationRows,
+      )..where((t) => t.id.equals(id))).getSingleOrNull();
+      if (row == null) return null;
+      return _conversationFromRow(row);
+    }, resultCount: (conversation) => conversation == null ? 0 : 1);
   }
 
   Future<int> getMessageCount(String conversationId) async {
@@ -2270,9 +2416,18 @@ class ChatDatabaseRepository {
           SELECT
             ranked.id,
             ranked.role,
-            (SELECT SUBSTR(p.payload, 1, ?)
-               FROM message_part_rows p
-              WHERE p.revision_id = ranked.id AND p.kind = 'text')
+            (SELECT SUBSTR(concat_text.txt, 1, ?)
+               FROM (
+                 SELECT GROUP_CONCAT(ordered.payload, '') AS txt
+                 FROM (
+                   SELECT p.payload AS payload
+                   FROM message_part_rows p
+                   WHERE p.revision_id = ranked.id
+                     AND p.kind = 'text'
+                     AND p.conversation_id = ranked.conversation_id
+                   ORDER BY p.revision_id, p.ordinal
+                 ) AS ordered
+               ) AS concat_text)
               AS content_summary,
             ranked.timestamp,
             ranked.conversation_id,
@@ -2305,6 +2460,142 @@ class ChatDatabaseRepository {
           conversationId: row.read<String>('conversation_id'),
           groupId: row.read<String>('group_id'),
           version: row.read<int>('version'),
+        ),
+    ];
+  }
+
+  /// Searches the selected visible revision of each message group.
+  ///
+  /// SQLite `LOWER` / `INSTR` only fold ASCII case. Non-ASCII case variants
+  /// (for example Greek or Cyrillic) are not matched; this path does not load
+  /// ICU.
+  Future<List<MiniMapSearchHit>> searchMiniMapMatches(
+    String conversationId,
+    String query, {
+    int snippetRadius = 40,
+    int snippetLength = 120,
+  }) {
+    return _observer.measure(
+      ChatDatabaseOperation.querySearch,
+      () => _searchMiniMapMatches(
+        conversationId,
+        query,
+        snippetRadius: snippetRadius,
+        snippetLength: snippetLength,
+      ),
+      resultCount: (rows) => rows.length,
+    );
+  }
+
+  Future<List<MiniMapSearchHit>> _searchMiniMapMatches(
+    String conversationId,
+    String query, {
+    required int snippetRadius,
+    required int snippetLength,
+  }) async {
+    final needle = query.trim().toLowerCase();
+    if (needle.isEmpty) return const <MiniMapSearchHit>[];
+    final radius = snippetRadius < 0 ? 0 : snippetRadius;
+    final length = miniMapSnippetLength(
+      needleLength: needle.length,
+      snippetRadius: snippetRadius,
+      snippetLength: snippetLength,
+    );
+    final rows = await _db
+        .customSelect(
+          '''
+          WITH group_rows AS (
+            SELECT
+              COALESCE(m.group_id, m.id) AS group_id,
+              MIN(m.message_order) AS anchor_order,
+              MAX(m.version) AS latest_version
+            FROM message_rows m
+            WHERE m.conversation_id = ?
+            GROUP BY COALESCE(m.group_id, m.id)
+          ),
+          selections AS (
+            SELECT j.key AS group_id, CAST(j.value AS INTEGER) AS version
+            FROM conversation_rows c, json_each(c.version_selections_json) j
+            WHERE c.id = ?
+          ),
+          ranked AS (
+            SELECT
+              m.id,
+              m.role,
+              COALESCE(m.group_id, m.id) AS group_id,
+              g.anchor_order,
+              ROW_NUMBER() OVER (
+                PARTITION BY g.group_id
+                ORDER BY
+                  CASE
+                    WHEN m.version = COALESCE(s.version, g.latest_version)
+                    THEN 0 ELSE 1
+                  END,
+                  m.version DESC,
+                  m.message_order DESC,
+                  m.id DESC
+              ) AS version_rank
+            FROM group_rows g
+            JOIN message_rows m
+              ON m.conversation_id = ?
+             AND COALESCE(m.group_id, m.id) = g.group_id
+            LEFT JOIN selections s ON s.group_id = g.group_id
+          ),
+          text_bodies AS (
+            SELECT revision_id, GROUP_CONCAT(payload, '') AS txt
+            FROM (
+              SELECT p.revision_id AS revision_id, p.payload AS payload
+              FROM message_part_rows p
+              WHERE p.conversation_id = ?
+                AND p.kind = 'text'
+              ORDER BY p.revision_id, p.ordinal
+            )
+            GROUP BY revision_id
+          ),
+          params AS (
+            SELECT ? AS needle, ? AS radius, ? AS snippet_len
+          )
+          SELECT
+            ranked.id AS message_id,
+            (LENGTH(t.txt) - LENGTH(REPLACE(LOWER(t.txt), p.needle, '')))
+              / LENGTH(p.needle) AS match_count,
+            SUBSTR(
+              t.txt,
+              MAX(1, INSTR(LOWER(t.txt), p.needle) - p.radius),
+              p.snippet_len
+            ) AS snippet,
+            MAX(1, INSTR(LOWER(t.txt), p.needle) - p.radius) AS snippet_start
+          FROM ranked
+          JOIN text_bodies t ON t.revision_id = ranked.id
+          CROSS JOIN params p
+          WHERE ranked.version_rank = 1
+            AND ranked.role IN ('user', 'assistant')
+            AND INSTR(LOWER(t.txt), p.needle) > 0
+          ORDER BY ranked.anchor_order, ranked.group_id;
+          ''',
+          variables: [
+            Variable<String>(conversationId),
+            Variable<String>(conversationId),
+            Variable<String>(conversationId),
+            Variable<String>(conversationId),
+            Variable<String>(needle),
+            Variable<int>(radius),
+            Variable<int>(length),
+          ],
+          readsFrom: {
+            _db.conversationRows,
+            _db.messageRows,
+            _db.messagePartRows,
+          },
+        )
+        .get();
+    return [
+      for (final row in rows)
+        MiniMapSearchHit(
+          messageId: row.read<String>('message_id'),
+          matchCount: row.read<int>('match_count'),
+          snippet: row.readNullable<String>('snippet') ?? '',
+          snippetStart: row.read<int>('snippet_start') - 1,
         ),
     ];
   }
@@ -2588,6 +2879,11 @@ class ChatDatabaseRepository {
   /// [excludeConversationId] omits one. Both are applied in SQL rather than by
   /// the caller, because the candidate `LIMIT` is global: a conversation whose
   /// matches rank below the cut would otherwise be filtered down to nothing.
+  ///
+  /// When [assistantId] is non-empty, only that assistant's conversations and
+  /// unowned (`assistant_id IS NULL`) chats are included. The predicate uses
+  /// `idx_conversations_assistant`; NULL rows stay visible so pre-ownership
+  /// history is not dropped.
   Future<List<ConversationSearchMatch>> searchConversationMatches({
     required List<String> tokens,
     int limit = 200,
@@ -2595,6 +2891,7 @@ class ChatDatabaseRepository {
     bool includeAllRevisions = false,
     String? conversationId,
     String? excludeConversationId,
+    String? assistantId,
   }) {
     return _observer.measure(
       ChatDatabaseOperation.querySearch,
@@ -2605,6 +2902,7 @@ class ChatDatabaseRepository {
         includeAllRevisions: includeAllRevisions,
         conversationId: conversationId,
         excludeConversationId: excludeConversationId,
+        assistantId: assistantId,
       ),
       resultCount: (rows) => rows.length,
     );
@@ -2617,6 +2915,7 @@ class ChatDatabaseRepository {
     required bool includeAllRevisions,
     String? conversationId,
     String? excludeConversationId,
+    String? assistantId,
   }) async {
     final cleanTokens = tokens
         .map((token) => token.trim().toLowerCase())
@@ -2704,6 +3003,10 @@ class ChatDatabaseRepository {
         excludeConversationId.isNotEmpty) {
       scopeSql = 'AND c.id <> ?';
       scopeArgs.add(excludeConversationId);
+    }
+    if (assistantId != null && assistantId.isNotEmpty) {
+      scopeSql += ' AND (c.assistant_id = ? OR c.assistant_id IS NULL)';
+      scopeArgs.add(assistantId);
     }
 
     final candidateLimit = (limit * candidateMultiplier)
@@ -3275,23 +3578,23 @@ class ChatDatabaseRepository {
     List<({String id, String path, int notBefore})> page,
   ) async {
     if (page.isEmpty) return const <String>{};
-    final tuples = List.filled(page.length, '(?, ?, ?, ?, ?)').join(', ');
+    final tuples = List.filled(page.length, '(?, ?, ?, ?, ?, ?, ?)').join(', ');
     final variables = <Variable<Object>>[];
     for (final item in page) {
-      final pathForm = item.path.isEmpty ? ' ' : item.path;
-      final altForm = _alternateAssetPathForm(pathForm);
-      final jsonPathForm = _jsonEscapedPathForm(pathForm);
-      final jsonAltForm = _jsonEscapedPathForm(altForm);
+      final forms = _assetReferenceForms(item.path);
       variables
         ..add(Variable<String>(item.id))
-        ..add(Variable<String>(pathForm))
-        ..add(Variable<String>(altForm))
-        ..add(Variable<String>(jsonPathForm))
-        ..add(Variable<String>(jsonAltForm));
+        ..add(Variable<String>(forms.primary))
+        ..add(Variable<String>(forms.alternate))
+        ..add(Variable<String>(forms.portableAlternate))
+        ..add(Variable<String>(forms.jsonPrimary))
+        ..add(Variable<String>(forms.jsonAlternate))
+        ..add(Variable<String>(forms.jsonPortableAlternate));
     }
     final rows = await _db.customSelect('''
           WITH candidates(
-            asset_id, path_form, alt_form, json_path_form, json_alt_form
+            asset_id, path_form, alt_form, portable_alt_form, json_path_form,
+            json_alt_form, json_portable_alt_form
           ) AS (
             VALUES $tuples
           )
@@ -3305,8 +3608,10 @@ class ChatDatabaseRepository {
               AND (
                 instr(p.payload, c.path_form) > 0
                 OR instr(p.payload, c.alt_form) > 0
+                OR instr(p.payload, c.portable_alt_form) > 0
                 OR instr(p.payload, c.json_path_form) > 0
                 OR instr(p.payload, c.json_alt_form) > 0
+                OR instr(p.payload, c.json_portable_alt_form) > 0
               )
           );
         ''', variables: variables).get();
@@ -3314,10 +3619,7 @@ class ChatDatabaseRepository {
   }
 
   Future<bool> isAssetGcClaimStillValid(AssetGcCandidate candidate) async {
-    final pathForm = candidate.path.isEmpty ? ' ' : candidate.path;
-    final altForm = _alternateAssetPathForm(pathForm);
-    final jsonPathForm = _jsonEscapedPathForm(pathForm);
-    final jsonAltForm = _jsonEscapedPathForm(altForm);
+    final forms = _assetReferenceForms(candidate.path);
     final row = await _db
         .customSelect(
           '''
@@ -3334,6 +3636,7 @@ class ChatDatabaseRepository {
                 AND (
                   instr(p.payload, ?) > 0 OR instr(p.payload, ?) > 0
                   OR instr(p.payload, ?) > 0 OR instr(p.payload, ?) > 0
+                  OR instr(p.payload, ?) > 0 OR instr(p.payload, ?) > 0
                 )
             )
           LIMIT 1;
@@ -3341,10 +3644,12 @@ class ChatDatabaseRepository {
           variables: [
             Variable<String>(candidate.assetId),
             Variable<int>(candidate.generation),
-            Variable<String>(pathForm),
-            Variable<String>(altForm),
-            Variable<String>(jsonPathForm),
-            Variable<String>(jsonAltForm),
+            Variable<String>(forms.primary),
+            Variable<String>(forms.alternate),
+            Variable<String>(forms.portableAlternate),
+            Variable<String>(forms.jsonPrimary),
+            Variable<String>(forms.jsonAlternate),
+            Variable<String>(forms.jsonPortableAlternate),
           ],
         )
         .getSingleOrNull();
@@ -3359,10 +3664,7 @@ class ChatDatabaseRepository {
   }) async {
     // Dirty-part protection must match either stored form. Never pass '' —
     // instr(x, '') is always true and would stall GC forever.
-    final pathForm = path.isEmpty ? ' ' : path;
-    final altForm = _alternateAssetPathForm(pathForm);
-    final jsonPathForm = _jsonEscapedPathForm(pathForm);
-    final jsonAltForm = _jsonEscapedPathForm(altForm);
+    final forms = _assetReferenceForms(path);
     return _db.transaction(() async {
       final claim = await _db
           .customSelect(
@@ -3378,8 +3680,9 @@ class ChatDatabaseRepository {
                 JOIN message_part_rows p ON p.revision_id = d.revision_id
                 WHERE p.kind IN ('text', 'image', 'file')
                   AND (
-                    instr(p.payload, ?) > 0 OR instr(p.payload, ?) > 0
-                    OR instr(p.payload, ?) > 0 OR instr(p.payload, ?) > 0
+                  instr(p.payload, ?) > 0 OR instr(p.payload, ?) > 0
+                  OR instr(p.payload, ?) > 0 OR instr(p.payload, ?) > 0
+                  OR instr(p.payload, ?) > 0 OR instr(p.payload, ?) > 0
                   )
               )
             LIMIT 1;
@@ -3387,10 +3690,12 @@ class ChatDatabaseRepository {
             variables: [
               Variable<String>(assetId),
               Variable<int>(expectedGeneration),
-              Variable<String>(pathForm),
-              Variable<String>(altForm),
-              Variable<String>(jsonPathForm),
-              Variable<String>(jsonAltForm),
+              Variable<String>(forms.primary),
+              Variable<String>(forms.alternate),
+              Variable<String>(forms.portableAlternate),
+              Variable<String>(forms.jsonPrimary),
+              Variable<String>(forms.jsonAlternate),
+              Variable<String>(forms.jsonPortableAlternate),
             ],
           )
           .getSingleOrNull();
@@ -3615,6 +3920,382 @@ class ChatDatabaseRepository {
             .insert(_conversationCompanion(conversation));
       }
       await _replaceMcpServers(conversation.id, conversation.mcpServerIds);
+    });
+  }
+
+  // --- SoLab APK project rows ---
+
+  Future<ApkProjectRow?> getApkProject(String id) {
+    return (_db.select(
+      _db.apkProjectRows,
+    )..where((row) => row.id.equals(id))).getSingleOrNull();
+  }
+
+  Future<ApkProjectRow?> findApkProjectBySha256(String sha256) {
+    return (_db.select(
+      _db.apkProjectRows,
+    )..where((row) => row.apkSha256.equals(sha256))).getSingleOrNull();
+  }
+
+  Future<ApkProjectRow?> findLatestApkProjectBySourcePath(String sourcePath) {
+    return (_db.select(_db.apkProjectRows)
+          ..where((row) => row.sourcePath.equals(sourcePath))
+          ..orderBy([(row) => OrderingTerm.desc(row.lastOpenedAt)])
+          ..limit(1))
+        .getSingleOrNull();
+  }
+
+  Future<ApkProjectRow?> findApkProjectByConversation(String conversationId) {
+    return (_db.select(_db.apkProjectRows)
+          ..where((row) => row.conversationId.equals(conversationId)))
+        .getSingleOrNull();
+  }
+
+  Future<List<ApkProjectRow>> getAllApkProjects({int limit = 50}) {
+    final query = _db.select(_db.apkProjectRows)
+      ..orderBy([(row) => OrderingTerm.desc(row.lastOpenedAt)])
+      ..limit(limit);
+    return query.get();
+  }
+
+  Future<void> putApkProject(ApkProjectRow project) async {
+    await _db.transaction(() async {
+      final updated = await (_db.update(
+        _db.apkProjectRows,
+      )..where((row) => row.id.equals(project.id))).write(project);
+      if (updated == 0) {
+        await _db.into(_db.apkProjectRows).insert(project);
+      }
+    });
+  }
+
+  Future<void> touchApkProject(String id, {String? conversationId}) async {
+    await (_db.update(
+      _db.apkProjectRows,
+    )..where((row) => row.id.equals(id))).write(
+      ApkProjectRowsCompanion(
+        lastOpenedAt: Value(DateTime.now()),
+        conversationId: conversationId == null
+            ? const Value.absent()
+            : Value(conversationId),
+      ),
+    );
+  }
+
+  // --- SoLab APK rule library rows ---
+
+  Future<ModifyRuleRow?> getModifyRule(String id) {
+    return (_db.select(
+      _db.modifyRuleRows,
+    )..where((row) => row.id.equals(id))).getSingleOrNull();
+  }
+
+  Future<List<ModifyRuleRow>> getAllModifyRules() {
+    return _db.select(_db.modifyRuleRows).get();
+  }
+
+  Stream<List<ModifyRuleRow>> watchAllModifyRules() {
+    return (_db.select(
+      _db.modifyRuleRows,
+    )..orderBy([(row) => OrderingTerm.asc(row.category)])).watch();
+  }
+
+  Future<void> putModifyRule(ModifyRuleRow rule) async {
+    await _db.transaction(() async {
+      final updated = await (_db.update(
+        _db.modifyRuleRows,
+      )..where((row) => row.id.equals(rule.id))).write(rule);
+      if (updated == 0) {
+        await _db.into(_db.modifyRuleRows).insert(rule);
+      }
+    });
+  }
+
+  /// 批量 upsert 规则；已存在的 id 保持不动（种子首次写入不覆盖用户编辑）。
+  Future<void> putModifyRules(List<ModifyRuleRow> rules) async {
+    await _db.batch((batch) {
+      batch.insertAll(
+        _db.modifyRuleRows,
+        rules,
+        mode: InsertMode.insertOrIgnore,
+      );
+    });
+  }
+
+  Future<void> deleteModifyRule(String id) async {
+    await (_db.delete(
+      _db.modifyRuleRows,
+    )..where((row) => row.id.equals(id))).go();
+  }
+
+  // --- SoLab APK rule subscriptions ---
+
+  Future<List<RuleSubscriptionRow>> getAllRuleSubscriptions() {
+    return _db.select(_db.ruleSubscriptionRows).get();
+  }
+
+  Stream<List<RuleSubscriptionRow>> watchAllRuleSubscriptions() {
+    return (_db.select(
+      _db.ruleSubscriptionRows,
+    )..orderBy([(row) => OrderingTerm.asc(row.createdAt)])).watch();
+  }
+
+  Future<RuleSubscriptionRow?> getRuleSubscription(String id) {
+    return (_db.select(
+      _db.ruleSubscriptionRows,
+    )..where((row) => row.id.equals(id))).getSingleOrNull();
+  }
+
+  Future<void> putRuleSubscription(RuleSubscriptionRow subscription) async {
+    await _db.transaction(() async {
+      final updated = await (_db.update(
+        _db.ruleSubscriptionRows,
+      )..where((row) => row.id.equals(subscription.id))).write(subscription);
+      if (updated == 0) {
+        await _db.into(_db.ruleSubscriptionRows).insert(subscription);
+      }
+    });
+  }
+
+  Future<void> deleteRuleSubscription(String id) async {
+    await (_db.delete(
+      _db.ruleSubscriptionRows,
+    )..where((row) => row.id.equals(id))).go();
+  }
+
+  Future<Conversation?> duplicateConversation(String sourceId) {
+    return _db.transaction(() async {
+      final sourceRow = await (_db.select(
+        _db.conversationRows,
+      )..where((row) => row.id.equals(sourceId))).getSingleOrNull();
+      if (sourceRow == null) return null;
+
+      final sourceMessages =
+          await (_db.select(_db.messageRows)
+                ..where((row) => row.conversationId.equals(sourceId))
+                ..orderBy([(row) => OrderingTerm.asc(row.messageOrder)]))
+              .get();
+      const uuid = Uuid();
+      final targetId = uuid.v4();
+      final messageIdMap = {
+        for (final message in sourceMessages) message.id: uuid.v4(),
+      };
+      final groupIdMap = <String, String>{};
+      for (final message in sourceMessages) {
+        final groupId = message.groupId ?? message.id;
+        groupIdMap.putIfAbsent(
+          groupId,
+          () => messageIdMap[groupId] ?? uuid.v4(),
+        );
+      }
+
+      final source = await _conversationFromRow(
+        sourceRow,
+        includeMessageIds: false,
+      );
+      final duplicatedAt = DateTime.now();
+      final duplicate = source.copyWith(
+        id: targetId,
+        createdAt: duplicatedAt,
+        updatedAt: duplicatedAt,
+        messageIds: [
+          for (final message in sourceMessages) messageIdMap[message.id]!,
+        ],
+        versionSelections: {
+          for (final entry in source.versionSelections.entries)
+            groupIdMap[entry.key] ?? entry.key: entry.value,
+        },
+        clearInjectedMemoryHash: true,
+        lastMemoryExtractedOrder: sourceMessages.isEmpty
+            ? -1
+            : sourceMessages.last.messageOrder,
+      );
+      await _db
+          .into(_db.conversationRows)
+          .insert(_conversationCompanion(duplicate));
+      await _replaceMcpServers(targetId, duplicate.mcpServerIds);
+      await _copyMessageRowsInto(
+        targetConversationId: targetId,
+        messages: sourceMessages,
+        messageIdMap: messageIdMap,
+        groupIdMap: groupIdMap,
+      );
+      return duplicate;
+    });
+  }
+
+  Future<void> _copyMessageRowsInto({
+    required String targetConversationId,
+    required List<MessageRow> messages,
+    required Map<String, String> messageIdMap,
+    required Map<String, String> groupIdMap,
+  }) async {
+    for (final message in messages) {
+      final targetMessageId = messageIdMap[message.id]!;
+      await _db
+          .into(_db.messageRows)
+          .insert(
+            MessageRowsCompanion.insert(
+              id: targetMessageId,
+              conversationId: targetConversationId,
+              role: message.role,
+              timestamp: message.timestamp,
+              modelId: Value(message.modelId),
+              providerId: Value(message.providerId),
+              totalTokens: Value(message.totalTokens),
+              isStreaming: const Value(false),
+              reasoningStartAt: Value(message.reasoningStartAt),
+              reasoningFinishedAt: Value(message.reasoningFinishedAt),
+              translation: Value(message.translation),
+              reasoningSegmentsJson: Value(message.reasoningSegmentsJson),
+              groupId: Value(
+                message.groupId == null ? null : groupIdMap[message.groupId],
+              ),
+              version: Value(message.version),
+              promptTokens: Value(message.promptTokens),
+              completionTokens: Value(message.completionTokens),
+              cachedTokens: Value(message.cachedTokens),
+              durationMs: Value(message.durationMs),
+              messageOrder: message.messageOrder,
+            ),
+          );
+      await _db.customStatement(
+        'INSERT INTO message_part_rows '
+        '(conversation_id, revision_id, ordinal, kind, payload, '
+        'created_at, updated_at) '
+        'SELECT ?, ?, ordinal, kind, payload, created_at, updated_at '
+        'FROM message_part_rows WHERE revision_id = ?;',
+        [targetConversationId, targetMessageId, message.id],
+      );
+      await _db.customStatement(
+        'INSERT INTO provider_artifact_rows '
+        '(conversation_id, revision_id, kind, payload, created_at, '
+        'updated_at) '
+        'SELECT ?, ?, kind, payload, created_at, updated_at '
+        'FROM provider_artifact_rows WHERE revision_id = ?;',
+        [targetConversationId, targetMessageId, message.id],
+      );
+      await _db.customStatement(
+        'INSERT INTO message_asset_rows '
+        '(conversation_id, revision_id, asset_id, kind) '
+        'SELECT ?, ?, asset_id, kind FROM message_asset_rows '
+        'WHERE revision_id = ?;',
+        [targetConversationId, targetMessageId, message.id],
+      );
+    }
+    await _db.customStatement(
+      'INSERT OR IGNORE INTO asset_reference_dirty_rows(revision_id) '
+      'SELECT revision_id FROM message_asset_rows WHERE conversation_id = ? '
+      'UNION '
+      'SELECT revision_id FROM message_part_rows '
+      "WHERE conversation_id = ? AND kind IN ('image', 'file');",
+      [targetConversationId, targetConversationId],
+    );
+  }
+
+  Future<Conversation?> forkConversationWithVersions({
+    required String sourceId,
+    required String targetRevisionId,
+    required String title,
+    String? assistantId,
+  }) {
+    return _db.transaction(() async {
+      final sourceRow = await (_db.select(
+        _db.conversationRows,
+      )..where((row) => row.id.equals(sourceId))).getSingleOrNull();
+      if (sourceRow == null) return null;
+
+      final sourceMessages =
+          await (_db.select(_db.messageRows)
+                ..where((row) => row.conversationId.equals(sourceId))
+                ..orderBy([(row) => OrderingTerm.asc(row.messageOrder)]))
+              .get();
+
+      final firstOrderByGroup = <String, int>{};
+      for (final row in sourceMessages) {
+        final groupId = row.groupId ?? row.id;
+        final current = firstOrderByGroup[groupId];
+        if (current == null || row.messageOrder < current) {
+          firstOrderByGroup[groupId] = row.messageOrder;
+        }
+      }
+
+      MessageRow? target;
+      for (final row in sourceMessages) {
+        if (row.id == targetRevisionId) {
+          target = row;
+          break;
+        }
+      }
+      if (target == null || target.conversationId != sourceId) {
+        return null;
+      }
+
+      final targetGroupId = target.groupId ?? target.id;
+      final anchorOrder = firstOrderByGroup[targetGroupId];
+      if (anchorOrder == null) return null;
+
+      final kept = sourceMessages
+          .where((row) {
+            final firstOrder = firstOrderByGroup[row.groupId ?? row.id];
+            return firstOrder != null && firstOrder <= anchorOrder;
+          })
+          .toList(growable: false);
+
+      const uuid = Uuid();
+      final targetId = uuid.v4();
+      final messageIdMap = {for (final message in kept) message.id: uuid.v4()};
+      final groupIdMap = <String, String>{};
+      for (final message in kept) {
+        final groupId = message.groupId ?? message.id;
+        groupIdMap.putIfAbsent(
+          groupId,
+          () => messageIdMap[groupId] ?? uuid.v4(),
+        );
+      }
+
+      final source = await _conversationFromRow(
+        sourceRow,
+        includeMessageIds: false,
+      );
+      final keptSourceGroupIds = {
+        for (final row in kept) row.groupId ?? row.id,
+      };
+      final selections = <String, int>{
+        for (final entry in source.versionSelections.entries)
+          if (keptSourceGroupIds.contains(entry.key))
+            (groupIdMap[entry.key] ?? entry.key): entry.value,
+      };
+      selections[groupIdMap[targetGroupId]!] = target.version;
+
+      final now = DateTime.now();
+      await _db
+          .into(_db.conversationRows)
+          .insert(
+            _conversationCompanion(
+              Conversation(
+                id: targetId,
+                title: title,
+                createdAt: now,
+                updatedAt: now,
+                assistantId: assistantId,
+                versionSelections: selections,
+                messageIds: [
+                  for (final message in kept) messageIdMap[message.id]!,
+                ],
+              ),
+            ),
+          );
+      await _copyMessageRowsInto(
+        targetConversationId: targetId,
+        messages: kept,
+        messageIdMap: messageIdMap,
+        groupIdMap: groupIdMap,
+      );
+      final insertedRow = await (_db.select(
+        _db.conversationRows,
+      )..where((row) => row.id.equals(targetId))).getSingle();
+      return _conversationFromRow(insertedRow);
     });
   }
 
@@ -3925,12 +4606,10 @@ class ChatDatabaseRepository {
   Future<void> _replaceMessageParts(
     ChatMessage message, {
     List<Map<String, dynamic>>? toolEvents,
-    bool preserveUnchangedToolParts = false,
   }) async {
     if (_messageHasAttachmentParts(message)) {
       await markMessageAssetReferencesDirty(message.id);
     }
-    final preservedToolEvents = toolEvents ?? await getToolEvents(message.id);
     // A mid-stream reasoning pause is not a reasoning removal: the checkpoint
     // snapshot still carries the pre-allocated reasoningStartAt timestamp, so
     // keep the persisted reasoning part until a timestamp-free message proves
@@ -3946,170 +4625,34 @@ class ChatDatabaseRepository {
                     ..orderBy([(row) => OrderingTerm.asc(row.ordinal)]))
                   .get())
               .map((part) => part.payload)
-              .join()
+              .join('\n')
         : null;
     if (effectiveReasoningText != null && effectiveReasoningText.isNotEmpty) {
       message = message.copyWith(reasoningText: effectiveReasoningText);
     }
-    // Attachment-bearing messages own interleaved body ordinals; the
-    // text/reasoning fast path cannot preserve them safely.
-    if (preserveUnchangedToolParts &&
-        preservedToolEvents.isNotEmpty &&
-        !_messageHasAttachmentParts(message)) {
-      final keptToolParts = await _unchangedToolPartCount(
-        message,
-        preservedToolEvents,
-      );
-      if (keptToolParts != null) {
-        await _replaceTextAndReasoningParts(message, keptToolParts);
-        return;
-      }
-    }
+    final parts = _partsForPersistence(message, toolEvents);
     await (_db.delete(
       _db.messagePartRows,
     )..where((row) => row.revisionId.equals(message.id))).go();
     var ordinal = 0;
     final now = DateTime.now().toUtc();
     final updatedAt = now.isBefore(message.timestamp) ? message.timestamp : now;
-    final reasoning = message.reasoningText;
-    if (reasoning != null && reasoning.isNotEmpty) {
-      await _db
-          .into(_db.messagePartRows)
-          .insert(
-            MessagePartRowsCompanion.insert(
-              conversationId: message.conversationId,
-              revisionId: message.id,
-              ordinal: ordinal++,
-              kind: 'reasoning',
-              payload: reasoning,
-              createdAt: message.timestamp,
-              updatedAt: updatedAt,
-            ),
-          );
-    }
-    for (final event in preservedToolEvents) {
-      await _db
-          .into(_db.messagePartRows)
-          .insert(
-            MessagePartRowsCompanion.insert(
-              conversationId: message.conversationId,
-              revisionId: message.id,
-              ordinal: ordinal++,
-              kind: 'tool_call',
-              payload: jsonEncode(event),
-              createdAt: message.timestamp,
-              updatedAt: updatedAt,
-            ),
-          );
-    }
-    final bodyParts = _bodyPartsForPersistence(message);
-    for (final part in bodyParts) {
-      await _db
-          .into(_db.messagePartRows)
-          .insert(
-            MessagePartRowsCompanion.insert(
-              conversationId: message.conversationId,
-              revisionId: message.id,
-              ordinal: ordinal++,
-              kind: part.kind,
-              payload: part.encodePayload(),
-              createdAt: message.timestamp,
-              updatedAt: updatedAt,
-            ),
-          );
-    }
-  }
-
-  /// Returns the number of persisted tool_call parts when they already match
-  /// what a full rebuild would write for [toolEvents] (payload and ordinal),
-  /// or null when any difference forces the full delete-and-reinsert. A
-  /// reasoning presence change renumbers tool ordinals, so it also forces a
-  /// full rebuild. Each tool event produces exactly one `tool_call` part.
-  Future<int?> _unchangedToolPartCount(
-    ChatMessage message,
-    List<Map<String, dynamic>> toolEvents,
-  ) async {
-    final existing =
-        await (_db.select(_db.messagePartRows)
-              ..where((row) => row.revisionId.equals(message.id))
-              ..orderBy([(row) => OrderingTerm.asc(row.ordinal)]))
-            .get();
-    if (existing.isEmpty) return null;
-    if (existing.any((part) => part.kind == 'image' || part.kind == 'file')) {
-      return null;
-    }
-    final reasoning = message.reasoningText;
-    final hasReasoning = reasoning != null && reasoning.isNotEmpty;
-    final hasPersistedReasoning = existing.any(
-      (part) => part.kind == 'reasoning',
-    );
-    if (hasReasoning != hasPersistedReasoning) return null;
-    final expectedPayloads = [
-      for (final event in toolEvents) jsonEncode(event),
-    ];
-    final persistedToolParts = existing
-        .where((part) => part.kind == 'tool_call')
-        .toList(growable: false);
-    if (persistedToolParts.length != expectedPayloads.length) return null;
-    final firstToolOrdinal = hasReasoning ? 1 : 0;
-    for (var i = 0; i < persistedToolParts.length; i++) {
-      final part = persistedToolParts[i];
-      if (part.payload != expectedPayloads[i] ||
-          part.ordinal != firstToolOrdinal + i) {
-        return null;
+    await _db.batch((batch) {
+      for (final part in parts) {
+        batch.insert(
+          _db.messagePartRows,
+          MessagePartRowsCompanion.insert(
+            conversationId: message.conversationId,
+            revisionId: message.id,
+            ordinal: ordinal++,
+            kind: part.kind,
+            payload: part.encodePayload(),
+            createdAt: message.timestamp,
+            updatedAt: updatedAt,
+          ),
+        );
       }
-    }
-    return persistedToolParts.length;
-  }
-
-  /// Rewrites only the text/reasoning parts; the [toolPartCount] persisted
-  /// tool parts keep their rows, ordinals and timestamps.
-  Future<void> _replaceTextAndReasoningParts(
-    ChatMessage message,
-    int toolPartCount,
-  ) async {
-    await (_db.delete(_db.messagePartRows)..where(
-          (row) =>
-              row.revisionId.equals(message.id) &
-              (row.kind.equals('text') | row.kind.equals('reasoning')),
-        ))
-        .go();
-    final now = DateTime.now().toUtc();
-    final updatedAt = now.isBefore(message.timestamp) ? message.timestamp : now;
-    var ordinal = 0;
-    final reasoning = message.reasoningText;
-    if (reasoning != null && reasoning.isNotEmpty) {
-      await _db
-          .into(_db.messagePartRows)
-          .insert(
-            MessagePartRowsCompanion.insert(
-              conversationId: message.conversationId,
-              revisionId: message.id,
-              ordinal: ordinal++,
-              kind: 'reasoning',
-              payload: reasoning,
-              createdAt: message.timestamp,
-              updatedAt: updatedAt,
-            ),
-          );
-    }
-    ordinal += toolPartCount;
-    final bodyParts = _bodyPartsForPersistence(message);
-    for (final part in bodyParts) {
-      await _db
-          .into(_db.messagePartRows)
-          .insert(
-            MessagePartRowsCompanion.insert(
-              conversationId: message.conversationId,
-              revisionId: message.id,
-              ordinal: ordinal++,
-              kind: part.kind,
-              payload: part.encodePayload(),
-              createdAt: message.timestamp,
-              updatedAt: updatedAt,
-            ),
-          );
-    }
+    });
   }
 
   Future<AppendedMessageVersion?> appendMessageVersion({
@@ -4166,13 +4709,16 @@ class ChatDatabaseRepository {
       if (parts != null) {
         resolvedParts = parts;
       } else {
-         final original = await _messageFromRowWithParts(originalRow);
-         resolvedParts = _textPartReplaceAll(original, content, content);
+        final original = await _messageFromRowWithParts(originalRow);
+        resolvedParts = ChatMessage.partsWithRedistributedText(
+          original.parts,
+          content,
+        );
       }
-       final message = ChatMessage(
-         role: originalRow.role,
-         content: content,
-         conversationId: originalRow.conversationId,
+      final message = ChatMessage(
+        role: originalRow.role,
+        parts: resolvedParts,
+        conversationId: originalRow.conversationId,
         modelId: originalRow.modelId,
         providerId: originalRow.providerId,
         totalTokens: null,
@@ -4273,7 +4819,6 @@ class ChatDatabaseRepository {
         messages: messages,
         toolEventsByMessageId: toolEventsByMessageId,
         geminiSignaturesByMessageId: geminiSignaturesByMessageId,
-        freshParts: true,
       );
     });
   }
@@ -4338,7 +4883,6 @@ class ChatDatabaseRepository {
         messages: messages,
         toolEventsByMessageId: const {},
         geminiSignaturesByMessageId: const {},
-        freshParts: false,
       );
 
       for (final entry in messagesToAppend.entries) {
@@ -4377,7 +4921,6 @@ class ChatDatabaseRepository {
         messages: messages,
         toolEventsByMessageId: toolEventsByMessageId,
         geminiSignaturesByMessageId: geminiSignaturesByMessageId,
-        freshParts: true,
       );
       await _writeMigrationCompleteReceipt();
     });
@@ -4523,7 +5066,7 @@ class ChatDatabaseRepository {
       for (final message in messages) {
         final nextParts = <MessagePart>[];
         var changed = false;
-         for (final part in message.parts ?? const []) {
+        for (final part in message.parts) {
           if (part is ImagePart) {
             final unavailable = await _unavailableForRestoredPart(
               uri: part.uri,
@@ -4558,7 +5101,7 @@ class ChatDatabaseRepository {
           }
         }
         if (!changed) continue;
-         await updateMessage(message.copyWith(content: _joinTextParts(nextParts)));
+        await updateMessage(message.copyWith(parts: nextParts));
         updated += 1;
       }
     }
@@ -4983,10 +5526,6 @@ class ChatDatabaseRepository {
     required List<({ChatMessage message, int messageOrder})> messages,
     required Map<String, List<Map<String, dynamic>>> toolEventsByMessageId,
     required Map<String, String> geminiSignaturesByMessageId,
-    // True when the target rows are known to have no stored parts (fresh or
-    // freshly cleared database): absent tool events then mean "no events"
-    // rather than "preserve stored ones", skipping a per-message SELECT.
-    required bool freshParts,
   }) async {
     await _db.batch((batch) {
       for (final conversation in conversations) {
@@ -5023,9 +5562,7 @@ class ChatDatabaseRepository {
       batchMessageIds.add(id);
       await _replaceMessageParts(
         entry.message,
-        toolEvents:
-            toolEventsByMessageId[id] ??
-            (freshParts ? const <Map<String, dynamic>>[] : null),
+        toolEvents: toolEventsByMessageId[id],
       );
     }
     for (final entry in toolEventsByMessageId.entries) {
@@ -5060,12 +5597,14 @@ class ChatDatabaseRepository {
 
   /// Partial-column UPDATE: only the non-null fields are written, so
   /// concurrent writers touching disjoint columns cannot clobber each other.
-  /// Message parts are rebuilt only when content or reasoning text changes;
-  /// the other columns never affect parts. Returns the post-update message,
+  /// Message parts are rebuilt when [parts], content, or reasoning text
+  /// changes; the other columns never affect parts. Returns the post-update
+  /// message,
   /// or null when no row matches [messageId].
   Future<ChatMessage?> updateMessageFields(
     String messageId, {
     String? content,
+    List<MessagePart>? parts,
     int? totalTokens,
     bool? isStreaming,
     String? reasoningText,
@@ -5114,12 +5653,23 @@ class ChatDatabaseRepository {
       )..where((t) => t.id.equals(messageId))).write(companion);
       final updated = await getMessage(messageId);
       if (updated == null) return null;
-      if (content == null && reasoningText == null) return updated;
-      // getMessage resolves content/reasoning from parts, which still hold
-      // the pre-update payloads. Overlay only the provided fields so a
-      // content-only write does not clear reasoning (and vice versa).
+      if (content == null && reasoningText == null && parts == null) {
+        return updated;
+      }
+      var nextParts = updated.parts;
+      if (parts != null) {
+        nextParts = parts;
+      } else if (content != null) {
+        nextParts = ChatMessage.partsWithRedistributedText(nextParts, content);
+      }
+      if (reasoningText != null) {
+        nextParts = ChatMessage.partsWithReplacedReasoning(
+          nextParts,
+          reasoningText,
+        );
+      }
       final corrected = updated.copyWith(
-        content: content ?? updated.content,
+        parts: nextParts,
         reasoningText: reasoningText ?? updated.reasoningText,
       );
       await _replaceMessageParts(corrected);
@@ -5175,11 +5725,7 @@ class ChatDatabaseRepository {
       // Keep message_rows (incl. is_streaming) ahead of parts rewrite so the
       // FTS finalize trigger indexes the pre-rewrite text part correctly.
       await _updateMessageRow(message);
-      await _replaceMessageParts(
-        message,
-        toolEvents: toolEvents,
-        preserveUnchangedToolParts: true,
-      );
+      await _replaceMessageParts(message, toolEvents: toolEvents);
       if (generationRunId != null && checkpointSeq != null) {
         await GenerationRunCommands(_db).checkpoint(
           id: generationRunId,
@@ -5188,24 +5734,6 @@ class ChatDatabaseRepository {
           updatedAt: DateTime.now().toUtc(),
         );
       }
-    });
-  }
-
-  @Deprecated('legacy/test only; rewrites the complete conversation order')
-  Future<void> updateConversationMessages({
-    required Conversation conversation,
-    required List<String> messageIds,
-  }) async {
-    await _db.transaction(() async {
-      await _db
-          .into(_db.conversationRows)
-          .insertOnConflictUpdate(
-            _conversationCompanion(
-              conversation.copyWith(messageIds: List<String>.of(messageIds)),
-            ),
-          );
-      await _replaceMcpServers(conversation.id, conversation.mcpServerIds);
-      await _rewriteMessageOrder(conversation.id, messageIds);
     });
   }
 
@@ -5275,10 +5803,46 @@ class ChatDatabaseRepository {
         throw StateError('delete_messages_not_found');
       }
 
-      final orderedIds = rows
+      // Version groups are anchored at MIN(message_order) in the timeline
+      // queries, while appended revisions get end-of-conversation orders.
+      // Deleting the anchor row would therefore make the surviving revisions
+      // drift to the appended position (e.g. edit mid-conversation, then
+      // delete the old version -> group jumps to the bottom). Keep the group
+      // in place by moving the earliest surviving revision back onto the
+      // freed anchor order. The anchor slot is guaranteed free: it belonged
+      // to a row of this same group that is deleted in this transaction, and
+      // distinct groups never share an anchor row.
+      final anchorRewrites = <String, int>{};
+      final rowsByGroup = <String, List<MessageRow>>{};
+      for (final row in rows) {
+        rowsByGroup
+            .putIfAbsent(row.groupId ?? row.id, () => <MessageRow>[])
+            .add(row);
+      }
+      for (final group in rowsByGroup.values) {
+        // `rows` is ordered by message_order, so group.first is the anchor.
+        final anchor = group.first;
+        if (!messageIds.contains(anchor.id)) continue;
+        MessageRow? survivor;
+        for (final row in group) {
+          if (!messageIds.contains(row.id)) {
+            survivor = row;
+            break;
+          }
+        }
+        if (survivor == null) continue;
+        anchorRewrites[survivor.id] = anchor.messageOrder;
+      }
+
+      final remainingRows = rows
           .where((row) => !messageIds.contains(row.id))
-          .map((row) => row.id)
           .toList(growable: false);
+      final effectiveOrders = <String, int>{
+        for (final row in remainingRows)
+          row.id: anchorRewrites[row.id] ?? row.messageOrder,
+      };
+      final orderedIds = remainingRows.map((row) => row.id).toList()
+        ..sort((a, b) => effectiveOrders[a]!.compareTo(effectiveOrders[b]!));
 
       final deletedIds = deletedRows
           .map((row) => row.id)
@@ -5286,9 +5850,18 @@ class ChatDatabaseRepository {
       await (_db.delete(
         _db.generationRunRows,
       )..where((row) => row.targetRevisionId.isIn(deletedIds))).go();
+      // Schema 4 起 message_prompt_rows 无 FK 级联，显式清理（派生缓存）。
+      await (_db.delete(
+        _db.messagePromptRows,
+      )..where((row) => row.revisionId.isIn(deletedIds))).go();
       await (_db.delete(
         _db.messageRows,
       )..where((row) => row.id.isIn(deletedIds))).go();
+      for (final rewrite in anchorRewrites.entries) {
+        await (_db.update(_db.messageRows)
+              ..where((row) => row.id.equals(rewrite.key)))
+            .write(MessageRowsCompanion(messageOrder: Value(rewrite.value)));
+      }
       final currentConversation = await _conversationFromRow(
         conversationRow,
         includeMessageIds: false,
@@ -5413,7 +5986,14 @@ class ChatDatabaseRepository {
     await _db.transaction(() async {
       final message = await getMessage(messageId);
       if (message != null) {
-        await _replaceMessageParts(message, toolEvents: const []);
+        await _replaceMessageParts(
+          message.copyWith(
+            parts: [
+              for (final part in message.parts)
+                if (part is! ToolCallPart) part,
+            ],
+          ),
+        );
       }
     });
   }
@@ -5939,15 +6519,14 @@ class ChatDatabaseRepository {
           payload: part.payload,
         ),
     ];
-     final reasoningParts = parts.whereType<ReasoningPart>().toList(
-       growable: false,
-     );
-     final content = parts.whereType<TextPart>().map((p) => p.text).join('\n');
-     return ChatMessage(
-       id: row.id,
-       role: row.role,
-       content: content,
-       timestamp: row.timestamp,
+    final reasoningParts = parts.whereType<ReasoningPart>().toList(
+      growable: false,
+    );
+    return ChatMessage(
+      id: row.id,
+      role: row.role,
+      parts: parts,
+      timestamp: row.timestamp,
       modelId: row.modelId,
       providerId: row.providerId,
       totalTokens: row.totalTokens,
@@ -5955,7 +6534,7 @@ class ChatDatabaseRepository {
       isStreaming: row.isStreaming,
       reasoningText: reasoningParts.isEmpty
           ? null
-          : reasoningParts.map((part) => part.text).join(),
+          : reasoningParts.map((part) => part.text).join('\n'),
       reasoningStartAt: row.reasoningStartAt,
       reasoningFinishedAt: row.reasoningFinishedAt,
       translation: row.translation,
@@ -5970,7 +6549,7 @@ class ChatDatabaseRepository {
   }
 
   bool _messageHasAttachmentParts(ChatMessage message) {
-     return (message.parts ?? const []).any(
+    return message.parts.any(
       (part) =>
           part is ImagePart ||
           part is FilePart ||
@@ -5978,42 +6557,183 @@ class ChatDatabaseRepository {
     );
   }
 
-  /// Body parts persisted after reasoning/tool_call rows. Reasoning and
-  /// tool_call continue to be sourced from [ChatMessage.reasoningText] /
-  /// tool-event arguments so streaming overlays stay equivalent.
-  List<MessagePart> _bodyPartsForPersistence(ChatMessage message) {
-     final body = <MessagePart>[
-       for (final part in (message.parts ?? const []))
-        if (part is TextPart ||
-            part is ImagePart ||
-            part is FilePart ||
-            part is MalformedPart ||
-            part is UnknownPart)
-          part,
+  /// Persist [message.parts] in arrival order.
+  ///
+  /// [toolEvents] / [ChatMessage.reasoningText] are compatibility overlays.
+  /// Empty [toolEvents] never strips [ToolCallPart]s already on the message —
+  /// those cards are the write source during a server-tool gap. Extra events
+  /// that do not match a part are inserted after the last tool slot.
+  List<MessagePart> _partsForPersistence(
+    ChatMessage message,
+    List<Map<String, dynamic>>? toolEvents,
+  ) {
+    var parts = List<MessagePart>.of(message.parts);
+    if (!parts.any((part) => part is ReasoningPart)) {
+      final reasoning = message.reasoningText;
+      if (reasoning != null && reasoning.isNotEmpty) {
+        parts = [ReasoningPart(reasoning), ...parts];
+      }
+    }
+    if (toolEvents != null) {
+      if (parts.any((part) => part is ToolCallPart)) {
+        parts = _applyToolEventsToParts(parts, toolEvents);
+      } else if (toolEvents.isNotEmpty) {
+        parts = [
+          ...parts,
+          for (final event in toolEvents) ToolCallPart(jsonEncode(event)),
+        ];
+      }
+    }
+    if (parts.isEmpty) {
+      return <MessagePart>[TextPart(message.content)];
+    }
+    return parts;
+  }
+
+  List<MessagePart> _applyToolEventsToParts(
+    List<MessagePart> parts,
+    List<Map<String, dynamic>> toolEvents,
+  ) {
+    final partCount = parts.whereType<ToolCallPart>().length;
+    if (partCount != toolEvents.length) {
+      debugPrint(
+        'toolEvents/parts count mismatch: events=${toolEvents.length} '
+        'parts=$partCount',
+      );
+    }
+    final unused = [for (final event in toolEvents) event];
+    Map<String, dynamic>? takeById(String id) {
+      if (id.isEmpty) return null;
+      final index = unused.indexWhere(
+        (event) => (event['id'] ?? '').toString() == id,
+      );
+      if (index < 0) return null;
+      return unused.removeAt(index);
+    }
+
+    final matchedByPart = List<Map<String, dynamic>?>.filled(
+      parts.length,
+      null,
+    );
+    for (var i = 0; i < parts.length; i++) {
+      final part = parts[i];
+      if (part is! ToolCallPart) continue;
+      final partId = _toolCallPartId(part) ?? '';
+      if (partId.isEmpty) continue;
+      matchedByPart[i] = takeById(partId);
+    }
+    for (var i = 0; i < parts.length; i++) {
+      final part = parts[i];
+      if (part is! ToolCallPart) continue;
+      if ((_toolCallPartId(part) ?? '').isNotEmpty) continue;
+      if (unused.isEmpty) break;
+      matchedByPart[i] = unused.removeAt(0);
+    }
+
+    final out = <MessagePart>[];
+    var lastToolIndex = -1;
+    for (var i = 0; i < parts.length; i++) {
+      final part = parts[i];
+      if (part is! ToolCallPart) {
+        out.add(part);
+        continue;
+      }
+      final matched = matchedByPart[i];
+      if (matched != null) {
+        out.add(ToolCallPart(jsonEncode(_mergeToolPayload(part, matched))));
+      } else {
+        out.add(part);
+      }
+      lastToolIndex = out.length - 1;
+    }
+    if (unused.isNotEmpty) {
+      final extras = [
+        for (final event in unused) ToolCallPart(jsonEncode(event)),
+      ];
+      final insertAt = lastToolIndex >= 0 ? lastToolIndex + 1 : out.length;
+      out.insertAll(insertAt, extras);
+    }
+    return out;
+  }
+
+  Map<String, dynamic> _mergeToolPayload(
+    ToolCallPart part,
+    Map<String, dynamic> event,
+  ) {
+    Map<String, dynamic> base = const <String, dynamic>{};
+    try {
+      final decoded = jsonDecode(part.payloadJson);
+      if (decoded is Map) {
+        base = Map<String, dynamic>.from(decoded);
+      }
+    } catch (_) {}
+    final merged = Map<String, dynamic>.from(base);
+    for (final entry in event.entries) {
+      if (_isEmptyToolOverlay(entry.value) &&
+          !_isEmptyToolOverlay(base[entry.key])) {
+        continue;
+      }
+      merged[entry.key] = entry.value;
+    }
+    if (base['server'] == true && event['server'] != false) {
+      merged['server'] = true;
+    }
+    if (_isSearchToolName(merged['name'] ?? base['name'] ?? event['name'])) {
+      merged['content'] = jsonEncode(
+        StreamChunkHandler.mergeSearchItems(
+          base['content'],
+          _searchItemsOf(event['content']),
+        ),
+      );
+    }
+    return merged;
+  }
+
+  bool _isEmptyToolOverlay(Object? value) {
+    if (value == null) return true;
+    if (value is String) return value.isEmpty;
+    if (value is Map) return value.isEmpty;
+    if (value is List) return value.isEmpty;
+    return false;
+  }
+
+  bool _isSearchToolName(Object? name) {
+    final toolName = (name ?? '').toString();
+    return toolName == 'search_web' || toolName == 'builtin_search';
+  }
+
+  List<Map<String, dynamic>> _searchItemsOf(Object? raw) {
+    final map = _asStringKeyedMap(raw);
+    final items = map?['items'];
+    if (items is! List) return const <Map<String, dynamic>>[];
+    return [
+      for (final item in items)
+        if (item is Map) Map<String, dynamic>.from(item),
     ];
-if (body.isEmpty) {
-       return <MessagePart>[TextPart(message.content ?? '')];
-     }
-     return body;
-   }
+  }
 
-   List<MessagePart> _textPartReplaceAll(
-     ChatMessage msg,
-     String placeholder,
-     String replacement,
-   ) {
-     final parts = msg.parts ?? const [];
-     return parts.map((p) {
-       if (p is TextPart) {
-         return TextPart(p.text.replaceAll(placeholder, replacement));
-       }
-       return p;
-     }).toList();
-   }
+  Map<String, dynamic>? _asStringKeyedMap(Object? raw) {
+    if (raw is Map<String, dynamic>) return raw;
+    if (raw is Map) return Map<String, dynamic>.from(raw);
+    if (raw is String) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) return Map<String, dynamic>.from(decoded);
+      } catch (_) {}
+    }
+    return null;
+  }
 
-   String _joinTextParts(List<MessagePart> parts) {
-     return parts.whereType<TextPart>().map((p) => p.text).join('\n');
-   }
+  String? _toolCallPartId(ToolCallPart part) {
+    try {
+      final decoded = jsonDecode(part.payloadJson);
+      if (decoded is Map) {
+        final id = (decoded['id'] ?? '').toString();
+        return id.isEmpty ? null : id;
+      }
+    } catch (_) {}
+    return null;
+  }
 
   MessagePart _hydratePart({
     required String revisionId,
@@ -6674,6 +7394,34 @@ class ConversationSearchMatch {
   final int? maxVersion;
 }
 
+class MiniMapSearchHit {
+  const MiniMapSearchHit({
+    required this.messageId,
+    required this.matchCount,
+    required this.snippet,
+    required this.snippetStart,
+  });
+
+  final String messageId;
+  final int matchCount;
+  final String snippet;
+  final int snippetStart;
+}
+
+/// Grows the snippet window so the first hit is not cut mid-keyword.
+///
+/// Default radius 40 + length 120 leaves only 80 characters for the needle.
+int miniMapSnippetLength({
+  required int needleLength,
+  int snippetRadius = 40,
+  int snippetLength = 120,
+}) {
+  final radius = snippetRadius < 0 ? 0 : snippetRadius;
+  final length = snippetLength < 0 ? 0 : snippetLength;
+  final needed = radius + needleLength;
+  return length < needed ? needed : length;
+}
+
 final class ChatStatsTotals {
   const ChatStatsTotals({
     required this.messages,
@@ -6761,12 +7509,34 @@ final class AssetGcCandidate {
 }
 
 String _alternateAssetPathForm(String path) {
-  if (KelivoFileUri.isKelivoFileUri(path)) {
+  if (SolabFileUri.isSolabFileUri(path)) {
     final resolved = SandboxPathResolver.fix(path);
     return resolved.isEmpty ? path : resolved;
   }
   final canonical = SandboxPathResolver.canonicalize(path);
   return canonical.isEmpty ? path : canonical;
+}
+
+({
+  String primary,
+  String alternate,
+  String portableAlternate,
+  String jsonPrimary,
+  String jsonAlternate,
+  String jsonPortableAlternate,
+})
+_assetReferenceForms(String path) {
+  final primary = path.isEmpty ? ' ' : path;
+  final alternate = _alternateAssetPathForm(primary);
+  final portableAlternate = alternate.replaceAll('\\', '/');
+  return (
+    primary: primary,
+    alternate: alternate,
+    portableAlternate: portableAlternate,
+    jsonPrimary: _jsonEscapedPathForm(primary),
+    jsonAlternate: _jsonEscapedPathForm(alternate),
+    jsonPortableAlternate: _jsonEscapedPathForm(portableAlternate),
+  );
 }
 
 String _jsonEscapedPathForm(String path) {

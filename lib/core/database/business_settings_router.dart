@@ -50,6 +50,7 @@ final class BusinessKeyRegistry {
     'instruction_injection_group_collapsed_v1',
     'world_books_active_ids_by_assistant_v1',
     'world_books_collapsed_v1',
+    'agent_skills_v1',
     'search_common_v1',
     'search_selected_v1',
     'search_enabled_v1',
@@ -135,7 +136,6 @@ final class BusinessKeyRegistry {
     'log_save_output_v1',
     'log_auto_delete_days_v1',
     'log_max_size_mb_v1',
-    'app_launch_count_v1',
     'mcp_request_timeout_ms_v1',
     'learning_mode_enabled_v1',
     'learning_mode_prompt_v1',
@@ -146,6 +146,9 @@ final class BusinessKeyRegistry {
     'memory_model_thinking_enabled_v1',
     'memory_prompt_lang_v1',
     'memory_trace_enabled_v1',
+    'memory_legacy_mode_v1',
+    'memory_legacy_prompt_zh_v1',
+    'memory_legacy_prompt_en_v1',
     'memory_rules_prompt_zh_v1',
     'memory_rules_prompt_en_v1',
     'memory_gate_prompt_zh_v1',
@@ -158,6 +161,19 @@ final class BusinessKeyRegistry {
     'memory_smart_add_batch_prompt_en_v1',
     'memory_profile_distill_prompt_zh_v1',
     'memory_profile_distill_prompt_en_v1',
+    'memory_migrate_prompt_zh_v1',
+    'memory_migrate_prompt_en_v1',
+    'memory_migration_batch_size_v1',
+    'chat_bubble_style_overrides_v1',
+  };
+
+  /// SoLab APK 知识种子版本 key（instruction_injection/world_book/quick_phrase
+  /// 各一个，避免共用版本 key 导致种子互踩）。它们以 apk_mod_ 开头但必须
+  /// 走业务 prefs 持久化，classify 时在 localOnly 分支前放行。
+  static const apkModSeedVersionKeys = <String>{
+    'apk_mod_knowledge_seed_version_instruction_injection',
+    'apk_mod_knowledge_seed_version_world_book',
+    'apk_mod_knowledge_seed_version_quick_phrase',
   };
 
   static BusinessKeyDisposition classify(String key) {
@@ -167,7 +183,12 @@ final class BusinessKeyRegistry {
     if (key == 'providers_order_v1') {
       return BusinessKeyDisposition.providerOrder;
     }
-    if (localOnlyKeys.contains(key) || key.startsWith('restore_')) {
+    if (apkModSeedVersionKeys.contains(key)) {
+      return BusinessKeyDisposition.preference;
+    }
+    if (localOnlyKeys.contains(key) ||
+        key.startsWith('restore_') ||
+        key.startsWith('apk_mod_')) {
       return BusinessKeyDisposition.localOnly;
     }
     if (discardedKeys.contains(key)) {
@@ -630,7 +651,9 @@ final class BusinessSettingsRouter {
         if (type != 'identity' &&
             type != 'workflow' &&
             type != 'voice' &&
-            type != 'instruction') {
+            type != 'instruction' &&
+            type != 'apk_patch' &&
+            type != 'apk_note') {
           throw FormatException(kind.sourceKey);
         }
         final status = payload['status'];
@@ -903,6 +926,8 @@ final class BusinessSettingsRouter {
     switch (payload['type']) {
       case 'bing_local':
         _validateKnownFields(kind, payload, strings: const {'acceptLanguage'});
+      case 'kelivo':
+        break;
       case 'tavily':
       case 'exa':
         _validateKnownFields(
@@ -918,6 +943,7 @@ final class BusinessSettingsRouter {
       case 'metaso':
       case 'ollama':
       case 'jina':
+      case 'doubao':
         _validateKnownFields(
           kind,
           payload,

@@ -29,6 +29,7 @@ class Lucide {
   static const IconData History = lucide.LucideIcons.history;
   static const IconData Settings = lucide.LucideIcons.settings;
   static const IconData Search = lucide.LucideIcons.search;
+  static const IconData ScanSearch = lucide.LucideIcons.scanSearch;
   static const IconData Edit = lucide.LucideIcons.pencil;
   static const IconData Pin = lucide.LucideIcons.pin;
   static const IconData PinOff = lucide.LucideIcons.pinOff;

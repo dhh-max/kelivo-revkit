@@ -323,3 +323,10 @@ String _pickSupportedEffort(
 bool _matchesModel(String modelId, String pattern) {
   return RegExp(pattern, caseSensitive: false).hasMatch(modelId);
 }
+
+
+/// Returns true if the model ID matches LongCat Omni models.
+bool isLongCatOmniModelId(String modelId) {
+  final normalized = modelId.trim().toLowerCase();
+  return normalized.contains('longcat') && normalized.contains('omni');
+}

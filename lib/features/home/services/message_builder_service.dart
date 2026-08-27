@@ -760,20 +760,10 @@ class MessageBuilderService {
 
       try {
         final wb = contextProvider.read<WorldBookProvider>();
+        await wb.initialize();
         all = wb.books;
         activeBookIds = wb.activeBookIdsFor(assistantId);
-        if (all.isEmpty) all = await WorldBookStore.getAll();
-        if (activeBookIds.isEmpty) {
-          activeBookIds = await WorldBookStore.getActiveIds(
-            assistantId: assistantId,
-          );
-        }
-      } catch (_) {
-        all = await WorldBookStore.getAll();
-        activeBookIds = await WorldBookStore.getActiveIds(
-          assistantId: assistantId,
-        );
-      }
+      } catch (_) {}
 
       if (all.isEmpty || activeBookIds.isEmpty) return;
 

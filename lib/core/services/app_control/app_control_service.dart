@@ -19,6 +19,7 @@ import '../../providers/skill_provider.dart';
 import '../../providers/world_book_provider.dart';
 import '../search/search_service.dart';
 import '../../../features/home/services/local_tools_service.dart';
+import '../../../core/services/local_tools/local_tool_names.dart';
 
 class AppControlToolNames {
   const AppControlToolNames._();

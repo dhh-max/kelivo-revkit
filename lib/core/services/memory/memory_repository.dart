@@ -499,7 +499,34 @@ class MemoryRepository {
       );
     }
   }
+  // ─── v2-compatible methods for APK services ──────────────────────────
+  Future<T> runExclusive<T>(Future<T> Function() action) async {
+    return action();
+  }
+
+  Future<List<MemoryEntry>> readByType(MemoryType type) async {
+    final all = await readAll();
+    return all.where((e) => e.type == type).toList(growable: false);
+  }
+
+  Future<void> upsertOne(MemoryEntry entry) async {
+    final all = await readAll();
+    final idx = all.indexWhere((e) => e.id == entry.id);
+    if (idx != -1) {
+      all[idx] = entry;
+    } else {
+      all.add(entry);
+    }
+    await writeAll(all);
+  }
+
+  Future<void> deleteOne(String id) async {
+    final all = await readAll();
+    all.removeWhere((e) => e.id == id);
+    await writeAll(all);
+  }
 }
+
 
 class _ExclusiveGuard {}
 
@@ -512,6 +539,7 @@ class MemoryCreateDraft {
     required this.source,
     this.relatedIds = const <String>[],
     this.migrationId,
+    this.extraJson,
   });
 
   final MemoryScope scope;
@@ -521,6 +549,7 @@ class MemoryCreateDraft {
   final MemorySource source;
   final List<String> relatedIds;
   final String? migrationId;
+  final Map<String, dynamic>? extraJson;
 }
 
 class MemoryCreateManyResult {

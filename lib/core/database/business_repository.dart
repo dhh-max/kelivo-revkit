@@ -32,6 +32,29 @@ final class BusinessRepository {
     );
   }
 
+  Future<List<BusinessEntityValue>> readMemoryEntriesByType(String type) async {
+    final normalizedType = type.trim();
+    if (normalizedType.isEmpty) return const <BusinessEntityValue>[];
+    final rows = await _database
+        .customSelect(
+          'SELECT id AS entity_id, sort_order, payload '
+          'FROM memory_entry_rows WHERE type = ? '
+          'ORDER BY sort_order, id;',
+          variables: <Variable<Object>>[Variable<String>(normalizedType)],
+          readsFrom: {_database.memoryEntryRows},
+        )
+        .get();
+    return List<BusinessEntityValue>.unmodifiable(
+      rows.map(
+        (row) => BusinessEntityValue(
+          id: row.read<String>('entity_id'),
+          sortOrder: row.read<int>('sort_order'),
+          payload: row.read<String>('payload'),
+        ),
+      ),
+    );
+  }
+
   Future<void> replaceEntities(
     BusinessEntityKind kind,
     List<BusinessEntityValue> rows,

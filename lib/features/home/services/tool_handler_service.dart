@@ -18,7 +18,13 @@ import 'ask_user_interaction_service.dart';
 import 'local_tools_service.dart';
 import '../../../core/services/local_tools/tool_call_loop_guard.dart';
 import 'tool_approval_service.dart';
+import '../../../core/services/local_tools/local_tool_names.dart';
 
+/// 工具按需加载策略（与 v2 对齐）。
+/// - [none]：纯闲聊，零工具。
+/// - [light]：只下发基础/路由/知识工具，无 APK 工作区时使用。
+/// - [full]：全量工具（含 jadx/baksmali/so/patch/dex/file 等重型链）。
+enum ToolLoadPolicy { none, light, full }
 /// 工具调用处理服务
 ///
 /// 处理各类工具调用：

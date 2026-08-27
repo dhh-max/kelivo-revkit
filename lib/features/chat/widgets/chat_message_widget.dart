@@ -48,6 +48,7 @@ import 'citation_sources_sheet.dart';
 import 'chat_suggestion_bubbles.dart';
 import 'token_display_widget.dart';
 import '../../../theme/app_font_weights.dart';
+import '../../../core/services/local_tools/local_tool_names.dart';
 
 final RegExp _urlSchemeRe = RegExp(r'^[a-zA-Z][a-zA-Z0-9+.-]*:');
 

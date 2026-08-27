@@ -1,283 +1,280 @@
 import 'dart:convert';
-
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:math_expressions/math_expressions.dart';
-
+import 'package:path/path.dart' as p;
+import '../../solab_apk/analyzer/analyzer_tools.dart';
 import '../../../core/models/assistant.dart';
+import '../../../core/providers/agent_skill_provider.dart';
+import '../../../core/providers/instruction_injection_provider.dart';
+import '../../../core/providers/world_book_provider.dart';
+import '../../../core/services/chat/chat_service.dart';
+import '../../../core/services/local_tools/local_tool_names.dart';
+import '../../../core/services/local_tools/local_tool_registry.dart';
+import '../../../core/services/memory/memory_quality.dart';
+import '../../../core/services/memory/memory_repository.dart';
+import '../../solab_apk/services/apk_analysis_service.dart';
+import '../../solab_apk/services/apk_mutation_preview_service.dart';
+import '../../solab_apk/services/solab_apk_skills.dart';
+import '../../solab_apk/services/apk_patch_memory_service.dart';
+import '../../solab_apk/services/apk_workspace_binding_service.dart';
+import '../../solab_apk/services/apk_project_service.dart';
+import '../../solab_apk/services/apk_rule_service.dart';
+import '../../solab_apk/services/apk_structural_service.dart';
+import '../../solab_apk/services/apk_toolchain_service.dart';
+import 'task_router.dart';
+import 'tool_session_state.dart';
+import '../../solab_apk/services/apk_workspace_service.dart';
+part 'local_tool_schemas.dart';
+part 'local_tool_handlers.dart';
 
 typedef TextToSpeechStarter = Future<void> Function(String text);
 
-class LocalToolNames {
-  const LocalToolNames._();
+typedef ToolHandler =
+    Future<String?> Function(Map<String, dynamic> args, ToolContext context);
 
-  static const String timeInfo = 'get_time_info';
-  static const String clipboard = 'clipboard_tool';
-  static const String textToSpeech = 'text_to_speech';
-  static const String askUser = 'ask_user_input_v0';
-  static const String calculate = 'calculate';
+class ToolContext {
+  const ToolContext({
+    required this.assistant,
+    this.chatService,
+    this.memoryRepository,
+    this.worldBookProvider,
+    this.agentSkillProvider,
+    this.instructionInjectionProvider,
+    this.conversationId,
+    this.onSpeakText,
+    required this.analyzerContextKey,
+  });
+
+  final Assistant assistant;
+  final ChatService? chatService;
+  final MemoryRepository? memoryRepository;
+  final WorldBookProvider? worldBookProvider;
+  final AgentSkillProvider? agentSkillProvider;
+  final InstructionInjectionProvider? instructionInjectionProvider;
+  final String? conversationId;
+  final TextToSpeechStarter? onSpeakText;
+  final String analyzerContextKey;
 }
+
+/// 本地工具开关页 UI 元数据（工具 ID → 标题/简述）。
+///
+/// 与 [LocalToolsService.buildToolDefinitions] 的工具集合保持一致——
+/// 新增工具时需同步登记，避免助手设置页缺失开关。
+final Map<String, ({String title, String subtitle})> kLocalToolUiMetadata =
+    LocalToolRegistry.uiMetadata;
 
 class LocalToolsService {
   const LocalToolsService._();
 
+  static String? _lastSyncedSoWorkDir;
+  static const _apkCheckpointTools = <String>{
+    LocalToolNames.routeTask,
+    LocalToolNames.apkAnalyzeWorkspace,
+    LocalToolNames.dexSearch,
+    LocalToolNames.stringScan,
+    LocalToolNames.dexXref,
+    LocalToolNames.classOutline,
+    LocalToolNames.smaliRead,
+    LocalToolNames.soAnalyze,
+    LocalToolNames.jadxDecompile,
+    LocalToolNames.apkPatchDex,
+    LocalToolNames.apkSignatureBypass,
+    LocalToolNames.apkPatchManifest,
+    LocalToolNames.soPatchIntoApk,
+    LocalToolNames.apkRebuild,
+    LocalToolNames.apkSign,
+  };
+
+  static const _apkPathParameter = <String, Object>{
+    'apkPath': {
+      'type': 'string',
+      'description':
+          'Local APK path. Accepts either (1) an absolute path INSIDE the unified work directory (outside paths are rejected with PATH_OUTSIDE_WORKSPACE), or (2) a relative path / file name resolved against the work directory. If omitted, the latest patch output or analyzed source APK is used. Use file(action=list) to discover file names. If no work directory is set, stop and ask the user to set it in APK 工作台.',
+    },
+  };
+
   static List<Map<String, dynamic>> buildToolDefinitions({
     required Assistant? assistant,
     required bool supportsTools,
-  }) {
-    if (!supportsTools || assistant == null) {
-      return const <Map<String, dynamic>>[];
-    }
+  }) => buildLocalToolSchemas(
+    assistant: assistant,
+    supportsTools: supportsTools,
+    apkPathParameter: _apkPathParameter,
+    deviceTimezoneHint: _deviceTimezoneHint,
+  );
 
-    final tools = <Map<String, dynamic>>[];
-    if (assistant.localToolIds.contains(LocalToolNames.timeInfo)) {
-      tools.add(const {
-        'type': 'function',
-        'function': {
-          'name': LocalToolNames.timeInfo,
-          'description': '从当前设备读取本地日期和时间信息。返回年、月、日、星期、ISO 日期时间、时区、UTC 偏移和时间戳。',
-          'parameters': {'type': 'object', 'properties': <String, dynamic>{}},
-        },
+  static final Map<String, ToolHandler> _toolHandlers =
+      Map<String, ToolHandler>.unmodifiable(<String, ToolHandler>{
+        for (final name in AnalyzerToolNames.all)
+          name: (args, context) =>
+              _handleAnalyzerTool(name, args, context.analyzerContextKey),
+        LocalToolNames.timeInfo: (args, context) => Future<String?>.value(
+          jsonEncode(_buildTimeInfoPayload(DateTime.now())),
+        ),
+        LocalToolNames.clipboard: (args, context) => _handleClipboardTool(args),
+        LocalToolNames.textToSpeech: (args, context) =>
+            _handleTextToSpeechTool(args, context.onSpeakText),
+        LocalToolNames.askUser: (args, context) => Future<String?>.value(null),
+        LocalToolNames.calculate: (args, context) =>
+            Future<String?>.value(_handleCalculateTool(args)),
+        LocalToolNames.screenTime: (args, context) =>
+            DeviceLocalTools.screenTimeSupported
+            ? _invokeDeviceTool('getScreenTime', args)
+            : Future<String?>.value(null),
+        LocalToolNames.calendarQuery: (args, context) =>
+            DeviceLocalTools.calendarSupported
+            ? _invokeDeviceTool('queryCalendar', args)
+            : Future<String?>.value(null),
+        LocalToolNames.calendarCreate: (args, context) =>
+            DeviceLocalTools.calendarSupported
+            ? _invokeDeviceTool('createCalendarEvent', args)
+            : Future<String?>.value(null),
+        LocalToolNames.agentRuntimeGuide: (args, context) =>
+            _handleAgentRuntimeGuide(
+              context.assistant,
+              context.memoryRepository,
+              context.worldBookProvider,
+              context.agentSkillProvider,
+              context.instructionInjectionProvider,
+            ),
+        LocalToolNames.apkReport: (args, context) =>
+            ApkWorkspaceService.readForAi(
+              (args['section'] ?? 'summary').toString(),
+              currentConversationId: context.conversationId,
+            ),
+        LocalToolNames.apkSkill: (args, context) => Future<String?>.value(
+          SolabApkSkills.read((args['skill'] ?? '').toString()),
+        ),
+        LocalToolNames.apkKnowledge: (args, context) => _handleApkKnowledge(
+          args,
+          context.assistant,
+          context.worldBookProvider,
+          conversationId: context.conversationId,
+        ),
+        LocalToolNames.installedSkills: (args, context) =>
+            _handleInstalledSkills(args, context.agentSkillProvider),
+        LocalToolNames.apkProjectInfo: (args, context) =>
+            _handleApkProjectInfo(context),
+        LocalToolNames.apkRules: (args, context) =>
+            _handleListApkRules(args, context.chatService),
+        LocalToolNames.soPatchIntoApk: (args, context) => _handleSoPatchIntoApk(
+          args,
+          context.chatService,
+          context.memoryRepository,
+        ),
+        LocalToolNames.apkPatchDex: (args, context) =>
+            _handleApkPatchDex(args, context.chatService),
+        LocalToolNames.apkSignatureBypass: (args, context) =>
+            _handleApkSignatureBypass(args, context.chatService),
+        LocalToolNames.apkPatchManifest: (args, context) =>
+            _handleApkPatchManifest(
+              args,
+              context.chatService,
+              context.memoryRepository,
+            ),
+        LocalToolNames.apkToolMap: (args, context) =>
+            Future<String?>.value(_handleApkToolMap(context.assistant, args)),
+        LocalToolNames.apkPatchMemory: (args, context) => _handleApkPatchMemory(
+          context.chatService,
+          context.memoryRepository,
+        ),
+        LocalToolNames.apkSavePatchMemory: (args, context) =>
+            _handleApkSavePatchMemory(
+              args,
+              context.chatService,
+              context.memoryRepository,
+            ),
+        LocalToolNames.apkRecordPatchVerification: (args, context) =>
+            _handleApkRecordPatchVerification(
+              args,
+              context.chatService,
+              context.memoryRepository,
+            ),
+        LocalToolNames.apkListBuilds: (args, context) => _handleApkListBuilds(),
+        LocalToolNames.apkCleanupBuilds: (args, context) =>
+            _handleApkCleanupBuilds(args),
+        LocalToolNames.apkNoteRead: (args, context) => _handleApkNoteRead(),
+        LocalToolNames.apkNoteWrite: (args, context) =>
+            _handleApkNoteWrite(args),
+        LocalToolNames.apkListWorkspace: (args, context) =>
+            _handleApkListWorkspace(),
+        LocalToolNames.apkAnalyzeWorkspace: (args, context) =>
+            _handleApkAnalyzeWorkspace(
+              args,
+              context.chatService,
+              context.conversationId,
+            ),
+        LocalToolNames.jadxDecompile: (args, context) =>
+            _handleJadxDecompile(args),
+        LocalToolNames.apkSign: (args, context) => _handleApkSign(args),
+        LocalToolNames.apkRebuild: (args, context) => _handleApkRebuild(args),
+        LocalToolNames.dexSearch: (args, context) => _handleDexSearch(args),
+        LocalToolNames.stringScan: (args, context) => _handleStringScan(args),
+        LocalToolNames.dexXref: (args, context) =>
+            _handleDexXref(args, context.chatService),
+        LocalToolNames.classOutline: (args, context) =>
+            _handleClassOutline(args),
+        LocalToolNames.smaliRead: (args, context) => _handleSmaliRead(args),
+        LocalToolNames.soAnalyze: (args, context) => _handleSoAnalyze(args),
+        LocalToolNames.file: (args, context) => _handleFileUnified(args),
+        LocalToolNames.routeTask: _handleRouteTask,
       });
-    }
-    if (assistant.localToolIds.contains(LocalToolNames.clipboard)) {
-      tools.add(const {
-        'type': 'function',
-        'function': {
-          'name': LocalToolNames.clipboard,
-          'description':
-              '读取或写入设备剪贴板中的纯文本。action 可为 read 或 write；写入时必须提供 text。除非用户明确要求，否则不要写入剪贴板。',
-          'parameters': {
-            'type': 'object',
-            'properties': {
-              'action': {
-                'type': 'string',
-                'enum': ['read', 'write'],
-                'description': '要执行的操作：read 表示读取，write 表示写入。',
-              },
-              'text': {
-                'type': 'string',
-                'description': '要写入剪贴板的文本。action 为 write 时必填。',
-              },
-            },
-            'required': ['action'],
-          },
-        },
-      });
-    }
-    if (assistant.localToolIds.contains(LocalToolNames.textToSpeech)) {
-      tools.add(const {
-        'type': 'function',
-        'function': {
-          'name': LocalToolNames.textToSpeech,
-          'description':
-              '使用已配置的文字转语音功能向用户朗读文本。用户要求朗读或适合音频输出时使用；工具在发起播放后返回，音频可能在后台继续。请提供自然、易读、无 Markdown 格式的文本。',
-          'parameters': {
-            'type': 'object',
-            'properties': {
-              'text': {'type': 'string', 'description': '要朗读的文本。'},
-            },
-            'required': ['text'],
-          },
-        },
-      });
-    }
-    if (assistant.localToolIds.contains(LocalToolNames.askUser)) {
-      tools.add(const {
-        'type': 'function',
-        'function': {
-          'name': LocalToolNames.askUser,
-          'description':
-              '在继续前需要用户澄清、补充信息或做决定时，向用户提出一个或多个简短选择题。支持单选和多选。界面会自动提供“其它”和“跳过”选项，请不要自行加入这些选项。',
-          'parameters': {
-            'type': 'object',
-            'properties': {
-              'questions': {
-                'type': 'array',
-                'description': '要询问用户的 1 到 4 个问题。',
-                'items': {
-                  'type': 'object',
-                  'properties': {
-                    'id': {'type': 'string', 'description': '该问题的唯一且稳定的标识符。'},
-                    'question': {
-                      'type': 'string',
-                      'description': '展示给用户的完整问题文本。',
-                    },
-                    'type': {
-                      'type': 'string',
-                      'enum': ['single', 'multi'],
-                      'description': '回答类型：single 为单选，multi 为多选。',
-                    },
-                    'options': {
-                      'type': 'array',
-                      'description': '提供给用户选择的建议选项。',
-                      'items': {'type': 'string'},
-                    },
-                  },
-                  'required': ['id', 'question'],
-                },
-              },
-            },
-            'required': ['questions'],
-          },
-        },
-      });
-    }
-    if (assistant.localToolIds.contains(LocalToolNames.calculate)) {
-      tools.add(const {
-        'type': 'function',
-        'function': {
-          'name': LocalToolNames.calculate,
-          'description':
-              '计算数学表达式。支持 + - * / ^ % !，sin() cos() tan() sqrt() ln() abs() floor() ceil() sgn()，log(base, value)，以及常量 pi、e。示例："5!"、"sin(pi/4)"、"log(2, 8)"、"floor(3.7)"。',
-          'parameters': {
-            'type': 'object',
-            'properties': {
-              'expression': {
-                'type': 'string',
-                'description':
-                    '标准写法的数学表达式，例如 "(15 + 3) * 2"、"2^10"、"sqrt(144)"。',
-              },
-            },
-            'required': ['expression'],
-          },
-        },
-      });
-    }
-    return tools;
-  }
+
+  static Set<String> get handledToolNames =>
+      Set<String>.unmodifiable(_toolHandlers.keys);
 
   static Future<String?> tryHandleToolCall(
     String name,
     Map<String, dynamic> args,
     Assistant? assistant, {
     TextToSpeechStarter? onSpeakText,
+    ChatService? chatService,
+    WorldBookProvider? worldBookProvider,
+    AgentSkillProvider? agentSkillProvider,
+    InstructionInjectionProvider? instructionInjectionProvider,
+    String? conversationId,
+    MemoryRepository? memoryRepository,
+    String analyzerContextKey = 'app',
   }) async {
     if (assistant == null || !assistant.localToolIds.contains(name)) {
       return null;
     }
-    if (name == LocalToolNames.timeInfo) {
-      return jsonEncode(_buildTimeInfoPayload(DateTime.now()));
-    }
-    if (name == LocalToolNames.clipboard) {
-      return _handleClipboardTool(args);
-    }
-    if (name == LocalToolNames.textToSpeech) {
-      return _handleTextToSpeechTool(args, onSpeakText);
-    }
-    if (name == LocalToolNames.calculate) {
-      return _handleCalculateTool(args);
+    final context = ToolContext(
+      assistant: assistant,
+      chatService: chatService,
+      memoryRepository: memoryRepository,
+      worldBookProvider: worldBookProvider,
+      agentSkillProvider: agentSkillProvider,
+      instructionInjectionProvider: instructionInjectionProvider,
+      conversationId: conversationId,
+      onSpeakText: onSpeakText,
+      analyzerContextKey: analyzerContextKey,
+    );
+    final handler = _toolHandlers[name];
+    if (handler != null) {
+      final scopeId = conversationId?.trim().isNotEmpty == true
+          ? conversationId
+          : (analyzerContextKey == 'app' ? null : analyzerContextKey);
+      return ApkWorkspaceBindingService.runInScope(scopeId, () async {
+        final output = await handler(args, context);
+        if (output != null &&
+            assistant.id == 'builtin-apk-mod' &&
+            _apkCheckpointTools.contains(name)) {
+          try {
+            await ApkWorkspaceBindingService.recordToolCheckpoint(
+              tool: name,
+              arguments: args,
+              result: output,
+            );
+          } catch (_) {
+            // 续接快照失败不影响工具本身的结果。
+          }
+        }
+        return output;
+      });
     }
     return null;
-  }
-
-  static Future<String> _handleClipboardTool(Map<String, dynamic> args) async {
-    final action = (args['action'] ?? '').toString();
-    switch (action) {
-      case 'read':
-        final data = await Clipboard.getData(Clipboard.kTextPlain);
-        return jsonEncode({'text': data?.text ?? ''});
-      case 'write':
-        final text = args['text']?.toString();
-        if (text == null) {
-          throw ArgumentError('text is required for clipboard write');
-        }
-        await Clipboard.setData(ClipboardData(text: text));
-        return jsonEncode({'success': true, 'text': text});
-      default:
-        throw ArgumentError('unknown clipboard action: $action');
-    }
-  }
-
-  static Future<String> _handleTextToSpeechTool(
-    Map<String, dynamic> args,
-    TextToSpeechStarter? onSpeakText,
-  ) async {
-    final text = args['text']?.toString().trim();
-    if (text == null || text.isEmpty) {
-      throw ArgumentError('text is required for text_to_speech');
-    }
-    if (onSpeakText == null) {
-      throw StateError('text-to-speech executor is unavailable');
-    }
-    await onSpeakText(text);
-    return jsonEncode({'success': true});
-  }
-
-  static Map<String, dynamic> _buildTimeInfoPayload(DateTime now) {
-    final offset = now.timeZoneOffset;
-    final offsetSign = offset.isNegative ? '-' : '+';
-    final offsetAbs = offset.abs();
-    final offsetHours = offsetAbs.inHours.toString().padLeft(2, '0');
-    final offsetMinutes = (offsetAbs.inMinutes % 60).toString().padLeft(2, '0');
-
-    final year = now.year.toString().padLeft(4, '0');
-    final month = now.month.toString().padLeft(2, '0');
-    final day = now.day.toString().padLeft(2, '0');
-    final hour = now.hour.toString().padLeft(2, '0');
-    final minute = now.minute.toString().padLeft(2, '0');
-    final second = now.second.toString().padLeft(2, '0');
-    final weekdayEn = _englishWeekdayName(now.weekday);
-
-    return <String, dynamic>{
-      'year': now.year,
-      'month': now.month,
-      'day': now.day,
-      'weekday': weekdayEn,
-      'weekday_en': weekdayEn,
-      'weekday_index': now.weekday,
-      'date': '$year-$month-$day',
-      'time': '$hour:$minute:$second',
-      'datetime': now.toIso8601String(),
-      'timezone': now.timeZoneName,
-      'utc_offset': '$offsetSign$offsetHours:$offsetMinutes',
-      'timestamp_ms': now.millisecondsSinceEpoch,
-    };
-  }
-
-  static String _englishWeekdayName(int weekday) {
-    return switch (weekday) {
-      DateTime.monday => 'Monday',
-      DateTime.tuesday => 'Tuesday',
-      DateTime.wednesday => 'Wednesday',
-      DateTime.thursday => 'Thursday',
-      DateTime.friday => 'Friday',
-      DateTime.saturday => 'Saturday',
-      DateTime.sunday => 'Sunday',
-      _ => 'Unknown',
-    };
-  }
-
-  static String _handleCalculateTool(Map<String, dynamic> args) {
-    final expression = (args['expression'] ?? '').toString().trim();
-    if (expression.isEmpty) {
-      return jsonEncode({
-        'error': 'empty_expression',
-        'message':
-            'Expression is empty. Please provide a mathematical expression in standard notation, e.g. "(15 + 3) * 2".',
-      });
-    }
-
-    try {
-      final parsed = GrammarParser().parse(expression);
-      final result = parsed.evaluate(EvaluationType.REAL, ContextModel());
-      if (!result.isFinite) {
-        return jsonEncode({
-          'error': 'math_error',
-          'message':
-              'The result is not a finite number. Please check your expression (e.g. division by zero).',
-        });
-      }
-      return jsonEncode({
-        'expression': expression,
-        'result': result.toString(),
-      });
-    } catch (e) {
-      return jsonEncode({
-        'error': 'parse_error',
-        'message':
-            'Could not parse the expression. Use standard notation, e.g. "(15 + 3) * 2".',
-        'detail': e.toString(),
-      });
-    }
   }
 }

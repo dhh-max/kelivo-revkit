@@ -24,6 +24,7 @@ import '../../../core/services/backup/cherry_importer.dart';
 import '../../../core/services/backup/chatbox_importer.dart';
 import '../../../utils/platform_utils.dart';
 import '../widgets/backup_reminder_helpers.dart';
+import '../../../core/database/business_repository.dart';
 
 // File size formatter (B, KB, MB, GB)
 String _fmtBytes(int bytes) {
@@ -1260,7 +1261,6 @@ class _BackupPageState extends State<BackupPage> {
                   final res = await CherryImporter.importFromCherryStudio(
                     file: file,
                     mode: mode,
-                    settings: settings,
                     chatService: cs,
                   );
                   if (!context.mounted) return;
@@ -1326,7 +1326,6 @@ class _BackupPageState extends State<BackupPage> {
                   final res = await ChatboxImporter.importFromChatbox(
                     file: file,
                     mode: mode,
-                    settings: settings,
                     chatService: cs,
                   );
                   if (!context.mounted) return;

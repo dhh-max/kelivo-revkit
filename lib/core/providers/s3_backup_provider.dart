@@ -7,6 +7,8 @@ import 'package:path_provider/path_provider.dart';
 import '../models/backup.dart';
 import '../services/backup/data_sync.dart';
 import '../services/backup/s3_client.dart';
+import '../database/business_repository.dart';
+import '../database/business_preferences.dart';
 import '../services/chat/chat_service.dart';
 
 class S3BackupProvider extends ChangeNotifier {
@@ -17,8 +19,16 @@ class S3BackupProvider extends ChangeNotifier {
   bool _busy = false;
   String? _message;
 
-  S3BackupProvider({required ChatService chatService, S3Config? initialConfig})
-    : _dataSync = DataSync(chatService: chatService),
+  S3BackupProvider({
+    required ChatService chatService,
+    BusinessRepository? businessRepository,
+    BusinessPreferences? businessPreferences,
+    S3Config? initialConfig,
+  }) : _dataSync = DataSync(
+         chatService: chatService,
+         businessRepository: businessRepository!,
+         businessPreferences: businessPreferences!,
+       ),
       _client = const S3BackupClient(),
       _cfg = initialConfig ?? const S3Config();
 

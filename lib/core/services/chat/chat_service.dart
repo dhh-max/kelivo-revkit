@@ -1,6 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'dart:io';
 import 'package:path/path.dart' as p;
+import '../../database/chat_database_repository.dart';
+import '../../database/business_repository.dart';
+import '../../database/business_data.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../../models/chat_message.dart';
 import '../../models/conversation.dart';
@@ -1614,7 +1617,67 @@ class ChatService extends ChangeNotifier {
     }
     return results;
   }
+
+// v2-compatible delegation methods
+  ChatDatabaseRepository? get chatRepositoryOrNull => null;
+
+  List<Conversation> getAllCompleteConversations() {
+    return getAllConversations();
+  }
+
+  Future<List<String>> getMessageIds(String conversationId) async {
+    final conversation = getConversation(conversationId);
+    if (conversation == null) return const <String>[];
+    return List<String>.from(conversation.messageIds);
+  }
+
+  Future<void> commitParsedImport({
+    required BusinessRepository businessRepository,
+    required bool overwrite,
+    required List<ParsedChatImportBatch> conversationBatches,
+    required Map<String, List<ChatMessage>> messagesToAppend,
+    required BusinessSnapshot Function(BusinessSnapshot current) transformBusiness,
+  }) async {
+    throw UnsupportedError('commitParsedImport requires SQLite backend');
+  }
+
+  Future<void> replaceAllDataFromBackup({
+    required List<Conversation> conversations,
+    required List<ChatMessage> messages,
+    required Map<String, List<Map<String, dynamic>>> toolEventsByMessageId,
+    required Map<String, String> geminiSignaturesByMessageId,
+  }) async {
+    await clearAllData();
+    for (final conv in conversations) {
+      await _conversationsBox.put(conv.id, conv);
+    }
+    for (final msg in messages) {
+      await _messagesBox.put(msg.id, msg);
+    }
+    notifyListeners();
+  }
+
+  Future<dynamic> createBackupDatabaseSnapshot(
+    File destinationFile, {
+    dynamic onProgress,
+    dynamic cancelToken,
+    Duration timeout = const Duration(minutes: 10),
+  }) async {
+    throw UnsupportedError('createBackupDatabaseSnapshot requires SQLite backend');
+  }
+
+  Future<dynamic> mergeDatabaseSnapshot(File snapshotFile) async {
+    throw UnsupportedError('mergeDatabaseSnapshot requires SQLite backend');
+  }
+
+  Future<int> recomputeImportedAttachmentAvailability({
+    required Iterable<String> conversationIds,
+    required bool filesRestored,
+  }) async {
+    return 0;
+  }
 }
+
 class ConversationSearchMatch {
   const ConversationSearchMatch({
     required this.conversationId,
@@ -1639,6 +1702,7 @@ class ConversationSearchMatch {
   final int? version;
   final int? maxVersion;
 }
+
 class UploadStats {
   final int fileCount;
   final int totalBytes;
