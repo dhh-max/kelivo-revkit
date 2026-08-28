@@ -65,6 +65,26 @@ class UserSettings {
   /// 为空或长度不足时，管理接口无鉴权（向后兼容旧版本）。
   String? adminToken;
 
+  // —— 从 InterGate Python 版移植的新功能设置 ——
+
+  // 网关鉴权
+  bool gatewayKeyEnabled; // 网关是否启用访问密钥鉴权(开关持久化)
+  String gatewayKey; // 网关访问密钥(留空=不鉴权)
+
+  // 告警 Webhook
+  bool webhookEnabled;
+  String webhookUrl;
+  String webhookSecret;
+
+  // 上游连接池
+  int upstreamMaxConnections;
+  int upstreamMaxKeepalive;
+
+  // Web 控制台
+  bool webEnabled;
+  int webPort;
+  String webPassword;
+
   UserSettings({
     this.port = Constants.defaultPort,
     this.host = Constants.defaultHost,
@@ -101,6 +121,16 @@ class UserSettings {
     this.autoStartOnBoot = false,
     this.ignoreBatteryOptimization = false,
     this.adminToken,
+    this.gatewayKeyEnabled = false,
+    this.gatewayKey = '',
+    this.webhookEnabled = false,
+    this.webhookUrl = '',
+    this.webhookSecret = '',
+    this.upstreamMaxConnections = Constants.defaultUpstreamMaxConnections,
+    this.upstreamMaxKeepalive = Constants.defaultUpstreamMaxKeepalive,
+    this.webEnabled = false,
+    this.webPort = Constants.defaultWebPort,
+    this.webPassword = '',
   });
 
   factory UserSettings.fromJson(Map<String, dynamic> json) {
@@ -161,6 +191,18 @@ class UserSettings {
       ignoreBatteryOptimization:
           json['ignore_battery_optimization'] as bool? ?? false,
       adminToken: json['admin_token'] as String?,
+      gatewayKeyEnabled: json['gateway_key_enabled'] as bool? ?? false,
+      gatewayKey: json['gateway_key'] as String? ?? '',
+      webhookEnabled: json['webhook_enabled'] as bool? ?? false,
+      webhookUrl: json['webhook_url'] as String? ?? '',
+      webhookSecret: json['webhook_secret'] as String? ?? '',
+      upstreamMaxConnections: json['upstream_max_connections'] as int? ??
+          Constants.defaultUpstreamMaxConnections,
+      upstreamMaxKeepalive: json['upstream_max_keepalive'] as int? ??
+          Constants.defaultUpstreamMaxKeepalive,
+      webEnabled: json['web_enabled'] as bool? ?? false,
+      webPort: json['web_port'] as int? ?? Constants.defaultWebPort,
+      webPassword: json['web_password'] as String? ?? '',
     );
   }
 
@@ -201,6 +243,16 @@ class UserSettings {
       'auto_start_on_boot': autoStartOnBoot,
       'ignore_battery_optimization': ignoreBatteryOptimization,
       'admin_token': adminToken,
+      'gateway_key_enabled': gatewayKeyEnabled,
+      'gateway_key': gatewayKey,
+      'webhook_enabled': webhookEnabled,
+      'webhook_url': webhookUrl,
+      'webhook_secret': webhookSecret,
+      'upstream_max_connections': upstreamMaxConnections,
+      'upstream_max_keepalive': upstreamMaxKeepalive,
+      'web_enabled': webEnabled,
+      'web_port': webPort,
+      'web_password': webPassword,
     };
   }
 
@@ -243,6 +295,16 @@ class UserSettings {
     bool? autoStartOnBoot,
     bool? ignoreBatteryOptimization,
     String? adminToken,
+    bool? gatewayKeyEnabled,
+    String? gatewayKey,
+    bool? webhookEnabled,
+    String? webhookUrl,
+    String? webhookSecret,
+    int? upstreamMaxConnections,
+    int? upstreamMaxKeepalive,
+    bool? webEnabled,
+    int? webPort,
+    String? webPassword,
   }) {
     return UserSettings(
       port: port ?? this.port,
@@ -287,6 +349,16 @@ class UserSettings {
       ignoreBatteryOptimization:
           ignoreBatteryOptimization ?? this.ignoreBatteryOptimization,
       adminToken: adminToken ?? this.adminToken,
+      gatewayKeyEnabled: gatewayKeyEnabled ?? this.gatewayKeyEnabled,
+      gatewayKey: gatewayKey ?? this.gatewayKey,
+      webhookEnabled: webhookEnabled ?? this.webhookEnabled,
+      webhookUrl: webhookUrl ?? this.webhookUrl,
+      webhookSecret: webhookSecret ?? this.webhookSecret,
+      upstreamMaxConnections: upstreamMaxConnections ?? this.upstreamMaxConnections,
+      upstreamMaxKeepalive: upstreamMaxKeepalive ?? this.upstreamMaxKeepalive,
+      webEnabled: webEnabled ?? this.webEnabled,
+      webPort: webPort ?? this.webPort,
+      webPassword: webPassword ?? this.webPassword,
     );
   }
 }
