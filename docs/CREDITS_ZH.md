@@ -11,6 +11,7 @@ Kelivo RevKit 的诞生离不开众多开源项目、社区和个人贡献者。
 | Chevey339/kelivo | 原始项目，奠定整体架构与聊天核心 | [GitHub](https://github.com/Chevey339/kelivo) |
 | MuMu-0604/kelivo (Kelivo Plus) | 二次开发版，在原版基础上大幅扩展功能与体验 | [GitHub](https://github.com/MuMu-0604/kelivo) |
 | re-ovo/rikkahub | UI 设计灵感来源 | [GitHub](https://github.com/re-ovo/rikkahub) |
+| bilieebiliee1-design/SOMCP | Serverless MCP 参考实现，MCP 工具调用与协议交互模式参考 | [GitHub](https://github.com/bilieebiliee1-design/SOMCP) |
 
 ## 二、框架与语言
 
