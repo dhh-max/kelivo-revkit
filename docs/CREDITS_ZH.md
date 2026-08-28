@@ -181,7 +181,126 @@ Kelivo RevKit 的诞生离不开众多开源项目、社区和个人贡献者。
 | `dex-jar` | 内置运行时 |
 | `zipalign` / `apksigner` / `keytool` | Android 签名工具链 |
 
-## 七、协议与标准
+## 七、Reverse Engineering Kit（逆向工程）致谢
+
+RevKit 模块专注于 Android 安全与逆向工程，依赖并集成了以下工具、库和项目。在此特别致谢。
+
+### 7.1 APK 逆向工具链
+
+| 工具/项目 | 说明 |
+|----------|------|
+| [apktool](https://github.com/iBotPeaches/Apktool) | APK 解码与重打包（smali + resources + manifest） |
+| [JADX](https://github.com/skylot/jadx) | DEX 字节码反编译为 Java 源码 |
+| [dex-jar](https://github.com/pxb1988/dex-jar) | 内置 `dex-jar` 运行时，用于进程内反编译与字节码操作 |
+| `zipalign` | Android SDK 提供，APK 内存对齐 |
+| `apksigner` | Android SDK 提供，v1/v2/v3 签名 |
+| `keytool` | JDK 提供，调试密钥生成 |
+
+### 7.2 DEX / 字节码分析
+
+| 项目 | 说明 |
+|------|------|
+| [Smali/Baksmali](https://github.com/JesusFreke/smali) | DEX 汇编/反汇编参考实现 |
+| [libdex](https://github.com/android/platform_external_libdex) | Android 平台 DEX 格式定义参考 |
+| [Android Open Source Project](https://source.android.com) | DEX 规范与字节码格式参考 |
+
+### 7.3 SO / ELF 逆向
+
+| 项目 | 说明 |
+|------|------|
+| [GNU Binutils](https://github.com/bminor/binutils) | ELF 格式解析参考 |
+| [capstone-engine](https://github.com/capstone-engine/capstone) | 反汇编引擎思路参考 |
+| [LIEF](https://github.com/lief-project/LIEF) | ELF 分析与修改参考 |
+| [radare2](https://github.com/radareorg/radare2) | 逆向分析参考 |
+| [Frida](https://github.com/frida/frida) | 动态分析与 Hook 参考 |
+| [Xposed Framework](https://github.com/rovo89/Xposed) | 动态 Hook 框架参考 |
+
+### 7.4 加壳检测与脱壳
+
+加壳检测逻辑参考了以下加固方案的公开特征：
+
+| 加固方案 | 厂商 |
+|----------|------|
+| Bangcle | 梆梆安全 |
+| iJiami | 爱加密 |
+| Qihoo 360 | 360 加固 |
+| Tencent Leag | 腾讯乐固 |
+| Nagen | 娜迦 |
+| Legu | 乐固 |
+| Baidu Protector | 百度加固 |
+| DexGuard | 美创安全 |
+| Alibaba Protector | 阿里加固 |
+| Tencent Shell | 腾讯加固壳 |
+
+### 7.5 反调试与签名校验
+
+反调试检测模式参考了以下技术：
+
+- `ptrace` / `TracerPid` 检测（Linux 内核调试接口）
+- `inotify` 文件监听（Linux 文件系统事件）
+- `frida-server` 端口检测（Frida 动态分析识别）
+- SELinux 策略检测
+- 进程注入检测
+
+签名校验相关：
+
+- JAR Signing（v1 签名）
+- APK Signature Scheme v2 / v3
+- 强签（libjiagu.so / 加壳签名校验）绕过策略
+
+### 7.6 安全扫描特征库
+
+内置恶意代码预扫描特征库参考了以下威胁类型：
+
+- 加密货币挖矿（cryptomining）
+- 恶意扣费（premium SMS / in-app purchase）
+- 隐私窃取（PII harvesting）
+- 广告弹窗（adware / popup）
+- 木马后门（Trojan / backdoor）
+- 权限滥用（permission abuse）
+
+## 八、RelayGo 网关致谢
+
+RelayGo 网关是 Kelivo RevKit 内置的 API 反向代理，提供负载均衡、限流、缓存、错误处理等能力。
+
+### 8.1 技术参考
+
+| 项目/规范 | 说明 |
+|-----------|------|
+| [Envoy Proxy](https://github.com/envoyproxy/envoy) | 代理架构与流量管理思路参考 |
+| [nginx](https://github.com/nginx/nginx) | 反向代理模式与头部处理参考 |
+| [Kong](https://github.com/Kong/kong) | API 网关能力参考 |
+| [HAProxy](https://github.com/haproxy/haproxy) | 负载均衡与健康检查参考 |
+| HTTP/1.1 Specification (RFC 7230-7235) | HTTP 协议规范 |
+| SSE Specification | Server-Sent Events 流式响应 |
+| OAuth 2.0 Bearer Token | 鉴权头规范 |
+| HMAC-SHA256 | Webhook 签名 |
+
+### 8.2 算法参考
+
+| 算法 | 用途 |
+|------|------|
+| AIMD（Additive Increase Multiplicative Decrease） | 自适应 TPM 挡板 |
+| Token Bucket | 令牌桶限流 |
+| Sliding Window Log | 精确滑动窗口限流 |
+| Exponential Backoff + Jitter | 指数退避重试 |
+| EMA（Exponential Moving Average） | 延迟平滑估算 |
+| LRU（Least Recently Used） | 响应缓存淘汰 |
+| SHA-256 | 缓存键与完整性校验 |
+
+### 8.3 兼容性参考
+
+网关适配器兼容以下上游 API：
+
+| 提供商 | 协议 |
+|--------|------|
+| OpenAI | OpenAI Chat Completions API |
+| Anthropic | Anthropic Messages API |
+| Google Gemini | Google AI Language API |
+| Azure OpenAI | Azure OpenAI Service |
+| OpenAI 兼容端点 | 通用 OpenAI-style API |
+
+## 九、协议与标准
 
 | 项目 | 说明 |
 |------|------|
@@ -189,9 +308,10 @@ Kelivo RevKit 的诞生离不开众多开源项目、社区和个人贡献者。
 | Anthropic API | 兼容性参考 |
 | Google AI API | 兼容性参考 |
 | OpenAPI Specification | 接口规范 |
+| HTTP/1.1 (RFC 7230-7235) | HTTP 协议规范 |
 | AGPL-3.0 | 开源协议 |
 
-## 八、社区与贡献者
+## 十、社区与贡献者
 
 感谢所有在 GitHub Issue、PR、讨论区、内测反馈中贡献问题的开发者与用户。  
 感谢每一个提交 Bug Report、Feature Request、本地化翻译、文档改进的人。
