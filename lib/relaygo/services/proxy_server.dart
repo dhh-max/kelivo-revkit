@@ -155,6 +155,20 @@ class ProxyServer {
         reportService ?? ReportService(logService, cacheManager: this.cache);
     modelCallTracker = ModelCallTracker(keyManager: keyManager);
     _pricingService = PricingService();
+    // 从 Hive 加载已持久化的价格覆盖规则
+    final savedPricing = DatabaseHelper.settings.get('pricing_overrides');
+    if (savedPricing is Map) {
+      final overrides = <String, List<double>>{};
+      for (final e in savedPricing.entries) {
+        if (e.value is List && (e.value as List).length >= 2) {
+          overrides[e.key.toString()] = [
+            (e.value as List)[0] as double,
+            (e.value as List)[1] as double,
+          ];
+        }
+      }
+      _pricingService.setOverrides(overrides);
+    }
     _gatewayKeyService = GatewayKeyService();
     _modelRouteService = ModelRouteService();
     _dailyStatsService = DailyStatsService(pricing: _pricingService);
@@ -554,6 +568,8 @@ class ProxyServer {
         completionTokens: isError ? 0 : usage.completionTokens,
         isError: isError,
       );
+      // 异步落库，不阻塞响应
+      unawaited(_dailyStatsService.flush());
 
       // —— Webhook 告警推送（从 InterGate 移植）——
       if (settings.webhookEnabled && settings.webhookUrl.isNotEmpty && isError) {
@@ -659,6 +675,9 @@ class ProxyServer {
     if (modelOwner != null && modelOwner != candidates.first) {
       candidates = [modelOwner, ...candidates.where((c) => c != modelOwner)];
     }
+    // 模型路由：若用户为该模型配置了专属 Key 列表，则仅从这些 Key 中筛选候选
+    final routeKeyIds = _modelRouteService.keyIdsFor(proxyRequest.model);
+    final routeActive = routeKeyIds.isNotEmpty;
 
     // 构建候选池：每个候选提供商纳入其全部可用 key（一个 _Pair 对应一个 key），
     // 从而支持「同一提供商多个 key 之间的失败重试切换」（需求 2.2 多提供商/多 key 自动切换）。
@@ -672,6 +691,10 @@ class ProxyServer {
       // 使用「可用」查询：error 且冷却已过期的 key 会自动恢复为 active，
       // 避免 key 因连续失败被标记 error 后永远无法回到候选池（死锁）。
       var keys = keyManager.getUsableByProvider(pname);
+      // 模型路由：仅保留用户指定的 Key ID
+      if (routeActive) {
+        keys = keys.where((k) => routeKeyIds.contains(k.id)).toList();
+      }
       if (keys.isNotEmpty) hadActiveKeys = true;
       if (decision?.group != null && decision!.group!.isNotEmpty) {
         final before = keys.length;
@@ -1244,12 +1267,72 @@ class ProxyServer {
             webPort: obj['web_port'] != null ? obj['web_port'] as int : null,
             webPassword: obj['web_password'] as String?,
           );
-          await _jsonResponse(request, 200, newSettings.toMap());
+          // 持久化到 Hive，使设置在重启后仍生效
+          await DatabaseHelper.settings.put('user', newSettings.toJson());
+          // 更新内存中的 settings 引用
+          settings
+            ..port = newSettings.port
+            ..host = newSettings.host
+            ..loadBalanceStrategy = newSettings.loadBalanceStrategy
+            ..language = newSettings.language
+            ..appLockEnabled = newSettings.appLockEnabled
+            ..appLockPin = newSettings.appLockPin
+            ..logRetentionDays = newSettings.logRetentionDays
+            ..maxLogEntries = newSettings.maxLogEntries
+            ..quotaWarnThreshold = newSettings.quotaWarnThreshold
+            ..errorRateThreshold = newSettings.errorRateThreshold
+            ..alertsEnabled = newSettings.alertsEnabled
+            ..rulesEnabled = newSettings.rulesEnabled
+            ..rateLimitEnabled = newSettings.rateLimitEnabled
+            ..upstreamTimeoutSeconds = newSettings.upstreamTimeoutSeconds
+            ..maxRetryKeys = newSettings.maxRetryKeys
+            ..cacheEnabled = newSettings.cacheEnabled
+            ..cacheTtlSeconds = newSettings.cacheTtlSeconds
+            ..cacheMaxEntries = newSettings.cacheMaxEntries
+            ..ipRateLimitPerMinute = newSettings.ipRateLimitPerMinute
+            ..globalRpmLimit = newSettings.globalRpmLimit
+            ..tokenRateLimitPerMinute = newSettings.tokenRateLimitPerMinute
+            ..burstMultiplier = newSettings.burstMultiplier
+            ..adaptiveTpmEnabled = newSettings.adaptiveTpmEnabled
+            ..updateFeedUrl = newSettings.updateFeedUrl
+            ..updateChannel = newSettings.updateChannel
+            ..autoCheckUpdate = newSettings.autoCheckUpdate
+            ..updateGithubRepo = newSettings.updateGithubRepo
+            ..autoSyncModelsOnStartup = newSettings.autoSyncModelsOnStartup
+            ..modelSyncIntervalHours = newSettings.modelSyncIntervalHours
+            ..autoDisableRemovedModels = newSettings.autoDisableRemovedModels
+            ..virtualModelsEnabled = newSettings.virtualModelsEnabled
+            ..keepAliveEnabled = newSettings.keepAliveEnabled
+            ..autoStartOnBoot = newSettings.autoStartOnBoot
+            ..ignoreBatteryOptimization = newSettings.ignoreBatteryOptimization
+            ..adminToken = newSettings.adminToken
+            ..gatewayKeyEnabled = newSettings.gatewayKeyEnabled
+            ..gatewayKey = newSettings.gatewayKey
+            ..webhookEnabled = newSettings.webhookEnabled
+            ..webhookUrl = newSettings.webhookUrl
+            ..webhookSecret = newSettings.webhookSecret
+            ..upstreamMaxConnections = newSettings.upstreamMaxConnections
+            ..upstreamMaxKeepalive = newSettings.upstreamMaxKeepalive
+            ..webEnabled = newSettings.webEnabled
+            ..webPort = newSettings.webPort
+            ..webPassword = newSettings.webPassword;
+          // 同步限流器与缓存
+          rateLimiter
+            ..enabled = settings.rateLimitEnabled
+            ..burstMultiplier = settings.burstMultiplier
+            ..tokensPerMinutePerKey = settings.tokenRateLimitPerMinute
+            ..requestsPerMinutePerIp = settings.ipRateLimitPerMinute
+            ..globalRequestsPerMinute = settings.globalRpmLimit
+            ..adaptiveTpmEnabled = settings.adaptiveTpmEnabled;
+          cache
+            ..enabled = settings.cacheEnabled
+            ..ttl = Duration(seconds: settings.cacheTtlSeconds)
+            ..maxEntries = settings.cacheMaxEntries;
+          await _jsonResponse(request, 200, settings.toMap());
           return;
         }
         await _respondError(request, 405, '该接口支持 GET / PUT');
         return;
-
       // — 路由规则管理（GET 列表 / POST 添加 / DELETE 删除）—
       case Constants.rulesPath:
         if (request.method == 'GET') {
@@ -1460,7 +1543,7 @@ class ProxyServer {
       case Constants.trendPath:
         final period = request.uri.queryParameters['period'] ?? '7d';
         final days = int.tryParse(request.uri.queryParameters['days'] ?? '') ?? 0;
-        final dailyService = DailyStatsService(pricing: _pricingService);
+        final dailyService = _dailyStatsService;
         List<Map<String, dynamic>> series;
         if (period == '24h' && days == 0) {
           // 按小时趋势：从日志聚合
@@ -1525,6 +1608,12 @@ class ProxyServer {
             }
           }
           _pricingService.setOverrides(clean);
+          // 持久化价格覆盖规则到 Hive
+          final persistData = <String, dynamic>{};
+          for (final e in clean.entries) {
+            persistData[e.key] = e.value;
+          }
+          await DatabaseHelper.settings.put('pricing_overrides', persistData);
           await _jsonResponse(request, 200, {'ok': true, 'rules': clean.map((k, v) => MapEntry(k, v))});
           return;
         }
@@ -1577,7 +1666,7 @@ class ProxyServer {
 
       // — 导出统计 CSV —
       case Constants.exportStatsPath:
-        final dailyService = DailyStatsService(pricing: _pricingService);
+        final dailyService = _dailyStatsService;
         final now = DateTime.now();
         final start = now.subtract(const Duration(days: 30));
         final entries = dailyService.range(_dateKey(start), _dateKey(now));
