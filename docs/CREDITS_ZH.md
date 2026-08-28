@@ -300,7 +300,215 @@ RelayGo 网关是 Kelivo RevKit 内置的 API 反向代理，提供负载均衡�
 | Azure OpenAI | Azure OpenAI Service |
 | OpenAI 兼容端点 | 通用 OpenAI-style API |
 
-## 九、协议与标准
+## 九、功能模块参考致谢
+
+Kelivo RevKit 的功能模块广泛参考了开源社区、技术规范和业界最佳实践。以下按功能域逐一列出。
+
+### 9.1 聊天与消息系统
+
+| 功能域 | 参考/依赖 |
+|--------|-----------|
+| 消息模型与协议 | OpenAI Chat Completion 消息结构（`role` / `content` / `tool_calls`） |
+| 流式响应 | SSE (Server-Sent Events) 协议、OpenAI streaming API |
+| 工具调用 | MCP（Model Context Protocol）规范、OpenAI Function Calling |
+| 上下文压缩 | RAG（Retrieval Augmented Generation）、滑动窗口上下文管理 |
+| 消息引用（Citation） | Google Search / Perplexity 引用模式 |
+| 推理预算（Reasoning Budget） | Claude Extended Thinking、GPT o-series thinking tokens |
+| Thinking Tag 解析 | Claude / Gemini 思考块格式参考 |
+| 消息部分（Message Part） | OpenAI multi-modal content array |
+
+### 9.2 记忆与知识管理
+
+| 功能域 | 参考/依赖 |
+|--------|-----------|
+| 记忆提取与分块 | LangChain / LlamaIndex chunking 策略 |
+| 向量检索思路 | Pinecone / ChromaDB / Milvus 向量数据库设计理念 |
+| 记忆质量评分 | NLP 语义相关度评分 |
+| 用户画像蒸馏 | Knowledge Distillation 思路参考 |
+| 记忆搜索 | BM25 + 语义检索混合思路 |
+| 世界书（World Book） | Character AI / Personality.js 角色设定模式 |
+| 指令注入（Instruction Injection） | LangChain Few-shot / System Prompt 模式 |
+
+### 9.3 搜索服务
+
+内置搜索聚合服务兼容以下搜索 API 提供商：
+
+| 提供商 | 说明 |
+|--------|------|
+| [DuckDuckGo Instant Answer](https://api.duckduckgo.com) | DDG 搜索结果 |
+| [Bing Search API](https://learn.microsoft.com/zh-cn/azure/search/) | 必应搜索 |
+| [Brave Search API](https://brave.com/search/api/) | Brave 搜索 |
+| [SerpAPI](https://serpapi.com) | Google 结构化搜索 |
+| [SearXNG](https://github.com/searxng/searxng) | 自托管元搜索 |
+| [Tavily](https://tavily.com) | AI 搜索 API |
+| [Exa](https://exa.ai) | 语义搜索 |
+| [Jina AI](https://jina.ai) | 网页搜索与内容提取 |
+| [Firecrawl](https://firecrawl.dev) | 网页爬取 |
+| [Bocha](https://github.com/steven-tey/bocha) | AI 搜索 |
+| [StepFun Search](https://platform.stepfun.com) | 阶跃星辰搜索 |
+| [ZhiPu Search](https://open.bigmodel.cn) | 智谱搜索 |
+| [Perplexity](https://perplexity.ai) | Perplexity Search |
+| [TinyFish](https://tinyfish.ai) | 语义搜索 |
+| [Ollama](https://ollama.com) | 本地模型搜索 |
+| [Metaso](https://metaso.cn) | Metaso 搜索 |
+| [Sogou](https://www.sogou.com) | 搜狗搜索 |
+| [Baidu](https://www.baidu.com) | 百度搜索 |
+| [360 Search](https://www.so.com) | 360 搜索 |
+| [Grok](https://grok.com) | Grok 搜索 |
+| [Linkup](https://linkup.com) | Linkup 搜索 |
+| [Querit](https://querit.ai) | Querit 搜索 |
+
+### 9.4 备份与恢复
+
+| 功能域 | 参考/依赖 |
+|--------|-----------|
+| 备份归档 | Chatbox / Cherry 备份格式兼容 |
+| 增量备份 | WAL（Write-Ahead Log）思路 |
+| 恢复锁（Lease Lock） | 分布式锁 / Redlock 思路 |
+| S3 兼容存储 | AWS S3 API、minio 协议 |
+| 数据同步 | CRDT（Conflict-free Replicated Data Type）思路参考 |
+| 备份校验 | 数字签名 / SHA-256 完整性校验 |
+
+### 9.5 语音识别（ASR）
+
+| 功能域 | 参考/依赖 |
+|--------|-----------|
+| Sherpa-ONNX | [k2-fsa/sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) 端侧 ASR 引擎 |
+| Mimicry / 参考音频 | Mimicry 语音克隆思路 |
+| 云端 ASR | Whisper / SenseVoice 思路参考 |
+| 系统 ASR | Android SpeechRecognizer / Apple SFSpeech |
+| 音频编解码 | WebAudio / WAV / PCM 标准 |
+
+### 9.6 语音合成（TTS）
+
+| 功能域 | 参考/依赖 |
+|--------|-----------|
+| 网络 TTS | OpenAI TTS / ElevenLabs 思路参考 |
+| 文本分块 | TTS 流式分句思路 |
+| 音频播放 | ExoPlayer / AudioServices |
+
+### 9.7 端侧本地推理
+
+| 功能域 | 参考/依赖 |
+|--------|-----------|
+| Llama 端侧推理 | [llama.cpp](https://github.com/ggerganov/llama.cpp) / [llama_flutter_android](https://pub.dev/packages/llama_flutter_android) |
+| 模型格式 | GGUF / GGML |
+| 模型下载 | HuggingFace Transformers 模型分发模式 |
+| 本地工具循环 | 工具循环（tool-use loop）参考 OpenAI / Anthropic 规范 |
+
+### 9.8 MCP 与本地工具
+
+MCP（Model Context Protocol）是本项目的核心协议，以下 MCP Server 模块各自参考了相关技术：
+
+| MCP Server | 功能域 | 参考/依赖 |
+|------------|--------|-----------|
+| `kelivo_github` | GitHub 操作 | GitHub REST API / GraphQL API |
+| `kelivo_files` | 文件操作 | 文件系统 API |
+| `kelivo_context` | 上下文管理 | MCP Context 协议 |
+| `kelivo_fetch` | 网页抓取 | Fetch MCP Server 规范 |
+| `kelivo_jadx` | DEX 反编译 | jadx、dex-jar |
+| `kelivo_reverse` | APK 逆向 | apktool、dex-jar、Smali |
+| `kelivo_so` | SO 分析 | LIEF、radare2、capstone |
+| `kelivo_memory` | 记忆操作 | Memory MCP 扩展 |
+| `kelivo_images` | 图像操作 | 图像编码处理 |
+| `kelivo_dex` | DEX 操作 | DEX 字节码工具 |
+
+### 9.9 图像与媒体
+
+| 功能域 | 参考/依赖 |
+|--------|-----------|
+| 图像生成代理 | DALL·E / Stable Diffusion / Midjourney 协议参考 |
+| OCR | Tesseract OCR / 平台 OCR |
+| PlantUML | [plantuml.com](https://plantuml.com) 图表生成 |
+| QR 码 | QR 编码规范 |
+| 图片压缩 | WebP / AVIF 编码标准 |
+
+### 9.10 翻译与多语言
+
+| 功能域 | 参考/依赖 |
+|--------|-----------|
+| 多语言 i18n | Flutter Intl / ARB 文件 |
+| 翻译服务 | DeepL / Google Translate / 自建 LLM 翻译 |
+| 语言检测 | CLD / langid 思路参考 |
+
+### 9.11 自定义主题与 UI
+
+| 功能域 | 参考/依赖 |
+|--------|-----------|
+| 设计系统 | Material Design 3 / Fluent Design / Human Interface Guidelines |
+| 动态取色 | Material You 动态配色 |
+| 主题生成 | Token-based 设计令牌系统 |
+| 字体管理 | Google Fonts / 系统字体 |
+| 图标 | Lucide Icons / Cupertino Icons |
+| Markdown 渲染 | CommonMark / GFM 规范 |
+| 代码高亮 | Highlight.js 语言列表 |
+| 数学渲染 | KaTeX / MathJax |
+| HTML 转 Markdown | html-to-markdown 思路 |
+
+### 9.12 设备与系统
+
+| 功能域 | 参考/依赖 |
+|--------|-----------|
+| 应用控制 | Android `adb` 协议、Shizuku、Root 权限 |
+| 系统托盘 | [tray_manager](https://github.com/leanflutter/tray_manager) |
+| 全局快捷键 | [hotkey_manager](https://pub.dev/packages/hotkey_manager) |
+| 窗口管理 | [bitsdojo_window](https://github.com/bitsdojo/bitsdojo_window) / [window_manager](https://github.com/google/flutter-desktop-embedding) |
+| 屏幕常亮 | Wakelock 思路 |
+| 权限管理 | [permission_handler](https://github.com/Baseflow/flutter-permission-handler) |
+
+### 9.13 数据与存储
+
+| 功能域 | 参考/依赖 |
+|--------|-----------|
+| SQLite ORM | [drift](https://github.com/simolus3/drift) |
+| KV 存储 | [Hive](https://github.com/hivedb/hive) |
+| 数据库迁移 | 增量迁移思路参考 Flyway / Alembic |
+| 搜索索引 | FTS5（Full-Text Search） |
+
+### 9.14 安全
+
+| 功能域 | 参考/依赖 |
+|--------|-----------|
+| JWT / JWE | RFC 7519 / RFC 7517 |
+| 加密 | AES-GCM / RSA / ECDSA |
+| Webhook 签名 | HMAC-SHA256 |
+| 密钥轮转 | AWS KMS 密钥轮转思路参考 |
+| API Key 混淆 | Base64 / 自定义编码 |
+
+### 9.15 统计与监控
+
+| 功能域 | 参考/依赖 |
+|--------|-----------|
+| 使用量追踪 | OpenAI usage 解析 |
+| Prometheus 指标 | Prometheus 客户端指标模型 |
+| 日志采集 | ELK / Loki 日志格式思路 |
+| 日志脱敏 | 敏感信息 redaction 思路 |
+
+### 9.16 Solab APK 分析
+
+| 功能域 | 参考/依赖 |
+|--------|-----------|
+| APK 结构分析 | Android Package Format 规范 |
+| AndroidManifest.xml 解析 | AXML 格式规范 |
+| 权限分析 | Android Permission 模型 |
+| 组件分析 | Android Component 模型（Activity / Service / Receiver / Provider） |
+| 加固检测 | 各加固方案公开特征 |
+| 规则引擎 | 自定义 YAML/JSON 规则 |
+
+### 9.17 其他开源参考
+
+| 项目 | 用途 |
+|------|------|
+| [langchain](https://github.com/langchain-ai/langchain) | 链路编排思路参考 |
+| [langfuse](https://github.com/langfuse/langfuse) | LLM 可观测性思路 |
+| [promptfoo](https://github.com/promptfoo/promptfoo) | 提示词测试思路 |
+| [ollama](https://github.com/ollama/ollama) | 本地模型推理与分发 |
+| [vllm](https://github.com/vllm-project/vllm) | LLM 推理服务参考 |
+| [FastAPI](https://github.com/fastapi/fastapi) | API 设计规范参考 |
+| [Dify](https://github.com/langgenius/dify) | LLM 应用平台思路 |
+| [RAGFlow](https://github.com/infiniflow/ragflow) | RAG 系统思路 |
+
+## 十、协议与标准
 
 | 项目 | 说明 |
 |------|------|
@@ -311,7 +519,7 @@ RelayGo 网关是 Kelivo RevKit 内置的 API 反向代理，提供负载均衡�
 | HTTP/1.1 (RFC 7230-7235) | HTTP 协议规范 |
 | AGPL-3.0 | 开源协议 |
 
-## 十、社区与贡献者
+## 十一、社区与贡献者
 
 感谢所有在 GitHub Issue、PR、讨论区、内测反馈中贡献问题的开发者与用户。  
 感谢每一个提交 Bug Report、Feature Request、本地化翻译、文档改进的人。
