@@ -11,7 +11,7 @@ Kelivo RevKit 的诞生离不开众多开源项目、社区和个人贡献者。
 | Chevey339/kelivo | 原始项目，奠定整体架构与聊天核心 | [GitHub](https://github.com/Chevey339/kelivo) |
 | MuMu-0604/kelivo (Kelivo Plus) | 二次开发版，在原版基础上大幅扩展功能与体验 | [GitHub](https://github.com/MuMu-0604/kelivo) |
 | re-ovo/rikkahub | UI 设计灵感来源 | [GitHub](https://github.com/re-ovo/rikkahub) |
-| bilieebiliee1-design/SOMCP | Serverless MCP 参考实现，MCP 工具调用与协议交互模式参考 | [GitHub](https://github.com/bilieebiliee1-design/SOMCP) |
+| bilieebiliee1-design/SOMCP | Serverless MCP 参考实现，MCP 工具调用与协议交互模式参考；**`@kelivo/so` 工具集的核心参考实现** | [GitHub](https://github.com/bilieebiliee1-design/SOMCP) |
 
 ## 二、框架与语言
 
@@ -409,7 +409,7 @@ MCP（Model Context Protocol）是本项目的核心协议，以下 MCP Server �
 | `kelivo_fetch` | 网页抓取 | Fetch MCP Server 规范 |
 | `kelivo_jadx` | DEX 反编译 | jadx、dex-jar |
 | `kelivo_reverse` | APK 逆向 | apktool、dex-jar、Smali |
-| `kelivo_so` | SO 分析 | LIEF、radare2、capstone |
+| `kelivo_so` | SO 分析 | **[SOMCP](https://github.com/bilieebiliee1-design/SOMCP)**（核心参考）、LIEF、radare2、capstone |
 | `kelivo_memory` | 记忆操作 | Memory MCP 扩展 |
 | `kelivo_images` | 图像操作 | 图像编码处理 |
 | `kelivo_dex` | DEX 操作 | DEX 字节码工具 |
