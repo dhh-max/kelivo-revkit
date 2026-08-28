@@ -70,11 +70,58 @@
       <button onclick="checkAllKeys()">批量检测</button>
     </div>
     <div class="keys-list" id="keysList">加载中...</div>
-  </div>
   <div class="section-title">配额统计 (Billing 兼容)</div>
   <div class="card">
     <div id="billingInfo">加载中...</div>
   </div>
+
+  <div class="section-title">用量趋势</div>
+  <div class="card">
+    <div class="form-row">
+      <select id="trendPeriod" onchange="loadTrend()">
+        <option value="24h">近24小时</option>
+        <option value="7d" selected>近7天</option>
+        <option value="30d">近30天</option>
+      </select>
+    </div>
+    <div id="trendChart">加载中...</div>
+  </div>
+
+  <div class="section-title">健康探测</div>
+  <div class="card">
+    <button onclick="loadHealth()">探测全部 Key</button>
+    <div id="healthResults" style="margin-top:12px"></div>
+  </div>
+
+  <div class="section-title">网关密钥管理</div>
+  <div class="card">
+    <div id="gatewayKeysList">加载中...</div>
+    <div class="form-row" style="margin-top:12px">
+      <input type="text" id="gkKey" placeholder="密钥">
+      <input type="text" id="gkName" placeholder="名称">
+      <select id="gkPermission"><option value="full">全部权限</option><option value="readonly">只读</option><option value="models">指定模型</option></select>
+      <button onclick="addGatewayKey()">添加</button>
+    </div>
+  </div>
+
+  <div class="section-title">Webhook 测试</div>
+  <div class="card">
+    <div class="form-row">
+      <input type="text" id="whUrl" placeholder="Webhook URL">
+      <input type="text" id="whSecret" placeholder="签名密钥（可选）">
+      <button onclick="testWebhook()">测试推送</button>
+    </div>
+    <div id="whResult" style="margin-top:8px"></div>
+  </div>
+
+  <div class="section-title">数据导出</div>
+  <div class="card">
+    <div class="form-row">
+      <button onclick="exportLogs()">导出日志 CSV</button>
+      <button onclick="exportStats()">导出统计 CSV</button>
+    </div>
+  </div>
+</div>
 </div>
 <div class="toast" id="toast"></div>
 <script>
@@ -203,7 +250,98 @@ async function checkAllKeys() {
   } catch (e) { toast('检测失败'); }
 }
 
-async function refresh() { loadOverview(); loadKeys(); loadModelStats(); loadCache(); loadBilling(); }
+async function refresh() { loadOverview(); loadKeys(); loadModelStats(); loadCache(); loadBilling(); loadTrend(); loadGatewayKeys(); }
+
+// —— 用量趋势 ——
+async function loadTrend() {
+  try {
+    const period = document.getElementById('trendPeriod').value;
+    const d = await api('/relay/trend?period=' + period);
+    const series = (d.series || d.data?.series || []).map(s => ({
+      label: s.label || s.date, requests: s.requests || 0,
+      errors: s.errors || 0, tokens: s.tokens || 0, cost: s.cost_usd || 0
+    }));
+    if (!series.length) { document.getElementById('trendChart').textContent = '暂无数据'; return; }
+    const maxReq = Math.max(...series.map(s => s.requests), 1);
+    document.getElementById('trendChart').innerHTML = series.map(s => {
+      const w = (s.requests / maxReq * 100).toFixed(0);
+      const errCls = s.errors > 0 ? 'style="color:#ff6b6b"' : '';
+      return `<div class="model-row"><span>${s.label}</span><span>${s.requests} 请求 · ${s.tokens} tokens · $${s.cost.toFixed(4)} ${s.errors > 0 ? `<span ${errCls}>(${s.errors} 错误)</span>` : ''}</span></div><div class="model-bar"><div class="model-bar-fill" style="width:${w}%"></div></div>`;
+    }).join('');
+  } catch (e) { document.getElementById('trendChart').textContent = '加载失败'; }
+}
+
+// —— 健康探测 ——
+async function loadHealth() {
+  document.getElementById('healthResults').textContent = '探测中...';
+  try {
+    const d = await api('/relay/health');
+    const s = d.summary || {};
+    const results = d.results || [];
+    let html = `<div class="stat"><span class="label">总探测</span><span class="value">${s.total || results.length}</span></div>`;
+    html += `<div class="stat"><span class="label">正常</span><span class="value" style="color:#4ade80">${s.ok || 0}</span></div>`;
+    html += `<div class="stat"><span class="label">异常</span><span class="value" style="color:#ff6b6b">${s.failed || 0}</span></div>`;
+    html += `<div class="stat"><span class="label">平均延迟</span><span class="value">${s.avg_latency_ms || 0}ms</span></div>`;
+    html += '<div style="margin-top:8px">';
+    for (const r of results) {
+      const color = r.ok ? '#4ade80' : '#ff6b6b';
+      html += `<div class="model-row"><span>${r.name || r.key_id}</span><span style="color:${color}">${r.ok ? '✓ ' + r.latency_ms + 'ms' : '✗ ' + (r.error || '失败')}</span></div>`;
+    }
+    html += '</div>';
+    document.getElementById('healthResults').innerHTML = html;
+  } catch (e) { document.getElementById('healthResults').textContent = '探测失败'; }
+}
+
+// —— 网关密钥管理 ——
+let _gatewayKeys = [];
+async function loadGatewayKeys() {
+  try {
+    const d = await api('/relay/gateway-keys');
+    _gatewayKeys = d.keys || [];
+    const html = _gatewayKeys.map((k, i) => {
+      return `<div class="key-item"><div><div class="key-name">${k.name || '未命名'}</div><div class="key-masked">${k.key_masked || '****'} · ${k.permission}</div></div><button class="danger" onclick="removeGatewayKey(${i})">删</button></div>`;
+    }).join('');
+    document.getElementById('gatewayKeysList').innerHTML = html || '<div style="color:#888">暂无附加密钥</div>';
+  } catch (e) { document.getElementById('gatewayKeysList').textContent = '加载失败'; }
+}
+async function addGatewayKey() {
+  const key = document.getElementById('gkKey').value.trim();
+  const name = document.getElementById('gkName').value.trim();
+  const perm = document.getElementById('gkPermission').value;
+  if (!key) { toast('请输入密钥'); return; }
+  _gatewayKeys.push({ key, name, permission: perm, enabled: true, models: [], note: '' });
+  await saveGatewayKeys();
+  document.getElementById('gkKey').value = '';
+  document.getElementById('gkName').value = '';
+}
+async function removeGatewayKey(i) {
+  _gatewayKeys.splice(i, 1);
+  await saveGatewayKeys();
+}
+async function saveGatewayKeys() {
+  try {
+    await api('/relay/gateway-keys', 'PUT', { keys: _gatewayKeys.map(k => ({ key: k.key || '', name: k.name || '', permission: k.permission || 'full', enabled: k.enabled !== false, models: k.models || [], note: k.note || '' })) });
+    toast('网关密钥已更新');
+    loadGatewayKeys();
+  } catch (e) { toast('保存失败'); }
+}
+
+// —— Webhook 测试 ——
+async function testWebhook() {
+  const url = document.getElementById('whUrl').value.trim();
+  const secret = document.getElementById('whSecret').value.trim();
+  if (!url) { toast('请输入 Webhook URL'); return; }
+  document.getElementById('whResult').textContent = '推送中...';
+  try {
+    const d = await api('/relay/webhook/test', 'POST', { url, secret });
+    document.getElementById('whResult').innerHTML = d.ok ? '<span style="color:#4ade80">✓ 推送成功</span>' : '<span style="color:#ff6b6b">✗ ' + (d.error || '失败') + '</span>';
+  } catch (e) { document.getElementById('whResult').innerHTML = '<span style="color:#ff6b6b">✗ 请求失败</span>'; }
+}
+
+// —— 数据导出 ——
+function exportLogs() { window.open(BASE + '/relay/export/logs', '_blank'); }
+function exportStats() { window.open(BASE + '/relay/export/stats', '_blank'); }
+
 refresh();
 setInterval(refresh, 5000);
 </script>
