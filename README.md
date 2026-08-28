@@ -13,13 +13,15 @@ This repository (`dhh-max/kelivo-revkit`) is a second-level fork of [Kelivo Plus
 | Positioning | Mobile AI self-configuration + general enhancements | Fully inherits Plus; focused on Android security & reverse engineering |
 | Built-in MCP | fetch / files / images / github / so / reverse (basic) | All inherited + new `@kelivo/dex` (DEX bytecode parsing) and `@kelivo/context` (conversation context management) |
 | APK reverse engineering | Basic static analysis and triage | `@kelivo/reverse` deepened to 20 tools: manifest deep parsing, SO/DEX aggregate analysis, JNI bridge discovery, cross-target string search, packer detection, signature bypass, APK resign & DEX injection, etc. |
-| Preset assistants | General-purpose assistants | Adds a “Reverse Analyst” preset bound to `@kelivo/reverse` by default |
+| Preset assistants | General-purpose assistants | Adds a "Reverse Analyst" preset bound to `@kelivo/reverse` by default |
+| RelayGo gateway | Basic proxy | Fully inherited + **request dedup** (2s deduplication window, body-hash key), **exponential backoff with jitter** for all 4xx/5xx/timeout errors, **cleanup timer** to prevent dedup map unbounded growth |
 | 神经权能网关 | Included | Fully inherited |
 | Skills | Included | Fully inherited |
 | GitHub write tools | Included | Fully inherited |
 | Local hybrid search | Included | Fully inherited |
 | Mobile import flow | Included | Fully inherited |
 | Tool UX | Chinese tool descriptions + grouped tools | Fully inherited |
+| Documentation | Basic README | **3 major technical reference docs**: App reference (19 ch.), Gateway reference (19 ch.), Credits (11 ch. / 532 lines) |
 
 ## Highlights
 
@@ -334,17 +336,23 @@ The repository does not include signing secrets. Configure your own `android/key
 
 ## Documentation
 
+### Main App
+
 - [Chinese README](README_ZH_CN.md)
 - [Kelivo RevKit change notes (vs Kelivo Plus)](docs/KELIVO_PLUS_CHANGES_ZH.md)
 - [Android installation and coexistence guide](docs/ANDROID_INSTALLATION_ZH.md)
 - [Release notes](docs/RELEASE_NOTES_1.1.17_PLUS.md)
 - [Search upgrade notes](docs/KELIVO_SEARCH_UPGRADE_NOTES.md)
 - [APK analysis anti-crash & performance optimization](docs/APK_ANALYSIS_ANTI_CRASH_ZH.md)
+- [Kelivo App technical reference (19 chapters)](docs/KELIVO_APP_REFERENCE_ZH.md)
 
-## Acknowledgements
+### RelayGo Gateway
 
-- Original project: [Chevey339/kelivo](https://github.com/Chevey339/kelivo)
-- UI inspiration: [RikkaHub](https://github.com/re-ovo/rikkahub)
+- [RelayGo Gateway technical reference (19 chapters)](docs/RELAYGO_GATEWAY_REFERENCE_ZH.md)
+
+### Acknowledgements
+
+- [Full credits (11 chapters / 532 lines)](docs/CREDITS_ZH.md)
 
 ## License
 

@@ -11,13 +11,15 @@
 | 定位 | 移动端 AI 自主配置 + 通用增强 | 完整继承 Plus，并聚焦 Android 安全与逆向工程 |
 | 内置 MCP | fetch / files / images / github / so / reverse（基础） | 全部继承，新增 `@kelivo/dex`（DEX 字节码解析）、`@kelivo/context`（对话上下文管理） |
 | APK 逆向 | 基础静态分析与快速排查 | `@kelivo/reverse` 深度扩展至 20 个工具：新增 manifest 深度解析、SO/DEX 聚合分析、JNI 桥定位、跨目标字符串检索、加壳检测、过签、重打包与 DEX 注入等 |
-| 预置助手 | 通用助手 | 新增“逆向分析师 / Reverse Analyst”，默认绑定 `@kelivo/reverse` |
+| 预置助手 | 通用助手 | 新增"逆向分析师 / Reverse Analyst"，默认绑定 `@kelivo/reverse` |
+| RelayGo 网关 | 基础代理 | 完全继承 + **请求去重**（2 秒窗口、body-hash 键）、**指数退避 + 抖动**（覆盖所有 4xx/5xx/超时错误）、**清理定时器**（防止去重表无限增长） |
 | 神经权能网关 | 有 | 完全继承 |
 | Skills 技能系统 | 有 | 完全继承 |
 | GitHub 写入工具 | 有 | 完全继承 |
 | 本地混合搜索 | 有 | 完全继承 |
 | 移动端导入 | 有 | 完全继承 |
 | 工具体验 | 中文化 + 分组 | 完全继承 |
+| 文档 | 基础 README | **3 份技术参考**：主体应用（19 章）、RelayGo 网关（19 章）、致谢名单（11 章 / 532 行） |
 
 ## 核心功能
 
@@ -354,17 +356,22 @@ flutter build apk --release --target-platform android-arm64
 
 ## 文档
 
+### 主体项目文档
+
 - [二改功能说明](docs/KELIVO_PLUS_CHANGES_ZH.md)
 - [Android 安装与共存说明](docs/ANDROID_INSTALLATION_ZH.md)
 - [Release 说明](docs/RELEASE_NOTES_1.1.17_PLUS.md)
 - [搜索升级记录](docs/KELIVO_SEARCH_UPGRADE_NOTES.md)
 - [APK 分析防崩溃与性能优化方案](docs/APK_ANALYSIS_ANTI_CRASH_ZH.md)
+- [主体应用技术参考（19 章）](docs/KELIVO_APP_REFERENCE_ZH.md)
 
-## 致谢
+### RelayGo 网关文档
 
-- 原项目：[Chevey339/kelivo](https://github.com/Chevey339/kelivo)
-- UI 灵感来源：[RikkaHub](https://github.com/re-ovo/rikkahub)
-- 感谢原作者和社区贡献者提供的基础工程。
+- [RelayGo 网关技术参考（19 章）](docs/RELAYGO_GATEWAY_REFERENCE_ZH.md)
+
+### 致谢
+
+- [完整致谢名单（11 章 / 532 行）](docs/CREDITS_ZH.md)
 
 ## License
 
