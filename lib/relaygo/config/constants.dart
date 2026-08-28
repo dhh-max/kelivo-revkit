@@ -86,6 +86,15 @@ class Constants {
     overviewPath,
     checkAllPath,
     markExhaustedPath,
+    metricsPath,
+    healthProbePath,
+    gatewayKeysPath,
+    routesPath,
+    trendPath,
+    pricingPath,
+    webhookTestPath,
+    exportLogsPath,
+    exportStatsPath,
   ];
 
   // —— 管理接口鉴权 ——
@@ -241,4 +250,27 @@ class Constants {
 
   // —— Phase 3：统计报表 ——
   static const int reportMaxDays = 90; // 报表最长回溯天数
+
+  // —— 从 InterGate Python 版移植的新功能 ——
+
+  // 新增管理接口路径
+  static const String metricsPath = '/relay/metrics'; // Prometheus 指标
+  static const String healthProbePath = '/relay/health'; // 健康探测
+  static const String gatewayKeysPath = '/relay/gateway-keys'; // 附加网关密钥管理
+  static const String routesPath = '/relay/routes'; // 模型路由管理
+  static const String trendPath = '/relay/trend'; // 用量趋势
+  static const String pricingPath = '/relay/pricing'; // 价格管理
+  static const String webhookTestPath = '/relay/webhook/test'; // Webhook 测试
+  static const String exportLogsPath = '/relay/export/logs'; // 导出日志 CSV
+  static const String exportStatsPath = '/relay/export/stats'; // 导出统计 CSV
+
+  // 上游连接池
+  static const int defaultUpstreamMaxConnections = 100;
+  static const int defaultUpstreamMaxKeepalive = 20;
+
+  // 告警持久化
+  static const int maxPersistedAlerts = 200;
+
+  // Web 控制台默认端口
+  static const int defaultWebPort = 51235;
 }
