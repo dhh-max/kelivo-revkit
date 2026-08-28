@@ -132,13 +132,47 @@ class AssistantProvider extends ChangeNotifier {
     }
   }
 
+  /// 内置输出限制规则：剥离 AI 常见开场白、结尾套话与英文 filler。
+  /// persist 模式（visualOnly=false, replaceOnly=false）——
+  /// 在消息存储时即生效，后续展示和发送均使用已过滤版本。
+  static List<AssistantRegex> _builtinOutputFilterRules() => <AssistantRegex>[
+    AssistantRegex(
+      id: 'builtin-no-filler-open-zh',
+      name: '开场白过滤',
+      pattern: r'(?m)^(好的[，。、！]\s*(?:我来|让我)[^\n]*|当然可以[，。！]?\s*$|当然可以[，。！]\s*(?:我来|让我)[^\n]*|当然[，。！]\s*(?:我来|让我|可以)[^\n]*|没问题[，。！]?\s*$|让我来[帮为你][^\n]*|我来帮[^\n]*)$\n?',
+      replacement: '',
+      scopes: const <AssistantRegexScope>[AssistantRegexScope.assistant],
+      enabled: true,
+    ),
+    AssistantRegex(
+      id: 'builtin-no-filler-close-zh',
+      name: '结尾套话过滤',
+      pattern: r'(?m)^(希望[对这能][^\n]{0,30}有帮助[^\n]{0,20}|如果你还[^\n]{0,40}问题[^\n]{0,30}|以上就是[^\n]{0,40}(?:内容|全部内容)[。！]?|如有[^\n]{0,30}疑问[^\n]{0,30})$\n?',
+      replacement: '',
+      scopes: const <AssistantRegexScope>[AssistantRegexScope.assistant],
+      enabled: true,
+    ),
+    AssistantRegex(
+      id: 'builtin-no-filler-en',
+      name: 'English Filler Filter',
+      pattern: r'''(?m)^(Sure[,!.][^\n]{0,60}|Of course[,!.]?\s*$|Of course[,!.]?\s*(?:I'll|let me)[^\n]{0,60}|Let me help[^\n]{0,60}|I hope this helps[^\n]{0,40})$\n?''',
+      replacement: '',
+      scopes: const <AssistantRegexScope>[AssistantRegexScope.assistant],
+      enabled: true,
+    ),
+  ];
+
   Assistant _defaultAssistant(AppLocalizations l10n) => Assistant(
     id: const Uuid().v4(),
     name: l10n.assistantProviderDefaultAssistantName,
-    systemPrompt: '',
+    systemPrompt:
+        '直接输出最终结果，不展示中间推理、工具调用步骤、验证过程等任何中间过程。'
+        '禁止输出与正文无关的内容：不要开场白、不要结尾套话、不要解释自己做了什么。'
+        '用户要求什么，一步到位给出最终答案。',
     thinkingBudget: null,
     temperature: 0.6,
     topP: null,
+    regexRules: _builtinOutputFilterRules(),
   );
 
   // Ensure localized default assistants exist; call this after localization is ready.
@@ -153,10 +187,14 @@ class AssistantProvider extends ChangeNotifier {
         id: const Uuid().v4(),
         name: l10n.assistantProviderSampleAssistantName,
         systemPrompt: l10n.assistantProviderSampleAssistantSystemPrompt(
-          '{model_name}',
-        ),
+              '{model_name}',
+            ) +
+            '\n\n直接输出最终结果，不展示中间推理、工具调用步骤、验证过程等任何中间过程。'
+            '禁止输出与正文无关的内容：不要开场白、不要结尾套话、不要解释自己做了什么。'
+            '用户要求什么，一步到位给出最终答案。',
         temperature: 0.6,
         topP: null,
+        regexRules: _builtinOutputFilterRules(),
       ),
     );
     // 3) 逆向分析师 — 绑定 @kelivo/reverse 聚合逆向 MCP
@@ -167,11 +205,12 @@ class AssistantProvider extends ChangeNotifier {
             ? '逆向分析师'
             : 'Reverse Analyst',
         systemPrompt: (Localizations.localeOf(context).languageCode == 'zh')
-            ? '你是一名专业的 Android 逆向分析工程师。你擅长：APK 结构分析、DEX/ODEX 字节码反编译、SO/ELF 原生库逆向、Manifest 权限与组件审计、JNI 接口分析、反混淆与加壳识别。请使用内置的 @kelivo/reverse 工具集进行系统化分析，并在回复中引用工具输出作为证据。'
-            : 'You are a professional Android reverse engineering analyst. You excel at: APK structure analysis, DEX/ODEX bytecode decompilation, SO/ELF native library reverse engineering, Manifest permission and component auditing, JNI interface analysis, deobfuscation and packer identification. Use the built-in @kelivo/reverse toolset for systematic analysis and cite tool outputs as evidence in your responses.',
+            ? '你是一名专业的 Android 逆向分析工程师。你擅长：APK 结构分析、DEX/ODEX 字节码反编译、SO/ELF 原生库逆向、Manifest 权限与组件审计、JNI 接口分析、反混淆与加壳识别。请使用内置的 @kelivo/reverse 工具集进行系统化分析，并在回复中引用工具输出作为证据。\n\n直接输出最终结果，不展示中间推理、工具调用步骤、验证过程等任何中间过程。禁止输出与正文无关的内容：不要开场白、不要结尾套话、不要解释自己做了什么。用户要求什么，一步到位给出最终答案。'
+            : 'You are a professional Android reverse engineering analyst. You excel at: APK structure analysis, DEX/ODEX bytecode decompilation, SO/ELF native library reverse engineering, Manifest permission and component auditing, JNI interface analysis, deobfuscation and packer identification. Use the built-in @kelivo/reverse toolset for systematic analysis and cite tool outputs as evidence in your responses.\n\nOutput the final result directly. Do not include intermediate reasoning, tool call steps, or verification processes. Do not output content unrelated to the main text: no opening pleasantries, no closing remarks, no explanations of what you did. Whatever the user asks, deliver the final answer in one step.',
         temperature: 0.3,
         topP: null,
         mcpServerIds: const [], // MCP 按需手动启用，不默认绑定
+        regexRules: _builtinOutputFilterRules(),
       ),
     );
     await _persist();
@@ -280,9 +319,14 @@ class AssistantProvider extends ChangeNotifier {
           (context != null
               ? AppLocalizations.of(context)!.assistantProviderNewAssistantName
               : 'New Assistant')),
+      systemPrompt:
+          '直接输出最终结果，不展示中间推理、工具调用步骤、验证过程等任何中间过程。'
+          '禁止输出与正文无关的内容：不要开场白、不要结尾套话、不要解释自己做了什么。'
+          '用户要求什么，一步到位给出最终答案。',
       temperature: 0.6,
       topP: null,
       mcpServerIds: const [], // 默认不绑定任何 MCP，用户按需手动启用
+      regexRules: _builtinOutputFilterRules(),
     );
     _assistants.add(a);
     await _persist();
