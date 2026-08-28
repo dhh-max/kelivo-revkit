@@ -114,6 +114,25 @@
     <div id="whResult" style="margin-top:8px"></div>
   </div>
 
+  <div class="section-title">模型路由</div>
+  <div class="card">
+    <div id="routesList">加载中...</div>
+    <div class="form-row" style="margin-top:12px">
+      <input type="text" id="routeModel" placeholder="模型名">
+      <input type="text" id="routeKeyIds" placeholder="Key ID 列表 (逗号分隔)">
+      <button onclick="addRoute()">添加/更新</button>
+    </div>
+  </div>
+  <div class="section-title">价格管理</div>
+  <div class="card">
+    <div id="pricingInfo">加载中...</div>
+    <div class="form-row" style="margin-top:12px">
+      <input type="text" id="priceModel" placeholder="模型名 (前缀匹配)">
+      <input type="text" id="priceInput" placeholder="输入价格/1M tokens">
+      <input type="text" id="priceOutput" placeholder="输出价格/1M tokens">
+      <button onclick="addPriceOverride()">添加覆盖</button>
+    </div>
+  </div>
   <div class="section-title">数据导出</div>
   <div class="card">
     <div class="form-row">
@@ -250,7 +269,7 @@ async function checkAllKeys() {
   } catch (e) { toast('检测失败'); }
 }
 
-async function refresh() { loadOverview(); loadKeys(); loadModelStats(); loadCache(); loadBilling(); loadTrend(); loadGatewayKeys(); }
+async function refresh() { loadOverview(); loadKeys(); loadModelStats(); loadCache(); loadBilling(); loadTrend(); loadGatewayKeys(); loadRoutes(); loadPricing(); }
 
 // —— 用量趋势 ——
 async function loadTrend() {
@@ -341,6 +360,76 @@ async function testWebhook() {
 // —— 数据导出 ——
 function exportLogs() { window.open(BASE + '/relay/export/logs', '_blank'); }
 function exportStats() { window.open(BASE + '/relay/export/stats', '_blank'); }
+
+// —— 模型路由管理 ——
+async function loadRoutes() {
+  try {
+    const d = await api('/relay/routes');
+    const routes = d.routes || {};
+    const keys = Object.keys(routes);
+    const html = keys.length ? keys.map(m => {
+      const r = routes[m];
+      return `<div class="key-item"><div><div class="key-name">${m}</div><div class="key-masked">Keys: ${(r.key_ids||[]).join(', ') || '无'} · ${r.enabled ? '启用' : '禁用'}</div></div><button class="danger" onclick="deleteRoute('${m}')">删</button></div>`;
+    }).join('') : '<div style="color:#888">暂无路由规则</div>';
+    document.getElementById('routesList').innerHTML = html;
+  } catch (e) { document.getElementById('routesList').textContent = '加载失败'; }
+}
+async function addRoute() {
+  const model = document.getElementById('routeModel').value.trim();
+  const keyIds = document.getElementById('routeKeyIds').value.trim().split(',').map(s=>s.trim()).filter(Boolean);
+  if (!model) { toast('请输入模型名'); return; }
+  try {
+    await api('/relay/routes?model=' + encodeURIComponent(model), 'PUT', { key_ids: keyIds, enabled: true, note: '' });
+    toast('路由已更新');
+    loadRoutes();
+  } catch (e) { toast('添加失败'); }
+}
+async function deleteRoute(model) {
+  if (!confirm('确定删除路由「' + model + '」？')) return;
+  try {
+    await api('/relay/routes?model=' + encodeURIComponent(model), 'DELETE');
+    toast('路由已删除');
+    loadRoutes();
+  } catch (e) { toast('删除失败'); }
+}
+// —— 价格管理 ——
+async function loadPricing() {
+  try {
+    const d = await api('/relay/pricing');
+    const builtin = d.builtin || {};
+    const overrides = d.overrides || {};
+    const defaultP = d.default || [1, 3];
+    let html = `<div class="stat"><span class="label">默认价格</span><span class="value">$${defaultP[0]} / $${defaultP[1]}</span></div>`;
+    html += `<div class="stat"><span class="label">内置模型数</span><span class="value">${Object.keys(builtin).length}</span></div>`;
+    const ovKeys = Object.keys(overrides);
+    html += `<div class="stat"><span class="label">自定义覆盖</span><span class="value">${ovKeys.length}</span></div>`;
+    if (ovKeys.length) {
+      html += '<div style="margin-top:8px">';
+      for (const k of ovKeys) {
+        html += `<div class="model-row"><span>${k}</span><span>$${overrides[k][0]} / $${overrides[k][1]}</span></div>`;
+      }
+      html += '</div>';
+    }
+    document.getElementById('pricingInfo').innerHTML = html;
+  } catch (e) { document.getElementById('pricingInfo').textContent = '加载失败'; }
+}
+async function addPriceOverride() {
+  const model = document.getElementById('priceModel').value.trim().toLowerCase();
+  const input = parseFloat(document.getElementById('priceInput').value);
+  const output = parseFloat(document.getElementById('priceOutput').value);
+  if (!model || isNaN(input) || isNaN(output)) { toast('请填写完整的价格信息'); return; }
+  try {
+    const d = await api('/relay/pricing');
+    const rules = d.overrides || {};
+    rules[model] = [input, output];
+    await api('/relay/pricing', 'PUT', { rules });
+    toast('价格覆盖已添加');
+    loadPricing();
+    document.getElementById('priceModel').value = '';
+    document.getElementById('priceInput').value = '';
+    document.getElementById('priceOutput').value = '';
+  } catch (e) { toast('添加失败'); }
+}
 
 refresh();
 setInterval(refresh, 5000);
