@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:http/http.dart' as http;
 import 'package:html/parser.dart' as html_parser;
@@ -7,15 +8,11 @@ import 'package:html/dom.dart' as dom;
 import 'package:html2md/html2md.dart' as html2md;
 import 'package:mcp_client/mcp_client.dart' as mcp;
 
-import '../in_memory_mcp_server.dart';
-
 /// @kelivo/fetch — In-memory MCP server engine and transport (Flutter/Dart)
 ///
-/// Provides four tools:
-/// - fetch_html     → returns raw HTML text
-/// - fetch_markdown → HTML converted to Markdown
-/// - fetch_txt      → plain text (script/style removed, whitespace collapsed)
-/// - fetch_json     → JSON stringified
+/// Provides one token-conscious `fetch` tool. HTML is simplified to Markdown
+/// by default, while raw content requires an explicit opt-in. Responses are
+/// bounded and can be continued with `start_index`.
 ///
 /// The server implements a minimal subset of MCP over JSON-RPC 2.0:
 /// initialize, tools/list, tools/call. It is intended to run in the same
@@ -23,16 +20,27 @@ import '../in_memory_mcp_server.dart';
 /// in-memory ClientTransport.
 
 class KelivoFetchRequestPayload {
+  static const defaultMaxLength = 5000;
+  static const maximumMaxLength = 20000;
+
   final Uri url;
   final Map<String, String> headers;
+  final int maxLength;
+  final int startIndex;
+  final bool raw;
 
-  KelivoFetchRequestPayload({required this.url, Map<String, String>? headers})
-    : headers = headers ?? const {};
+  KelivoFetchRequestPayload({
+    required this.url,
+    Map<String, String>? headers,
+    this.maxLength = defaultMaxLength,
+    this.startIndex = 0,
+    this.raw = false,
+  }) : headers = headers ?? const {};
 
   static KelivoFetchRequestPayload parse(Object? args) {
     if (args is! Map) {
       throw ArgumentError(
-        'Invalid arguments: expected object with url[, headers]',
+        'Invalid arguments: expected an object containing url',
       );
     }
     final map = args.cast<String, dynamic>();
@@ -49,7 +57,49 @@ class KelivoFetchRequestPayload {
         headers[k.toString()] = v.toString();
       });
     }
-    return KelivoFetchRequestPayload(url: uri, headers: headers);
+    final maxLength = _parseInteger(
+      map['max_length'],
+      name: 'max_length',
+      defaultValue: defaultMaxLength,
+    );
+    if (maxLength < 1 || maxLength > maximumMaxLength) {
+      throw ArgumentError(
+        'Invalid max_length: expected a value from 1 to $maximumMaxLength',
+      );
+    }
+    final startIndex = _parseInteger(
+      map['start_index'],
+      name: 'start_index',
+      defaultValue: 0,
+    );
+    if (startIndex < 0) {
+      throw ArgumentError('Invalid start_index: expected a non-negative value');
+    }
+    final rawAny = map['raw'];
+    if (rawAny != null && rawAny is! bool) {
+      throw ArgumentError('Invalid raw: expected a boolean');
+    }
+
+    return KelivoFetchRequestPayload(
+      url: uri,
+      headers: headers,
+      maxLength: maxLength,
+      startIndex: startIndex,
+      raw: rawAny as bool? ?? false,
+    );
+  }
+
+  static int _parseInteger(
+    Object? value, {
+    required String name,
+    required int defaultValue,
+  }) {
+    if (value == null) return defaultValue;
+    if (value is int) return value;
+    if (value is num && value.isFinite && value == value.roundToDouble()) {
+      return value.toInt();
+    }
+    throw ArgumentError('Invalid $name: expected an integer');
   }
 }
 
@@ -75,59 +125,97 @@ class KelivoFetcher {
     }
   }
 
-  static Future<Map<String, dynamic>> html(
+  static Future<Map<String, dynamic>> fetch(
     KelivoFetchRequestPayload payload,
   ) async {
     try {
       final resp = await _fetch(payload);
-      final text = resp.body;
-      return _ok(text);
+      final contentType = (resp.headers['content-type'] ?? '').toLowerCase();
+      final body = resp.body;
+      final text = payload.raw
+          ? body
+          : _contentForModel(body, contentType: contentType);
+      return _ok(_bounded(text, payload));
     } catch (e) {
       return _err(e.toString());
     }
   }
 
-  static Future<Map<String, dynamic>> json(
-    KelivoFetchRequestPayload payload,
-  ) async {
-    try {
-      final resp = await _fetch(payload);
-      final raw = resp.body;
-      final dynamic data = jsonDecode(raw);
-      return _ok(const JsonEncoder.withIndent('  ').convert(data));
-    } catch (e) {
-      return _err(e.toString());
+  static String _contentForModel(String body, {required String contentType}) {
+    if (_isHtml(body, contentType: contentType)) {
+      return _htmlToMarkdown(body);
     }
+    if (contentType.contains('application/json') ||
+        contentType.contains('+json')) {
+      try {
+        return jsonEncode(jsonDecode(body));
+      } catch (_) {
+        // Preserve malformed or JSON-like responses instead of failing fetch.
+      }
+    }
+    return body.trim();
   }
 
-  static Future<Map<String, dynamic>> txt(
-    KelivoFetchRequestPayload payload,
-  ) async {
-    try {
-      final resp = await _fetch(payload);
-      final html = resp.body;
-      final dom.Document document = html_parser.parse(html);
-      document.querySelectorAll('script,style').forEach((el) => el.remove());
-      final text = document.body?.text ?? '';
-      final normalized = text.replaceAll(RegExp(r'\s+'), ' ').trim();
-      return _ok(normalized);
-    } catch (e) {
-      return _err(e.toString());
+  static bool _isHtml(String body, {required String contentType}) {
+    if (contentType.contains('text/html') ||
+        contentType.contains('application/xhtml+xml')) {
+      return true;
     }
+    if (contentType.isNotEmpty) return false;
+    final prefix = body.length > 256 ? body.substring(0, 256) : body;
+    return RegExp(
+      r'<\s*(?:!doctype\s+html|html)\b',
+      caseSensitive: false,
+    ).hasMatch(prefix);
   }
 
-  static Future<Map<String, dynamic>> markdown(
-    KelivoFetchRequestPayload payload,
-  ) async {
-    try {
-      final resp = await _fetch(payload);
-      final html = resp.body;
-      final md = html2md.convert(html);
-      return _ok(md);
-    } catch (e) {
-      return _err(e.toString());
+  static String _htmlToMarkdown(String html) {
+    final dom.Document document = html_parser.parse(html);
+    document
+        .querySelectorAll(
+          'script,style,noscript,template,svg,iframe,nav,aside,footer,form',
+        )
+        .forEach((element) => element.remove());
+
+    final mainContent = document.querySelector('main,article,[role="main"]');
+    final source = mainContent?.outerHtml ?? document.body?.innerHtml ?? html;
+    final markdown = html2md.convert(source).trim();
+    if (markdown.isNotEmpty) {
+      return markdown.replaceAll(RegExp(r'\n{3,}'), '\n\n');
     }
+    return (mainContent?.text ?? document.body?.text ?? '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
   }
+
+  static String _bounded(String text, KelivoFetchRequestPayload payload) {
+    if (payload.startIndex >= text.length) {
+      return 'No more content available.';
+    }
+
+    var start = payload.startIndex;
+    if (start > 0 && _isLowSurrogate(text.codeUnitAt(start))) {
+      start -= 1;
+    }
+    var end = math.min(start + payload.maxLength, text.length);
+    if (end < text.length &&
+        end > start &&
+        _isHighSurrogate(text.codeUnitAt(end - 1)) &&
+        _isLowSurrogate(text.codeUnitAt(end))) {
+      end = end - start == 1 ? end + 1 : end - 1;
+    }
+
+    final content = text.substring(start, end);
+    if (end >= text.length) return content;
+    return '$content\n\n[Content truncated: showing characters $start-${end - 1} '
+        'of ${text.length}. Call kelivo_fetch with start_index=$end to continue.]';
+  }
+
+  static bool _isHighSurrogate(int codeUnit) =>
+      codeUnit >= 0xD800 && codeUnit <= 0xDBFF;
+
+  static bool _isLowSurrogate(int codeUnit) =>
+      codeUnit >= 0xDC00 && codeUnit <= 0xDFFF;
 
   static Map<String, dynamic> _ok(String text) => {
     'content': [
@@ -147,10 +235,9 @@ class KelivoFetcher {
 }
 
 /// Minimal JSON-RPC server for MCP that serves @kelivo/fetch tools.
-class KelivoFetchMcpServerEngine implements KelivoInMemoryMcpServerEngine {
+class KelivoFetchMcpServerEngine {
   bool _closed = false;
 
-  @override
   Future<dynamic> handleMessage(dynamic message) async {
     if (_closed) return null;
 
@@ -182,7 +269,7 @@ class KelivoFetchMcpServerEngine implements KelivoInMemoryMcpServerEngine {
           return _ok(
             id,
             result: {
-              'serverInfo': {'name': '@kelivo/fetch', 'version': '0.1.0'},
+              'serverInfo': {'name': '@kelivo/fetch', 'version': '0.2.0'},
               'protocolVersion': mcp.McpProtocol.defaultVersion,
               // Only tools capability is advertised for this minimal server
               'capabilities': {
@@ -207,17 +294,8 @@ class KelivoFetchMcpServerEngine implements KelivoInMemoryMcpServerEngine {
             return _ok(id, result: KelivoFetcher._err(e.toString()));
           }
 
-          if (name == 'fetch_html') {
-            return _ok(id, result: await KelivoFetcher.html(payload));
-          }
-          if (name == 'fetch_markdown') {
-            return _ok(id, result: await KelivoFetcher.markdown(payload));
-          }
-          if (name == 'fetch_txt') {
-            return _ok(id, result: await KelivoFetcher.txt(payload));
-          }
-          if (name == 'fetch_json') {
-            return _ok(id, result: await KelivoFetcher.json(payload));
+          if (name == 'kelivo_fetch') {
+            return _ok(id, result: await KelivoFetcher.fetch(payload));
           }
           return _error(id, code: -32101, message: 'Tool not found: $name');
 
@@ -233,7 +311,6 @@ class KelivoFetchMcpServerEngine implements KelivoInMemoryMcpServerEngine {
     }
   }
 
-  @override
   void close() {
     _closed = true;
   }
@@ -260,31 +337,51 @@ class KelivoFetchMcpServerEngine implements KelivoInMemoryMcpServerEngine {
     Map<String, dynamic> schema() => {
       'type': 'object',
       'properties': {
-        'url': {'type': 'string', 'description': '要获取内容的网站 URL。'},
-        'headers': {'type': 'object', 'description': '请求中可选附加的 HTTP 头。'},
+        'url': {
+          'type': 'string',
+          'description':
+              'Use the URL exactly as given; do not add www. It must include '
+              'http:// or https://: https://example.com is valid, while '
+              'example.com is invalid.',
+        },
+        'headers': {
+          'type': 'object',
+          'description': 'Optional headers to include in the request',
+        },
+        'max_length': {
+          'type': 'integer',
+          'description': 'Maximum content characters to return',
+          'default': KelivoFetchRequestPayload.defaultMaxLength,
+          'minimum': 1,
+          'maximum': KelivoFetchRequestPayload.maximumMaxLength,
+        },
+        'start_index': {
+          'type': 'integer',
+          'description': 'Character index used to continue truncated content',
+          'default': 0,
+          'minimum': 0,
+        },
+        'raw': {
+          'type': 'boolean',
+          'description':
+              'Return raw source instead of compact, readable Markdown',
+          'default': false,
+        },
       },
       'required': ['url'],
     };
 
     return [
       {
-        'name': 'fetch_html',
-        'description': '获取网页并以 HTML 形式返回内容。',
-        'inputSchema': schema(),
-      },
-      {
-        'name': 'fetch_markdown',
-        'description': '获取网页并将内容转换为 Markdown 返回。',
-        'inputSchema': schema(),
-      },
-      {
-        'name': 'fetch_txt',
-        'description': '获取网页并以纯文本返回内容，不包含 HTML 标记。',
-        'inputSchema': schema(),
-      },
-      {
-        'name': 'fetch_json',
-        'description': '从 URL 获取 JSON 文件。',
+        'name': 'kelivo_fetch',
+        'description':
+            'Fetch the public contents of a web page. Only fetch a URL that '
+            'already appears in the conversation: one provided by the user or '
+            'returned by a prior web_search, kelivo_fetch, or other tool. '
+            'Cannot access content that requires authentication, including private '
+            'documents or pages behind login walls. HTML is simplified to compact '
+            'Markdown with bounded output by default. Continue truncated content with '
+            'start_index; use raw=true only when exact source is required.',
         'inputSchema': schema(),
       },
     ];
@@ -293,7 +390,7 @@ class KelivoFetchMcpServerEngine implements KelivoInMemoryMcpServerEngine {
 
 /// In-memory ClientTransport that directly invokes the local server engine.
 class KelivoInMemoryClientTransport implements mcp.ClientTransport {
-  final KelivoInMemoryMcpServerEngine _server;
+  final KelivoFetchMcpServerEngine _server;
   final _messageController = StreamController<dynamic>.broadcast();
   final _closeCompleter = Completer<void>();
   bool _closed = false;
@@ -307,15 +404,17 @@ class KelivoInMemoryClientTransport implements mcp.ClientTransport {
   Future<void> get onClose => _closeCompleter.future;
 
   @override
-  void send(dynamic message) {
-    if (_closed) return;
-    // Schedule on microtask queue — required because mcp.Client expects
-    // responses asynchronously via the onMessage stream, not synchronously.
-    // Using Future.microtask avoids blocking the send() caller.
-    _server.handleMessage(message).then((resp) {
-      if (_closed || resp == null) return;
-      _messageController.add(resp);
+  mcp.TransportSendOperation send(dynamic message) {
+    if (_closed) return mcp.TransportSendOperation.completed();
+    // Process asynchronously to mimic real transport
+    Future.microtask(() async {
+      final resp = await _server.handleMessage(message);
+      if (_closed) return;
+      if (resp != null) {
+        _messageController.add(resp);
+      }
     });
+    return mcp.TransportSendOperation.completed();
   }
 
   @override

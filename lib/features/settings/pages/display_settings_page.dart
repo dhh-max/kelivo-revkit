@@ -9,6 +9,7 @@ import '../../../icons/lucide_adapter.dart';
 import 'package:syncfusion_flutter_sliders/sliders.dart';
 import 'package:syncfusion_flutter_core/theme.dart';
 import '../../../core/providers/settings_provider.dart';
+import 'image_settings_page.dart';
 import 'theme_settings_page.dart';
 import '../../../theme/palettes.dart';
 import '../../../l10n/app_localizations.dart';
@@ -17,6 +18,7 @@ import '../../../core/services/haptics.dart';
 import 'package:file_picker/file_picker.dart';
 import 'google_fonts_picker_page.dart';
 import 'package:Kelivo/theme/app_font_weights.dart';
+import 'package:Kelivo/theme/app_semantic_colors.dart';
 
 enum _FontTarget { app, code }
 
@@ -138,6 +140,15 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
               _iosDivider(context),
               _iosNavRow(
                 context,
+                icon: Lucide.Image,
+                label: l10n.imageSettingsPageTitle,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const ImageSettingsPage()),
+                ),
+              ),
+              _iosDivider(context),
+              _iosNavRow(
+                context,
                 icon: Lucide.Vibrate,
                 label: l10n.displaySettingsPageHapticsSettingsTitle,
                 onTap: () => Navigator.of(context).push(
@@ -191,27 +202,6 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
                     }
                   },
                   onTap: () => _showAndroidBackgroundChatSheet(context),
-                ),
-              if (Platform.isAndroid) _iosDivider(context),
-              if (Platform.isAndroid)
-                _iosNavRow(
-                  context,
-                  icon: Lucide.BellRing,
-                  label: 'Real-time Chat Notification',
-                  detailBuilder: (ctx) {
-                    final sp = ctx.watch<SettingsProvider>();
-                    return Switch(
-                      value: sp.chatRealtimeNotificationEnabled,
-                      onChanged: (v) =>
-                          sp.setChatRealtimeNotificationEnabled(v),
-                    );
-                  },
-                  onTap: () {
-                    final sp = context.read<SettingsProvider>();
-                    sp.setChatRealtimeNotificationEnabled(
-                      !sp.chatRealtimeNotificationEnabled,
-                    );
-                  },
                 ),
               if (Platform.isAndroid) _iosDivider(context),
               if (Platform.isIOS)
@@ -797,7 +787,7 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
                                       ? []
                                       : [
                                           BoxShadow(
-                                            color: Colors.black.withValues(
+                                            color: cs.shadow.withValues(
                                               alpha: 0.08,
                                             ),
                                             blurRadius: 8,
@@ -826,9 +816,7 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
                       width: double.infinity,
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: Theme.of(context).brightness == Brightness.dark
-                            ? Colors.white12
-                            : const Color(0xFFF2F3F5),
+                        color: context.appColors.surfaceFill,
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Text(
@@ -954,7 +942,7 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
                                       ? []
                                       : [
                                           BoxShadow(
-                                            color: Colors.black.withValues(
+                                            color: cs.shadow.withValues(
                                               alpha: 0.08,
                                             ),
                                             blurRadius: 8,
@@ -1092,7 +1080,7 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
                                       ? []
                                       : [
                                           BoxShadow(
-                                            color: Colors.black.withValues(
+                                            color: cs.shadow.withValues(
                                               alpha: 0.08,
                                             ),
                                             blurRadius: 8,
@@ -1258,7 +1246,7 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
                           ? []
                           : [
                               BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.08),
+                                color: cs.shadow.withValues(alpha: 0.08),
                                 blurRadius: 8,
                                 offset: Offset(0, 2),
                               ),
@@ -1294,9 +1282,7 @@ Widget _iosSectionCard({required List<Widget> children}) {
       final theme = Theme.of(context);
       final cs = theme.colorScheme;
       final isDark = theme.brightness == Brightness.dark;
-      final Color bg = isDark
-          ? Colors.white10
-          : Colors.white.withValues(alpha: 0.96);
+      final Color bg = context.appColors.surfaceCard;
       return Container(
         decoration: BoxDecoration(
           color: bg,
@@ -1401,9 +1387,9 @@ class _AnimatedPressColor extends StatelessWidget {
   final Widget Function(Color color) builder;
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cs = Theme.of(context).colorScheme;
     final target = pressed
-        ? (Color.lerp(base, isDark ? Colors.black : Colors.white, 0.55) ?? base)
+        ? (Color.lerp(base, cs.surface, 0.55) ?? base)
         : base;
     return TweenAnimationBuilder<Color?>(
       tween: ColorTween(end: target),
@@ -1648,13 +1634,10 @@ Widget _sheetOption(
     builder: (pressed) {
       final base = cs.onSurface;
       final target = pressed
-          ? (Color.lerp(base, isDark ? Colors.black : Colors.white, 0.55) ??
-                base)
+          ? (Color.lerp(base, cs.surface, 0.55) ?? base)
           : base;
       final bgTarget = pressed
-          ? (isDark
-                ? Colors.white.withValues(alpha: 0.06)
-                : Colors.black.withValues(alpha: 0.05))
+          ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
           : Colors.transparent;
       return TweenAnimationBuilder<Color?>(
         tween: ColorTween(end: target),
@@ -2024,7 +2007,6 @@ class _AutoCollapseCodeBlockLinesRowState
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final sp = context.watch<SettingsProvider>();
 
     // Keep controller in sync when not editing
@@ -2075,7 +2057,7 @@ class _AutoCollapseCodeBlockLinesRowState
                 decoration: InputDecoration(
                   isDense: true,
                   filled: true,
-                  fillColor: isDark ? Colors.white10 : Colors.white,
+                  fillColor: context.appColors.surfaceCard,
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: 8,
                     vertical: 8,
@@ -2219,16 +2201,6 @@ class BehaviorStartupSettingsPage extends StatelessWidget {
                 value: sp.showChatListDate,
                 onChanged: (v) =>
                     context.read<SettingsProvider>().setShowChatListDate(v),
-              ),
-              _iosDivider(context),
-              _iosSwitchRow(
-                context,
-                icon: Lucide.Crop,
-                label: l10n.displaySettingsPageEnableImageCropperTitle,
-                subtitle: l10n.displaySettingsPageEnableImageCropperSubtitle,
-                value: sp.imageCropperEnabled,
-                onChanged: (v) =>
-                    context.read<SettingsProvider>().setImageCropperEnabled(v),
               ),
               _iosDivider(context),
               _iosSwitchRow(

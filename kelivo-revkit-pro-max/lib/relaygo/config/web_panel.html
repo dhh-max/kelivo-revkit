@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RelayGo 中转站管理面板</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f1117; color: #e0e0e0; }
+  .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+  h1 { text-align: center; margin-bottom: 24px; color: #6c8eff; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; margin-bottom: 20px; }
+  .card { background: #1a1d27; border-radius: 12px; padding: 20px; border: 1px solid #2a2d37; }
+  .card h2 { font-size: 16px; margin-bottom: 12px; color: #8c9eff; }
+  .stat { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #2a2d37; }
+  .stat:last-child { border-bottom: none; }
+  .stat .label { color: #888; }
+  .stat .value { font-weight: 600; }
+  .keys-list { display: flex; flex-direction: column; gap: 8px; }
+  .key-item { background: #12141c; border-radius: 8px; padding: 12px; display: flex; justify-content: space-between; align-items: center; }
+  .key-item .key-name { font-weight: 600; }
+  .key-item .key-masked { color: #666; font-size: 13px; }
+  .key-item .key-status { padding: 2px 10px; border-radius: 12px; font-size: 12px; }
+  .status-active { background: #1a3a1a; color: #4ade80; }
+  .status-exhausted { background: #3a1a1a; color: #ff6b6b; }
+  .status-error { background: #3a2a1a; color: #ffa500; }
+  .status-inactive { background: #2a2a2a; color: #888; }
+  .model-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; }
+  .model-bar { width: 100%; height: 6px; background: #2a2d37; border-radius: 3px; margin-top: 2px; }
+  .model-bar-fill { height: 6px; border-radius: 3px; background: #6c8eff; }
+  .model-bar-fill.warn { background: #ffa500; }
+  .model-bar-fill.full { background: #ff6b6b; }
+  button { background: #2a3a6c; color: #fff; border: none; border-radius: 8px; padding: 8px 16px; cursor: pointer; font-size: 14px; }
+  button:hover { background: #3a5a8c; }
+  button.danger { background: #6c2a2a; }
+  button.danger:hover { background: #8c3a3a; }
+  input, select { background: #12141c; border: 1px solid #2a2d37; border-radius: 8px; padding: 8px; color: #e0e0e0; font-size: 14px; width: 100%; }
+  .form-row { display: flex; gap: 8px; margin-bottom: 8px; }
+  .toast { position: fixed; bottom: 20px; right: 20px; background: #1a3a1a; color: #4ade80; padding: 12px 24px; border-radius: 8px; display: none; }
+  .section-title { margin: 20px 0 10px; font-size: 18px; color: #8c9eff; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>RelayGo 中转站</h1>
+  <div class="grid">
+    <div class="card">
+      <h2>总览</h2>
+      <div id="overview">加载中...</div>
+    </div>
+    <div class="card">
+      <h2>按模型调用统计</h2>
+      <div id="modelStats">加载中...</div>
+    </div>
+    <div class="card">
+      <h2>缓存统计</h2>
+      <div id="cacheStats">加载中...</div>
+    </div>
+  </div>
+  <div class="section-title">Key 管理</div>
+  <div class="card">
+    <div class="form-row">
+      <input type="text" id="keyName" placeholder="Key 名称">
+      <input type="text" id="keyProvider" placeholder="提供商 (openai/anthropic/sensenova...)" value="sensenova">
+      <input type="text" id="keyValue" placeholder="API Key">
+      <button onclick="addKey()">添加</button>
+    </div>
+    <div class="form-row">
+      <input type="text" id="checkModel" placeholder="模型名如 sensenova-6.8-flash-lite" value="sensenova-6.8-flash-lite">
+      <button onclick="checkAllKeys()">批量检测</button>
+    </div>
+    <div class="keys-list" id="keysList">加载中...</div>
+  <div class="section-title">配额统计 (Billing 兼容)</div>
+  <div class="card">
+    <div id="billingInfo">加载中...</div>
+  </div>
+
+  <div class="section-title">用量趋势</div>
+  <div class="card">
+    <div class="form-row">
+      <select id="trendPeriod" onchange="loadTrend()">
+        <option value="24h">近24小时</option>
+        <option value="7d" selected>近7天</option>
+        <option value="30d">近30天</option>
+      </select>
+    </div>
+    <div id="trendChart">加载中...</div>
+  </div>
+
+  <div class="section-title">健康探测</div>
+  <div class="card">
+    <button onclick="loadHealth()">探测全部 Key</button>
+    <div id="healthResults" style="margin-top:12px"></div>
+  </div>
+
+  <div class="section-title">网关密钥管理</div>
+  <div class="card">
+    <div id="gatewayKeysList">加载中...</div>
+    <div class="form-row" style="margin-top:12px">
+      <input type="text" id="gkKey" placeholder="密钥">
+      <input type="text" id="gkName" placeholder="名称">
+      <select id="gkPermission"><option value="full">全部权限</option><option value="readonly">只读</option><option value="models">指定模型</option></select>
+      <button onclick="addGatewayKey()">添加</button>
+    </div>
+  </div>
+
+  <div class="section-title">Webhook 测试</div>
+  <div class="card">
+    <div class="form-row">
+      <input type="text" id="whUrl" placeholder="Webhook URL">
+      <input type="text" id="whSecret" placeholder="签名密钥（可选）">
+      <button onclick="testWebhook()">测试推送</button>
+    </div>
+    <div id="whResult" style="margin-top:8px"></div>
+  </div>
+
+  <div class="section-title">模型路由</div>
+  <div class="card">
+    <div id="routesList">加载中...</div>
+    <div class="form-row" style="margin-top:12px">
+      <input type="text" id="routeModel" placeholder="模型名">
+      <input type="text" id="routeKeyIds" placeholder="Key ID 列表 (逗号分隔)">
+      <button onclick="addRoute()">添加/更新</button>
+    </div>
+  </div>
+  <div class="section-title">价格管理</div>
+  <div class="card">
+    <div id="pricingInfo">加载中...</div>
+    <div class="form-row" style="margin-top:12px">
+      <input type="text" id="priceModel" placeholder="模型名 (前缀匹配)">
+      <input type="text" id="priceInput" placeholder="输入价格/1M tokens">
+      <input type="text" id="priceOutput" placeholder="输出价格/1M tokens">
+      <button onclick="addPriceOverride()">添加覆盖</button>
+    </div>
+  </div>
+  <div class="section-title">数据导出</div>
+  <div class="card">
+    <div class="form-row">
+      <button onclick="exportLogs()">导出日志 CSV</button>
+      <button onclick="exportStats()">导出统计 CSV</button>
+    </div>
+  </div>
+</div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+const BASE = window.location.origin;
+const TOKEN = new URLSearchParams(window.location.hash.slice(1)).get('token') || '';
+function headers() { const h = {}; if (TOKEN) h['x-relay-admin-token'] = TOKEN; return h; }
+async function api(path, method = 'GET', body = null) {
+  const opts = { method, headers: { 'Content-Type': 'application/json', ...headers() } };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(BASE + path, opts);
+  return res.json();
+}
+function toast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.style.display = 'block'; setTimeout(() => t.style.display = 'none', 3000); }
+function pct(used, limit) { return limit > 0 ? Math.min(100, (used / limit) * 100) : 0; }
+function barClass(p) { return p >= 100 ? 'full' : p >= 80 ? 'warn' : ''; }
+
+async function loadOverview() {
+  try {
+    const d = await api('/relay/stats');
+    const d2 = d.data || d;
+    document.getElementById('overview').innerHTML = `
+      <div class="stat"><span class="label">版本</span><span class="value">${d2.version || '-'}</span></div>
+      <div class="stat"><span class="label">活跃 Key</span><span class="value">${d2.active_keys ?? 0}</span></div>
+      <div class="stat"><span class="label">排队</span><span class="value">${d2.queued ?? 0}</span></div>
+      <div class="stat"><span class="label">负载均衡</span><span class="value">${d2.load_balance || '-'}</span></div>
+    `;
+  } catch (e) { document.getElementById('overview').textContent = '加载失败'; }
+}
+
+async function loadKeys() {
+  try {
+    const d = await api('/relay/keys');
+    const d2 = d.data || d;
+    const keys = d2.keys || [];
+    document.getElementById('keysList').innerHTML = keys.map(k => {
+      const cls = `status-${k.status || 'inactive'}`;
+      return `<div class="key-item">
+        <div><div class="key-name">${k.name || k.id}</div><div class="key-masked">${k.masked_key || '****'} · ${k.provider || '-'}</div></div>
+        <div style="display:flex;gap:4px;align-items:center">
+          <span class="key-status ${cls}">${k.status || 'unknown'}</span>
+          <button class="danger" onclick="deleteKey('${k.id}')">删</button>
+        </div>
+      </div>`;
+    }).join('') || '<div style="color:#888">暂无 Key</div>';
+  } catch (e) { document.getElementById('keysList').textContent = '加载失败'; }
+}
+
+async function loadModelStats() {
+  try {
+    const d = await api('/api/overview');
+    const d2 = d.data || d;
+    const models = d2.model_usage || {};
+    const limits = d2.model_limits || {};
+    const html = Object.keys(models).map(m => {
+      const used = models[m] || 0;
+      const limit = limits[m] || 1500;
+      const p = pct(used, limit);
+      return `<div>
+        <div class="model-row"><span>${m}</span><span>${used} / ${limit}</span></div>
+        <div class="model-bar"><div class="model-bar-fill ${barClass(p)}" style="width:${p}%"></div></div>
+      </div>`;
+    }).join('');
+    document.getElementById('modelStats').innerHTML = html || '<div style="color:#888">暂无调用</div>';
+  } catch (e) { document.getElementById('modelStats').textContent = '加载失败'; }
+}
+
+async function loadCache() {
+  try {
+    const d = await api('/relay/cache');
+    const d2 = d.data || d;
+    const s = d2.stats || d2;
+    document.getElementById('cacheStats').innerHTML = `
+      <div class="stat"><span class="label">启用</span><span class="value">${s.enabled ? '✓' : '✗'}</span></div>
+      <div class="stat"><span class="label">条目</span><span class="value">${s.entry_count ?? s.entries ?? 0}</span></div>
+      <div class="stat"><span class="label">命中</span><span class="value">${s.hit_count ?? s.hits ?? 0}</span></div>
+      <div class="stat"><span class="label">未命中</span><span class="value">${s.miss_count ?? s.misses ?? 0}</span></div>
+    `;
+  } catch (e) { document.getElementById('cacheStats').textContent = '加载失败'; }
+}
+
+async function loadBilling() {
+  try {
+    const d = await api('/v1/dashboard/billing/credit_grants');
+    const d2 = d.data || d;
+    document.getElementById('billingInfo').innerHTML = `
+      <div class="stat"><span class="label">总额度</span><span class="value">${d2.total_granted ?? d2.total ?? 0}</span></div>
+      <div class="stat"><span class="label">已用</span><span class="value">${d2.total_used ?? d2.used ?? 0}</span></div>
+      <div class="stat"><span class="label">剩余</span><span class="value">${d2.total_available ?? d2.available ?? 0}</span></div>
+    `;
+  } catch (e) { document.getElementById('billingInfo').textContent = '加载失败'; }
+}
+
+async function addKey() {
+  const name = document.getElementById('keyName').value.trim();
+  const provider = document.getElementById('keyProvider').value.trim();
+  const keyVal = document.getElementById('keyValue').value.trim();
+  if (!provider || !keyVal) { toast('请填写提供商和 API Key'); return; }
+  try {
+    await api('/relay/keys', 'POST', { provider, api_key: keyVal, name: name || undefined });
+    toast('Key 添加成功');
+    document.getElementById('keyName').value = '';
+    document.getElementById('keyValue').value = '';
+    loadKeys(); loadOverview();
+  } catch (e) { toast('添加失败'); }
+}
+
+async function deleteKey(id) {
+  if (!confirm('确定删除？')) return;
+  try {
+    await api('/relay/keys?id=' + id, 'DELETE');
+    toast('Key 已删除');
+    loadKeys(); loadOverview();
+  } catch (e) { toast('删除失败'); }
+}
+
+async function checkAllKeys() {
+  const model = document.getElementById('checkModel').value.trim();
+  if (!model) { toast('请填写模型名'); return; }
+  try {
+    const d = await api('/admin/check-all?model=' + model);
+    const d2 = d.data || d;
+    const results = d2.results || [];
+    if (results.length === 0) { toast('无可检测的 key'); return; }
+    const available = results.filter(r => r.available).length;
+    toast(`${available} / ${results.length} 个 key 可用于 ${model}`);
+  } catch (e) { toast('检测失败'); }
+}
+
+async function refresh() { loadOverview(); loadKeys(); loadModelStats(); loadCache(); loadBilling(); loadTrend(); loadGatewayKeys(); loadRoutes(); loadPricing(); }
+
+// —— 用量趋势 ——
+async function loadTrend() {
+  try {
+    const period = document.getElementById('trendPeriod').value;
+    const d = await api('/relay/trend?period=' + period);
+    const series = (d.series || d.data?.series || []).map(s => ({
+      label: s.label || s.date, requests: s.requests || 0,
+      errors: s.errors || 0, tokens: s.tokens || 0, cost: s.cost_usd || 0
+    }));
+    if (!series.length) { document.getElementById('trendChart').textContent = '暂无数据'; return; }
+    const maxReq = Math.max(...series.map(s => s.requests), 1);
+    document.getElementById('trendChart').innerHTML = series.map(s => {
+      const w = (s.requests / maxReq * 100).toFixed(0);
+      const errCls = s.errors > 0 ? 'style="color:#ff6b6b"' : '';
+      return `<div class="model-row"><span>${s.label}</span><span>${s.requests} 请求 · ${s.tokens} tokens · $${s.cost.toFixed(4)} ${s.errors > 0 ? `<span ${errCls}>(${s.errors} 错误)</span>` : ''}</span></div><div class="model-bar"><div class="model-bar-fill" style="width:${w}%"></div></div>`;
+    }).join('');
+  } catch (e) { document.getElementById('trendChart').textContent = '加载失败'; }
+}
+
+// —— 健康探测 ——
+async function loadHealth() {
+  document.getElementById('healthResults').textContent = '探测中...';
+  try {
+    const d = await api('/relay/health');
+    const s = d.summary || {};
+    const results = d.results || [];
+    let html = `<div class="stat"><span class="label">总探测</span><span class="value">${s.total || results.length}</span></div>`;
+    html += `<div class="stat"><span class="label">正常</span><span class="value" style="color:#4ade80">${s.ok || 0}</span></div>`;
+    html += `<div class="stat"><span class="label">异常</span><span class="value" style="color:#ff6b6b">${s.failed || 0}</span></div>`;
+    html += `<div class="stat"><span class="label">平均延迟</span><span class="value">${s.avg_latency_ms || 0}ms</span></div>`;
+    html += '<div style="margin-top:8px">';
+    for (const r of results) {
+      const color = r.ok ? '#4ade80' : '#ff6b6b';
+      html += `<div class="model-row"><span>${r.name || r.key_id}</span><span style="color:${color}">${r.ok ? '✓ ' + r.latency_ms + 'ms' : '✗ ' + (r.error || '失败')}</span></div>`;
+    }
+    html += '</div>';
+    document.getElementById('healthResults').innerHTML = html;
+  } catch (e) { document.getElementById('healthResults').textContent = '探测失败'; }
+}
+
+// —— 网关密钥管理 ——
+let _gatewayKeys = [];
+async function loadGatewayKeys() {
+  try {
+    const d = await api('/relay/gateway-keys');
+    _gatewayKeys = d.keys || [];
+    const html = _gatewayKeys.map((k, i) => {
+      return `<div class="key-item"><div><div class="key-name">${k.name || '未命名'}</div><div class="key-masked">${k.key_masked || '****'} · ${k.permission}</div></div><button class="danger" onclick="removeGatewayKey(${i})">删</button></div>`;
+    }).join('');
+    document.getElementById('gatewayKeysList').innerHTML = html || '<div style="color:#888">暂无附加密钥</div>';
+  } catch (e) { document.getElementById('gatewayKeysList').textContent = '加载失败'; }
+}
+async function addGatewayKey() {
+  const key = document.getElementById('gkKey').value.trim();
+  const name = document.getElementById('gkName').value.trim();
+  const perm = document.getElementById('gkPermission').value;
+  if (!key) { toast('请输入密钥'); return; }
+  _gatewayKeys.push({ key, name, permission: perm, enabled: true, models: [], note: '' });
+  await saveGatewayKeys();
+  document.getElementById('gkKey').value = '';
+  document.getElementById('gkName').value = '';
+}
+async function removeGatewayKey(i) {
+  _gatewayKeys.splice(i, 1);
+  await saveGatewayKeys();
+}
+async function saveGatewayKeys() {
+  try {
+    await api('/relay/gateway-keys', 'PUT', { keys: _gatewayKeys.map(k => ({ key: k.key || '', name: k.name || '', permission: k.permission || 'full', enabled: k.enabled !== false, models: k.models || [], note: k.note || '' })) });
+    toast('网关密钥已更新');
+    loadGatewayKeys();
+  } catch (e) { toast('保存失败'); }
+}
+
+// —— Webhook 测试 ——
+async function testWebhook() {
+  const url = document.getElementById('whUrl').value.trim();
+  const secret = document.getElementById('whSecret').value.trim();
+  if (!url) { toast('请输入 Webhook URL'); return; }
+  document.getElementById('whResult').textContent = '推送中...';
+  try {
+    const d = await api('/relay/webhook/test', 'POST', { url, secret });
+    document.getElementById('whResult').innerHTML = d.ok ? '<span style="color:#4ade80">✓ 推送成功</span>' : '<span style="color:#ff6b6b">✗ ' + (d.error || '失败') + '</span>';
+  } catch (e) { document.getElementById('whResult').innerHTML = '<span style="color:#ff6b6b">✗ 请求失败</span>'; }
+}
+
+// —— 数据导出 ——
+function exportLogs() { window.open(BASE + '/relay/export/logs', '_blank'); }
+function exportStats() { window.open(BASE + '/relay/export/stats', '_blank'); }
+
+// —— 模型路由管理 ——
+async function loadRoutes() {
+  try {
+    const d = await api('/relay/routes');
+    const routes = d.routes || {};
+    const keys = Object.keys(routes);
+    const html = keys.length ? keys.map(m => {
+      const r = routes[m];
+      return `<div class="key-item"><div><div class="key-name">${m}</div><div class="key-masked">Keys: ${(r.key_ids||[]).join(', ') || '无'} · ${r.enabled ? '启用' : '禁用'}</div></div><button class="danger" onclick="deleteRoute('${m}')">删</button></div>`;
+    }).join('') : '<div style="color:#888">暂无路由规则</div>';
+    document.getElementById('routesList').innerHTML = html;
+  } catch (e) { document.getElementById('routesList').textContent = '加载失败'; }
+}
+async function addRoute() {
+  const model = document.getElementById('routeModel').value.trim();
+  const keyIds = document.getElementById('routeKeyIds').value.trim().split(',').map(s=>s.trim()).filter(Boolean);
+  if (!model) { toast('请输入模型名'); return; }
+  try {
+    await api('/relay/routes?model=' + encodeURIComponent(model), 'PUT', { key_ids: keyIds, enabled: true, note: '' });
+    toast('路由已更新');
+    loadRoutes();
+  } catch (e) { toast('添加失败'); }
+}
+async function deleteRoute(model) {
+  if (!confirm('确定删除路由「' + model + '」？')) return;
+  try {
+    await api('/relay/routes?model=' + encodeURIComponent(model), 'DELETE');
+    toast('路由已删除');
+    loadRoutes();
+  } catch (e) { toast('删除失败'); }
+}
+// —— 价格管理 ——
+async function loadPricing() {
+  try {
+    const d = await api('/relay/pricing');
+    const builtin = d.builtin || {};
+    const overrides = d.overrides || {};
+    const defaultP = d.default || [1, 3];
+    let html = `<div class="stat"><span class="label">默认价格</span><span class="value">$${defaultP[0]} / $${defaultP[1]}</span></div>`;
+    html += `<div class="stat"><span class="label">内置模型数</span><span class="value">${Object.keys(builtin).length}</span></div>`;
+    const ovKeys = Object.keys(overrides);
+    html += `<div class="stat"><span class="label">自定义覆盖</span><span class="value">${ovKeys.length}</span></div>`;
+    if (ovKeys.length) {
+      html += '<div style="margin-top:8px">';
+      for (const k of ovKeys) {
+        html += `<div class="model-row"><span>${k}</span><span>$${overrides[k][0]} / $${overrides[k][1]}</span></div>`;
+      }
+      html += '</div>';
+    }
+    document.getElementById('pricingInfo').innerHTML = html;
+  } catch (e) { document.getElementById('pricingInfo').textContent = '加载失败'; }
+}
+async function addPriceOverride() {
+  const model = document.getElementById('priceModel').value.trim().toLowerCase();
+  const input = parseFloat(document.getElementById('priceInput').value);
+  const output = parseFloat(document.getElementById('priceOutput').value);
+  if (!model || isNaN(input) || isNaN(output)) { toast('请填写完整的价格信息'); return; }
+  try {
+    const d = await api('/relay/pricing');
+    const rules = d.overrides || {};
+    rules[model] = [input, output];
+    await api('/relay/pricing', 'PUT', { rules });
+    toast('价格覆盖已添加');
+    loadPricing();
+    document.getElementById('priceModel').value = '';
+    document.getElementById('priceInput').value = '';
+    document.getElementById('priceOutput').value = '';
+  } catch (e) { toast('添加失败'); }
+}
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

@@ -34,7 +34,8 @@ class LocalToolsService {
         'type': 'function',
         'function': {
           'name': LocalToolNames.timeInfo,
-          'description': '从当前设备读取本地日期和时间信息。返回年、月、日、星期、ISO 日期时间、时区、UTC 偏移和时间戳。',
+          'description':
+              'Get the current local date and time info from the device. Returns year, month, day, weekday, ISO date and time strings, timezone, UTC offset, and timestamp.',
           'parameters': {'type': 'object', 'properties': <String, dynamic>{}},
         },
       });
@@ -45,18 +46,19 @@ class LocalToolsService {
         'function': {
           'name': LocalToolNames.clipboard,
           'description':
-              '读取或写入设备剪贴板中的纯文本。action 可为 read 或 write；写入时必须提供 text。除非用户明确要求，否则不要写入剪贴板。',
+              'Read or write plain text from the device clipboard. Use action: read or write. For write, provide text. Do NOT write to the clipboard unless the user has explicitly requested it.',
           'parameters': {
             'type': 'object',
             'properties': {
               'action': {
                 'type': 'string',
                 'enum': ['read', 'write'],
-                'description': '要执行的操作：read 表示读取，write 表示写入。',
+                'description': 'Operation to perform: read or write',
               },
               'text': {
                 'type': 'string',
-                'description': '要写入剪贴板的文本。action 为 write 时必填。',
+                'description':
+                    'Text to write to the clipboard. Required for write.',
               },
             },
             'required': ['action'],
@@ -70,11 +72,14 @@ class LocalToolsService {
         'function': {
           'name': LocalToolNames.textToSpeech,
           'description':
-              '使用已配置的文字转语音功能向用户朗读文本。用户要求朗读或适合音频输出时使用；工具在发起播放后返回，音频可能在后台继续。请提供自然、易读、无 Markdown 格式的文本。',
+              'Speak text aloud to the user using the configured text-to-speech playback. Use this when the user asks you to read something aloud, or when audio output is appropriate. The tool returns after playback has been requested; audio may continue in the background. Provide natural, readable text without markdown formatting.',
           'parameters': {
             'type': 'object',
             'properties': {
-              'text': {'type': 'string', 'description': '要朗读的文本。'},
+              'text': {
+                'type': 'string',
+                'description': 'The text to speak aloud.',
+              },
             },
             'required': ['text'],
           },
@@ -87,29 +92,36 @@ class LocalToolsService {
         'function': {
           'name': LocalToolNames.askUser,
           'description':
-              '在继续前需要用户澄清、补充信息或做决定时，向用户提出一个或多个简短选择题。支持单选和多选。界面会自动提供“其它”和“跳过”选项，请不要自行加入这些选项。',
+              'Ask the user one or more short choice questions when you need clarification, additional information, or a decision before continuing. Supports single-choice and multi-choice questions. The UI will provide Other and Skip options automatically, so do not include those options yourself.',
           'parameters': {
             'type': 'object',
             'properties': {
               'questions': {
                 'type': 'array',
-                'description': '要询问用户的 1 到 4 个问题。',
+                'description': 'One to four questions to ask the user.',
                 'items': {
                   'type': 'object',
                   'properties': {
-                    'id': {'type': 'string', 'description': '该问题的唯一且稳定的标识符。'},
+                    'id': {
+                      'type': 'string',
+                      'description':
+                          'Unique stable identifier for this question.',
+                    },
                     'question': {
                       'type': 'string',
-                      'description': '展示给用户的完整问题文本。',
+                      'description':
+                          'The full question text shown to the user.',
                     },
                     'type': {
                       'type': 'string',
                       'enum': ['single', 'multi'],
-                      'description': '回答类型：single 为单选，multi 为多选。',
+                      'description':
+                          'Answer type: single choice or multi choice.',
                     },
                     'options': {
                       'type': 'array',
-                      'description': '提供给用户选择的建议选项。',
+                      'description':
+                          'Suggested options for the user to choose from.',
                       'items': {'type': 'string'},
                     },
                   },
@@ -128,14 +140,14 @@ class LocalToolsService {
         'function': {
           'name': LocalToolNames.calculate,
           'description':
-              '计算数学表达式。支持 + - * / ^ % !，sin() cos() tan() sqrt() ln() abs() floor() ceil() sgn()，log(base, value)，以及常量 pi、e。示例："5!"、"sin(pi/4)"、"log(2, 8)"、"floor(3.7)"。',
+              'Evaluate a mathematical expression. Supports: + - * / ^ % !, sin() cos() tan() sqrt() ln() abs() floor() ceil() sgn(), log(base, value), constants pi e. Example: "5!", "sin(pi/4)", "log(2, 8)", "floor(3.7)"',
           'parameters': {
             'type': 'object',
             'properties': {
               'expression': {
                 'type': 'string',
                 'description':
-                    '标准写法的数学表达式，例如 "(15 + 3) * 2"、"2^10"、"sqrt(144)"。',
+                    'A mathematical expression in standard notation, e.g. "(15 + 3) * 2", "2^10", "sqrt(144)"',
               },
             },
             'required': ['expression'],
@@ -252,8 +264,7 @@ class LocalToolsService {
     if (expression.isEmpty) {
       return jsonEncode({
         'error': 'empty_expression',
-        'message':
-            'Expression is empty. Please provide a mathematical expression in standard notation, e.g. "(15 + 3) * 2".',
+        'message': 'Expression is empty. Please provide a mathematical expression in standard notation, e.g. "(15 + 3) * 2".',
       });
     }
 
@@ -263,8 +274,7 @@ class LocalToolsService {
       if (!result.isFinite) {
         return jsonEncode({
           'error': 'math_error',
-          'message':
-              'The result is not a finite number. Please check your expression (e.g. division by zero).',
+          'message': 'The result is not a finite number. Please check your expression (e.g. division by zero).',
         });
       }
       return jsonEncode({
@@ -274,8 +284,7 @@ class LocalToolsService {
     } catch (e) {
       return jsonEncode({
         'error': 'parse_error',
-        'message':
-            'Could not parse the expression. Use standard notation, e.g. "(15 + 3) * 2".',
+        'message': 'Could not parse the expression. Use standard notation, e.g. "(15 + 3) * 2".',
         'detail': e.toString(),
       });
     }

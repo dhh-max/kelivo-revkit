@@ -10,6 +10,7 @@ import '../../features/model/utils/ocr_model_capability.dart';
 import '../../utils/brand_assets.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../../theme/app_font_weights.dart';
+import 'package:Kelivo/theme/app_semantic_colors.dart';
 
 class DesktopDefaultModelPane extends StatelessWidget {
   const DesktopDefaultModelPane({super.key});
@@ -152,6 +153,7 @@ class DesktopDefaultModelPane extends StatelessWidget {
                     modelProvider: settings.suggestionModelProvider,
                     modelId: settings.suggestionModelId,
                     disabledWhenUnset: true,
+                    resetIcon: lucide.Lucide.Ban,
                     onReset: () async {
                       await context
                           .read<SettingsProvider>()
@@ -315,10 +317,8 @@ class DesktopDefaultModelPane extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      _TitleThinkingSwitchRow(
-                        settings: sp,
-                        l10n: l10n,
-                        cs: cs,
+                      _ThinkingSwitchRow(
+                        task: _BackgroundModelTask.title,
                         trailing: _SmallIconBtn(
                           icon: lucide.Lucide.X,
                           onTap: () => Navigator.of(ctx).maybePop(),
@@ -408,6 +408,11 @@ class DesktopDefaultModelPane extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  const _ThinkingSwitchRow(
+                    task: _BackgroundModelTask.translate,
+                    trailing: SizedBox.shrink(),
+                  ),
+                  const SizedBox(height: 12),
                   Row(
                     children: [
                       Expanded(
@@ -440,6 +445,7 @@ class DesktopDefaultModelPane extends StatelessWidget {
                         dense: true,
                         onTap: () async {
                           await sp.resetTranslatePrompt();
+                          await sp.resetTranslateGenerationThinkingEnabled();
                           ctrl.text = sp.translatePrompt;
                         },
                       ),
@@ -501,6 +507,11 @@ class DesktopDefaultModelPane extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  const _ThinkingSwitchRow(
+                    task: _BackgroundModelTask.ocr,
+                    trailing: SizedBox.shrink(),
+                  ),
+                  const SizedBox(height: 12),
                   Row(
                     children: [
                       Expanded(
@@ -533,6 +544,7 @@ class DesktopDefaultModelPane extends StatelessWidget {
                         dense: true,
                         onTap: () async {
                           await sp.resetOcrPrompt();
+                          await sp.resetOcrGenerationThinkingEnabled();
                           ctrl.text = sp.ocrPrompt;
                         },
                       ),
@@ -583,6 +595,11 @@ class DesktopDefaultModelPane extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  const _ThinkingSwitchRow(
+                    task: _BackgroundModelTask.summary,
+                    trailing: SizedBox.shrink(),
+                  ),
+                  const SizedBox(height: 12),
                   Row(
                     children: [
                       Expanded(
@@ -615,6 +632,7 @@ class DesktopDefaultModelPane extends StatelessWidget {
                         dense: true,
                         onTap: () async {
                           await sp.resetSummaryPrompt();
+                          await sp.resetSummaryGenerationThinkingEnabled();
                           ctrl.text = sp.summaryPrompt;
                         },
                       ),
@@ -676,6 +694,11 @@ class DesktopDefaultModelPane extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  const _ThinkingSwitchRow(
+                    task: _BackgroundModelTask.compress,
+                    trailing: SizedBox.shrink(),
+                  ),
+                  const SizedBox(height: 12),
                   Row(
                     children: [
                       Expanded(
@@ -708,6 +731,7 @@ class DesktopDefaultModelPane extends StatelessWidget {
                         dense: true,
                         onTap: () async {
                           await sp.resetCompressPrompt();
+                          await sp.resetCompressGenerationThinkingEnabled();
                           ctrl.text = sp.compressPrompt;
                         },
                       ),
@@ -766,6 +790,11 @@ class DesktopDefaultModelPane extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  const _ThinkingSwitchRow(
+                    task: _BackgroundModelTask.suggestion,
+                    trailing: SizedBox.shrink(),
+                  ),
+                  const SizedBox(height: 12),
                   Row(
                     children: [
                       Expanded(
@@ -798,6 +827,7 @@ class DesktopDefaultModelPane extends StatelessWidget {
                         dense: true,
                         onTap: () async {
                           await sp.resetSuggestionPrompt();
+                          await sp.resetSuggestionGenerationThinkingEnabled();
                           ctrl.text = sp.suggestionPrompt;
                         },
                       ),
@@ -845,6 +875,7 @@ class _ModelCard extends StatefulWidget {
     this.fallbackProvider,
     this.fallbackModelId,
     this.disabledWhenUnset = false,
+    this.resetIcon = lucide.Lucide.RotateCcw,
     this.onReset,
     this.configAction,
   });
@@ -857,6 +888,7 @@ class _ModelCard extends StatefulWidget {
   final String? fallbackProvider;
   final String? fallbackModelId;
   final bool disabledWhenUnset;
+  final IconData resetIcon;
   final VoidCallback? onReset;
   final VoidCallback onPick;
   final VoidCallback? configAction;
@@ -907,16 +939,12 @@ class _ModelCardState extends State<_ModelCard> {
           : l10n.defaultModelPageUseCurrentModel;
     }
 
-    final baseBg = isDark
-        ? Colors.white10
-        : Colors.white.withValues(alpha: 0.96);
+    final baseBg = context.appColors.surfaceCard;
     final borderColor = cs.outlineVariant.withValues(
       alpha: isDark ? 0.08 : 0.06,
     );
-    final rowBase = isDark ? Colors.white10 : const Color(0xFFF2F3F5);
-    final hoverOverlay = isDark
-        ? Colors.white.withValues(alpha: 0.06)
-        : Colors.black.withValues(alpha: 0.05);
+    final rowBase = context.appColors.surfaceFill;
+    final hoverOverlay = cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05);
 
     return Container(
       decoration: BoxDecoration(
@@ -948,7 +976,7 @@ class _ModelCardState extends State<_ModelCard> {
                   Tooltip(
                     message: l10n.defaultModelPageResetDefault,
                     child: _SmallIconBtn(
-                      icon: lucide.Lucide.RotateCcw,
+                      icon: widget.resetIcon,
                       onTap: widget.onReset!,
                     ),
                   ),
@@ -1018,65 +1046,97 @@ class _ModelCardState extends State<_ModelCard> {
   }
 }
 
-class _TitleThinkingSwitchRow extends StatelessWidget {
-  const _TitleThinkingSwitchRow({
-    required this.settings,
-    required this.l10n,
-    required this.cs,
-    required this.trailing,
-  });
+enum _BackgroundModelTask {
+  title,
+  summary,
+  suggestion,
+  compress,
+  translate,
+  ocr,
+}
 
-  final SettingsProvider settings;
-  final AppLocalizations l10n;
-  final ColorScheme cs;
+class _ThinkingSwitchRow extends StatelessWidget {
+  const _ThinkingSwitchRow({required this.task, required this.trailing});
+
+  final _BackgroundModelTask task;
   final Widget trailing;
 
   @override
   Widget build(BuildContext context) {
-    final value = settings.titleGenerationThinkingEnabled;
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: MouseRegion(
-            cursor: SystemMouseCursors.click,
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () => settings.setTitleGenerationThinkingEnabled(!value),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 2),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        l10n.titleModelThinkingTitle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 13.5,
-                          fontWeight: AppFontWeights.semibold,
-                          color: cs.onSurface.withValues(alpha: 0.92),
+    final l10n = AppLocalizations.of(context)!;
+    final cs = Theme.of(context).colorScheme;
+    return Consumer<SettingsProvider>(
+      builder: (context, settings, _) {
+        final (value, setValue) = switch (task) {
+          _BackgroundModelTask.title => (
+            settings.titleGenerationThinkingEnabled,
+            settings.setTitleGenerationThinkingEnabled,
+          ),
+          _BackgroundModelTask.summary => (
+            settings.summaryGenerationThinkingEnabled,
+            settings.setSummaryGenerationThinkingEnabled,
+          ),
+          _BackgroundModelTask.suggestion => (
+            settings.suggestionGenerationThinkingEnabled,
+            settings.setSuggestionGenerationThinkingEnabled,
+          ),
+          _BackgroundModelTask.compress => (
+            settings.compressGenerationThinkingEnabled,
+            settings.setCompressGenerationThinkingEnabled,
+          ),
+          _BackgroundModelTask.translate => (
+            settings.translateGenerationThinkingEnabled,
+            settings.setTranslateGenerationThinkingEnabled,
+          ),
+          _BackgroundModelTask.ocr => (
+            settings.ocrGenerationThinkingEnabled,
+            settings.setOcrGenerationThinkingEnabled,
+          ),
+        };
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => setValue(!value),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            l10n.titleModelThinkingTitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 13.5,
+                              fontWeight: AppFontWeights.semibold,
+                              color: cs.onSurface.withValues(alpha: 0.92),
+                            ),
+                          ),
                         ),
-                      ),
+                        const SizedBox(width: 14),
+                        IosSwitch(
+                          value: value,
+                          hitTestSize: 36,
+                          semanticLabel: l10n.titleModelThinkingTitle,
+                          onChanged: setValue,
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 14),
-                    IosSwitch(
-                      value: value,
-                      hitTestSize: 36,
-                      semanticLabel: l10n.titleModelThinkingTitle,
-                      onChanged: settings.setTitleGenerationThinkingEnabled,
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),
-          ),
-        ),
-        const SizedBox(width: 8),
-        trailing,
-      ],
+            const SizedBox(width: 8),
+            trailing,
+          ],
+        );
+      },
     );
   }
 }
@@ -1106,13 +1166,11 @@ class _DeskIosButtonState extends State<_DeskIosButton> {
     final baseColor = widget.filled
         ? cs.primary
         : cs.onSurface.withValues(alpha: 0.8);
-    final textColor = widget.filled ? Colors.white : baseColor;
+    final textColor = widget.filled ? cs.onPrimary : baseColor;
     final bg = widget.filled
         ? (_hover ? cs.primary.withValues(alpha: 0.92) : cs.primary)
         : (_hover
-              ? (isDark
-                    ? Colors.white.withValues(alpha: 0.06)
-                    : Colors.black.withValues(alpha: 0.05))
+              ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
               : Colors.transparent);
     final borderColor = widget.filled
         ? Colors.transparent
@@ -1172,9 +1230,7 @@ class _SmallIconBtnState extends State<_SmallIconBtn> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = _hover
-        ? (isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.05))
+        ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
         : Colors.transparent;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -1222,6 +1278,9 @@ class _BrandCircle extends StatelessWidget {
         width: size * 0.62,
         height: size * 0.62,
         fit: BoxFit.contain,
+        colorFilter: isDark && BrandAssets.assetNeedsDarkInvert(asset)
+            ? ColorFilter.mode(cs.onSurface, BlendMode.srcIn)
+            : null,
       );
     } else {
       inner = Image.asset(
@@ -1235,7 +1294,7 @@ class _BrandCircle extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: isDark ? Colors.white10 : cs.primary.withValues(alpha: 0.10),
+        color: cs.primary.withValues(alpha: isDark ? 0.18 : 0.10),
         shape: BoxShape.circle,
       ),
       alignment: Alignment.center,
@@ -1268,12 +1327,11 @@ Widget _promptEditor(
 }
 
 InputDecoration _deskInputDecoration(BuildContext context) {
-  final isDark = Theme.of(context).brightness == Brightness.dark;
   final cs = Theme.of(context).colorScheme;
   return InputDecoration(
     isDense: false,
     filled: true,
-    fillColor: isDark ? Colors.white10 : const Color(0xFFF7F7F9),
+    fillColor: context.appColors.surfaceFill,
     border: OutlineInputBorder(
       borderRadius: BorderRadius.circular(12),
       borderSide: BorderSide(

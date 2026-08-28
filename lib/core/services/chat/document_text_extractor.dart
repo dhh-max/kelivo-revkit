@@ -17,17 +17,27 @@ class _ExtractorParams {
 
 class DocumentTextExtractor {
   /// Extracts text from a document file at [path] with [mime] type.
-  /// This operation is performed in a background isolate to avoid blocking the UI.
+  ///
+  /// Resolves via [SandboxPathResolver.resolveForIo] once, then delegates to
+  /// [extractResolved]. Prefer [extractResolved] when the caller already
+  /// resolved the path (avoid a second pass).
   static Future<String> extract({
     required String path,
     required String mime,
   }) async {
-    // Fix path before passing to isolate (isolate has no access to main UI context)
-    final fixedPath = SandboxPathResolver.fix(path);
+    final resolved = SandboxPathResolver.resolveForIo(path);
+    if (resolved == null) return '[[File not found: $path]]';
+    return extractResolved(path: resolved, mime: mime);
+  }
 
+  /// Extract using an already-resolved absolute filesystem path.
+  /// Does **not** call [SandboxPathResolver.fix] / [resolveForIo].
+  static Future<String> extractResolved({
+    required String path,
+    required String mime,
+  }) {
     // Offload the heavy work to a separate isolate using compute.
-    // This unblocks the main UI thread.
-    return compute(_extractTask, _ExtractorParams(fixedPath, mime));
+    return compute(_extractTask, _ExtractorParams(path, mime));
   }
 
   /// The heavy extraction logic that runs in a background isolate.
@@ -70,12 +80,6 @@ class DocumentTextExtractor {
       final file = File(path);
       if (!file.existsSync()) return '[[File not found: $path]]';
       final bytes = file.readAsBytesSync();
-      // Detect binary content (e.g. APK, exe, .so, images, archives) so we
-      // don't send garbled text to the model. Instead we signal a binary file
-      // whose path should be handed to downstream tools.
-      if (_looksBinary(bytes)) {
-        return '[[BinaryFile:$path]]';
-      }
       return UnicodeSanitizer.sanitize(
         utf8.decode(bytes, allowMalformed: true),
       );
@@ -112,54 +116,5 @@ class DocumentTextExtractor {
     } catch (e) {
       return '[[Failed to parse DOCX: $e]]';
     }
-  }
-
-  /// Heuristic: check if a byte buffer looks like binary content
-  /// (not valid UTF-8 text). Returns true if the file is likely binary.
-  static bool _looksBinary(List<int> bytes) {
-    // Null bytes in the first 8KB strongly indicate binary.
-    final checkLen = bytes.length < 8192 ? bytes.length : 8192;
-    int nullCount = 0;
-    int controlCount = 0;
-    int validTextBytes = 0;
-    for (int i = 0; i < checkLen; i++) {
-      final b = bytes[i];
-      if (b == 0) {
-        nullCount++;
-      } else if (b < 0x09) {
-        controlCount++;
-      } else if (b >= 0x20 && b <= 0x7E) {
-        validTextBytes++;
-      } else if (b >= 0xC0 && b <= 0xDF) {
-        // Could be start of 2-byte UTF-8 sequence
-        if (i + 1 < checkLen && (bytes[i + 1] & 0xC0) == 0x80) {
-          validTextBytes++;
-          i++; // skip continuation byte
-        }
-      } else if (b >= 0xE0 && b <= 0xEF) {
-        // Could be start of 3-byte UTF-8 sequence
-        if (i + 2 < checkLen &&
-            (bytes[i + 1] & 0xC0) == 0x80 &&
-            (bytes[i + 2] & 0xC0) == 0x80) {
-          validTextBytes += 2;
-          i += 2; // skip continuation bytes
-        }
-      }
-    }
-    // If there are null bytes, or control chars dominate, it's binary.
-    if (nullCount > 0) return true;
-    if (checkLen == 0) return false;
-    final textRatio = validTextBytes / checkLen;
-    // Less than 50% printable text -> binary
-    if (textRatio < 0.5) return true;
-    // High control char count (excluding valid whitespace: 0x09=\t, 0x0A=\n, 0x0D=\r)
-    int badControl = 0;
-    for (int i = 0; i < checkLen; i++) {
-      final b = bytes[i];
-      if (b > 0 && b < 0x09) badControl++;
-      if (b > 0x0D && b < 0x20) badControl++;
-    }
-    if (badControl > checkLen * 0.3) return true;
-    return false;
   }
 }

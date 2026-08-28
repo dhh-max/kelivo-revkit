@@ -53,10 +53,9 @@
 - `@kelivo/images`：图片理解、图片任务辅助能力。
 - `@kelivo/github`：GitHub 仓库、文件、Issue、PR、Release、Actions、Secrets、Variables 等能力。
 |- `@kelivo/so`：纯 Dart 实现的 ELF/.so 逆向分析工具集（共 26 个工具），无需额外原生依赖。
-- `@kelivo/dex`：纯 Dart 实现的 DEX/ODEX 字节码解析与静态分析工具集（共 39 个工具），无需额外原生依赖。
+- `@kelivo/dex`：纯 Dart 实现的 DEX/ODEX 字节码解析工具集（共 10 个工具），无需额外原生依赖。
 - `@kelivo/context`：对话上下文管理工具集（共 6 个工具），支持上下文统计、摘要、搜索、导出与边界管理。
 - `@kelivo/reverse`：面向 APK 的静态分析、修改与快速排查工具（共 20 个工具，含过签、重打包与 DEX 注入能力）。
-- `@kelivo/memory`：按助手隔离的结构化记忆持久化工具集，支持记忆列表、增改删查、清空与统计。
 - 内置 MCP 运行在 App 内部，不需要用户额外启动 Node/Python 服务。
 
 ### SO/ELF 逆向分析工具
@@ -81,23 +80,20 @@
 
 ### DEX 字节码解析工具
 
-`@kelivo/dex` 提供纯 Dart 实现的 DEX/ODEX 字节码级解析与静态分析能力：
+`@kelivo/dex` 提供纯 Dart 实现的 DEX/ODEX 字节码级解析能力：
 
 | 类别 | 工具 |
 | --- | --- |
 | 头部 | `dex_parse_header` |
-| 字符串 | `dex_list_strings`、`dex_string_pool`、`dex_search_strings`（正则/子串搜索字符串池） |
-| 类型 | `dex_list_types`、`dex_type_ref` |
-| 类 | `dex_list_classes`、`dex_inner_class`、`dex_inherit_tree`、`dex_debug_info` |
-| 方法 | `dex_list_methods`、`dex_method_signatures`、`dex_disassemble_method`（单方法 Dalvik 字节码反汇编） |
-| 字段 | `dex_list_fields`、`dex_field_stats` |
-| 注解 | `dex_list_annotations`、`dex_annotation_stats`（注解提取与统计，反混淆线索） |
-| 交叉引用 | `dex_xref_method`（方法级调用图——查找所有调用者）、`dex_call_graph` |
-| 控制流 | `dex_ctrl_flow`、`dex_exception_flow`、`dex_access_flow` |
-| 复杂度 | `dex_complexity`（方法级圈复杂度/体积）、`dex_reg_pressure`、`dex_insn_stats`、`dex_insn_density`、`dex_class_density` |
-| 安全扫描 | `dex_crypto_scan`、`dex_const_scan`、`dex_serialization_scan`、`dex_reflection_scan`、`dex_obfuscation_scan`、`dex_lib_analysis`、`dex_native_analysis`、`dex_resource_ref`、`dex_access_pattern` |
-| 协议分析 | `dex_proto_analysis`、`dex_proto_matrix` |
-| 权限审计 | `dex_perm_audit` |
+| 字符串 | `dex_list_strings` |
+| 类型 | `dex_list_types` |
+| 类 | `dex_list_classes` |
+| 方法 | `dex_list_methods` |
+| 字段 | `dex_list_fields` |
+| 注解 | `dex_list_annotations`（类级注解提取，反混淆线索） |
+| 反汇编 | `dex_disassemble_method`（单方法 Dalvik 字节码反汇编） |
+| 交叉引用 | `dex_xref_method`（方法级调用图——查找所有调用者） |
+| 字符串搜索 | `dex_search_strings`（正则/子串搜索 DEX 字符串池） |
 
 ### 对话上下文管理工具
 
@@ -111,20 +107,6 @@
 | 导出 | `context_export` |
 | 边界 | `context_set_boundary` |
 | 消息 | `context_get_messages` |
-
-### 记忆工具
-
-`@kelivo/memory` 提供按助手隔离的结构化记忆持久化能力：
-
-| 类别 | 工具 |
-| --- | --- |
-| 列表 | `memory_list` |
-| 新增 | `memory_add` |
-| 更新 | `memory_update` |
-| 删除 | `memory_delete` |
-| 搜索 | `memory_search` |
-| 清空 | `memory_clear` |
-| 统计 | `memory_stats` |
 
 ### APK 逆向分析工具
 

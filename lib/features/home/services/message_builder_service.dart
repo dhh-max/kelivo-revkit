@@ -26,6 +26,7 @@ import '../../../core/models/assistant_regex.dart';
 import '../../../core/utils/multimodal_input_utils.dart';
 import '../../../utils/assistant_regex.dart';
 import '../../../utils/markdown_media_sanitizer.dart';
+import 'ocr_service.dart';
 
 /// Service for building API messages from conversation state.
 ///
@@ -40,22 +41,34 @@ import '../../../utils/markdown_media_sanitizer.dart';
 /// - Inlining local images for model context
 class MessageBuilderService {
   static const String internalMediaPathsKey = multimodalInternalMediaPathsKey;
+  static const String internalRevisionIdKey = multimodalInternalRevisionIdKey;
 
   MessageBuilderService({
     required this.chatService,
     required this.contextProvider,
     this.ocrHandler,
+    this.ocrPrefetch,
     this.geminiThoughtSignatureHandler,
   });
-
   final ChatService chatService;
-
   /// Build context (used for accessing providers via context.read)
   final BuildContext contextProvider;
-
-  /// OCR handler for processing images (optional, injected from home_page)
-  final Future<String?> Function(List<String> imagePaths)? ocrHandler;
-
+  /// OCR handler for processing images (optional, injected from home_page).
+  ///
+  /// The optional identifiers let the OCR service reuse persisted results for
+  /// historical messages while retaining compatibility with new attachments.
+  final Future<String?> Function(
+    List<String> imagePaths, {
+    String? revisionId,
+    OcrPrepareSession? session,
+  })?
+  ocrHandler;
+  /// Optional batch prefetch for persisted OCR results.
+  final Future<OcrPrepareSession> Function({
+    required List<String> revisionIds,
+    required List<String> imagePaths,
+  })?
+  ocrPrefetch;
   /// OCR text wrapper function
   String Function(String ocrText)? ocrTextWrapper;
 
@@ -199,10 +212,11 @@ class MessageBuilderService {
         content = geminiThoughtSignatureHandler!(m, content);
       }
       if (content.isEmpty) continue;
-      final message = <String, dynamic>{
-        'role': m.role == 'assistant' ? 'assistant' : 'user',
-        'content': content,
-      };
+      final role = m.role == 'assistant' ? 'assistant' : 'user';
+      final message = <String, dynamic>{'role': role, 'content': content};
+      if (role == 'user') {
+        message[internalRevisionIdKey] = m.id;
+      }
       if (toolContinuationReasoningContent?.isNotEmpty == true) {
         message['reasoning_content'] = toolContinuationReasoningContent;
       }
@@ -210,6 +224,13 @@ class MessageBuilderService {
     }
 
     return out;
+  }
+
+  /// Remove internal message IDs before the payload is sent to a provider.
+  void stripInternalRevisionIds(List<Map<String, dynamic>> apiMessages) {
+    for (final message in apiMessages) {
+      message.remove(internalRevisionIdKey);
+    }
   }
 
   ChatMessage? _latestPersistedMessage(ChatMessage message) {
@@ -319,6 +340,43 @@ class MessageBuilderService {
         settings.ocrModelId != null;
 
     List<String>? lastUserImagePaths;
+
+    // Load persisted OCR artifacts once for this request. Missing metadata and
+    // prefetch failures intentionally fall back to the existing OCR path.
+    OcrPrepareSession? ocrSession;
+    if (ocrActive && ocrPrefetch != null) {
+      final revisionIds = <String>[];
+      final imagePaths = <String>{};
+      for (final message in apiMessages) {
+        if (message['role'] != 'user') continue;
+        final revisionId = (message[internalRevisionIdKey] ?? '')
+            .toString()
+            .trim();
+        if (revisionId.isNotEmpty) revisionIds.add(revisionId);
+        final input = parseInputFromRaw((message['content'] ?? '').toString());
+        final nonImagePaths = <String>{
+          for (final attachment in input.documents)
+            if (isVideoMime(_effectiveAttachmentMime(attachment)) ||
+                isAudioMime(_effectiveAttachmentMime(attachment)))
+              attachment.path.trim(),
+        };
+        imagePaths.addAll(
+          input.imagePaths.where(
+            (path) => path.trim().isNotEmpty && !nonImagePaths.contains(path),
+          ),
+        );
+      }
+      if (imagePaths.isNotEmpty) {
+        try {
+          ocrSession = await ocrPrefetch!(
+            revisionIds: revisionIds,
+            imagePaths: imagePaths.toList(growable: false),
+          );
+        } catch (_) {
+          ocrSession = null;
+        }
+      }
+    }
 
     // Find last user message index
     int lastUserIdx = -1;
@@ -478,7 +536,14 @@ class MessageBuilderService {
             .toSet()
             .toList();
         if (ocrTargets.isNotEmpty) {
-          final ocrText = await ocrHandler!(ocrTargets);
+          final revisionId = (apiMessages[i][internalRevisionIdKey] ?? '')
+              .toString()
+              .trim();
+          final ocrText = await ocrHandler!(
+            ocrTargets,
+            revisionId: revisionId.isEmpty ? null : revisionId,
+            session: ocrSession,
+          );
           if (ocrText != null && ocrText.trim().isNotEmpty) {
             final wrapped = ocrTextWrapper != null
                 ? ocrTextWrapper!(ocrText)
@@ -666,7 +731,7 @@ class MessageBuilderService {
 ''');
         _appendToSystemMessage(apiMessages, buf.toString());
       }
-      if (assistant?.enableRecentChatsReference == true) {
+      if (assistant?.allowPastConversationRecall == true) {
         final chats = chatService.getAllConversations();
         final relevantChats = chats
             .where(

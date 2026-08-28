@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../icons/lucide_adapter.dart' as lucide;
 import '../../l10n/app_localizations.dart';
 import '../../features/settings/pages/debug_page.dart';
+import '../../shared/widgets/qq_group_join_sheet.dart';
 import '../../theme/app_font_weights.dart';
 
 class DesktopAboutPane extends StatefulWidget {
@@ -162,19 +163,44 @@ class _DesktopAboutPaneState extends State<DesktopAboutPane> {
                     detail: systemDetail,
                   ),
                   const _DeskRowDivider(),
+                  _DeskNavRow(
+                    icon: lucide.Lucide.Earth,
+                    label: l10n.aboutPageWebsite,
+                    onTap: () => _openUrl('https://kelivo.psycheas.top/'),
+                  ),
+                  const _DeskRowDivider(),
                   _DeskNavRowSvg(
                     svgAsset: 'assets/icons/github.svg',
                     label: l10n.aboutPageGithub,
                     onTap: () =>
-                        _openUrl('https://github.com/dhh-max/kelivo-revkit'),
+                        _openUrl('https://github.com/Chevey339/kelivo'),
                   ),
                   const _DeskRowDivider(),
                   _DeskNavRow(
                     icon: lucide.Lucide.FileText,
                     label: l10n.aboutPageLicense,
                     onTap: () => _openUrl(
-                      'https://github.com/dhh-max/kelivo-revkit/blob/main/LICENSE',
+                      'https://github.com/Chevey339/kelivo/blob/master/LICENSE',
                     ),
+                  ),
+                  const _DeskRowDivider(),
+                  _DeskNavRowSvg(
+                    svgAsset: 'assets/icons/tencent-qq.svg',
+                    label: l10n.aboutPageJoinQQGroup,
+                    onTap: () => showQQGroupJoinSheet(context: context),
+                  ),
+                  const _DeskRowDivider(),
+                  _DeskNavRowSvg(
+                    svgAsset: 'assets/icons/discord.svg',
+                    label: l10n.aboutPageJoinDiscord,
+                    onTap: () => _openUrl('https://discord.gg/Tb8DyvvV5T'),
+                  ),
+                  const _DeskRowDivider(),
+                  // Donation item (desktop): mirrors mobile "Sponsor"
+                  _DeskNavRow(
+                    icon: lucide.Lucide.Heart,
+                    label: l10n.settingsPageSponsor,
+                    onTap: () => _showSponsorDesktopDialog(context),
                   ),
                 ],
               ),
@@ -205,10 +231,8 @@ class _AppHeaderCardState extends State<_AppHeaderCard> {
     final cs = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final baseBg = isDark ? const Color(0xFF1C1C1E) : Colors.white;
-    final hoverBg = isDark
-        ? Colors.white.withValues(alpha: 0.06)
-        : Colors.black.withValues(alpha: 0.04);
+    final baseBg = Theme.of(context).colorScheme.surfaceContainerHigh;
+    final hoverBg = cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.04);
     final overlay = _hover ? hoverBg : Colors.transparent;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -231,7 +255,7 @@ class _AppHeaderCardState extends State<_AppHeaderCard> {
                 side: BorderSide(
                   width: 0.5,
                   color: isDark
-                      ? Colors.white.withValues(alpha: 0.06)
+                      ? cs.onSurface.withValues(alpha: 0.06)
                       : cs.outlineVariant.withValues(alpha: 0.12),
                 ),
               ),
@@ -301,13 +325,13 @@ class _DeskCard extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Material(
-      color: isDark ? const Color(0xFF1C1C1E) : Colors.white,
+      color: Theme.of(context).colorScheme.surfaceContainerHigh,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
         side: BorderSide(
           width: 0.5,
           color: isDark
-              ? Colors.white.withValues(alpha: 0.06)
+              ? cs.onSurface.withValues(alpha: 0.06)
               : cs.outlineVariant.withValues(alpha: 0.12),
         ),
       ),
@@ -420,9 +444,7 @@ class _DeskNavRowState extends State<_DeskNavRow> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final hoverBg = isDark
-        ? Colors.white.withValues(alpha: 0.06)
-        : Colors.black.withValues(alpha: 0.05);
+    final hoverBg = cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05);
     final bg = _hover ? hoverBg : Colors.transparent;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -491,9 +513,7 @@ class _DeskNavRowSvgState extends State<_DeskNavRowSvg> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final hoverBg = isDark
-        ? Colors.white.withValues(alpha: 0.06)
-        : Colors.black.withValues(alpha: 0.05);
+    final hoverBg = cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05);
     final bg = _hover ? hoverBg : Colors.transparent;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -545,4 +565,156 @@ class _DeskNavRowSvgState extends State<_DeskNavRowSvg> {
       ),
     );
   }
+}
+
+Future<void> _showSponsorDesktopDialog(BuildContext context) async {
+  final cs = Theme.of(context).colorScheme;
+  final l10n = AppLocalizations.of(context)!;
+  final isDark = Theme.of(context).brightness == Brightness.dark;
+  const afdianUrl = 'https://afdian.com/a/kelivo';
+  final wechatQrUrl = isDark
+      ? 'https://c.img.dasctf.com/LightPicture/2025/10/ee10ae78acbd01f3.png'
+      : 'https://c.img.dasctf.com/LightPicture/2025/10/6ba60ac0f2f8e2b4.png';
+
+  Future<void> open(String url) async {
+    final uri = Uri.parse(url);
+    try {
+      if (!await launchUrl(uri, mode: LaunchMode.platformDefault)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+    } catch (_) {
+      await launchUrl(uri);
+    }
+  }
+
+  await showDialog<void>(
+    context: context,
+    barrierDismissible: true,
+    builder: (ctx) {
+      final isDark = Theme.of(ctx).brightness == Brightness.dark;
+      return Dialog(
+        backgroundColor: cs.surface,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        l10n.settingsPageSponsor,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: AppFontWeights.emphasis,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: l10n.mcpPageClose,
+                      icon: Icon(
+                        lucide.Lucide.X,
+                        size: 18,
+                        color: cs.onSurface,
+                      ),
+                      onPressed: () => Navigator.of(ctx).maybePop(),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+
+                // Methods card
+                _DeskCard(
+                  title: l10n.sponsorPageMethodsSectionTitle,
+                  children: [
+                    _DeskNavRow(
+                      icon: lucide.Lucide.Heart,
+                      label: l10n.sponsorPageAfdianTitle,
+                      onTap: () => open(afdianUrl),
+                    ),
+                    const _DeskRowDivider(),
+                    _DeskNavRow(
+                      icon: lucide.Lucide.Link,
+                      label: l10n.sponsorPageWeChatTitle,
+                      onTap: () => open(wechatQrUrl),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 12),
+
+                // WeChat QR preview card (inline)
+                _DeskCard(
+                  title: l10n.sponsorPageWeChatTitle,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 8,
+                      ),
+                      child: Center(
+                        child: Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: cs.outlineVariant.withValues(
+                                alpha: isDark ? 0.14 : 0.18,
+                              ),
+                            ),
+                          ),
+                          clipBehavior: Clip.antiAlias,
+                          child: Image.network(
+                            wechatQrUrl,
+                            width: 220,
+                            height: 220,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Container(
+                              width: 220,
+                              height: 220,
+                              color: cs.surface,
+                              alignment: Alignment.center,
+                              child: Icon(
+                                lucide.Lucide.ImageOff,
+                                color: cs.onSurface.withValues(alpha: 0.5),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                      child: Center(
+                        child: Text(
+                          l10n.sponsorPageScanQrHint,
+                          style: TextStyle(
+                            color: cs.onSurface.withValues(alpha: 0.6),
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 6),
+                // Align(
+                //   alignment: Alignment.centerRight,
+                //   child: TextButton(
+                //     onPressed: () => Navigator.of(ctx).maybePop(),
+                //     child: Text(l10n.mcpPageClose, style: TextStyle(color: cs.primary)),
+                //   ),
+                // ),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+  );
 }

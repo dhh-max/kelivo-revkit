@@ -1048,7 +1048,7 @@ Prefer `plan_action` when the user's wording is ambiguous or the change is large
     }
     if (patch.containsKey('recent_chats_reference_enabled')) {
       next = next.copyWith(
-        enableRecentChatsReference: _boolFrom(
+        allowPastConversationRecall: _boolFrom(
           patch['recent_chats_reference_enabled'],
         ),
       );
@@ -3351,7 +3351,7 @@ Prefer `plan_action` when the user's wording is ambiguous or the change is large
     'chat_model_id': assistant.chatModelId,
     'search_enabled': assistant.searchEnabled,
     'memory_enabled': assistant.enableMemory,
-    'recent_chats_reference_enabled': assistant.enableRecentChatsReference,
+    'recent_chats_reference_enabled': assistant.allowPastConversationRecall,
     'app_control_enabled': assistant.appControlEnabled,
     'local_tool_ids': assistant.localToolIds,
     'mcp_server_ids': assistant.mcpServerIds,
