@@ -110,15 +110,18 @@ class ProxyServer {
   HttpServer? _server;
   bool _running = false;
   bool _virtualBackfillDone = false; // 惰性回填只做一次
-
   /// 告警出口（由 AppState 装配，负责持久化 + Webhook）
   void Function(Alert alert)? onAlert;
-
   // —— 并发控制 ——
   final int _maxConcurrent = Constants.maxConcurrentConnections;
   final int _maxQueued = Constants.maxQueuedConnections;
   int _active = 0;
   final List<Completer<void>> _queue = [];
+  // —— 缓存惰性清理计时器 ——
+  Timer? _cachePurgeTimer;
+  // —— 请求去重：短期窗口内相同请求复用上游响应 ——
+  final Map<String, _DedupEntry> _dedup = {};
+  Timer? _dedupCleanupTimer;
 
   ProxyServer({
     required this.keyManager,
@@ -172,6 +175,12 @@ class ProxyServer {
     _gatewayKeyService = GatewayKeyService();
     _modelRouteService = ModelRouteService();
     _dailyStatsService = DailyStatsService(pricing: _pricingService);
+    // 应用上游连接池配置
+    BaseHttpProvider.configureConnectionPool(
+      maxConnectionsPerHost: settings.upstreamMaxConnections,
+      connectionTimeoutSec: 15,
+      idleTimeoutSec: settings.upstreamMaxKeepalive,
+    );
   }
 
   bool get isRunning => _running;
@@ -195,10 +204,28 @@ class ProxyServer {
     _server = await HttpServer.bind(host, port);
     port = _server!.port; // 记录实际绑定的端口（port:0 时为系统分配的临时端口）
     _running = true;
+    // 设置服务器级别参数
+    _server!.serverHeader = 'RelayGo/${Constants.appVersion}';
+    _server!.autoCompress = false; // 响应体已是上游解压后的，不需要二次压缩
+    _server!.idleTimeout = const Duration(seconds: 120); // 客户端空闲超时
     _server!.listen(_handleRequest, onError: (_) {});
+    // 启动缓存惰性清理定时器
+    _cachePurgeTimer ??= Timer.periodic(
+      const Duration(milliseconds: Constants.cachePurgeIntervalMs),
+      (_) { cache.purgeExpired(); },
+    );
+    // 启动去重窗口清理定时器
+    _dedupCleanupTimer ??= Timer.periodic(
+      const Duration(seconds: 5),
+      (_) => _cleanupDedup(),
+    );
   }
-
   Future<void> stop() async {
+    _cachePurgeTimer?.cancel();
+    _cachePurgeTimer = null;
+    _dedupCleanupTimer?.cancel();
+    _dedupCleanupTimer = null;
+    _dedup.clear();
     await _server?.close(force: true);
     _server = null;
     _running = false;
@@ -445,6 +472,35 @@ class ProxyServer {
       }
     }
 
+    // 3.5) 请求去重：同一非流式请求在 deduplicationWindowMs 内复用上次响应
+    if (!payload.stream && request.method != 'GET') {
+      final dedupKey = _buildDedupKey(request.method, path, body);
+      final cached = _dedup[dedupKey];
+      if (cached != null && !cached.isExpired) {
+        request.response.statusCode = cached.statusCode;
+        cached.headers.forEach((name, value) {
+          if (!BaseHttpProvider.skipResponseHeader(name.toLowerCase())) {
+            request.response.headers.set(name, value);
+          }
+        });
+        request.response.headers.set('x-relay-dedup', 'HIT');
+        request.response.add(cached.body);
+        await request.response.close();
+        _recordLog(
+          request,
+          null,
+          cached.provider.isEmpty ? detected : cached.provider,
+          cached.statusCode,
+          stopwatch.elapsedMilliseconds,
+          model: payload.model,
+          requestBytes: body.length,
+          responseBytes: cached.body.length,
+          ruleName: decision?.ruleName,
+          cached: true,
+        );
+        return;
+      }
+    }
     // 4) 候选 key 选择 + 多提供商失败重试
     final forwardResult =
         await _forwardWithFallback(proxyRequest, detected, decision);
@@ -570,6 +626,19 @@ class ProxyServer {
       );
       // 异步落库，不阻塞响应
       unawaited(_dailyStatsService.flush());
+
+      // —— 请求去重存储：非流式 2xx 响应且完整捕获时缓存响应 ——
+      if (!isError && !result.streaming &&
+          written.captured.length == written.total &&
+          written.total <= Constants.cacheMaxBodyBytes) {
+        _dedup[_buildDedupKey(request.method, path, body)] = _DedupEntry(
+          timestamp: DateTime.now().millisecondsSinceEpoch,
+          statusCode: result.statusCode,
+          headers: Map<String, String>.from(result.headers),
+          body: List<int>.from(written.captured),
+          provider: key.provider,
+        );
+      }
 
       // —— Webhook 告警推送（从 InterGate 移植）——
       if (settings.webhookEnabled && settings.webhookUrl.isNotEmpty && isError) {
@@ -865,6 +934,14 @@ class ProxyServer {
             await keyManager.updateKey(key);
             _maybeEmitKeyStatusChanged(key, prev);
           }
+          // 指数退避 + 抖动：切换 key 前短暂等待，避免连续快速重试打满上游
+          if (pool.isNotEmpty) {
+            final backoff = (Constants.retryBackoffBaseMs *
+                (1 << (attempts.clamp(0, 4))) +
+                (DateTime.now().millisecondsSinceEpoch % 100))
+                .clamp(0, Constants.retryBackoffMaxMs);
+            await Future<void>.delayed(Duration(milliseconds: backoff));
+          }
           continue;
         }
         // 3xx（非 304）等其余情况：交给下面的统一处理（正常透传）
@@ -880,6 +957,14 @@ class ProxyServer {
         loadBalancer.recordFailure(key);
         await keyManager.updateKey(key);
         _maybeEmitKeyStatusChanged(key, prev);
+        // 指数退避 + 抖动：异常后切换 key 前短暂等待
+        if (pool.isNotEmpty) {
+          final backoff = (Constants.retryBackoffBaseMs *
+              (1 << (attempts.clamp(0, 4))) +
+              (DateTime.now().millisecondsSinceEpoch % 100))
+              .clamp(0, Constants.retryBackoffMaxMs);
+          await Future<void>.delayed(Duration(milliseconds: backoff));
+        }
         continue;
       } finally {
         loadBalancer.decConnection(key.id);
@@ -1007,7 +1092,18 @@ class ProxyServer {
     }
     return msg;
   }
-
+  /// 构建请求去重键（method + path + body hash）
+  String _buildDedupKey(String method, String path, List<int> body) {
+    // 用 body 长度 + 前 64 字节的 hash 做快速指纹，避免对大 body 做完整 hash
+    final sampleLen = body.length < 64 ? body.length : 64;
+    final sample = body.sublist(0, sampleLen);
+    final hash = sample.fold<int>(0, (prev, b) => (prev * 31 + b) & 0x7FFFFFFF);
+    return '$method:$path:${body.length}:$hash';
+  }
+  /// 清理过期的去重条目
+  void _cleanupDedup() {
+    _dedup.removeWhere((_, entry) => entry.isExpired);
+  }
   /// 读取请求体（受 [Constants.maxRequestBodyBytes] 约束）
   Future<List<int>> _readBody(HttpRequest request) async {
     final out = <int>[];
@@ -2027,10 +2123,27 @@ class _ForwardFailure {
 
 class _Captured {
   final int total;
-  final List<int> captured;
+final List<int> captured;
   _Captured(this.total, this.captured);
 }
-
 class _ProxyOverload {
   const _ProxyOverload();
+}
+/// 请求去重条目：短时间内相同请求的响应缓存
+class _DedupEntry {
+  final int timestamp;
+  final int statusCode;
+  final Map<String, String> headers;
+  final List<int> body;
+  final String provider;
+  _DedupEntry({
+    required this.timestamp,
+    required this.statusCode,
+    required this.headers,
+    required this.body,
+    required this.provider,
+  });
+  bool get isExpired =>
+      DateTime.now().millisecondsSinceEpoch - timestamp >
+      Constants.deduplicationWindowMs;
 }
