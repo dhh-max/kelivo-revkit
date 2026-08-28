@@ -76,19 +76,32 @@ abstract class BaseProvider {
 abstract class BaseHttpProvider implements BaseProvider {
   // ——— 共享连接池（性能优化：keep-alive 复用，避免每请求新建连接）———
   static HttpClient? _shared;
-
+  /// 连接池参数（启动时由 ProxyServer 注入，默认值保持兼容）
+  static int _maxConnectionsPerHost = 32;
+  static int _connectionTimeoutSec = 15;
+  static int _idleTimeoutSec = 30;
+  static void configureConnectionPool({
+    int maxConnectionsPerHost = 32,
+    int connectionTimeoutSec = 15,
+    int idleTimeoutSec = 30,
+  }) {
+    _maxConnectionsPerHost = maxConnectionsPerHost;
+    _connectionTimeoutSec = connectionTimeoutSec;
+    _idleTimeoutSec = idleTimeoutSec;
+    // 重建连接池以应用新参数
+    closeShared();
+  }
   static HttpClient get client {
     final c = _shared;
     if (c != null) return c;
     final created = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 15)
-      ..idleTimeout = const Duration(seconds: 30)
-      ..maxConnectionsPerHost = 32
+      ..connectionTimeout = Duration(seconds: _connectionTimeoutSec)
+      ..idleTimeout = Duration(seconds: _idleTimeoutSec)
+      ..maxConnectionsPerHost = _maxConnectionsPerHost
       ..autoUncompress = true; // 解压后转发，故响应头需剥离 content-encoding
     _shared = created;
     return created;
   }
-
   /// 释放共享连接池（应用退出/测试收尾）
   static void closeShared() {
     _shared?.close(force: true);

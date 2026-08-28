@@ -163,6 +163,22 @@ class Constants {
   static const double defaultBurstMultiplier = 1.5; // 令牌桶突发容量倍数
   static const String retryAfterHeader = 'retry-after';
 
+  // —— 网关性能优化常量 ——
+  /// 请求去重窗口：同一幂等请求在此时间内的重复直接返回相同结果（毫秒）
+  static const int deduplicationWindowMs = 2000;
+  /// 上游连接空闲超时（与 keepalive 配合，过长导致连接堆积，过短导致重连）
+  static const int upstreamIdleTimeoutMs = 30000;
+  /// 重试退避基数（毫秒），实际退避 = base * 2^attempt + jitter
+  static const int retryBackoffBaseMs = 500;
+  /// 重试退避上限（毫秒）
+  static const int retryBackoffMaxMs = 5000;
+  /// 缓存惰性清理周期（毫秒），默认 60 秒
+  static const int cachePurgeIntervalMs = 60000;
+  /// 内存日志软上限：超过此值时丢弃最旧条目以释放内存
+  static const int logMemoryHardCap = 500;
+  /// 健康分最少样本数（低于此数不启用 smart 策略的健康分排序）
+  static const int minHealthScoreSamples = 10;
+
   // —— TPM 自适应挡板 + 429 等待重试（消除上游限流中断）——
   /// 自适应 TPM 挡板默认开启：结合本地用量与上游 429 反馈，把「学到」的
   /// 每 key+模型 token 上限压到实际可用值附近，从源头减少 TPM 限流。
