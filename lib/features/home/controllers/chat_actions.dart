@@ -1427,10 +1427,10 @@ class ChatActions {
     }
 
     // Handle buffered reasoning for non-streaming mode
-    // When suppressReasoningOutput: force collapse, but data is preserved
+    // When suppressReasoningOutput: discard entirely, only show final content
     final assistant = state.ctx.assistant;
     final suppressReasoning = assistant is Assistant && assistant.suppressReasoningOutput;
-    if (!state.ctx.streamOutput && state.bufferedReasoning.isNotEmpty) {
+    if (!suppressReasoning && !state.ctx.streamOutput && state.bufferedReasoning.isNotEmpty) {
       final now = DateTime.now();
       final startAt = state.reasoningStartAt ?? now;
       await chatService.updateMessage(
@@ -1443,19 +1443,20 @@ class ChatActions {
         ..text = state.bufferedReasoning
         ..startAt = startAt
         ..finishedAt = now
-        ..expanded = suppressReasoning ? false : !(autoCollapseThinking ?? false);
+        ..expanded = !(autoCollapseThinking ?? false);
     }
     await _conversationStreams.remove(conversationId)?.cancel();
-    // Ensure reasoning is finished
-    final r = streamController.reasoning[messageId];
-    if (r != null && r.finishedAt == null) {
-      r.finishedAt = DateTime.now();
-      if (suppressReasoning) r.expanded = false;
-      await chatService.updateMessage(
-        messageId,
-        reasoningText: r.text,
-        reasoningFinishedAt: r.finishedAt,
-      );
+    // Ensure reasoning is finished (skip if suppressReasoningOutput)
+    if (!suppressReasoning) {
+      final r = streamController.reasoning[messageId];
+      if (r != null && r.finishedAt == null) {
+        r.finishedAt = DateTime.now();
+        await chatService.updateMessage(
+          messageId,
+          reasoningText: r.text,
+          reasoningFinishedAt: r.finishedAt,
+        );
+      }
     }
   }
 

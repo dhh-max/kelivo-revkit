@@ -958,6 +958,10 @@ class StreamController {
   }) async {
     if ((chunk.toolResults ?? const []).isEmpty) return;
 
+    // Suppress tool results display when suppressReasoningOutput is enabled
+    final assistant = state.ctx.assistant;
+    if (assistant is Assistant && assistant.suppressReasoningOutput) return;
+
     final messageId = state.messageId;
     final conversationId = state.conversationId;
 
