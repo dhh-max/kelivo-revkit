@@ -893,7 +893,7 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
     super.initState();
     _syncTicker();
 
-    // Determine initial state for inline <think> card BEFORE first paint to avoid
+    // Determine initial state for inline  card BEFORE first paint to avoid
     // post-frame size changes that can cause list scroll jitter/snapping.
     try {
       final parsed = _legacyInlineThinkingFor(widget);
@@ -905,7 +905,12 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
         final autoCollapse = context
             .read<SettingsProvider>()
             .autoCollapseThinking;
-        _inlineThinkExpanded = !autoCollapse ? true : false;
+        // Force collapse when suppressReasoningOutput is enabled
+        final suppressReasoning =
+            _assistantForMessage()?.suppressReasoningOutput ?? false;
+        _inlineThinkExpanded = suppressReasoning
+            ? false
+            : (!autoCollapse ? true : false);
       }
     } catch (_) {
       // If anything fails here, fall back to later update logic.
@@ -2197,7 +2202,7 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
     final l10n = AppLocalizations.of(context)!;
     final settings = context.watch<SettingsProvider>();
     final assistant = _assistantForMessage();
-
+    final suppressReasoning = assistant?.suppressReasoningOutput ?? false;
     final parsedInlineThinking = _legacyInlineThinkingFor(widget);
     final extractedThinking = parsedInlineThinking.thinkingTexts.join('\n\n');
     final contentWithoutThink = parsedInlineThinking.visibleContent;
@@ -2310,15 +2315,31 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
                 (widget.reasoningText == null ||
                     widget.reasoningText!.isEmpty) &&
                 extractedThinking.isNotEmpty;
-            final effectiveExpanded = usingInlineThink
-                ? (_inlineThinkExpanded ?? true)
-                : widget.reasoningExpanded;
+            final effectiveExpanded = suppressReasoning
+                ? false
+                : (usingInlineThink
+                    ? (_inlineThinkExpanded ?? true)
+                    : widget.reasoningExpanded);
             final effectiveLoading = usingInlineThink
                 ? false
                 : (widget.reasoningFinishedAt == null);
-
             List<ReasoningSegment>? effectiveReasoningSegments =
                 widget.reasoningSegments;
+            // Force-collapse all segments when suppressReasoningOutput
+            if (suppressReasoning &&
+                effectiveReasoningSegments != null &&
+                effectiveReasoningSegments.isNotEmpty) {
+              effectiveReasoningSegments =
+                  effectiveReasoningSegments.map((s) => ReasoningSegment(
+                        text: s.text,
+                        expanded: false,
+                        loading: s.loading,
+                        startAt: s.startAt,
+                        finishedAt: s.finishedAt,
+                        onToggle: s.onToggle,
+                        toolStartIndex: s.toolStartIndex,
+                      )).toList();
+            }
             if ((effectiveReasoningSegments == null ||
                     effectiveReasoningSegments.isEmpty) &&
                 (hasProvidedReasoning || effectiveReasoningText.isNotEmpty)) {

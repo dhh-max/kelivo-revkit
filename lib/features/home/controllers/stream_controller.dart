@@ -739,7 +739,7 @@ class StreamController {
   // Stream Chunk Processing
   // ============================================================================
 
-  /// Process a reasoning chunk from stream.
+/// Process a reasoning chunk from stream.
   Future<void> handleReasoningChunk(
     ChatStreamChunk chunk,
     StreamingState state, {
@@ -753,6 +753,10 @@ class StreamController {
   }) async {
     if ((chunk.reasoning ?? '').isEmpty || !state.ctx.supportsReasoning) return;
 
+    // Suppress reasoning: discard entirely, only show final content
+    final assistant = state.ctx.assistant;
+    if (assistant is Assistant && assistant.suppressReasoningOutput) return;
+
     final messageId = state.messageId;
     final conversationId = state.conversationId;
     state.hadThinkingBlock = true;
@@ -764,20 +768,14 @@ class StreamController {
       ),
     );
 
-    // Check if reasoning output should be suppressed (model thinks, panel shows, but text is hidden)
-    final assistant = state.ctx.assistant;
-    final suppressReasoning = assistant is Assistant && assistant.suppressReasoningOutput;
-
     if (state.ctx.streamOutput) {
       final initialExpanded = !getSettingsProvider().autoCollapseThinking;
-      // When suppressing: force collapse so only the panel header shows
-      final effectiveExpanded = suppressReasoning ? false : initialExpanded;
       final isNewReasoning = !_reasoning.containsKey(messageId);
       final r = _reasoning[messageId] ?? ReasoningData();
       r.text += chunk.reasoning!;
       r.startAt ??= DateTime.now();
       if (isNewReasoning) {
-        r.expanded = effectiveExpanded;
+        r.expanded = initialExpanded;
       }
       _reasoning[messageId] = r;
 
@@ -788,7 +786,7 @@ class StreamController {
         final newSegment = ReasoningSegmentData();
         newSegment.text = chunk.reasoning!;
         newSegment.startAt = DateTime.now();
-        newSegment.expanded = effectiveExpanded;
+        newSegment.expanded = initialExpanded;
         newSegment.toolStartIndex = (_toolParts[messageId]?.length ?? 0);
         segments.add(newSegment);
       } else {
@@ -799,7 +797,7 @@ class StreamController {
           final newSegment = ReasoningSegmentData();
           newSegment.text = chunk.reasoning!;
           newSegment.startAt = DateTime.now();
-          newSegment.expanded = effectiveExpanded;
+          newSegment.expanded = initialExpanded;
           newSegment.toolStartIndex = (_toolParts[messageId]?.length ?? 0);
           segments.add(newSegment);
         } else {
@@ -864,6 +862,10 @@ class StreamController {
     getToolEventsFromDb,
   }) async {
     if ((chunk.toolCalls ?? const []).isEmpty) return;
+
+    // Suppress tool calls display when suppressReasoningOutput is enabled
+    final assistant = state.ctx.assistant;
+    if (assistant is Assistant && assistant.suppressReasoningOutput) return;
 
     final messageId = state.messageId;
     final conversationId = state.conversationId;
