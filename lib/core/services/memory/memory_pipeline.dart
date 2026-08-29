@@ -478,7 +478,7 @@ class MemoryPipelineService {
       window = window.sublist(window.length - firstWindowCap);
     }
     final thinkingBudget = settings.memoryModelThinkingEnabled
-        ? (assistant.thinkingBudget ?? settings.thinkingBudget)
+        ? (assistant.effectiveThinkingBudget ?? settings.thinkingBudget)
         : 0;
 
     return processWindow(

@@ -1211,7 +1211,7 @@ class HomeViewModel extends ChangeNotifier {
     if (provKey == null || mdlId == null) return;
     final cfg = settings.getProviderConfig(provKey);
     final budget = settings.titleGenerationThinkingBudgetFor(
-      assistant?.thinkingBudget,
+      assistant?.effectiveThinkingBudget,
     );
 
     // Build content from messages (truncate to reasonable length)
@@ -1287,7 +1287,7 @@ class HomeViewModel extends ChangeNotifier {
         ? assistantProvider.getById(convo.assistantId!)
         : assistantProvider.currentAssistant;
 
-    final budget = assistant?.thinkingBudget ?? settings.thinkingBudget;
+    final budget = assistant?.effectiveThinkingBudget ?? settings.thinkingBudget;
 
     // Only generate summary if assistant has recent chats reference enabled
     if (assistant?.enableRecentChatsReference != true) return;
@@ -1420,7 +1420,7 @@ class HomeViewModel extends ChangeNotifier {
         ? assistantProvider.getById(convo.assistantId!)
         : assistantProvider.currentAssistant;
     final locale = Localizations.localeOf(_contextProvider).toLanguageTag();
-    final budget = assistant?.thinkingBudget ?? settings.thinkingBudget;
+    final budget = assistant?.effectiveThinkingBudget ?? settings.thinkingBudget;
 
     try {
       await _chatService.clearConversationSuggestions(conversationId);

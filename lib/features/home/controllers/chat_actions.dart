@@ -533,7 +533,7 @@ class ChatActions {
     final enableReasoning =
         supportsReasoning &&
         _isReasoningEnabled(
-          assistant?.thinkingBudget ?? settings.thinkingBudget,
+          assistant?.effectiveThinkingBudget ?? settings.thinkingBudget,
         );
     await messageGenerationService.initializeReasoningState(
       messageId: assistantMessage.id,
@@ -733,7 +733,7 @@ class ChatActions {
     final enableReasoning =
         supportsReasoning &&
         _isReasoningEnabled(
-          assistant?.thinkingBudget ?? settings.thinkingBudget,
+          assistant?.effectiveThinkingBudget ?? settings.thinkingBudget,
         );
     await messageGenerationService.initializeReasoningState(
       messageId: assistantMessage.id,
@@ -843,7 +843,7 @@ class ChatActions {
     final enableReasoning =
         supportsReasoning &&
         _isReasoningEnabled(
-          assistant?.thinkingBudget ?? settings.thinkingBudget,
+          assistant?.effectiveThinkingBudget ?? settings.thinkingBudget,
         );
 
     try {
@@ -1039,7 +1039,7 @@ class ChatActions {
         messages: ctx.apiMessages,
         userImagePaths: ctx.userImagePaths,
         thinkingBudget:
-            assistant?.thinkingBudget ?? ctx.settings.thinkingBudget,
+            assistant?.effectiveThinkingBudget ?? ctx.settings.thinkingBudget,
         temperature: assistant?.temperature,
         topP: assistant?.topP,
         maxTokens: assistant?.maxTokens,
