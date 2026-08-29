@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../../../core/models/chat_message.dart';
+import '../../../core/models/assistant.dart';
 import '../../../core/models/token_usage.dart';
 import '../../../core/providers/settings_provider.dart';
 import '../../../core/services/api/chat_api_service.dart';
@@ -751,6 +752,13 @@ class StreamController {
     updateReasoningInDb,
   }) async {
     if ((chunk.reasoning ?? '').isEmpty || !state.ctx.supportsReasoning) return;
+
+    // Suppress reasoning output: model still thinks, but we discard the
+    // reasoning content so it never reaches UI or database.
+    final assistant = state.ctx.assistant;
+    if (assistant is Assistant && assistant.suppressReasoningOutput) {
+      return;
+    }
 
     final messageId = state.messageId;
     final conversationId = state.conversationId;

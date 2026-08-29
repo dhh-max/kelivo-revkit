@@ -6,21 +6,14 @@ import 'memory_entry.dart';
 
 class Assistant {
     /// The current assistant has any enabled "禁止输出思考内容" rule.
-  /// Used to force-disable reasoning mode at the API level (thinkingBudget=0),
-  /// so thinking-mode models (deepseek-v4-flash, qwen3-max, kimi-k2-thinking, …)
-  /// do not emit reasoning_content at all. This complements the regex filter
-  /// that already scrubs thinking text out of the final stored content.
-  bool get forcesThinkingDisabled => regexRules.any((r) {
+  /// When true, the model still thinks (thinkingBudget unchanged) but
+  /// reasoning_content is suppressed: not stored, not displayed in UI.
+  /// Only the final content reaches the user.
+  bool get suppressReasoningOutput => regexRules.any((r) {
     if (!r.enabled) return false;
     final id = r.id.toLowerCase();
     return id.startsWith('builtin-no-thinking');
   });
-
-  /// Effective thinking budget: 0 when [forcesThinkingDisabled], otherwise the
-  /// configured value. Callers should use this instead of reading
-  /// [thinkingBudget] directly when building API requests.
-  int? get effectiveThinkingBudget =>
-      forcesThinkingDisabled ? 0 : thinkingBudget;
 
   static const int defaultRecentChatsSummaryMessageCount = 5;
   static const int defaultMemoryOrganizeEveryNTurns = 1;

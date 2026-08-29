@@ -6,6 +6,7 @@ import '../../../core/models/chat_input_data.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/android_background.dart';
 import '../../../core/models/chat_message.dart';
+import '../../../core/models/assistant.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/models/token_usage.dart';
 import '../../../core/providers/assistant_provider.dart';
@@ -533,7 +534,7 @@ class ChatActions {
     final enableReasoning =
         supportsReasoning &&
         _isReasoningEnabled(
-          assistant?.effectiveThinkingBudget ?? settings.thinkingBudget,
+          assistant?.thinkingBudget ?? settings.thinkingBudget,
         );
     await messageGenerationService.initializeReasoningState(
       messageId: assistantMessage.id,
@@ -733,7 +734,7 @@ class ChatActions {
     final enableReasoning =
         supportsReasoning &&
         _isReasoningEnabled(
-          assistant?.effectiveThinkingBudget ?? settings.thinkingBudget,
+          assistant?.thinkingBudget ?? settings.thinkingBudget,
         );
     await messageGenerationService.initializeReasoningState(
       messageId: assistantMessage.id,
@@ -843,7 +844,7 @@ class ChatActions {
     final enableReasoning =
         supportsReasoning &&
         _isReasoningEnabled(
-          assistant?.effectiveThinkingBudget ?? settings.thinkingBudget,
+          assistant?.thinkingBudget ?? settings.thinkingBudget,
         );
 
     try {
@@ -1039,7 +1040,7 @@ class ChatActions {
         messages: ctx.apiMessages,
         userImagePaths: ctx.userImagePaths,
         thinkingBudget:
-            assistant?.effectiveThinkingBudget ?? ctx.settings.thinkingBudget,
+            assistant?.thinkingBudget ?? ctx.settings.thinkingBudget,
         temperature: assistant?.temperature,
         topP: assistant?.topP,
         maxTokens: assistant?.maxTokens,
@@ -1426,7 +1427,10 @@ class ChatActions {
     }
 
     // Handle buffered reasoning for non-streaming mode
-    if (!state.ctx.streamOutput && state.bufferedReasoning.isNotEmpty) {
+    // Skip if suppressReasoningOutput is enabled (model thinks but output is hidden)
+    final assistant = state.ctx.assistant;
+    final suppressReasoning = assistant is Assistant && assistant.suppressReasoningOutput;
+    if (!suppressReasoning && !state.ctx.streamOutput && state.bufferedReasoning.isNotEmpty) {
       final now = DateTime.now();
       final startAt = state.reasoningStartAt ?? now;
       await chatService.updateMessage(
@@ -1443,16 +1447,17 @@ class ChatActions {
     }
 
     await _conversationStreams.remove(conversationId)?.cancel();
-
-    // Ensure reasoning is finished
-    final r = streamController.reasoning[messageId];
-    if (r != null && r.finishedAt == null) {
-      r.finishedAt = DateTime.now();
-      await chatService.updateMessage(
-        messageId,
-        reasoningText: r.text,
-        reasoningFinishedAt: r.finishedAt,
-      );
+    // Ensure reasoning is finished (skip if suppressReasoningOutput is enabled)
+    if (!suppressReasoning) {
+      final r = streamController.reasoning[messageId];
+      if (r != null && r.finishedAt == null) {
+        r.finishedAt = DateTime.now();
+        await chatService.updateMessage(
+          messageId,
+          reasoningText: r.text,
+          reasoningFinishedAt: r.finishedAt,
+        );
+      }
     }
   }
 
