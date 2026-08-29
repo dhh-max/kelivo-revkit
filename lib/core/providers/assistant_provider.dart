@@ -132,30 +132,57 @@ class AssistantProvider extends ChangeNotifier {
     }
   }
 
-  /// 内置输出限制规则：剥离 AI 常见开场白、结尾套话与英文 filler。
+  /// 内置输出限制规则：禁止模型向用户输出思考/推理内容。
   /// persist 模式（visualOnly=false, replaceOnly=false）——
   /// 在消息存储时即生效，后续展示和发送均使用已过滤版本。
+  /// 覆盖范围：
+  ///   1) 中文思考标签/段落标题（"思考："/"我的思考："/"让我想一想"等）
+  ///   2) 英文思考标签（"Thinking:"/"Let me think"/"Reasoning:"/"Chain of thought"）
+  ///   3) 流式思考标签（<thinking>…</thinking>、<thought>…</thought>、
+  ///      <reasoning>…</reasoning>、<chain_of_thought>…</chain_of_thought>）
+  ///   4) Markdown 折叠块形式（<details>…<summary>思考/Thinking</summary>…</details>）
   static List<AssistantRegex> _builtinOutputFilterRules() => <AssistantRegex>[
     AssistantRegex(
-      id: 'builtin-no-filler-open-zh',
-      name: '开场白过滤',
-      pattern: r'(?m)^(好的[，。、！]\s*(?:我来|让我)[^\n]*|当然可以[，。！]?\s*$|当然可以[，。！]\s*(?:我来|让我)[^\n]*|当然[，。！]\s*(?:我来|让我|可以)[^\n]*|没问题[，。！]?\s*$|让我来[帮为你][^\n]*|我来帮[^\n]*)$\n?',
+      id: 'builtin-no-thinking-tags',
+      name: 'Thinking Block Filter',
+      // <thinking>...</thinking> / <thought>...</thought> / <reasoning>...</reasoning>
+      // / <chain_of_thought>...</chain_of_thought> / <reflection>...</reflection>
+      // 使用非贪婪 + DOTALL（\s\S 支持换行），允许标签内嵌属性、大小写不敏感。
+      pattern:
+          r'''(?is)<\s*/?\s*(?:thinking|thought|reasoning|chain[\s_-]*of[\s_-]*thought|cot|reflection|monologue)\b[^<>]{0,200}>\s*[\s\S]*?<\s*/\s*(?:thinking|thought|reasoning|chain[\s_-]*of[\s_-]*thought|cot|reflection|monologue)\s*>''',
       replacement: '',
       scopes: const <AssistantRegexScope>[AssistantRegexScope.assistant],
       enabled: true,
     ),
     AssistantRegex(
-      id: 'builtin-no-filler-close-zh',
-      name: '结尾套话过滤',
-      pattern: r'(?m)^(希望[对这能][^\n]{0,30}有帮助[^\n]{0,20}|如果你还[^\n]{0,40}问题[^\n]{0,30}|以上就是[^\n]{0,40}(?:内容|全部内容)[。！]?|如有[^\n]{0,30}疑问[^\n]{0,30})$\n?',
+      id: 'builtin-no-thinking-details',
+      name: 'Details/Summary Thinking Filter',
+      // <details><summary>思考</summary> ... </details>
+      // <details><summary>Thinking</summary> ... </details>
+      // <details open><summary>…</summary>…</details>
+      pattern:
+          r'''(?is)<\s*details\b[^<>]{0,200}>\s*(?=<summary)<?summary\b[^<>]{0,300}>\s*(?:思考|我的思考|推理|思维链|thinking|reasoning|chain\s*of\s*thought|cot|reflection|let\s*me\s*think)\s*</summary>[\s\S]*?<\s*/\s*details\s*>''',
       replacement: '',
       scopes: const <AssistantRegexScope>[AssistantRegexScope.assistant],
       enabled: true,
     ),
     AssistantRegex(
-      id: 'builtin-no-filler-en',
-      name: 'English Filler Filter',
-      pattern: r'''(?m)^(Sure[,!.][^\n]{0,60}|Of course[,!.]?\s*$|Of course[,!.]?\s*(?:I'll|let me)[^\n]{0,60}|Let me help[^\n]{0,60}|I hope this helps[^\n]{0,40})$\n?''',
+      id: 'builtin-no-thinking-headers',
+      name: 'Thinking Header Filter',
+      // 段落标题形式（整段剥离）：
+      // "思考：/我的思考：/推理过程：/思维链：" + 后续内容直到下一个空行
+      // "## Thinking"、"**Reasoning:**"、"Chain of thought:" 等
+      pattern:
+          r'''(?ims)^(?:#{1,6}\s*)?(?:\*\*)?(?:思考|我的思考|内心独白|推理过程|推理|思维链|分析过程|让我想一想|让我想想|让我思考一下)\s*(?:\*\*)?\s*[：:]\s*[\s\S]*?(?=\n\s*\n|\Z)''',
+      replacement: '',
+      scopes: const <AssistantRegexScope>[AssistantRegexScope.assistant],
+      enabled: true,
+    ),
+    AssistantRegex(
+      id: 'builtin-no-thinking-headers-en',
+      name: 'English Thinking Header Filter',
+      pattern:
+          r'''(?ims)^(?:#{1,6}\s*)?(?:\*\*)?(?:thinking|reasoning|reasoning\s*process|chain\s*of\s*thought|cot|reflection|let\s*me\s*think(?:\s*(?:about\s*it|through\s*this|step\s*by\s*step))?)\s*(?:\*\*)?\s*[：:]\s*[\s\S]*?(?=\n\s*\n|\Z)''',
       replacement: '',
       scopes: const <AssistantRegexScope>[AssistantRegexScope.assistant],
       enabled: true,
@@ -166,7 +193,11 @@ class AssistantProvider extends ChangeNotifier {
     id: const Uuid().v4(),
     name: l10n.assistantProviderDefaultAssistantName,
     systemPrompt:
-        '直接输出最终结果，不展示中间推理、工具调用步骤、验证过程等任何中间过程。'
+        '直接输出最终结果。严禁向用户输出任何思考/推理/思维链内容，包括但不限于：'
+        '不写"思考："、"我的思考："、"Reasoning:"、"Thinking:"、"Let me think…"、'
+        '"Chain of thought…"等标题或段落；不使用 <thinking>、<thought>、<reasoning>、'
+        '<chain_of_thought>、<details><summary>思考/Thinking</summary> 等标签包裹思考过程。'
+        '不展示中间推理、工具调用步骤、验证过程等任何中间过程。'
         '禁止输出与正文无关的内容：不要开场白、不要结尾套话、不要解释自己做了什么。'
         '用户要求什么，一步到位给出最终答案。',
     thinkingBudget: null,
@@ -189,9 +220,7 @@ class AssistantProvider extends ChangeNotifier {
         systemPrompt: l10n.assistantProviderSampleAssistantSystemPrompt(
               '{model_name}',
             ) +
-            '\n\n直接输出最终结果，不展示中间推理、工具调用步骤、验证过程等任何中间过程。'
-            '禁止输出与正文无关的内容：不要开场白、不要结尾套话、不要解释自己做了什么。'
-            '用户要求什么，一步到位给出最终答案。',
+            '\n\n直接输出最终结果。严禁向用户输出任何思考/推理/思维链内容，包括但不限于：不写"思考："、"我的思考："、"Reasoning:"、"Thinking:"、"Let me think…"、"Chain of thought…"等标题或段落；不使用 <thinking>、<thought>、<reasoning>、<chain_of_thought>、<details><summary>思考/Thinking</summary> 等标签包裹思考过程。不展示中间推理、工具调用步骤、验证过程等任何中间过程。禁止输出与正文无关的内容：不要开场白、不要结尾套话、不要解释自己做了什么。用户要求什么，一步到位给出最终答案。',
         temperature: 0.6,
         topP: null,
         regexRules: _builtinOutputFilterRules(),
@@ -320,14 +349,12 @@ class AssistantProvider extends ChangeNotifier {
               ? AppLocalizations.of(context)!.assistantProviderNewAssistantName
               : 'New Assistant')),
       systemPrompt:
-          '直接输出最终结果，不展示中间推理、工具调用步骤、验证过程等任何中间过程。'
-          '禁止输出与正文无关的内容：不要开场白、不要结尾套话、不要解释自己做了什么。'
-          '用户要求什么，一步到位给出最终答案。',
-      temperature: 0.6,
-      topP: null,
-      mcpServerIds: const [], // 默认不绑定任何 MCP，用户按需手动启用
-      regexRules: _builtinOutputFilterRules(),
-    );
+        '直接输出最终结果。严禁向用户输出任何思考/推理/思维链内容，包括但不限于：不写"思考："、"我的思考："、"Reasoning:"、"Thinking:"、"Let me think…"、"Chain of thought…"等标题或段落；不使用 <thinking>、<thought>、<reasoning>、<chain_of_thought>、<details><summary>思考/Thinking</summary> 等标签包裹思考过程。不展示中间推理、工具调用步骤、验证过程等任何中间过程。禁止输出与正文无关的内容：不要开场白、不要结尾套话、不要解释自己做了什么。用户要求什么，一步到位给出最终答案。',
+    temperature: 0.6,
+    topP: null,
+    mcpServerIds: const [], // 默认不绑定任何 MCP，用户按需手动启用
+    regexRules: _builtinOutputFilterRules(),
+  );
     _assistants.add(a);
     await _persist();
     notifyListeners();
