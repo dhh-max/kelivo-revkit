@@ -770,15 +770,14 @@ class StreamController {
 
     if (state.ctx.streamOutput) {
       final initialExpanded = !getSettingsProvider().autoCollapseThinking;
+      // When suppressing: force collapse so only the panel header shows
+      final effectiveExpanded = suppressReasoning ? false : initialExpanded;
       final isNewReasoning = !_reasoning.containsKey(messageId);
       final r = _reasoning[messageId] ?? ReasoningData();
-      // When suppressing: keep startAt/timing for the panel, but don't accumulate text
-      if (!suppressReasoning) {
-        r.text += chunk.reasoning!;
-      }
+      r.text += chunk.reasoning!;
       r.startAt ??= DateTime.now();
       if (isNewReasoning) {
-        r.expanded = initialExpanded;
+        r.expanded = effectiveExpanded;
       }
       _reasoning[messageId] = r;
 
@@ -787,9 +786,9 @@ class StreamController {
           _reasoningSegments[messageId] ?? <ReasoningSegmentData>[];
       if (segments.isEmpty) {
         final newSegment = ReasoningSegmentData();
-        newSegment.text = suppressReasoning ? '' : chunk.reasoning!;
+        newSegment.text = chunk.reasoning!;
         newSegment.startAt = DateTime.now();
-        newSegment.expanded = initialExpanded;
+        newSegment.expanded = effectiveExpanded;
         newSegment.toolStartIndex = (_toolParts[messageId]?.length ?? 0);
         segments.add(newSegment);
       } else {
@@ -798,15 +797,13 @@ class StreamController {
         final lastSegment = segments.last;
         if (hasToolsAfterLastSegment && lastSegment.finishedAt != null) {
           final newSegment = ReasoningSegmentData();
-          newSegment.text = suppressReasoning ? '' : chunk.reasoning!;
+          newSegment.text = chunk.reasoning!;
           newSegment.startAt = DateTime.now();
-          newSegment.expanded = initialExpanded;
+          newSegment.expanded = effectiveExpanded;
           newSegment.toolStartIndex = (_toolParts[messageId]?.length ?? 0);
           segments.add(newSegment);
         } else {
-          if (!suppressReasoning) {
-            lastSegment.text += chunk.reasoning!;
-          }
+          lastSegment.text += chunk.reasoning!;
           lastSegment.startAt ??= DateTime.now();
         }
       }
@@ -827,7 +824,7 @@ class StreamController {
       if (getCurrentConversationId() == conversationId) {
         streamingContentNotifier.updateReasoning(
           messageId,
-          reasoningText: suppressReasoning ? '' : r.text,
+          reasoningText: r.text,
           reasoningStartAt: r.startAt,
           contentSplitOffsets: state.contentSplitOffsets,
           reasoningCountAtSplit: state.reasoningCountAtSplit,
@@ -838,17 +835,15 @@ class StreamController {
 
       await updateReasoningInDb(
         messageId,
-        reasoningText: suppressReasoning ? null : r.text,
+        reasoningText: r.text,
         reasoningStartAt: r.startAt,
       );
     } else {
       state.reasoningStartAt ??= DateTime.now();
-      if (!suppressReasoning) {
-        state.bufferedReasoning += chunk.reasoning!;
-      }
+      state.bufferedReasoning += chunk.reasoning!;
       await updateReasoningInDb(
         messageId,
-        reasoningText: suppressReasoning ? null : state.bufferedReasoning,
+        reasoningText: state.bufferedReasoning,
         reasoningStartAt: state.reasoningStartAt,
       );
     }

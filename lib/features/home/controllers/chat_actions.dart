@@ -1427,7 +1427,7 @@ class ChatActions {
     }
 
     // Handle buffered reasoning for non-streaming mode
-    // When suppressReasoningOutput: panel shows (with timing) but text is empty
+    // When suppressReasoningOutput: force collapse, but data is preserved
     final assistant = state.ctx.assistant;
     final suppressReasoning = assistant is Assistant && assistant.suppressReasoningOutput;
     if (!state.ctx.streamOutput && state.bufferedReasoning.isNotEmpty) {
@@ -1435,24 +1435,25 @@ class ChatActions {
       final startAt = state.reasoningStartAt ?? now;
       await chatService.updateMessage(
         messageId,
-        reasoningText: suppressReasoning ? null : state.bufferedReasoning,
+        reasoningText: state.bufferedReasoning,
         reasoningStartAt: startAt,
         reasoningFinishedAt: now,
       );
       streamController.reasoning[messageId] = stream_ctrl.ReasoningData()
-        ..text = suppressReasoning ? '' : state.bufferedReasoning
+        ..text = state.bufferedReasoning
         ..startAt = startAt
         ..finishedAt = now
-        ..expanded = !(autoCollapseThinking ?? false);
+        ..expanded = suppressReasoning ? false : !(autoCollapseThinking ?? false);
     }
     await _conversationStreams.remove(conversationId)?.cancel();
     // Ensure reasoning is finished
     final r = streamController.reasoning[messageId];
     if (r != null && r.finishedAt == null) {
       r.finishedAt = DateTime.now();
+      if (suppressReasoning) r.expanded = false;
       await chatService.updateMessage(
         messageId,
-        reasoningText: suppressReasoning ? null : r.text,
+        reasoningText: r.text,
         reasoningFinishedAt: r.finishedAt,
       );
     }
