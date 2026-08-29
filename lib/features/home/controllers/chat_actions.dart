@@ -1427,37 +1427,34 @@ class ChatActions {
     }
 
     // Handle buffered reasoning for non-streaming mode
-    // Skip if suppressReasoningOutput is enabled (model thinks but output is hidden)
+    // When suppressReasoningOutput: panel shows (with timing) but text is empty
     final assistant = state.ctx.assistant;
     final suppressReasoning = assistant is Assistant && assistant.suppressReasoningOutput;
-    if (!suppressReasoning && !state.ctx.streamOutput && state.bufferedReasoning.isNotEmpty) {
+    if (!state.ctx.streamOutput && state.bufferedReasoning.isNotEmpty) {
       final now = DateTime.now();
       final startAt = state.reasoningStartAt ?? now;
       await chatService.updateMessage(
         messageId,
-        reasoningText: state.bufferedReasoning,
+        reasoningText: suppressReasoning ? null : state.bufferedReasoning,
         reasoningStartAt: startAt,
         reasoningFinishedAt: now,
       );
       streamController.reasoning[messageId] = stream_ctrl.ReasoningData()
-        ..text = state.bufferedReasoning
+        ..text = suppressReasoning ? '' : state.bufferedReasoning
         ..startAt = startAt
         ..finishedAt = now
         ..expanded = !(autoCollapseThinking ?? false);
     }
-
     await _conversationStreams.remove(conversationId)?.cancel();
-    // Ensure reasoning is finished (skip if suppressReasoningOutput is enabled)
-    if (!suppressReasoning) {
-      final r = streamController.reasoning[messageId];
-      if (r != null && r.finishedAt == null) {
-        r.finishedAt = DateTime.now();
-        await chatService.updateMessage(
-          messageId,
-          reasoningText: r.text,
-          reasoningFinishedAt: r.finishedAt,
-        );
-      }
+    // Ensure reasoning is finished
+    final r = streamController.reasoning[messageId];
+    if (r != null && r.finishedAt == null) {
+      r.finishedAt = DateTime.now();
+      await chatService.updateMessage(
+        messageId,
+        reasoningText: suppressReasoning ? null : r.text,
+        reasoningFinishedAt: r.finishedAt,
+      );
     }
   }
 
