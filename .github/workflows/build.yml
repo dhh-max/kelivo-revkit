@@ -77,7 +77,8 @@ jobs:
       - name: 🐦 安装 Flutter (Master)
         uses: subosito/flutter-action@v2
         with:
-          version: ${{ env.FLUTTER_VERSION }}
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
           cache: true
 
       - name: 📝 Inject fallback
@@ -161,7 +162,8 @@ jobs:
       - name: 🐦 安装 Flutter (Master)
         uses: subosito/flutter-action@v2
         with:
-          version: ${{ env.FLUTTER_VERSION }}
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
           cache: true
 
       - name: 📝 Inject fallback
@@ -217,7 +219,8 @@ jobs:
       - name: 🐦 安装 Flutter (Master)
         uses: subosito/flutter-action@v2
         with:
-          version: ${{ env.FLUTTER_VERSION }}
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
           cache: true
 
       - name: 📝 Inject fallback
@@ -285,7 +288,8 @@ jobs:
       - name: 🐦 安装 Flutter (Master)
         uses: subosito/flutter-action@v2
         with:
-          version: ${{ env.FLUTTER_VERSION }}
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
           cache: true
 
       - name: 📝 Inject fallback
@@ -462,7 +466,8 @@ jobs:
       - name: 🐦 安装 Flutter (Master)
         uses: subosito/flutter-action@v2
         with:
-          version: ${{ env.FLUTTER_VERSION }}
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
           cache: true
 
       - name: 📝 Inject fallback
