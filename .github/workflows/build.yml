@@ -2,7 +2,7 @@ name: Flutter Multi-Platform Build Master
 
 env:
   # 使用 master 分支，不需要指定固定版本
-  FLUTTER_VERSION: '3.38.5'
+  FLUTTER_VERSION: '3.44.1'
 
 on:
   # 手动触发
