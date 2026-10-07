@@ -18,6 +18,7 @@ import '../../quick_phrase/pages/quick_phrases_page.dart';
 import '../../custom_prompt/pages/custom_prompts_page.dart';
 import '../../device_path/pages/device_path_browser_page.dart';
 import '../../instruction_injection/pages/instruction_injection_page.dart';
+import '../../solab_apk/pages/solab_apk_page.dart';
 import '../../world_book/pages/world_book_page.dart';
 import 'memory_settings_page.dart';
 import 'network_proxy_page.dart';
@@ -332,9 +333,19 @@ class SettingsPage extends StatelessWidget {
                   );
                 },
               ),
+              _iosDivider(context),
+              _iosNavRow(
+                context,
+                icon: Lucide.Package,
+                label: 'APK 工作台',
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const SoLabApkPage()),
+                  );
+                },
+              ),
             ],
           ),
-
           const SizedBox(height: 12),
           header(l10n.settingsPageDataSection),
           _iosSectionCard(
