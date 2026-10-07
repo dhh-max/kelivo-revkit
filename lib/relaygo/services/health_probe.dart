@@ -44,7 +44,7 @@ class HealthProbe {
 
     String plainKey;
     try {
-      plainKey = Encryption.decrypt(key.encryptedKey);
+      plainKey = EncryptionUtil.decrypt(key.encryptedKey);
     } catch (e) {
       result['error'] = '密钥解密失败: $e';
       return result;
