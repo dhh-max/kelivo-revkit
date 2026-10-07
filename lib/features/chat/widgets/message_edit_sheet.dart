@@ -5,7 +5,6 @@ import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/ios_tactile.dart';
 import '../../../core/services/haptics.dart';
 import '../../../theme/app_font_weights.dart';
-import 'package:Kelivo/theme/app_semantic_colors.dart';
 
 Future<MessageEditResult?> showMessageEditSheet(
   BuildContext context, {
@@ -162,7 +161,9 @@ class _MessageEditSheetState extends State<_MessageEditSheet> {
                     decoration: InputDecoration(
                       hintText: l10n.messageEditPageHint,
                       filled: true,
-                      fillColor: context.appColors.surfaceFill,
+                      fillColor: Theme.of(context).brightness == Brightness.dark
+                          ? Colors.white10
+                          : const Color(0xFFF2F3F5),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(20),
                         borderSide: const BorderSide(color: Colors.transparent),

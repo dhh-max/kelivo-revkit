@@ -41,7 +41,7 @@ class StepFunSearchService extends SearchService<StepFunOptions> {
           'category': serviceOptions.category.trim(),
       };
 
-      final response = await withHttpClient(
+      final response = await SearchService.withHttpClient(
         (client) => client
             .post(
               Uri.parse(serviceOptions.resolvedUrl),

@@ -235,12 +235,12 @@ class _DebugSectionCard extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHigh,
+        color: isDark ? const Color(0xFF1C1C1E) : Colors.white,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
           width: 0.5,
           color: isDark
-              ? cs.onSurface.withValues(alpha: 0.06)
+              ? Colors.white.withValues(alpha: 0.06)
               : cs.outlineVariant.withValues(alpha: 0.12),
         ),
       ),

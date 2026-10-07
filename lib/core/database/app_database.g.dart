@@ -9616,8 +9616,14 @@ class $MemoryEntryRowsTable extends MemoryEntryRows
     'type',
     aliasedName,
     false,
-    check: () =>
-        type.isIn(const ['identity', 'workflow', 'voice', 'instruction']),
+    check: () => type.isIn(const [
+      'identity',
+      'workflow',
+      'voice',
+      'instruction',
+      'apk_patch',
+      'apk_note',
+    ]),
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
@@ -10994,6 +11000,3006 @@ class MessagePromptRowsCompanion extends UpdateCompanion<MessagePromptRow> {
   }
 }
 
+class $ApkProjectRowsTable extends ApkProjectRows
+    with TableInfo<$ApkProjectRowsTable, ApkProjectRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ApkProjectRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sourcePathMeta = const VerificationMeta(
+    'sourcePath',
+  );
+  @override
+  late final GeneratedColumn<String> sourcePath = GeneratedColumn<String>(
+    'source_path',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _fileNameMeta = const VerificationMeta(
+    'fileName',
+  );
+  @override
+  late final GeneratedColumn<String> fileName = GeneratedColumn<String>(
+    'file_name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _packageNameMeta = const VerificationMeta(
+    'packageName',
+  );
+  @override
+  late final GeneratedColumn<String> packageName = GeneratedColumn<String>(
+    'package_name',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _versionNameMeta = const VerificationMeta(
+    'versionName',
+  );
+  @override
+  late final GeneratedColumn<String> versionName = GeneratedColumn<String>(
+    'version_name',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _versionCodeMeta = const VerificationMeta(
+    'versionCode',
+  );
+  @override
+  late final GeneratedColumn<int> versionCode = GeneratedColumn<int>(
+    'version_code',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _apkSha256Meta = const VerificationMeta(
+    'apkSha256',
+  );
+  @override
+  late final GeneratedColumn<String> apkSha256 = GeneratedColumn<String>(
+    'apk_sha256',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _certificateSha256Meta = const VerificationMeta(
+    'certificateSha256',
+  );
+  @override
+  late final GeneratedColumn<String> certificateSha256 =
+      GeneratedColumn<String>(
+        'certificate_sha256',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      );
+  static const VerificationMeta _analysisVersionMeta = const VerificationMeta(
+    'analysisVersion',
+  );
+  @override
+  late final GeneratedColumn<int> analysisVersion = GeneratedColumn<int>(
+    'analysis_version',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _ruleSetVersionMeta = const VerificationMeta(
+    'ruleSetVersion',
+  );
+  @override
+  late final GeneratedColumn<int> ruleSetVersion = GeneratedColumn<int>(
+    'rule_set_version',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(1),
+  );
+  static const VerificationMeta _conversationIdMeta = const VerificationMeta(
+    'conversationId',
+  );
+  @override
+  late final GeneratedColumn<String> conversationId = GeneratedColumn<String>(
+    'conversation_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _latestReportIdMeta = const VerificationMeta(
+    'latestReportId',
+  );
+  @override
+  late final GeneratedColumn<String> latestReportId = GeneratedColumn<String>(
+    'latest_report_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
+  late final GeneratedColumnWithTypeConverter<DateTime, int> createdAt =
+      GeneratedColumn<int>(
+        'created_at',
+        aliasedName,
+        false,
+        type: DriftSqlType.int,
+        requiredDuringInsert: true,
+      ).withConverter<DateTime>($ApkProjectRowsTable.$convertercreatedAt);
+  @override
+  late final GeneratedColumnWithTypeConverter<DateTime, int> lastOpenedAt =
+      GeneratedColumn<int>(
+        'last_opened_at',
+        aliasedName,
+        false,
+        type: DriftSqlType.int,
+        requiredDuringInsert: true,
+      ).withConverter<DateTime>($ApkProjectRowsTable.$converterlastOpenedAt);
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    sourcePath,
+    fileName,
+    packageName,
+    versionName,
+    versionCode,
+    apkSha256,
+    certificateSha256,
+    analysisVersion,
+    ruleSetVersion,
+    conversationId,
+    latestReportId,
+    createdAt,
+    lastOpenedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'apk_project_rows';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<ApkProjectRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('source_path')) {
+      context.handle(
+        _sourcePathMeta,
+        sourcePath.isAcceptableOrUnknown(data['source_path']!, _sourcePathMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_sourcePathMeta);
+    }
+    if (data.containsKey('file_name')) {
+      context.handle(
+        _fileNameMeta,
+        fileName.isAcceptableOrUnknown(data['file_name']!, _fileNameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_fileNameMeta);
+    }
+    if (data.containsKey('package_name')) {
+      context.handle(
+        _packageNameMeta,
+        packageName.isAcceptableOrUnknown(
+          data['package_name']!,
+          _packageNameMeta,
+        ),
+      );
+    }
+    if (data.containsKey('version_name')) {
+      context.handle(
+        _versionNameMeta,
+        versionName.isAcceptableOrUnknown(
+          data['version_name']!,
+          _versionNameMeta,
+        ),
+      );
+    }
+    if (data.containsKey('version_code')) {
+      context.handle(
+        _versionCodeMeta,
+        versionCode.isAcceptableOrUnknown(
+          data['version_code']!,
+          _versionCodeMeta,
+        ),
+      );
+    }
+    if (data.containsKey('apk_sha256')) {
+      context.handle(
+        _apkSha256Meta,
+        apkSha256.isAcceptableOrUnknown(data['apk_sha256']!, _apkSha256Meta),
+      );
+    } else if (isInserting) {
+      context.missing(_apkSha256Meta);
+    }
+    if (data.containsKey('certificate_sha256')) {
+      context.handle(
+        _certificateSha256Meta,
+        certificateSha256.isAcceptableOrUnknown(
+          data['certificate_sha256']!,
+          _certificateSha256Meta,
+        ),
+      );
+    }
+    if (data.containsKey('analysis_version')) {
+      context.handle(
+        _analysisVersionMeta,
+        analysisVersion.isAcceptableOrUnknown(
+          data['analysis_version']!,
+          _analysisVersionMeta,
+        ),
+      );
+    }
+    if (data.containsKey('rule_set_version')) {
+      context.handle(
+        _ruleSetVersionMeta,
+        ruleSetVersion.isAcceptableOrUnknown(
+          data['rule_set_version']!,
+          _ruleSetVersionMeta,
+        ),
+      );
+    }
+    if (data.containsKey('conversation_id')) {
+      context.handle(
+        _conversationIdMeta,
+        conversationId.isAcceptableOrUnknown(
+          data['conversation_id']!,
+          _conversationIdMeta,
+        ),
+      );
+    }
+    if (data.containsKey('latest_report_id')) {
+      context.handle(
+        _latestReportIdMeta,
+        latestReportId.isAcceptableOrUnknown(
+          data['latest_report_id']!,
+          _latestReportIdMeta,
+        ),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  ApkProjectRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ApkProjectRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      sourcePath: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source_path'],
+      )!,
+      fileName: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}file_name'],
+      )!,
+      packageName: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}package_name'],
+      ),
+      versionName: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}version_name'],
+      ),
+      versionCode: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}version_code'],
+      ),
+      apkSha256: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}apk_sha256'],
+      )!,
+      certificateSha256: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}certificate_sha256'],
+      ),
+      analysisVersion: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}analysis_version'],
+      )!,
+      ruleSetVersion: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}rule_set_version'],
+      )!,
+      conversationId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}conversation_id'],
+      ),
+      latestReportId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}latest_report_id'],
+      ),
+      createdAt: $ApkProjectRowsTable.$convertercreatedAt.fromSql(
+        attachedDatabase.typeMapping.read(
+          DriftSqlType.int,
+          data['${effectivePrefix}created_at'],
+        )!,
+      ),
+      lastOpenedAt: $ApkProjectRowsTable.$converterlastOpenedAt.fromSql(
+        attachedDatabase.typeMapping.read(
+          DriftSqlType.int,
+          data['${effectivePrefix}last_opened_at'],
+        )!,
+      ),
+    );
+  }
+
+  @override
+  $ApkProjectRowsTable createAlias(String alias) {
+    return $ApkProjectRowsTable(attachedDatabase, alias);
+  }
+
+  static TypeConverter<DateTime, int> $convertercreatedAt =
+      const MicrosecondDateTimeConverter();
+  static TypeConverter<DateTime, int> $converterlastOpenedAt =
+      const MicrosecondDateTimeConverter();
+}
+
+class ApkProjectRow extends DataClass implements Insertable<ApkProjectRow> {
+  final String id;
+  final String sourcePath;
+  final String fileName;
+  final String? packageName;
+  final String? versionName;
+  final int? versionCode;
+  final String apkSha256;
+  final String? certificateSha256;
+  final int analysisVersion;
+  final int ruleSetVersion;
+  final String? conversationId;
+  final String? latestReportId;
+  final DateTime createdAt;
+  final DateTime lastOpenedAt;
+  const ApkProjectRow({
+    required this.id,
+    required this.sourcePath,
+    required this.fileName,
+    this.packageName,
+    this.versionName,
+    this.versionCode,
+    required this.apkSha256,
+    this.certificateSha256,
+    required this.analysisVersion,
+    required this.ruleSetVersion,
+    this.conversationId,
+    this.latestReportId,
+    required this.createdAt,
+    required this.lastOpenedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['source_path'] = Variable<String>(sourcePath);
+    map['file_name'] = Variable<String>(fileName);
+    if (!nullToAbsent || packageName != null) {
+      map['package_name'] = Variable<String>(packageName);
+    }
+    if (!nullToAbsent || versionName != null) {
+      map['version_name'] = Variable<String>(versionName);
+    }
+    if (!nullToAbsent || versionCode != null) {
+      map['version_code'] = Variable<int>(versionCode);
+    }
+    map['apk_sha256'] = Variable<String>(apkSha256);
+    if (!nullToAbsent || certificateSha256 != null) {
+      map['certificate_sha256'] = Variable<String>(certificateSha256);
+    }
+    map['analysis_version'] = Variable<int>(analysisVersion);
+    map['rule_set_version'] = Variable<int>(ruleSetVersion);
+    if (!nullToAbsent || conversationId != null) {
+      map['conversation_id'] = Variable<String>(conversationId);
+    }
+    if (!nullToAbsent || latestReportId != null) {
+      map['latest_report_id'] = Variable<String>(latestReportId);
+    }
+    {
+      map['created_at'] = Variable<int>(
+        $ApkProjectRowsTable.$convertercreatedAt.toSql(createdAt),
+      );
+    }
+    {
+      map['last_opened_at'] = Variable<int>(
+        $ApkProjectRowsTable.$converterlastOpenedAt.toSql(lastOpenedAt),
+      );
+    }
+    return map;
+  }
+
+  ApkProjectRowsCompanion toCompanion(bool nullToAbsent) {
+    return ApkProjectRowsCompanion(
+      id: Value(id),
+      sourcePath: Value(sourcePath),
+      fileName: Value(fileName),
+      packageName: packageName == null && nullToAbsent
+          ? const Value.absent()
+          : Value(packageName),
+      versionName: versionName == null && nullToAbsent
+          ? const Value.absent()
+          : Value(versionName),
+      versionCode: versionCode == null && nullToAbsent
+          ? const Value.absent()
+          : Value(versionCode),
+      apkSha256: Value(apkSha256),
+      certificateSha256: certificateSha256 == null && nullToAbsent
+          ? const Value.absent()
+          : Value(certificateSha256),
+      analysisVersion: Value(analysisVersion),
+      ruleSetVersion: Value(ruleSetVersion),
+      conversationId: conversationId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(conversationId),
+      latestReportId: latestReportId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(latestReportId),
+      createdAt: Value(createdAt),
+      lastOpenedAt: Value(lastOpenedAt),
+    );
+  }
+
+  factory ApkProjectRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ApkProjectRow(
+      id: serializer.fromJson<String>(json['id']),
+      sourcePath: serializer.fromJson<String>(json['sourcePath']),
+      fileName: serializer.fromJson<String>(json['fileName']),
+      packageName: serializer.fromJson<String?>(json['packageName']),
+      versionName: serializer.fromJson<String?>(json['versionName']),
+      versionCode: serializer.fromJson<int?>(json['versionCode']),
+      apkSha256: serializer.fromJson<String>(json['apkSha256']),
+      certificateSha256: serializer.fromJson<String?>(
+        json['certificateSha256'],
+      ),
+      analysisVersion: serializer.fromJson<int>(json['analysisVersion']),
+      ruleSetVersion: serializer.fromJson<int>(json['ruleSetVersion']),
+      conversationId: serializer.fromJson<String?>(json['conversationId']),
+      latestReportId: serializer.fromJson<String?>(json['latestReportId']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      lastOpenedAt: serializer.fromJson<DateTime>(json['lastOpenedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'sourcePath': serializer.toJson<String>(sourcePath),
+      'fileName': serializer.toJson<String>(fileName),
+      'packageName': serializer.toJson<String?>(packageName),
+      'versionName': serializer.toJson<String?>(versionName),
+      'versionCode': serializer.toJson<int?>(versionCode),
+      'apkSha256': serializer.toJson<String>(apkSha256),
+      'certificateSha256': serializer.toJson<String?>(certificateSha256),
+      'analysisVersion': serializer.toJson<int>(analysisVersion),
+      'ruleSetVersion': serializer.toJson<int>(ruleSetVersion),
+      'conversationId': serializer.toJson<String?>(conversationId),
+      'latestReportId': serializer.toJson<String?>(latestReportId),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'lastOpenedAt': serializer.toJson<DateTime>(lastOpenedAt),
+    };
+  }
+
+  ApkProjectRow copyWith({
+    String? id,
+    String? sourcePath,
+    String? fileName,
+    Value<String?> packageName = const Value.absent(),
+    Value<String?> versionName = const Value.absent(),
+    Value<int?> versionCode = const Value.absent(),
+    String? apkSha256,
+    Value<String?> certificateSha256 = const Value.absent(),
+    int? analysisVersion,
+    int? ruleSetVersion,
+    Value<String?> conversationId = const Value.absent(),
+    Value<String?> latestReportId = const Value.absent(),
+    DateTime? createdAt,
+    DateTime? lastOpenedAt,
+  }) => ApkProjectRow(
+    id: id ?? this.id,
+    sourcePath: sourcePath ?? this.sourcePath,
+    fileName: fileName ?? this.fileName,
+    packageName: packageName.present ? packageName.value : this.packageName,
+    versionName: versionName.present ? versionName.value : this.versionName,
+    versionCode: versionCode.present ? versionCode.value : this.versionCode,
+    apkSha256: apkSha256 ?? this.apkSha256,
+    certificateSha256: certificateSha256.present
+        ? certificateSha256.value
+        : this.certificateSha256,
+    analysisVersion: analysisVersion ?? this.analysisVersion,
+    ruleSetVersion: ruleSetVersion ?? this.ruleSetVersion,
+    conversationId: conversationId.present
+        ? conversationId.value
+        : this.conversationId,
+    latestReportId: latestReportId.present
+        ? latestReportId.value
+        : this.latestReportId,
+    createdAt: createdAt ?? this.createdAt,
+    lastOpenedAt: lastOpenedAt ?? this.lastOpenedAt,
+  );
+  ApkProjectRow copyWithCompanion(ApkProjectRowsCompanion data) {
+    return ApkProjectRow(
+      id: data.id.present ? data.id.value : this.id,
+      sourcePath: data.sourcePath.present
+          ? data.sourcePath.value
+          : this.sourcePath,
+      fileName: data.fileName.present ? data.fileName.value : this.fileName,
+      packageName: data.packageName.present
+          ? data.packageName.value
+          : this.packageName,
+      versionName: data.versionName.present
+          ? data.versionName.value
+          : this.versionName,
+      versionCode: data.versionCode.present
+          ? data.versionCode.value
+          : this.versionCode,
+      apkSha256: data.apkSha256.present ? data.apkSha256.value : this.apkSha256,
+      certificateSha256: data.certificateSha256.present
+          ? data.certificateSha256.value
+          : this.certificateSha256,
+      analysisVersion: data.analysisVersion.present
+          ? data.analysisVersion.value
+          : this.analysisVersion,
+      ruleSetVersion: data.ruleSetVersion.present
+          ? data.ruleSetVersion.value
+          : this.ruleSetVersion,
+      conversationId: data.conversationId.present
+          ? data.conversationId.value
+          : this.conversationId,
+      latestReportId: data.latestReportId.present
+          ? data.latestReportId.value
+          : this.latestReportId,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      lastOpenedAt: data.lastOpenedAt.present
+          ? data.lastOpenedAt.value
+          : this.lastOpenedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ApkProjectRow(')
+          ..write('id: $id, ')
+          ..write('sourcePath: $sourcePath, ')
+          ..write('fileName: $fileName, ')
+          ..write('packageName: $packageName, ')
+          ..write('versionName: $versionName, ')
+          ..write('versionCode: $versionCode, ')
+          ..write('apkSha256: $apkSha256, ')
+          ..write('certificateSha256: $certificateSha256, ')
+          ..write('analysisVersion: $analysisVersion, ')
+          ..write('ruleSetVersion: $ruleSetVersion, ')
+          ..write('conversationId: $conversationId, ')
+          ..write('latestReportId: $latestReportId, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('lastOpenedAt: $lastOpenedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    sourcePath,
+    fileName,
+    packageName,
+    versionName,
+    versionCode,
+    apkSha256,
+    certificateSha256,
+    analysisVersion,
+    ruleSetVersion,
+    conversationId,
+    latestReportId,
+    createdAt,
+    lastOpenedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ApkProjectRow &&
+          other.id == this.id &&
+          other.sourcePath == this.sourcePath &&
+          other.fileName == this.fileName &&
+          other.packageName == this.packageName &&
+          other.versionName == this.versionName &&
+          other.versionCode == this.versionCode &&
+          other.apkSha256 == this.apkSha256 &&
+          other.certificateSha256 == this.certificateSha256 &&
+          other.analysisVersion == this.analysisVersion &&
+          other.ruleSetVersion == this.ruleSetVersion &&
+          other.conversationId == this.conversationId &&
+          other.latestReportId == this.latestReportId &&
+          other.createdAt == this.createdAt &&
+          other.lastOpenedAt == this.lastOpenedAt);
+}
+
+class ApkProjectRowsCompanion extends UpdateCompanion<ApkProjectRow> {
+  final Value<String> id;
+  final Value<String> sourcePath;
+  final Value<String> fileName;
+  final Value<String?> packageName;
+  final Value<String?> versionName;
+  final Value<int?> versionCode;
+  final Value<String> apkSha256;
+  final Value<String?> certificateSha256;
+  final Value<int> analysisVersion;
+  final Value<int> ruleSetVersion;
+  final Value<String?> conversationId;
+  final Value<String?> latestReportId;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> lastOpenedAt;
+  final Value<int> rowid;
+  const ApkProjectRowsCompanion({
+    this.id = const Value.absent(),
+    this.sourcePath = const Value.absent(),
+    this.fileName = const Value.absent(),
+    this.packageName = const Value.absent(),
+    this.versionName = const Value.absent(),
+    this.versionCode = const Value.absent(),
+    this.apkSha256 = const Value.absent(),
+    this.certificateSha256 = const Value.absent(),
+    this.analysisVersion = const Value.absent(),
+    this.ruleSetVersion = const Value.absent(),
+    this.conversationId = const Value.absent(),
+    this.latestReportId = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.lastOpenedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ApkProjectRowsCompanion.insert({
+    required String id,
+    required String sourcePath,
+    required String fileName,
+    this.packageName = const Value.absent(),
+    this.versionName = const Value.absent(),
+    this.versionCode = const Value.absent(),
+    required String apkSha256,
+    this.certificateSha256 = const Value.absent(),
+    this.analysisVersion = const Value.absent(),
+    this.ruleSetVersion = const Value.absent(),
+    this.conversationId = const Value.absent(),
+    this.latestReportId = const Value.absent(),
+    required DateTime createdAt,
+    required DateTime lastOpenedAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       sourcePath = Value(sourcePath),
+       fileName = Value(fileName),
+       apkSha256 = Value(apkSha256),
+       createdAt = Value(createdAt),
+       lastOpenedAt = Value(lastOpenedAt);
+  static Insertable<ApkProjectRow> custom({
+    Expression<String>? id,
+    Expression<String>? sourcePath,
+    Expression<String>? fileName,
+    Expression<String>? packageName,
+    Expression<String>? versionName,
+    Expression<int>? versionCode,
+    Expression<String>? apkSha256,
+    Expression<String>? certificateSha256,
+    Expression<int>? analysisVersion,
+    Expression<int>? ruleSetVersion,
+    Expression<String>? conversationId,
+    Expression<String>? latestReportId,
+    Expression<int>? createdAt,
+    Expression<int>? lastOpenedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (sourcePath != null) 'source_path': sourcePath,
+      if (fileName != null) 'file_name': fileName,
+      if (packageName != null) 'package_name': packageName,
+      if (versionName != null) 'version_name': versionName,
+      if (versionCode != null) 'version_code': versionCode,
+      if (apkSha256 != null) 'apk_sha256': apkSha256,
+      if (certificateSha256 != null) 'certificate_sha256': certificateSha256,
+      if (analysisVersion != null) 'analysis_version': analysisVersion,
+      if (ruleSetVersion != null) 'rule_set_version': ruleSetVersion,
+      if (conversationId != null) 'conversation_id': conversationId,
+      if (latestReportId != null) 'latest_report_id': latestReportId,
+      if (createdAt != null) 'created_at': createdAt,
+      if (lastOpenedAt != null) 'last_opened_at': lastOpenedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ApkProjectRowsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? sourcePath,
+    Value<String>? fileName,
+    Value<String?>? packageName,
+    Value<String?>? versionName,
+    Value<int?>? versionCode,
+    Value<String>? apkSha256,
+    Value<String?>? certificateSha256,
+    Value<int>? analysisVersion,
+    Value<int>? ruleSetVersion,
+    Value<String?>? conversationId,
+    Value<String?>? latestReportId,
+    Value<DateTime>? createdAt,
+    Value<DateTime>? lastOpenedAt,
+    Value<int>? rowid,
+  }) {
+    return ApkProjectRowsCompanion(
+      id: id ?? this.id,
+      sourcePath: sourcePath ?? this.sourcePath,
+      fileName: fileName ?? this.fileName,
+      packageName: packageName ?? this.packageName,
+      versionName: versionName ?? this.versionName,
+      versionCode: versionCode ?? this.versionCode,
+      apkSha256: apkSha256 ?? this.apkSha256,
+      certificateSha256: certificateSha256 ?? this.certificateSha256,
+      analysisVersion: analysisVersion ?? this.analysisVersion,
+      ruleSetVersion: ruleSetVersion ?? this.ruleSetVersion,
+      conversationId: conversationId ?? this.conversationId,
+      latestReportId: latestReportId ?? this.latestReportId,
+      createdAt: createdAt ?? this.createdAt,
+      lastOpenedAt: lastOpenedAt ?? this.lastOpenedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (sourcePath.present) {
+      map['source_path'] = Variable<String>(sourcePath.value);
+    }
+    if (fileName.present) {
+      map['file_name'] = Variable<String>(fileName.value);
+    }
+    if (packageName.present) {
+      map['package_name'] = Variable<String>(packageName.value);
+    }
+    if (versionName.present) {
+      map['version_name'] = Variable<String>(versionName.value);
+    }
+    if (versionCode.present) {
+      map['version_code'] = Variable<int>(versionCode.value);
+    }
+    if (apkSha256.present) {
+      map['apk_sha256'] = Variable<String>(apkSha256.value);
+    }
+    if (certificateSha256.present) {
+      map['certificate_sha256'] = Variable<String>(certificateSha256.value);
+    }
+    if (analysisVersion.present) {
+      map['analysis_version'] = Variable<int>(analysisVersion.value);
+    }
+    if (ruleSetVersion.present) {
+      map['rule_set_version'] = Variable<int>(ruleSetVersion.value);
+    }
+    if (conversationId.present) {
+      map['conversation_id'] = Variable<String>(conversationId.value);
+    }
+    if (latestReportId.present) {
+      map['latest_report_id'] = Variable<String>(latestReportId.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<int>(
+        $ApkProjectRowsTable.$convertercreatedAt.toSql(createdAt.value),
+      );
+    }
+    if (lastOpenedAt.present) {
+      map['last_opened_at'] = Variable<int>(
+        $ApkProjectRowsTable.$converterlastOpenedAt.toSql(lastOpenedAt.value),
+      );
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ApkProjectRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('sourcePath: $sourcePath, ')
+          ..write('fileName: $fileName, ')
+          ..write('packageName: $packageName, ')
+          ..write('versionName: $versionName, ')
+          ..write('versionCode: $versionCode, ')
+          ..write('apkSha256: $apkSha256, ')
+          ..write('certificateSha256: $certificateSha256, ')
+          ..write('analysisVersion: $analysisVersion, ')
+          ..write('ruleSetVersion: $ruleSetVersion, ')
+          ..write('conversationId: $conversationId, ')
+          ..write('latestReportId: $latestReportId, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('lastOpenedAt: $lastOpenedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $ModifyRuleRowsTable extends ModifyRuleRows
+    with TableInfo<$ModifyRuleRowsTable, ModifyRuleRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ModifyRuleRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _categoryMeta = const VerificationMeta(
+    'category',
+  );
+  @override
+  late final GeneratedColumn<String> category = GeneratedColumn<String>(
+    'category',
+    aliasedName,
+    false,
+    check: () => category.isNotValue(''),
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _matcherJsonMeta = const VerificationMeta(
+    'matcherJson',
+  );
+  @override
+  late final GeneratedColumn<String> matcherJson = GeneratedColumn<String>(
+    'matcher_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _enabledMeta = const VerificationMeta(
+    'enabled',
+  );
+  @override
+  late final GeneratedColumn<bool> enabled = GeneratedColumn<bool>(
+    'enabled',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("enabled" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
+  static const VerificationMeta _sourceMeta = const VerificationMeta('source');
+  @override
+  late final GeneratedColumn<String> source = GeneratedColumn<String>(
+    'source',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('seed'),
+  );
+  static const VerificationMeta _riskMeta = const VerificationMeta('risk');
+  @override
+  late final GeneratedColumn<String> risk = GeneratedColumn<String>(
+    'risk',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('low'),
+  );
+  static const VerificationMeta _hitCountMeta = const VerificationMeta(
+    'hitCount',
+  );
+  @override
+  late final GeneratedColumn<int> hitCount = GeneratedColumn<int>(
+    'hit_count',
+    aliasedName,
+    false,
+    check: () => ComparableExpr(hitCount).isBiggerOrEqualValue(0),
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _successCountMeta = const VerificationMeta(
+    'successCount',
+  );
+  @override
+  late final GeneratedColumn<int> successCount = GeneratedColumn<int>(
+    'success_count',
+    aliasedName,
+    false,
+    check: () => ComparableExpr(successCount).isBiggerOrEqualValue(0),
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _failureCountMeta = const VerificationMeta(
+    'failureCount',
+  );
+  @override
+  late final GeneratedColumn<int> failureCount = GeneratedColumn<int>(
+    'failure_count',
+    aliasedName,
+    false,
+    check: () => ComparableExpr(failureCount).isBiggerOrEqualValue(0),
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _versionMeta = const VerificationMeta(
+    'version',
+  );
+  @override
+  late final GeneratedColumn<int> version = GeneratedColumn<int>(
+    'version',
+    aliasedName,
+    false,
+    check: () => ComparableExpr(version).isBiggerOrEqualValue(0),
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  @override
+  late final GeneratedColumnWithTypeConverter<DateTime, int> updatedAt =
+      GeneratedColumn<int>(
+        'updated_at',
+        aliasedName,
+        false,
+        type: DriftSqlType.int,
+        requiredDuringInsert: true,
+      ).withConverter<DateTime>($ModifyRuleRowsTable.$converterupdatedAt);
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    name,
+    category,
+    matcherJson,
+    enabled,
+    source,
+    risk,
+    hitCount,
+    successCount,
+    failureCount,
+    version,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'modify_rule_rows';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<ModifyRuleRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('category')) {
+      context.handle(
+        _categoryMeta,
+        category.isAcceptableOrUnknown(data['category']!, _categoryMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_categoryMeta);
+    }
+    if (data.containsKey('matcher_json')) {
+      context.handle(
+        _matcherJsonMeta,
+        matcherJson.isAcceptableOrUnknown(
+          data['matcher_json']!,
+          _matcherJsonMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_matcherJsonMeta);
+    }
+    if (data.containsKey('enabled')) {
+      context.handle(
+        _enabledMeta,
+        enabled.isAcceptableOrUnknown(data['enabled']!, _enabledMeta),
+      );
+    }
+    if (data.containsKey('source')) {
+      context.handle(
+        _sourceMeta,
+        source.isAcceptableOrUnknown(data['source']!, _sourceMeta),
+      );
+    }
+    if (data.containsKey('risk')) {
+      context.handle(
+        _riskMeta,
+        risk.isAcceptableOrUnknown(data['risk']!, _riskMeta),
+      );
+    }
+    if (data.containsKey('hit_count')) {
+      context.handle(
+        _hitCountMeta,
+        hitCount.isAcceptableOrUnknown(data['hit_count']!, _hitCountMeta),
+      );
+    }
+    if (data.containsKey('success_count')) {
+      context.handle(
+        _successCountMeta,
+        successCount.isAcceptableOrUnknown(
+          data['success_count']!,
+          _successCountMeta,
+        ),
+      );
+    }
+    if (data.containsKey('failure_count')) {
+      context.handle(
+        _failureCountMeta,
+        failureCount.isAcceptableOrUnknown(
+          data['failure_count']!,
+          _failureCountMeta,
+        ),
+      );
+    }
+    if (data.containsKey('version')) {
+      context.handle(
+        _versionMeta,
+        version.isAcceptableOrUnknown(data['version']!, _versionMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  ModifyRuleRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ModifyRuleRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+      category: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}category'],
+      )!,
+      matcherJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}matcher_json'],
+      )!,
+      enabled: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}enabled'],
+      )!,
+      source: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source'],
+      )!,
+      risk: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}risk'],
+      )!,
+      hitCount: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}hit_count'],
+      )!,
+      successCount: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}success_count'],
+      )!,
+      failureCount: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}failure_count'],
+      )!,
+      version: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}version'],
+      )!,
+      updatedAt: $ModifyRuleRowsTable.$converterupdatedAt.fromSql(
+        attachedDatabase.typeMapping.read(
+          DriftSqlType.int,
+          data['${effectivePrefix}updated_at'],
+        )!,
+      ),
+    );
+  }
+
+  @override
+  $ModifyRuleRowsTable createAlias(String alias) {
+    return $ModifyRuleRowsTable(attachedDatabase, alias);
+  }
+
+  static TypeConverter<DateTime, int> $converterupdatedAt =
+      const MicrosecondDateTimeConverter();
+}
+
+class ModifyRuleRow extends DataClass implements Insertable<ModifyRuleRow> {
+  final String id;
+  final String name;
+  final String category;
+
+  /// JSON 编码的匹配器：`{"type": "<category>", "patterns": ["..."]}`
+  final String matcherJson;
+  final bool enabled;
+
+  /// 规则来源：seed（内置种子）/ user（手动新增）/ import（粘贴导入）
+  final String source;
+
+  /// 风险等级：low / medium / high
+  final String risk;
+  final int hitCount;
+  final int successCount;
+  final int failureCount;
+  final int version;
+  final DateTime updatedAt;
+  const ModifyRuleRow({
+    required this.id,
+    required this.name,
+    required this.category,
+    required this.matcherJson,
+    required this.enabled,
+    required this.source,
+    required this.risk,
+    required this.hitCount,
+    required this.successCount,
+    required this.failureCount,
+    required this.version,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['name'] = Variable<String>(name);
+    map['category'] = Variable<String>(category);
+    map['matcher_json'] = Variable<String>(matcherJson);
+    map['enabled'] = Variable<bool>(enabled);
+    map['source'] = Variable<String>(source);
+    map['risk'] = Variable<String>(risk);
+    map['hit_count'] = Variable<int>(hitCount);
+    map['success_count'] = Variable<int>(successCount);
+    map['failure_count'] = Variable<int>(failureCount);
+    map['version'] = Variable<int>(version);
+    {
+      map['updated_at'] = Variable<int>(
+        $ModifyRuleRowsTable.$converterupdatedAt.toSql(updatedAt),
+      );
+    }
+    return map;
+  }
+
+  ModifyRuleRowsCompanion toCompanion(bool nullToAbsent) {
+    return ModifyRuleRowsCompanion(
+      id: Value(id),
+      name: Value(name),
+      category: Value(category),
+      matcherJson: Value(matcherJson),
+      enabled: Value(enabled),
+      source: Value(source),
+      risk: Value(risk),
+      hitCount: Value(hitCount),
+      successCount: Value(successCount),
+      failureCount: Value(failureCount),
+      version: Value(version),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory ModifyRuleRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ModifyRuleRow(
+      id: serializer.fromJson<String>(json['id']),
+      name: serializer.fromJson<String>(json['name']),
+      category: serializer.fromJson<String>(json['category']),
+      matcherJson: serializer.fromJson<String>(json['matcherJson']),
+      enabled: serializer.fromJson<bool>(json['enabled']),
+      source: serializer.fromJson<String>(json['source']),
+      risk: serializer.fromJson<String>(json['risk']),
+      hitCount: serializer.fromJson<int>(json['hitCount']),
+      successCount: serializer.fromJson<int>(json['successCount']),
+      failureCount: serializer.fromJson<int>(json['failureCount']),
+      version: serializer.fromJson<int>(json['version']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'name': serializer.toJson<String>(name),
+      'category': serializer.toJson<String>(category),
+      'matcherJson': serializer.toJson<String>(matcherJson),
+      'enabled': serializer.toJson<bool>(enabled),
+      'source': serializer.toJson<String>(source),
+      'risk': serializer.toJson<String>(risk),
+      'hitCount': serializer.toJson<int>(hitCount),
+      'successCount': serializer.toJson<int>(successCount),
+      'failureCount': serializer.toJson<int>(failureCount),
+      'version': serializer.toJson<int>(version),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  ModifyRuleRow copyWith({
+    String? id,
+    String? name,
+    String? category,
+    String? matcherJson,
+    bool? enabled,
+    String? source,
+    String? risk,
+    int? hitCount,
+    int? successCount,
+    int? failureCount,
+    int? version,
+    DateTime? updatedAt,
+  }) => ModifyRuleRow(
+    id: id ?? this.id,
+    name: name ?? this.name,
+    category: category ?? this.category,
+    matcherJson: matcherJson ?? this.matcherJson,
+    enabled: enabled ?? this.enabled,
+    source: source ?? this.source,
+    risk: risk ?? this.risk,
+    hitCount: hitCount ?? this.hitCount,
+    successCount: successCount ?? this.successCount,
+    failureCount: failureCount ?? this.failureCount,
+    version: version ?? this.version,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  ModifyRuleRow copyWithCompanion(ModifyRuleRowsCompanion data) {
+    return ModifyRuleRow(
+      id: data.id.present ? data.id.value : this.id,
+      name: data.name.present ? data.name.value : this.name,
+      category: data.category.present ? data.category.value : this.category,
+      matcherJson: data.matcherJson.present
+          ? data.matcherJson.value
+          : this.matcherJson,
+      enabled: data.enabled.present ? data.enabled.value : this.enabled,
+      source: data.source.present ? data.source.value : this.source,
+      risk: data.risk.present ? data.risk.value : this.risk,
+      hitCount: data.hitCount.present ? data.hitCount.value : this.hitCount,
+      successCount: data.successCount.present
+          ? data.successCount.value
+          : this.successCount,
+      failureCount: data.failureCount.present
+          ? data.failureCount.value
+          : this.failureCount,
+      version: data.version.present ? data.version.value : this.version,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ModifyRuleRow(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('category: $category, ')
+          ..write('matcherJson: $matcherJson, ')
+          ..write('enabled: $enabled, ')
+          ..write('source: $source, ')
+          ..write('risk: $risk, ')
+          ..write('hitCount: $hitCount, ')
+          ..write('successCount: $successCount, ')
+          ..write('failureCount: $failureCount, ')
+          ..write('version: $version, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    name,
+    category,
+    matcherJson,
+    enabled,
+    source,
+    risk,
+    hitCount,
+    successCount,
+    failureCount,
+    version,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ModifyRuleRow &&
+          other.id == this.id &&
+          other.name == this.name &&
+          other.category == this.category &&
+          other.matcherJson == this.matcherJson &&
+          other.enabled == this.enabled &&
+          other.source == this.source &&
+          other.risk == this.risk &&
+          other.hitCount == this.hitCount &&
+          other.successCount == this.successCount &&
+          other.failureCount == this.failureCount &&
+          other.version == this.version &&
+          other.updatedAt == this.updatedAt);
+}
+
+class ModifyRuleRowsCompanion extends UpdateCompanion<ModifyRuleRow> {
+  final Value<String> id;
+  final Value<String> name;
+  final Value<String> category;
+  final Value<String> matcherJson;
+  final Value<bool> enabled;
+  final Value<String> source;
+  final Value<String> risk;
+  final Value<int> hitCount;
+  final Value<int> successCount;
+  final Value<int> failureCount;
+  final Value<int> version;
+  final Value<DateTime> updatedAt;
+  final Value<int> rowid;
+  const ModifyRuleRowsCompanion({
+    this.id = const Value.absent(),
+    this.name = const Value.absent(),
+    this.category = const Value.absent(),
+    this.matcherJson = const Value.absent(),
+    this.enabled = const Value.absent(),
+    this.source = const Value.absent(),
+    this.risk = const Value.absent(),
+    this.hitCount = const Value.absent(),
+    this.successCount = const Value.absent(),
+    this.failureCount = const Value.absent(),
+    this.version = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ModifyRuleRowsCompanion.insert({
+    required String id,
+    required String name,
+    required String category,
+    required String matcherJson,
+    this.enabled = const Value.absent(),
+    this.source = const Value.absent(),
+    this.risk = const Value.absent(),
+    this.hitCount = const Value.absent(),
+    this.successCount = const Value.absent(),
+    this.failureCount = const Value.absent(),
+    this.version = const Value.absent(),
+    required DateTime updatedAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       name = Value(name),
+       category = Value(category),
+       matcherJson = Value(matcherJson),
+       updatedAt = Value(updatedAt);
+  static Insertable<ModifyRuleRow> custom({
+    Expression<String>? id,
+    Expression<String>? name,
+    Expression<String>? category,
+    Expression<String>? matcherJson,
+    Expression<bool>? enabled,
+    Expression<String>? source,
+    Expression<String>? risk,
+    Expression<int>? hitCount,
+    Expression<int>? successCount,
+    Expression<int>? failureCount,
+    Expression<int>? version,
+    Expression<int>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (name != null) 'name': name,
+      if (category != null) 'category': category,
+      if (matcherJson != null) 'matcher_json': matcherJson,
+      if (enabled != null) 'enabled': enabled,
+      if (source != null) 'source': source,
+      if (risk != null) 'risk': risk,
+      if (hitCount != null) 'hit_count': hitCount,
+      if (successCount != null) 'success_count': successCount,
+      if (failureCount != null) 'failure_count': failureCount,
+      if (version != null) 'version': version,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ModifyRuleRowsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? name,
+    Value<String>? category,
+    Value<String>? matcherJson,
+    Value<bool>? enabled,
+    Value<String>? source,
+    Value<String>? risk,
+    Value<int>? hitCount,
+    Value<int>? successCount,
+    Value<int>? failureCount,
+    Value<int>? version,
+    Value<DateTime>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return ModifyRuleRowsCompanion(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      category: category ?? this.category,
+      matcherJson: matcherJson ?? this.matcherJson,
+      enabled: enabled ?? this.enabled,
+      source: source ?? this.source,
+      risk: risk ?? this.risk,
+      hitCount: hitCount ?? this.hitCount,
+      successCount: successCount ?? this.successCount,
+      failureCount: failureCount ?? this.failureCount,
+      version: version ?? this.version,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (category.present) {
+      map['category'] = Variable<String>(category.value);
+    }
+    if (matcherJson.present) {
+      map['matcher_json'] = Variable<String>(matcherJson.value);
+    }
+    if (enabled.present) {
+      map['enabled'] = Variable<bool>(enabled.value);
+    }
+    if (source.present) {
+      map['source'] = Variable<String>(source.value);
+    }
+    if (risk.present) {
+      map['risk'] = Variable<String>(risk.value);
+    }
+    if (hitCount.present) {
+      map['hit_count'] = Variable<int>(hitCount.value);
+    }
+    if (successCount.present) {
+      map['success_count'] = Variable<int>(successCount.value);
+    }
+    if (failureCount.present) {
+      map['failure_count'] = Variable<int>(failureCount.value);
+    }
+    if (version.present) {
+      map['version'] = Variable<int>(version.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<int>(
+        $ModifyRuleRowsTable.$converterupdatedAt.toSql(updatedAt.value),
+      );
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ModifyRuleRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('category: $category, ')
+          ..write('matcherJson: $matcherJson, ')
+          ..write('enabled: $enabled, ')
+          ..write('source: $source, ')
+          ..write('risk: $risk, ')
+          ..write('hitCount: $hitCount, ')
+          ..write('successCount: $successCount, ')
+          ..write('failureCount: $failureCount, ')
+          ..write('version: $version, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $RuleSubscriptionRowsTable extends RuleSubscriptionRows
+    with TableInfo<$RuleSubscriptionRowsTable, RuleSubscriptionRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $RuleSubscriptionRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _urlMeta = const VerificationMeta('url');
+  @override
+  late final GeneratedColumn<String> url = GeneratedColumn<String>(
+    'url',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _enabledMeta = const VerificationMeta(
+    'enabled',
+  );
+  @override
+  late final GeneratedColumn<bool> enabled = GeneratedColumn<bool>(
+    'enabled',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("enabled" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
+  @override
+  late final GeneratedColumnWithTypeConverter<DateTime?, int> lastSyncAt =
+      GeneratedColumn<int>(
+        'last_sync_at',
+        aliasedName,
+        true,
+        type: DriftSqlType.int,
+        requiredDuringInsert: false,
+      ).withConverter<DateTime?>(
+        $RuleSubscriptionRowsTable.$converterlastSyncAtn,
+      );
+  static const VerificationMeta _lastRuleCountMeta = const VerificationMeta(
+    'lastRuleCount',
+  );
+  @override
+  late final GeneratedColumn<int> lastRuleCount = GeneratedColumn<int>(
+    'last_rule_count',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  @override
+  late final GeneratedColumnWithTypeConverter<DateTime, int> createdAt =
+      GeneratedColumn<int>(
+        'created_at',
+        aliasedName,
+        false,
+        type: DriftSqlType.int,
+        requiredDuringInsert: true,
+      ).withConverter<DateTime>($RuleSubscriptionRowsTable.$convertercreatedAt);
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    name,
+    url,
+    enabled,
+    lastSyncAt,
+    lastRuleCount,
+    createdAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'rule_subscription_rows';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<RuleSubscriptionRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('url')) {
+      context.handle(
+        _urlMeta,
+        url.isAcceptableOrUnknown(data['url']!, _urlMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_urlMeta);
+    }
+    if (data.containsKey('enabled')) {
+      context.handle(
+        _enabledMeta,
+        enabled.isAcceptableOrUnknown(data['enabled']!, _enabledMeta),
+      );
+    }
+    if (data.containsKey('last_rule_count')) {
+      context.handle(
+        _lastRuleCountMeta,
+        lastRuleCount.isAcceptableOrUnknown(
+          data['last_rule_count']!,
+          _lastRuleCountMeta,
+        ),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  RuleSubscriptionRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return RuleSubscriptionRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+      url: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}url'],
+      )!,
+      enabled: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}enabled'],
+      )!,
+      lastSyncAt: $RuleSubscriptionRowsTable.$converterlastSyncAtn.fromSql(
+        attachedDatabase.typeMapping.read(
+          DriftSqlType.int,
+          data['${effectivePrefix}last_sync_at'],
+        ),
+      ),
+      lastRuleCount: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}last_rule_count'],
+      )!,
+      createdAt: $RuleSubscriptionRowsTable.$convertercreatedAt.fromSql(
+        attachedDatabase.typeMapping.read(
+          DriftSqlType.int,
+          data['${effectivePrefix}created_at'],
+        )!,
+      ),
+    );
+  }
+
+  @override
+  $RuleSubscriptionRowsTable createAlias(String alias) {
+    return $RuleSubscriptionRowsTable(attachedDatabase, alias);
+  }
+
+  static TypeConverter<DateTime, int> $converterlastSyncAt =
+      const MicrosecondDateTimeConverter();
+  static TypeConverter<DateTime?, int?> $converterlastSyncAtn =
+      NullAwareTypeConverter.wrap($converterlastSyncAt);
+  static TypeConverter<DateTime, int> $convertercreatedAt =
+      const MicrosecondDateTimeConverter();
+}
+
+class RuleSubscriptionRow extends DataClass
+    implements Insertable<RuleSubscriptionRow> {
+  final String id;
+  final String name;
+  final String url;
+  final bool enabled;
+
+  /// 最近一次成功同步时间；null = 从未同步。
+  final DateTime? lastSyncAt;
+
+  /// 最近一次同步合并的规则总数（含订阅前已存在的）。
+  final int lastRuleCount;
+  final DateTime createdAt;
+  const RuleSubscriptionRow({
+    required this.id,
+    required this.name,
+    required this.url,
+    required this.enabled,
+    this.lastSyncAt,
+    required this.lastRuleCount,
+    required this.createdAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['name'] = Variable<String>(name);
+    map['url'] = Variable<String>(url);
+    map['enabled'] = Variable<bool>(enabled);
+    if (!nullToAbsent || lastSyncAt != null) {
+      map['last_sync_at'] = Variable<int>(
+        $RuleSubscriptionRowsTable.$converterlastSyncAtn.toSql(lastSyncAt),
+      );
+    }
+    map['last_rule_count'] = Variable<int>(lastRuleCount);
+    {
+      map['created_at'] = Variable<int>(
+        $RuleSubscriptionRowsTable.$convertercreatedAt.toSql(createdAt),
+      );
+    }
+    return map;
+  }
+
+  RuleSubscriptionRowsCompanion toCompanion(bool nullToAbsent) {
+    return RuleSubscriptionRowsCompanion(
+      id: Value(id),
+      name: Value(name),
+      url: Value(url),
+      enabled: Value(enabled),
+      lastSyncAt: lastSyncAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastSyncAt),
+      lastRuleCount: Value(lastRuleCount),
+      createdAt: Value(createdAt),
+    );
+  }
+
+  factory RuleSubscriptionRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return RuleSubscriptionRow(
+      id: serializer.fromJson<String>(json['id']),
+      name: serializer.fromJson<String>(json['name']),
+      url: serializer.fromJson<String>(json['url']),
+      enabled: serializer.fromJson<bool>(json['enabled']),
+      lastSyncAt: serializer.fromJson<DateTime?>(json['lastSyncAt']),
+      lastRuleCount: serializer.fromJson<int>(json['lastRuleCount']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'name': serializer.toJson<String>(name),
+      'url': serializer.toJson<String>(url),
+      'enabled': serializer.toJson<bool>(enabled),
+      'lastSyncAt': serializer.toJson<DateTime?>(lastSyncAt),
+      'lastRuleCount': serializer.toJson<int>(lastRuleCount),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+    };
+  }
+
+  RuleSubscriptionRow copyWith({
+    String? id,
+    String? name,
+    String? url,
+    bool? enabled,
+    Value<DateTime?> lastSyncAt = const Value.absent(),
+    int? lastRuleCount,
+    DateTime? createdAt,
+  }) => RuleSubscriptionRow(
+    id: id ?? this.id,
+    name: name ?? this.name,
+    url: url ?? this.url,
+    enabled: enabled ?? this.enabled,
+    lastSyncAt: lastSyncAt.present ? lastSyncAt.value : this.lastSyncAt,
+    lastRuleCount: lastRuleCount ?? this.lastRuleCount,
+    createdAt: createdAt ?? this.createdAt,
+  );
+  RuleSubscriptionRow copyWithCompanion(RuleSubscriptionRowsCompanion data) {
+    return RuleSubscriptionRow(
+      id: data.id.present ? data.id.value : this.id,
+      name: data.name.present ? data.name.value : this.name,
+      url: data.url.present ? data.url.value : this.url,
+      enabled: data.enabled.present ? data.enabled.value : this.enabled,
+      lastSyncAt: data.lastSyncAt.present
+          ? data.lastSyncAt.value
+          : this.lastSyncAt,
+      lastRuleCount: data.lastRuleCount.present
+          ? data.lastRuleCount.value
+          : this.lastRuleCount,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('RuleSubscriptionRow(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('url: $url, ')
+          ..write('enabled: $enabled, ')
+          ..write('lastSyncAt: $lastSyncAt, ')
+          ..write('lastRuleCount: $lastRuleCount, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(id, name, url, enabled, lastSyncAt, lastRuleCount, createdAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is RuleSubscriptionRow &&
+          other.id == this.id &&
+          other.name == this.name &&
+          other.url == this.url &&
+          other.enabled == this.enabled &&
+          other.lastSyncAt == this.lastSyncAt &&
+          other.lastRuleCount == this.lastRuleCount &&
+          other.createdAt == this.createdAt);
+}
+
+class RuleSubscriptionRowsCompanion
+    extends UpdateCompanion<RuleSubscriptionRow> {
+  final Value<String> id;
+  final Value<String> name;
+  final Value<String> url;
+  final Value<bool> enabled;
+  final Value<DateTime?> lastSyncAt;
+  final Value<int> lastRuleCount;
+  final Value<DateTime> createdAt;
+  final Value<int> rowid;
+  const RuleSubscriptionRowsCompanion({
+    this.id = const Value.absent(),
+    this.name = const Value.absent(),
+    this.url = const Value.absent(),
+    this.enabled = const Value.absent(),
+    this.lastSyncAt = const Value.absent(),
+    this.lastRuleCount = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  RuleSubscriptionRowsCompanion.insert({
+    required String id,
+    required String name,
+    required String url,
+    this.enabled = const Value.absent(),
+    this.lastSyncAt = const Value.absent(),
+    this.lastRuleCount = const Value.absent(),
+    required DateTime createdAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       name = Value(name),
+       url = Value(url),
+       createdAt = Value(createdAt);
+  static Insertable<RuleSubscriptionRow> custom({
+    Expression<String>? id,
+    Expression<String>? name,
+    Expression<String>? url,
+    Expression<bool>? enabled,
+    Expression<int>? lastSyncAt,
+    Expression<int>? lastRuleCount,
+    Expression<int>? createdAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (name != null) 'name': name,
+      if (url != null) 'url': url,
+      if (enabled != null) 'enabled': enabled,
+      if (lastSyncAt != null) 'last_sync_at': lastSyncAt,
+      if (lastRuleCount != null) 'last_rule_count': lastRuleCount,
+      if (createdAt != null) 'created_at': createdAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  RuleSubscriptionRowsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? name,
+    Value<String>? url,
+    Value<bool>? enabled,
+    Value<DateTime?>? lastSyncAt,
+    Value<int>? lastRuleCount,
+    Value<DateTime>? createdAt,
+    Value<int>? rowid,
+  }) {
+    return RuleSubscriptionRowsCompanion(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      url: url ?? this.url,
+      enabled: enabled ?? this.enabled,
+      lastSyncAt: lastSyncAt ?? this.lastSyncAt,
+      lastRuleCount: lastRuleCount ?? this.lastRuleCount,
+      createdAt: createdAt ?? this.createdAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (url.present) {
+      map['url'] = Variable<String>(url.value);
+    }
+    if (enabled.present) {
+      map['enabled'] = Variable<bool>(enabled.value);
+    }
+    if (lastSyncAt.present) {
+      map['last_sync_at'] = Variable<int>(
+        $RuleSubscriptionRowsTable.$converterlastSyncAtn.toSql(
+          lastSyncAt.value,
+        ),
+      );
+    }
+    if (lastRuleCount.present) {
+      map['last_rule_count'] = Variable<int>(lastRuleCount.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<int>(
+        $RuleSubscriptionRowsTable.$convertercreatedAt.toSql(createdAt.value),
+      );
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('RuleSubscriptionRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('url: $url, ')
+          ..write('enabled: $enabled, ')
+          ..write('lastSyncAt: $lastSyncAt, ')
+          ..write('lastRuleCount: $lastRuleCount, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $SoWorkspaceRowsTable extends SoWorkspaceRows
+    with TableInfo<$SoWorkspaceRowsTable, SoWorkspaceRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SoWorkspaceRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _pathMeta = const VerificationMeta('path');
+  @override
+  late final GeneratedColumn<String> path = GeneratedColumn<String>(
+    'path',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sourceKeyMeta = const VerificationMeta(
+    'sourceKey',
+  );
+  @override
+  late final GeneratedColumn<String> sourceKey = GeneratedColumn<String>(
+    'source_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _temporaryMeta = const VerificationMeta(
+    'temporary',
+  );
+  @override
+  late final GeneratedColumn<bool> temporary = GeneratedColumn<bool>(
+    'temporary',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("temporary" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _editSessionIdMeta = const VerificationMeta(
+    'editSessionId',
+  );
+  @override
+  late final GeneratedColumn<String> editSessionId = GeneratedColumn<String>(
+    'edit_session_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
+  late final GeneratedColumnWithTypeConverter<DateTime, int> createdAt =
+      GeneratedColumn<int>(
+        'created_at',
+        aliasedName,
+        false,
+        type: DriftSqlType.int,
+        requiredDuringInsert: true,
+      ).withConverter<DateTime>($SoWorkspaceRowsTable.$convertercreatedAt);
+  @override
+  late final GeneratedColumnWithTypeConverter<DateTime, int> lastOpenedAt =
+      GeneratedColumn<int>(
+        'last_opened_at',
+        aliasedName,
+        false,
+        type: DriftSqlType.int,
+        requiredDuringInsert: true,
+      ).withConverter<DateTime>($SoWorkspaceRowsTable.$converterlastOpenedAt);
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    path,
+    sourceKey,
+    temporary,
+    editSessionId,
+    createdAt,
+    lastOpenedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'so_workspace_rows';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<SoWorkspaceRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('path')) {
+      context.handle(
+        _pathMeta,
+        path.isAcceptableOrUnknown(data['path']!, _pathMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_pathMeta);
+    }
+    if (data.containsKey('source_key')) {
+      context.handle(
+        _sourceKeyMeta,
+        sourceKey.isAcceptableOrUnknown(data['source_key']!, _sourceKeyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_sourceKeyMeta);
+    }
+    if (data.containsKey('temporary')) {
+      context.handle(
+        _temporaryMeta,
+        temporary.isAcceptableOrUnknown(data['temporary']!, _temporaryMeta),
+      );
+    }
+    if (data.containsKey('edit_session_id')) {
+      context.handle(
+        _editSessionIdMeta,
+        editSessionId.isAcceptableOrUnknown(
+          data['edit_session_id']!,
+          _editSessionIdMeta,
+        ),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  SoWorkspaceRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SoWorkspaceRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      path: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}path'],
+      )!,
+      sourceKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source_key'],
+      )!,
+      temporary: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}temporary'],
+      )!,
+      editSessionId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}edit_session_id'],
+      ),
+      createdAt: $SoWorkspaceRowsTable.$convertercreatedAt.fromSql(
+        attachedDatabase.typeMapping.read(
+          DriftSqlType.int,
+          data['${effectivePrefix}created_at'],
+        )!,
+      ),
+      lastOpenedAt: $SoWorkspaceRowsTable.$converterlastOpenedAt.fromSql(
+        attachedDatabase.typeMapping.read(
+          DriftSqlType.int,
+          data['${effectivePrefix}last_opened_at'],
+        )!,
+      ),
+    );
+  }
+
+  @override
+  $SoWorkspaceRowsTable createAlias(String alias) {
+    return $SoWorkspaceRowsTable(attachedDatabase, alias);
+  }
+
+  static TypeConverter<DateTime, int> $convertercreatedAt =
+      const MicrosecondDateTimeConverter();
+  static TypeConverter<DateTime, int> $converterlastOpenedAt =
+      const MicrosecondDateTimeConverter();
+}
+
+class SoWorkspaceRow extends DataClass implements Insertable<SoWorkspaceRow> {
+  final String id;
+  final String path;
+  final String sourceKey;
+  final bool temporary;
+  final String? editSessionId;
+  final DateTime createdAt;
+  final DateTime lastOpenedAt;
+  const SoWorkspaceRow({
+    required this.id,
+    required this.path,
+    required this.sourceKey,
+    required this.temporary,
+    this.editSessionId,
+    required this.createdAt,
+    required this.lastOpenedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['path'] = Variable<String>(path);
+    map['source_key'] = Variable<String>(sourceKey);
+    map['temporary'] = Variable<bool>(temporary);
+    if (!nullToAbsent || editSessionId != null) {
+      map['edit_session_id'] = Variable<String>(editSessionId);
+    }
+    {
+      map['created_at'] = Variable<int>(
+        $SoWorkspaceRowsTable.$convertercreatedAt.toSql(createdAt),
+      );
+    }
+    {
+      map['last_opened_at'] = Variable<int>(
+        $SoWorkspaceRowsTable.$converterlastOpenedAt.toSql(lastOpenedAt),
+      );
+    }
+    return map;
+  }
+
+  SoWorkspaceRowsCompanion toCompanion(bool nullToAbsent) {
+    return SoWorkspaceRowsCompanion(
+      id: Value(id),
+      path: Value(path),
+      sourceKey: Value(sourceKey),
+      temporary: Value(temporary),
+      editSessionId: editSessionId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(editSessionId),
+      createdAt: Value(createdAt),
+      lastOpenedAt: Value(lastOpenedAt),
+    );
+  }
+
+  factory SoWorkspaceRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SoWorkspaceRow(
+      id: serializer.fromJson<String>(json['id']),
+      path: serializer.fromJson<String>(json['path']),
+      sourceKey: serializer.fromJson<String>(json['sourceKey']),
+      temporary: serializer.fromJson<bool>(json['temporary']),
+      editSessionId: serializer.fromJson<String?>(json['editSessionId']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      lastOpenedAt: serializer.fromJson<DateTime>(json['lastOpenedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'path': serializer.toJson<String>(path),
+      'sourceKey': serializer.toJson<String>(sourceKey),
+      'temporary': serializer.toJson<bool>(temporary),
+      'editSessionId': serializer.toJson<String?>(editSessionId),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'lastOpenedAt': serializer.toJson<DateTime>(lastOpenedAt),
+    };
+  }
+
+  SoWorkspaceRow copyWith({
+    String? id,
+    String? path,
+    String? sourceKey,
+    bool? temporary,
+    Value<String?> editSessionId = const Value.absent(),
+    DateTime? createdAt,
+    DateTime? lastOpenedAt,
+  }) => SoWorkspaceRow(
+    id: id ?? this.id,
+    path: path ?? this.path,
+    sourceKey: sourceKey ?? this.sourceKey,
+    temporary: temporary ?? this.temporary,
+    editSessionId: editSessionId.present
+        ? editSessionId.value
+        : this.editSessionId,
+    createdAt: createdAt ?? this.createdAt,
+    lastOpenedAt: lastOpenedAt ?? this.lastOpenedAt,
+  );
+  SoWorkspaceRow copyWithCompanion(SoWorkspaceRowsCompanion data) {
+    return SoWorkspaceRow(
+      id: data.id.present ? data.id.value : this.id,
+      path: data.path.present ? data.path.value : this.path,
+      sourceKey: data.sourceKey.present ? data.sourceKey.value : this.sourceKey,
+      temporary: data.temporary.present ? data.temporary.value : this.temporary,
+      editSessionId: data.editSessionId.present
+          ? data.editSessionId.value
+          : this.editSessionId,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      lastOpenedAt: data.lastOpenedAt.present
+          ? data.lastOpenedAt.value
+          : this.lastOpenedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SoWorkspaceRow(')
+          ..write('id: $id, ')
+          ..write('path: $path, ')
+          ..write('sourceKey: $sourceKey, ')
+          ..write('temporary: $temporary, ')
+          ..write('editSessionId: $editSessionId, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('lastOpenedAt: $lastOpenedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    path,
+    sourceKey,
+    temporary,
+    editSessionId,
+    createdAt,
+    lastOpenedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SoWorkspaceRow &&
+          other.id == this.id &&
+          other.path == this.path &&
+          other.sourceKey == this.sourceKey &&
+          other.temporary == this.temporary &&
+          other.editSessionId == this.editSessionId &&
+          other.createdAt == this.createdAt &&
+          other.lastOpenedAt == this.lastOpenedAt);
+}
+
+class SoWorkspaceRowsCompanion extends UpdateCompanion<SoWorkspaceRow> {
+  final Value<String> id;
+  final Value<String> path;
+  final Value<String> sourceKey;
+  final Value<bool> temporary;
+  final Value<String?> editSessionId;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> lastOpenedAt;
+  final Value<int> rowid;
+  const SoWorkspaceRowsCompanion({
+    this.id = const Value.absent(),
+    this.path = const Value.absent(),
+    this.sourceKey = const Value.absent(),
+    this.temporary = const Value.absent(),
+    this.editSessionId = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.lastOpenedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  SoWorkspaceRowsCompanion.insert({
+    required String id,
+    required String path,
+    required String sourceKey,
+    this.temporary = const Value.absent(),
+    this.editSessionId = const Value.absent(),
+    required DateTime createdAt,
+    required DateTime lastOpenedAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       path = Value(path),
+       sourceKey = Value(sourceKey),
+       createdAt = Value(createdAt),
+       lastOpenedAt = Value(lastOpenedAt);
+  static Insertable<SoWorkspaceRow> custom({
+    Expression<String>? id,
+    Expression<String>? path,
+    Expression<String>? sourceKey,
+    Expression<bool>? temporary,
+    Expression<String>? editSessionId,
+    Expression<int>? createdAt,
+    Expression<int>? lastOpenedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (path != null) 'path': path,
+      if (sourceKey != null) 'source_key': sourceKey,
+      if (temporary != null) 'temporary': temporary,
+      if (editSessionId != null) 'edit_session_id': editSessionId,
+      if (createdAt != null) 'created_at': createdAt,
+      if (lastOpenedAt != null) 'last_opened_at': lastOpenedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  SoWorkspaceRowsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? path,
+    Value<String>? sourceKey,
+    Value<bool>? temporary,
+    Value<String?>? editSessionId,
+    Value<DateTime>? createdAt,
+    Value<DateTime>? lastOpenedAt,
+    Value<int>? rowid,
+  }) {
+    return SoWorkspaceRowsCompanion(
+      id: id ?? this.id,
+      path: path ?? this.path,
+      sourceKey: sourceKey ?? this.sourceKey,
+      temporary: temporary ?? this.temporary,
+      editSessionId: editSessionId ?? this.editSessionId,
+      createdAt: createdAt ?? this.createdAt,
+      lastOpenedAt: lastOpenedAt ?? this.lastOpenedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (path.present) {
+      map['path'] = Variable<String>(path.value);
+    }
+    if (sourceKey.present) {
+      map['source_key'] = Variable<String>(sourceKey.value);
+    }
+    if (temporary.present) {
+      map['temporary'] = Variable<bool>(temporary.value);
+    }
+    if (editSessionId.present) {
+      map['edit_session_id'] = Variable<String>(editSessionId.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<int>(
+        $SoWorkspaceRowsTable.$convertercreatedAt.toSql(createdAt.value),
+      );
+    }
+    if (lastOpenedAt.present) {
+      map['last_opened_at'] = Variable<int>(
+        $SoWorkspaceRowsTable.$converterlastOpenedAt.toSql(lastOpenedAt.value),
+      );
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SoWorkspaceRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('path: $path, ')
+          ..write('sourceKey: $sourceKey, ')
+          ..write('temporary: $temporary, ')
+          ..write('editSessionId: $editSessionId, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('lastOpenedAt: $lastOpenedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $EngineStatsRowsTable extends EngineStatsRows
+    with TableInfo<$EngineStatsRowsTable, EngineStatsRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $EngineStatsRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _toolNameMeta = const VerificationMeta(
+    'toolName',
+  );
+  @override
+  late final GeneratedColumn<String> toolName = GeneratedColumn<String>(
+    'tool_name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _callsMeta = const VerificationMeta('calls');
+  @override
+  late final GeneratedColumn<int> calls = GeneratedColumn<int>(
+    'calls',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _okMeta = const VerificationMeta('ok');
+  @override
+  late final GeneratedColumn<int> ok = GeneratedColumn<int>(
+    'ok',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _failedMeta = const VerificationMeta('failed');
+  @override
+  late final GeneratedColumn<int> failed = GeneratedColumn<int>(
+    'failed',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _avgMsMeta = const VerificationMeta('avgMs');
+  @override
+  late final GeneratedColumn<int> avgMs = GeneratedColumn<int>(
+    'avg_ms',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _maxMsMeta = const VerificationMeta('maxMs');
+  @override
+  late final GeneratedColumn<int> maxMs = GeneratedColumn<int>(
+    'max_ms',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _lastErrorMeta = const VerificationMeta(
+    'lastError',
+  );
+  @override
+  late final GeneratedColumn<String> lastError = GeneratedColumn<String>(
+    'last_error',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _lastAtMeta = const VerificationMeta('lastAt');
+  @override
+  late final GeneratedColumn<int> lastAt = GeneratedColumn<int>(
+    'last_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    toolName,
+    calls,
+    ok,
+    failed,
+    avgMs,
+    maxMs,
+    lastError,
+    lastAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'engine_stats_rows';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<EngineStatsRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('tool_name')) {
+      context.handle(
+        _toolNameMeta,
+        toolName.isAcceptableOrUnknown(data['tool_name']!, _toolNameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_toolNameMeta);
+    }
+    if (data.containsKey('calls')) {
+      context.handle(
+        _callsMeta,
+        calls.isAcceptableOrUnknown(data['calls']!, _callsMeta),
+      );
+    }
+    if (data.containsKey('ok')) {
+      context.handle(_okMeta, ok.isAcceptableOrUnknown(data['ok']!, _okMeta));
+    }
+    if (data.containsKey('failed')) {
+      context.handle(
+        _failedMeta,
+        failed.isAcceptableOrUnknown(data['failed']!, _failedMeta),
+      );
+    }
+    if (data.containsKey('avg_ms')) {
+      context.handle(
+        _avgMsMeta,
+        avgMs.isAcceptableOrUnknown(data['avg_ms']!, _avgMsMeta),
+      );
+    }
+    if (data.containsKey('max_ms')) {
+      context.handle(
+        _maxMsMeta,
+        maxMs.isAcceptableOrUnknown(data['max_ms']!, _maxMsMeta),
+      );
+    }
+    if (data.containsKey('last_error')) {
+      context.handle(
+        _lastErrorMeta,
+        lastError.isAcceptableOrUnknown(data['last_error']!, _lastErrorMeta),
+      );
+    }
+    if (data.containsKey('last_at')) {
+      context.handle(
+        _lastAtMeta,
+        lastAt.isAcceptableOrUnknown(data['last_at']!, _lastAtMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {toolName};
+  @override
+  EngineStatsRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return EngineStatsRow(
+      toolName: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}tool_name'],
+      )!,
+      calls: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}calls'],
+      )!,
+      ok: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}ok'],
+      )!,
+      failed: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}failed'],
+      )!,
+      avgMs: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}avg_ms'],
+      )!,
+      maxMs: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}max_ms'],
+      )!,
+      lastError: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}last_error'],
+      ),
+      lastAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}last_at'],
+      )!,
+    );
+  }
+
+  @override
+  $EngineStatsRowsTable createAlias(String alias) {
+    return $EngineStatsRowsTable(attachedDatabase, alias);
+  }
+}
+
+class EngineStatsRow extends DataClass implements Insertable<EngineStatsRow> {
+  final String toolName;
+  final int calls;
+  final int ok;
+  final int failed;
+  final int avgMs;
+  final int maxMs;
+  final String? lastError;
+  final int lastAt;
+  const EngineStatsRow({
+    required this.toolName,
+    required this.calls,
+    required this.ok,
+    required this.failed,
+    required this.avgMs,
+    required this.maxMs,
+    this.lastError,
+    required this.lastAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['tool_name'] = Variable<String>(toolName);
+    map['calls'] = Variable<int>(calls);
+    map['ok'] = Variable<int>(ok);
+    map['failed'] = Variable<int>(failed);
+    map['avg_ms'] = Variable<int>(avgMs);
+    map['max_ms'] = Variable<int>(maxMs);
+    if (!nullToAbsent || lastError != null) {
+      map['last_error'] = Variable<String>(lastError);
+    }
+    map['last_at'] = Variable<int>(lastAt);
+    return map;
+  }
+
+  EngineStatsRowsCompanion toCompanion(bool nullToAbsent) {
+    return EngineStatsRowsCompanion(
+      toolName: Value(toolName),
+      calls: Value(calls),
+      ok: Value(ok),
+      failed: Value(failed),
+      avgMs: Value(avgMs),
+      maxMs: Value(maxMs),
+      lastError: lastError == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastError),
+      lastAt: Value(lastAt),
+    );
+  }
+
+  factory EngineStatsRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return EngineStatsRow(
+      toolName: serializer.fromJson<String>(json['toolName']),
+      calls: serializer.fromJson<int>(json['calls']),
+      ok: serializer.fromJson<int>(json['ok']),
+      failed: serializer.fromJson<int>(json['failed']),
+      avgMs: serializer.fromJson<int>(json['avgMs']),
+      maxMs: serializer.fromJson<int>(json['maxMs']),
+      lastError: serializer.fromJson<String?>(json['lastError']),
+      lastAt: serializer.fromJson<int>(json['lastAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'toolName': serializer.toJson<String>(toolName),
+      'calls': serializer.toJson<int>(calls),
+      'ok': serializer.toJson<int>(ok),
+      'failed': serializer.toJson<int>(failed),
+      'avgMs': serializer.toJson<int>(avgMs),
+      'maxMs': serializer.toJson<int>(maxMs),
+      'lastError': serializer.toJson<String?>(lastError),
+      'lastAt': serializer.toJson<int>(lastAt),
+    };
+  }
+
+  EngineStatsRow copyWith({
+    String? toolName,
+    int? calls,
+    int? ok,
+    int? failed,
+    int? avgMs,
+    int? maxMs,
+    Value<String?> lastError = const Value.absent(),
+    int? lastAt,
+  }) => EngineStatsRow(
+    toolName: toolName ?? this.toolName,
+    calls: calls ?? this.calls,
+    ok: ok ?? this.ok,
+    failed: failed ?? this.failed,
+    avgMs: avgMs ?? this.avgMs,
+    maxMs: maxMs ?? this.maxMs,
+    lastError: lastError.present ? lastError.value : this.lastError,
+    lastAt: lastAt ?? this.lastAt,
+  );
+  EngineStatsRow copyWithCompanion(EngineStatsRowsCompanion data) {
+    return EngineStatsRow(
+      toolName: data.toolName.present ? data.toolName.value : this.toolName,
+      calls: data.calls.present ? data.calls.value : this.calls,
+      ok: data.ok.present ? data.ok.value : this.ok,
+      failed: data.failed.present ? data.failed.value : this.failed,
+      avgMs: data.avgMs.present ? data.avgMs.value : this.avgMs,
+      maxMs: data.maxMs.present ? data.maxMs.value : this.maxMs,
+      lastError: data.lastError.present ? data.lastError.value : this.lastError,
+      lastAt: data.lastAt.present ? data.lastAt.value : this.lastAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('EngineStatsRow(')
+          ..write('toolName: $toolName, ')
+          ..write('calls: $calls, ')
+          ..write('ok: $ok, ')
+          ..write('failed: $failed, ')
+          ..write('avgMs: $avgMs, ')
+          ..write('maxMs: $maxMs, ')
+          ..write('lastError: $lastError, ')
+          ..write('lastAt: $lastAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(toolName, calls, ok, failed, avgMs, maxMs, lastError, lastAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is EngineStatsRow &&
+          other.toolName == this.toolName &&
+          other.calls == this.calls &&
+          other.ok == this.ok &&
+          other.failed == this.failed &&
+          other.avgMs == this.avgMs &&
+          other.maxMs == this.maxMs &&
+          other.lastError == this.lastError &&
+          other.lastAt == this.lastAt);
+}
+
+class EngineStatsRowsCompanion extends UpdateCompanion<EngineStatsRow> {
+  final Value<String> toolName;
+  final Value<int> calls;
+  final Value<int> ok;
+  final Value<int> failed;
+  final Value<int> avgMs;
+  final Value<int> maxMs;
+  final Value<String?> lastError;
+  final Value<int> lastAt;
+  final Value<int> rowid;
+  const EngineStatsRowsCompanion({
+    this.toolName = const Value.absent(),
+    this.calls = const Value.absent(),
+    this.ok = const Value.absent(),
+    this.failed = const Value.absent(),
+    this.avgMs = const Value.absent(),
+    this.maxMs = const Value.absent(),
+    this.lastError = const Value.absent(),
+    this.lastAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  EngineStatsRowsCompanion.insert({
+    required String toolName,
+    this.calls = const Value.absent(),
+    this.ok = const Value.absent(),
+    this.failed = const Value.absent(),
+    this.avgMs = const Value.absent(),
+    this.maxMs = const Value.absent(),
+    this.lastError = const Value.absent(),
+    this.lastAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : toolName = Value(toolName);
+  static Insertable<EngineStatsRow> custom({
+    Expression<String>? toolName,
+    Expression<int>? calls,
+    Expression<int>? ok,
+    Expression<int>? failed,
+    Expression<int>? avgMs,
+    Expression<int>? maxMs,
+    Expression<String>? lastError,
+    Expression<int>? lastAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (toolName != null) 'tool_name': toolName,
+      if (calls != null) 'calls': calls,
+      if (ok != null) 'ok': ok,
+      if (failed != null) 'failed': failed,
+      if (avgMs != null) 'avg_ms': avgMs,
+      if (maxMs != null) 'max_ms': maxMs,
+      if (lastError != null) 'last_error': lastError,
+      if (lastAt != null) 'last_at': lastAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  EngineStatsRowsCompanion copyWith({
+    Value<String>? toolName,
+    Value<int>? calls,
+    Value<int>? ok,
+    Value<int>? failed,
+    Value<int>? avgMs,
+    Value<int>? maxMs,
+    Value<String?>? lastError,
+    Value<int>? lastAt,
+    Value<int>? rowid,
+  }) {
+    return EngineStatsRowsCompanion(
+      toolName: toolName ?? this.toolName,
+      calls: calls ?? this.calls,
+      ok: ok ?? this.ok,
+      failed: failed ?? this.failed,
+      avgMs: avgMs ?? this.avgMs,
+      maxMs: maxMs ?? this.maxMs,
+      lastError: lastError ?? this.lastError,
+      lastAt: lastAt ?? this.lastAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (toolName.present) {
+      map['tool_name'] = Variable<String>(toolName.value);
+    }
+    if (calls.present) {
+      map['calls'] = Variable<int>(calls.value);
+    }
+    if (ok.present) {
+      map['ok'] = Variable<int>(ok.value);
+    }
+    if (failed.present) {
+      map['failed'] = Variable<int>(failed.value);
+    }
+    if (avgMs.present) {
+      map['avg_ms'] = Variable<int>(avgMs.value);
+    }
+    if (maxMs.present) {
+      map['max_ms'] = Variable<int>(maxMs.value);
+    }
+    if (lastError.present) {
+      map['last_error'] = Variable<String>(lastError.value);
+    }
+    if (lastAt.present) {
+      map['last_at'] = Variable<int>(lastAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('EngineStatsRowsCompanion(')
+          ..write('toolName: $toolName, ')
+          ..write('calls: $calls, ')
+          ..write('ok: $ok, ')
+          ..write('failed: $failed, ')
+          ..write('avgMs: $avgMs, ')
+          ..write('maxMs: $maxMs, ')
+          ..write('lastError: $lastError, ')
+          ..write('lastAt: $lastAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -11047,6 +14053,16 @@ abstract class _$AppDatabase extends GeneratedDatabase {
       $UserProfileFieldRowsTable(this);
   late final $MessagePromptRowsTable messagePromptRows =
       $MessagePromptRowsTable(this);
+  late final $ApkProjectRowsTable apkProjectRows = $ApkProjectRowsTable(this);
+  late final $ModifyRuleRowsTable modifyRuleRows = $ModifyRuleRowsTable(this);
+  late final $RuleSubscriptionRowsTable ruleSubscriptionRows =
+      $RuleSubscriptionRowsTable(this);
+  late final $SoWorkspaceRowsTable soWorkspaceRows = $SoWorkspaceRowsTable(
+    this,
+  );
+  late final $EngineStatsRowsTable engineStatsRows = $EngineStatsRowsTable(
+    this,
+  );
   late final Index idxConversationsUpdatedAt = Index(
     'idx_conversations_updated_at',
     'CREATE INDEX idx_conversations_updated_at ON conversation_rows (updated_at DESC, id ASC)',
@@ -11143,6 +14159,11 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     memoryEntryRows,
     userProfileFieldRows,
     messagePromptRows,
+    apkProjectRows,
+    modifyRuleRows,
+    ruleSubscriptionRows,
+    soWorkspaceRows,
+    engineStatsRows,
     idxConversationsUpdatedAt,
     idxConversationsAssistant,
     idxMessagesConversationOrder,
@@ -18804,6 +21825,1519 @@ typedef $$MessagePromptRowsTableProcessedTableManager =
       MessagePromptRow,
       PrefetchHooks Function()
     >;
+typedef $$ApkProjectRowsTableCreateCompanionBuilder =
+    ApkProjectRowsCompanion Function({
+      required String id,
+      required String sourcePath,
+      required String fileName,
+      Value<String?> packageName,
+      Value<String?> versionName,
+      Value<int?> versionCode,
+      required String apkSha256,
+      Value<String?> certificateSha256,
+      Value<int> analysisVersion,
+      Value<int> ruleSetVersion,
+      Value<String?> conversationId,
+      Value<String?> latestReportId,
+      required DateTime createdAt,
+      required DateTime lastOpenedAt,
+      Value<int> rowid,
+    });
+typedef $$ApkProjectRowsTableUpdateCompanionBuilder =
+    ApkProjectRowsCompanion Function({
+      Value<String> id,
+      Value<String> sourcePath,
+      Value<String> fileName,
+      Value<String?> packageName,
+      Value<String?> versionName,
+      Value<int?> versionCode,
+      Value<String> apkSha256,
+      Value<String?> certificateSha256,
+      Value<int> analysisVersion,
+      Value<int> ruleSetVersion,
+      Value<String?> conversationId,
+      Value<String?> latestReportId,
+      Value<DateTime> createdAt,
+      Value<DateTime> lastOpenedAt,
+      Value<int> rowid,
+    });
+
+class $$ApkProjectRowsTableFilterComposer
+    extends Composer<_$AppDatabase, $ApkProjectRowsTable> {
+  $$ApkProjectRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sourcePath => $composableBuilder(
+    column: $table.sourcePath,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get fileName => $composableBuilder(
+    column: $table.fileName,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get packageName => $composableBuilder(
+    column: $table.packageName,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get versionName => $composableBuilder(
+    column: $table.versionName,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get versionCode => $composableBuilder(
+    column: $table.versionCode,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get apkSha256 => $composableBuilder(
+    column: $table.apkSha256,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get certificateSha256 => $composableBuilder(
+    column: $table.certificateSha256,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get analysisVersion => $composableBuilder(
+    column: $table.analysisVersion,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get ruleSetVersion => $composableBuilder(
+    column: $table.ruleSetVersion,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get conversationId => $composableBuilder(
+    column: $table.conversationId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get latestReportId => $composableBuilder(
+    column: $table.latestReportId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnWithTypeConverterFilters<DateTime, DateTime, int> get createdAt =>
+      $composableBuilder(
+        column: $table.createdAt,
+        builder: (column) => ColumnWithTypeConverterFilters(column),
+      );
+
+  ColumnWithTypeConverterFilters<DateTime, DateTime, int> get lastOpenedAt =>
+      $composableBuilder(
+        column: $table.lastOpenedAt,
+        builder: (column) => ColumnWithTypeConverterFilters(column),
+      );
+}
+
+class $$ApkProjectRowsTableOrderingComposer
+    extends Composer<_$AppDatabase, $ApkProjectRowsTable> {
+  $$ApkProjectRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sourcePath => $composableBuilder(
+    column: $table.sourcePath,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get fileName => $composableBuilder(
+    column: $table.fileName,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get packageName => $composableBuilder(
+    column: $table.packageName,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get versionName => $composableBuilder(
+    column: $table.versionName,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get versionCode => $composableBuilder(
+    column: $table.versionCode,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get apkSha256 => $composableBuilder(
+    column: $table.apkSha256,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get certificateSha256 => $composableBuilder(
+    column: $table.certificateSha256,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get analysisVersion => $composableBuilder(
+    column: $table.analysisVersion,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get ruleSetVersion => $composableBuilder(
+    column: $table.ruleSetVersion,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get conversationId => $composableBuilder(
+    column: $table.conversationId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get latestReportId => $composableBuilder(
+    column: $table.latestReportId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get lastOpenedAt => $composableBuilder(
+    column: $table.lastOpenedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$ApkProjectRowsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $ApkProjectRowsTable> {
+  $$ApkProjectRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get sourcePath => $composableBuilder(
+    column: $table.sourcePath,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get fileName =>
+      $composableBuilder(column: $table.fileName, builder: (column) => column);
+
+  GeneratedColumn<String> get packageName => $composableBuilder(
+    column: $table.packageName,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get versionName => $composableBuilder(
+    column: $table.versionName,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get versionCode => $composableBuilder(
+    column: $table.versionCode,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get apkSha256 =>
+      $composableBuilder(column: $table.apkSha256, builder: (column) => column);
+
+  GeneratedColumn<String> get certificateSha256 => $composableBuilder(
+    column: $table.certificateSha256,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get analysisVersion => $composableBuilder(
+    column: $table.analysisVersion,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get ruleSetVersion => $composableBuilder(
+    column: $table.ruleSetVersion,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get conversationId => $composableBuilder(
+    column: $table.conversationId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get latestReportId => $composableBuilder(
+    column: $table.latestReportId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumnWithTypeConverter<DateTime, int> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumnWithTypeConverter<DateTime, int> get lastOpenedAt =>
+      $composableBuilder(
+        column: $table.lastOpenedAt,
+        builder: (column) => column,
+      );
+}
+
+class $$ApkProjectRowsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $ApkProjectRowsTable,
+          ApkProjectRow,
+          $$ApkProjectRowsTableFilterComposer,
+          $$ApkProjectRowsTableOrderingComposer,
+          $$ApkProjectRowsTableAnnotationComposer,
+          $$ApkProjectRowsTableCreateCompanionBuilder,
+          $$ApkProjectRowsTableUpdateCompanionBuilder,
+          (
+            ApkProjectRow,
+            BaseReferences<_$AppDatabase, $ApkProjectRowsTable, ApkProjectRow>,
+          ),
+          ApkProjectRow,
+          PrefetchHooks Function()
+        > {
+  $$ApkProjectRowsTableTableManager(
+    _$AppDatabase db,
+    $ApkProjectRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ApkProjectRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$ApkProjectRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$ApkProjectRowsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> sourcePath = const Value.absent(),
+                Value<String> fileName = const Value.absent(),
+                Value<String?> packageName = const Value.absent(),
+                Value<String?> versionName = const Value.absent(),
+                Value<int?> versionCode = const Value.absent(),
+                Value<String> apkSha256 = const Value.absent(),
+                Value<String?> certificateSha256 = const Value.absent(),
+                Value<int> analysisVersion = const Value.absent(),
+                Value<int> ruleSetVersion = const Value.absent(),
+                Value<String?> conversationId = const Value.absent(),
+                Value<String?> latestReportId = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<DateTime> lastOpenedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => ApkProjectRowsCompanion(
+                id: id,
+                sourcePath: sourcePath,
+                fileName: fileName,
+                packageName: packageName,
+                versionName: versionName,
+                versionCode: versionCode,
+                apkSha256: apkSha256,
+                certificateSha256: certificateSha256,
+                analysisVersion: analysisVersion,
+                ruleSetVersion: ruleSetVersion,
+                conversationId: conversationId,
+                latestReportId: latestReportId,
+                createdAt: createdAt,
+                lastOpenedAt: lastOpenedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String sourcePath,
+                required String fileName,
+                Value<String?> packageName = const Value.absent(),
+                Value<String?> versionName = const Value.absent(),
+                Value<int?> versionCode = const Value.absent(),
+                required String apkSha256,
+                Value<String?> certificateSha256 = const Value.absent(),
+                Value<int> analysisVersion = const Value.absent(),
+                Value<int> ruleSetVersion = const Value.absent(),
+                Value<String?> conversationId = const Value.absent(),
+                Value<String?> latestReportId = const Value.absent(),
+                required DateTime createdAt,
+                required DateTime lastOpenedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => ApkProjectRowsCompanion.insert(
+                id: id,
+                sourcePath: sourcePath,
+                fileName: fileName,
+                packageName: packageName,
+                versionName: versionName,
+                versionCode: versionCode,
+                apkSha256: apkSha256,
+                certificateSha256: certificateSha256,
+                analysisVersion: analysisVersion,
+                ruleSetVersion: ruleSetVersion,
+                conversationId: conversationId,
+                latestReportId: latestReportId,
+                createdAt: createdAt,
+                lastOpenedAt: lastOpenedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$ApkProjectRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $ApkProjectRowsTable,
+      ApkProjectRow,
+      $$ApkProjectRowsTableFilterComposer,
+      $$ApkProjectRowsTableOrderingComposer,
+      $$ApkProjectRowsTableAnnotationComposer,
+      $$ApkProjectRowsTableCreateCompanionBuilder,
+      $$ApkProjectRowsTableUpdateCompanionBuilder,
+      (
+        ApkProjectRow,
+        BaseReferences<_$AppDatabase, $ApkProjectRowsTable, ApkProjectRow>,
+      ),
+      ApkProjectRow,
+      PrefetchHooks Function()
+    >;
+typedef $$ModifyRuleRowsTableCreateCompanionBuilder =
+    ModifyRuleRowsCompanion Function({
+      required String id,
+      required String name,
+      required String category,
+      required String matcherJson,
+      Value<bool> enabled,
+      Value<String> source,
+      Value<String> risk,
+      Value<int> hitCount,
+      Value<int> successCount,
+      Value<int> failureCount,
+      Value<int> version,
+      required DateTime updatedAt,
+      Value<int> rowid,
+    });
+typedef $$ModifyRuleRowsTableUpdateCompanionBuilder =
+    ModifyRuleRowsCompanion Function({
+      Value<String> id,
+      Value<String> name,
+      Value<String> category,
+      Value<String> matcherJson,
+      Value<bool> enabled,
+      Value<String> source,
+      Value<String> risk,
+      Value<int> hitCount,
+      Value<int> successCount,
+      Value<int> failureCount,
+      Value<int> version,
+      Value<DateTime> updatedAt,
+      Value<int> rowid,
+    });
+
+class $$ModifyRuleRowsTableFilterComposer
+    extends Composer<_$AppDatabase, $ModifyRuleRowsTable> {
+  $$ModifyRuleRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get category => $composableBuilder(
+    column: $table.category,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get matcherJson => $composableBuilder(
+    column: $table.matcherJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get enabled => $composableBuilder(
+    column: $table.enabled,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get source => $composableBuilder(
+    column: $table.source,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get risk => $composableBuilder(
+    column: $table.risk,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get hitCount => $composableBuilder(
+    column: $table.hitCount,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get successCount => $composableBuilder(
+    column: $table.successCount,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get failureCount => $composableBuilder(
+    column: $table.failureCount,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get version => $composableBuilder(
+    column: $table.version,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnWithTypeConverterFilters<DateTime, DateTime, int> get updatedAt =>
+      $composableBuilder(
+        column: $table.updatedAt,
+        builder: (column) => ColumnWithTypeConverterFilters(column),
+      );
+}
+
+class $$ModifyRuleRowsTableOrderingComposer
+    extends Composer<_$AppDatabase, $ModifyRuleRowsTable> {
+  $$ModifyRuleRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get category => $composableBuilder(
+    column: $table.category,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get matcherJson => $composableBuilder(
+    column: $table.matcherJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get enabled => $composableBuilder(
+    column: $table.enabled,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get source => $composableBuilder(
+    column: $table.source,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get risk => $composableBuilder(
+    column: $table.risk,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get hitCount => $composableBuilder(
+    column: $table.hitCount,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get successCount => $composableBuilder(
+    column: $table.successCount,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get failureCount => $composableBuilder(
+    column: $table.failureCount,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get version => $composableBuilder(
+    column: $table.version,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$ModifyRuleRowsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $ModifyRuleRowsTable> {
+  $$ModifyRuleRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get category =>
+      $composableBuilder(column: $table.category, builder: (column) => column);
+
+  GeneratedColumn<String> get matcherJson => $composableBuilder(
+    column: $table.matcherJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get enabled =>
+      $composableBuilder(column: $table.enabled, builder: (column) => column);
+
+  GeneratedColumn<String> get source =>
+      $composableBuilder(column: $table.source, builder: (column) => column);
+
+  GeneratedColumn<String> get risk =>
+      $composableBuilder(column: $table.risk, builder: (column) => column);
+
+  GeneratedColumn<int> get hitCount =>
+      $composableBuilder(column: $table.hitCount, builder: (column) => column);
+
+  GeneratedColumn<int> get successCount => $composableBuilder(
+    column: $table.successCount,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get failureCount => $composableBuilder(
+    column: $table.failureCount,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get version =>
+      $composableBuilder(column: $table.version, builder: (column) => column);
+
+  GeneratedColumnWithTypeConverter<DateTime, int> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$ModifyRuleRowsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $ModifyRuleRowsTable,
+          ModifyRuleRow,
+          $$ModifyRuleRowsTableFilterComposer,
+          $$ModifyRuleRowsTableOrderingComposer,
+          $$ModifyRuleRowsTableAnnotationComposer,
+          $$ModifyRuleRowsTableCreateCompanionBuilder,
+          $$ModifyRuleRowsTableUpdateCompanionBuilder,
+          (
+            ModifyRuleRow,
+            BaseReferences<_$AppDatabase, $ModifyRuleRowsTable, ModifyRuleRow>,
+          ),
+          ModifyRuleRow,
+          PrefetchHooks Function()
+        > {
+  $$ModifyRuleRowsTableTableManager(
+    _$AppDatabase db,
+    $ModifyRuleRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ModifyRuleRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$ModifyRuleRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$ModifyRuleRowsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> name = const Value.absent(),
+                Value<String> category = const Value.absent(),
+                Value<String> matcherJson = const Value.absent(),
+                Value<bool> enabled = const Value.absent(),
+                Value<String> source = const Value.absent(),
+                Value<String> risk = const Value.absent(),
+                Value<int> hitCount = const Value.absent(),
+                Value<int> successCount = const Value.absent(),
+                Value<int> failureCount = const Value.absent(),
+                Value<int> version = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => ModifyRuleRowsCompanion(
+                id: id,
+                name: name,
+                category: category,
+                matcherJson: matcherJson,
+                enabled: enabled,
+                source: source,
+                risk: risk,
+                hitCount: hitCount,
+                successCount: successCount,
+                failureCount: failureCount,
+                version: version,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String name,
+                required String category,
+                required String matcherJson,
+                Value<bool> enabled = const Value.absent(),
+                Value<String> source = const Value.absent(),
+                Value<String> risk = const Value.absent(),
+                Value<int> hitCount = const Value.absent(),
+                Value<int> successCount = const Value.absent(),
+                Value<int> failureCount = const Value.absent(),
+                Value<int> version = const Value.absent(),
+                required DateTime updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => ModifyRuleRowsCompanion.insert(
+                id: id,
+                name: name,
+                category: category,
+                matcherJson: matcherJson,
+                enabled: enabled,
+                source: source,
+                risk: risk,
+                hitCount: hitCount,
+                successCount: successCount,
+                failureCount: failureCount,
+                version: version,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$ModifyRuleRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $ModifyRuleRowsTable,
+      ModifyRuleRow,
+      $$ModifyRuleRowsTableFilterComposer,
+      $$ModifyRuleRowsTableOrderingComposer,
+      $$ModifyRuleRowsTableAnnotationComposer,
+      $$ModifyRuleRowsTableCreateCompanionBuilder,
+      $$ModifyRuleRowsTableUpdateCompanionBuilder,
+      (
+        ModifyRuleRow,
+        BaseReferences<_$AppDatabase, $ModifyRuleRowsTable, ModifyRuleRow>,
+      ),
+      ModifyRuleRow,
+      PrefetchHooks Function()
+    >;
+typedef $$RuleSubscriptionRowsTableCreateCompanionBuilder =
+    RuleSubscriptionRowsCompanion Function({
+      required String id,
+      required String name,
+      required String url,
+      Value<bool> enabled,
+      Value<DateTime?> lastSyncAt,
+      Value<int> lastRuleCount,
+      required DateTime createdAt,
+      Value<int> rowid,
+    });
+typedef $$RuleSubscriptionRowsTableUpdateCompanionBuilder =
+    RuleSubscriptionRowsCompanion Function({
+      Value<String> id,
+      Value<String> name,
+      Value<String> url,
+      Value<bool> enabled,
+      Value<DateTime?> lastSyncAt,
+      Value<int> lastRuleCount,
+      Value<DateTime> createdAt,
+      Value<int> rowid,
+    });
+
+class $$RuleSubscriptionRowsTableFilterComposer
+    extends Composer<_$AppDatabase, $RuleSubscriptionRowsTable> {
+  $$RuleSubscriptionRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get url => $composableBuilder(
+    column: $table.url,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get enabled => $composableBuilder(
+    column: $table.enabled,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnWithTypeConverterFilters<DateTime?, DateTime, int> get lastSyncAt =>
+      $composableBuilder(
+        column: $table.lastSyncAt,
+        builder: (column) => ColumnWithTypeConverterFilters(column),
+      );
+
+  ColumnFilters<int> get lastRuleCount => $composableBuilder(
+    column: $table.lastRuleCount,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnWithTypeConverterFilters<DateTime, DateTime, int> get createdAt =>
+      $composableBuilder(
+        column: $table.createdAt,
+        builder: (column) => ColumnWithTypeConverterFilters(column),
+      );
+}
+
+class $$RuleSubscriptionRowsTableOrderingComposer
+    extends Composer<_$AppDatabase, $RuleSubscriptionRowsTable> {
+  $$RuleSubscriptionRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get url => $composableBuilder(
+    column: $table.url,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get enabled => $composableBuilder(
+    column: $table.enabled,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get lastSyncAt => $composableBuilder(
+    column: $table.lastSyncAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get lastRuleCount => $composableBuilder(
+    column: $table.lastRuleCount,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$RuleSubscriptionRowsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $RuleSubscriptionRowsTable> {
+  $$RuleSubscriptionRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get url =>
+      $composableBuilder(column: $table.url, builder: (column) => column);
+
+  GeneratedColumn<bool> get enabled =>
+      $composableBuilder(column: $table.enabled, builder: (column) => column);
+
+  GeneratedColumnWithTypeConverter<DateTime?, int> get lastSyncAt =>
+      $composableBuilder(
+        column: $table.lastSyncAt,
+        builder: (column) => column,
+      );
+
+  GeneratedColumn<int> get lastRuleCount => $composableBuilder(
+    column: $table.lastRuleCount,
+    builder: (column) => column,
+  );
+
+  GeneratedColumnWithTypeConverter<DateTime, int> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+}
+
+class $$RuleSubscriptionRowsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $RuleSubscriptionRowsTable,
+          RuleSubscriptionRow,
+          $$RuleSubscriptionRowsTableFilterComposer,
+          $$RuleSubscriptionRowsTableOrderingComposer,
+          $$RuleSubscriptionRowsTableAnnotationComposer,
+          $$RuleSubscriptionRowsTableCreateCompanionBuilder,
+          $$RuleSubscriptionRowsTableUpdateCompanionBuilder,
+          (
+            RuleSubscriptionRow,
+            BaseReferences<
+              _$AppDatabase,
+              $RuleSubscriptionRowsTable,
+              RuleSubscriptionRow
+            >,
+          ),
+          RuleSubscriptionRow,
+          PrefetchHooks Function()
+        > {
+  $$RuleSubscriptionRowsTableTableManager(
+    _$AppDatabase db,
+    $RuleSubscriptionRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$RuleSubscriptionRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$RuleSubscriptionRowsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$RuleSubscriptionRowsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> name = const Value.absent(),
+                Value<String> url = const Value.absent(),
+                Value<bool> enabled = const Value.absent(),
+                Value<DateTime?> lastSyncAt = const Value.absent(),
+                Value<int> lastRuleCount = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => RuleSubscriptionRowsCompanion(
+                id: id,
+                name: name,
+                url: url,
+                enabled: enabled,
+                lastSyncAt: lastSyncAt,
+                lastRuleCount: lastRuleCount,
+                createdAt: createdAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String name,
+                required String url,
+                Value<bool> enabled = const Value.absent(),
+                Value<DateTime?> lastSyncAt = const Value.absent(),
+                Value<int> lastRuleCount = const Value.absent(),
+                required DateTime createdAt,
+                Value<int> rowid = const Value.absent(),
+              }) => RuleSubscriptionRowsCompanion.insert(
+                id: id,
+                name: name,
+                url: url,
+                enabled: enabled,
+                lastSyncAt: lastSyncAt,
+                lastRuleCount: lastRuleCount,
+                createdAt: createdAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$RuleSubscriptionRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $RuleSubscriptionRowsTable,
+      RuleSubscriptionRow,
+      $$RuleSubscriptionRowsTableFilterComposer,
+      $$RuleSubscriptionRowsTableOrderingComposer,
+      $$RuleSubscriptionRowsTableAnnotationComposer,
+      $$RuleSubscriptionRowsTableCreateCompanionBuilder,
+      $$RuleSubscriptionRowsTableUpdateCompanionBuilder,
+      (
+        RuleSubscriptionRow,
+        BaseReferences<
+          _$AppDatabase,
+          $RuleSubscriptionRowsTable,
+          RuleSubscriptionRow
+        >,
+      ),
+      RuleSubscriptionRow,
+      PrefetchHooks Function()
+    >;
+typedef $$SoWorkspaceRowsTableCreateCompanionBuilder =
+    SoWorkspaceRowsCompanion Function({
+      required String id,
+      required String path,
+      required String sourceKey,
+      Value<bool> temporary,
+      Value<String?> editSessionId,
+      required DateTime createdAt,
+      required DateTime lastOpenedAt,
+      Value<int> rowid,
+    });
+typedef $$SoWorkspaceRowsTableUpdateCompanionBuilder =
+    SoWorkspaceRowsCompanion Function({
+      Value<String> id,
+      Value<String> path,
+      Value<String> sourceKey,
+      Value<bool> temporary,
+      Value<String?> editSessionId,
+      Value<DateTime> createdAt,
+      Value<DateTime> lastOpenedAt,
+      Value<int> rowid,
+    });
+
+class $$SoWorkspaceRowsTableFilterComposer
+    extends Composer<_$AppDatabase, $SoWorkspaceRowsTable> {
+  $$SoWorkspaceRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get path => $composableBuilder(
+    column: $table.path,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sourceKey => $composableBuilder(
+    column: $table.sourceKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get temporary => $composableBuilder(
+    column: $table.temporary,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get editSessionId => $composableBuilder(
+    column: $table.editSessionId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnWithTypeConverterFilters<DateTime, DateTime, int> get createdAt =>
+      $composableBuilder(
+        column: $table.createdAt,
+        builder: (column) => ColumnWithTypeConverterFilters(column),
+      );
+
+  ColumnWithTypeConverterFilters<DateTime, DateTime, int> get lastOpenedAt =>
+      $composableBuilder(
+        column: $table.lastOpenedAt,
+        builder: (column) => ColumnWithTypeConverterFilters(column),
+      );
+}
+
+class $$SoWorkspaceRowsTableOrderingComposer
+    extends Composer<_$AppDatabase, $SoWorkspaceRowsTable> {
+  $$SoWorkspaceRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get path => $composableBuilder(
+    column: $table.path,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sourceKey => $composableBuilder(
+    column: $table.sourceKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get temporary => $composableBuilder(
+    column: $table.temporary,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get editSessionId => $composableBuilder(
+    column: $table.editSessionId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get lastOpenedAt => $composableBuilder(
+    column: $table.lastOpenedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$SoWorkspaceRowsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $SoWorkspaceRowsTable> {
+  $$SoWorkspaceRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get path =>
+      $composableBuilder(column: $table.path, builder: (column) => column);
+
+  GeneratedColumn<String> get sourceKey =>
+      $composableBuilder(column: $table.sourceKey, builder: (column) => column);
+
+  GeneratedColumn<bool> get temporary =>
+      $composableBuilder(column: $table.temporary, builder: (column) => column);
+
+  GeneratedColumn<String> get editSessionId => $composableBuilder(
+    column: $table.editSessionId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumnWithTypeConverter<DateTime, int> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumnWithTypeConverter<DateTime, int> get lastOpenedAt =>
+      $composableBuilder(
+        column: $table.lastOpenedAt,
+        builder: (column) => column,
+      );
+}
+
+class $$SoWorkspaceRowsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $SoWorkspaceRowsTable,
+          SoWorkspaceRow,
+          $$SoWorkspaceRowsTableFilterComposer,
+          $$SoWorkspaceRowsTableOrderingComposer,
+          $$SoWorkspaceRowsTableAnnotationComposer,
+          $$SoWorkspaceRowsTableCreateCompanionBuilder,
+          $$SoWorkspaceRowsTableUpdateCompanionBuilder,
+          (
+            SoWorkspaceRow,
+            BaseReferences<
+              _$AppDatabase,
+              $SoWorkspaceRowsTable,
+              SoWorkspaceRow
+            >,
+          ),
+          SoWorkspaceRow,
+          PrefetchHooks Function()
+        > {
+  $$SoWorkspaceRowsTableTableManager(
+    _$AppDatabase db,
+    $SoWorkspaceRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SoWorkspaceRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SoWorkspaceRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$SoWorkspaceRowsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> path = const Value.absent(),
+                Value<String> sourceKey = const Value.absent(),
+                Value<bool> temporary = const Value.absent(),
+                Value<String?> editSessionId = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<DateTime> lastOpenedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => SoWorkspaceRowsCompanion(
+                id: id,
+                path: path,
+                sourceKey: sourceKey,
+                temporary: temporary,
+                editSessionId: editSessionId,
+                createdAt: createdAt,
+                lastOpenedAt: lastOpenedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String path,
+                required String sourceKey,
+                Value<bool> temporary = const Value.absent(),
+                Value<String?> editSessionId = const Value.absent(),
+                required DateTime createdAt,
+                required DateTime lastOpenedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => SoWorkspaceRowsCompanion.insert(
+                id: id,
+                path: path,
+                sourceKey: sourceKey,
+                temporary: temporary,
+                editSessionId: editSessionId,
+                createdAt: createdAt,
+                lastOpenedAt: lastOpenedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$SoWorkspaceRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $SoWorkspaceRowsTable,
+      SoWorkspaceRow,
+      $$SoWorkspaceRowsTableFilterComposer,
+      $$SoWorkspaceRowsTableOrderingComposer,
+      $$SoWorkspaceRowsTableAnnotationComposer,
+      $$SoWorkspaceRowsTableCreateCompanionBuilder,
+      $$SoWorkspaceRowsTableUpdateCompanionBuilder,
+      (
+        SoWorkspaceRow,
+        BaseReferences<_$AppDatabase, $SoWorkspaceRowsTable, SoWorkspaceRow>,
+      ),
+      SoWorkspaceRow,
+      PrefetchHooks Function()
+    >;
+typedef $$EngineStatsRowsTableCreateCompanionBuilder =
+    EngineStatsRowsCompanion Function({
+      required String toolName,
+      Value<int> calls,
+      Value<int> ok,
+      Value<int> failed,
+      Value<int> avgMs,
+      Value<int> maxMs,
+      Value<String?> lastError,
+      Value<int> lastAt,
+      Value<int> rowid,
+    });
+typedef $$EngineStatsRowsTableUpdateCompanionBuilder =
+    EngineStatsRowsCompanion Function({
+      Value<String> toolName,
+      Value<int> calls,
+      Value<int> ok,
+      Value<int> failed,
+      Value<int> avgMs,
+      Value<int> maxMs,
+      Value<String?> lastError,
+      Value<int> lastAt,
+      Value<int> rowid,
+    });
+
+class $$EngineStatsRowsTableFilterComposer
+    extends Composer<_$AppDatabase, $EngineStatsRowsTable> {
+  $$EngineStatsRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get toolName => $composableBuilder(
+    column: $table.toolName,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get calls => $composableBuilder(
+    column: $table.calls,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get ok => $composableBuilder(
+    column: $table.ok,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get failed => $composableBuilder(
+    column: $table.failed,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get avgMs => $composableBuilder(
+    column: $table.avgMs,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get maxMs => $composableBuilder(
+    column: $table.maxMs,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get lastError => $composableBuilder(
+    column: $table.lastError,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get lastAt => $composableBuilder(
+    column: $table.lastAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$EngineStatsRowsTableOrderingComposer
+    extends Composer<_$AppDatabase, $EngineStatsRowsTable> {
+  $$EngineStatsRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get toolName => $composableBuilder(
+    column: $table.toolName,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get calls => $composableBuilder(
+    column: $table.calls,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get ok => $composableBuilder(
+    column: $table.ok,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get failed => $composableBuilder(
+    column: $table.failed,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get avgMs => $composableBuilder(
+    column: $table.avgMs,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get maxMs => $composableBuilder(
+    column: $table.maxMs,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get lastError => $composableBuilder(
+    column: $table.lastError,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get lastAt => $composableBuilder(
+    column: $table.lastAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$EngineStatsRowsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $EngineStatsRowsTable> {
+  $$EngineStatsRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get toolName =>
+      $composableBuilder(column: $table.toolName, builder: (column) => column);
+
+  GeneratedColumn<int> get calls =>
+      $composableBuilder(column: $table.calls, builder: (column) => column);
+
+  GeneratedColumn<int> get ok =>
+      $composableBuilder(column: $table.ok, builder: (column) => column);
+
+  GeneratedColumn<int> get failed =>
+      $composableBuilder(column: $table.failed, builder: (column) => column);
+
+  GeneratedColumn<int> get avgMs =>
+      $composableBuilder(column: $table.avgMs, builder: (column) => column);
+
+  GeneratedColumn<int> get maxMs =>
+      $composableBuilder(column: $table.maxMs, builder: (column) => column);
+
+  GeneratedColumn<String> get lastError =>
+      $composableBuilder(column: $table.lastError, builder: (column) => column);
+
+  GeneratedColumn<int> get lastAt =>
+      $composableBuilder(column: $table.lastAt, builder: (column) => column);
+}
+
+class $$EngineStatsRowsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $EngineStatsRowsTable,
+          EngineStatsRow,
+          $$EngineStatsRowsTableFilterComposer,
+          $$EngineStatsRowsTableOrderingComposer,
+          $$EngineStatsRowsTableAnnotationComposer,
+          $$EngineStatsRowsTableCreateCompanionBuilder,
+          $$EngineStatsRowsTableUpdateCompanionBuilder,
+          (
+            EngineStatsRow,
+            BaseReferences<
+              _$AppDatabase,
+              $EngineStatsRowsTable,
+              EngineStatsRow
+            >,
+          ),
+          EngineStatsRow,
+          PrefetchHooks Function()
+        > {
+  $$EngineStatsRowsTableTableManager(
+    _$AppDatabase db,
+    $EngineStatsRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$EngineStatsRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$EngineStatsRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$EngineStatsRowsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> toolName = const Value.absent(),
+                Value<int> calls = const Value.absent(),
+                Value<int> ok = const Value.absent(),
+                Value<int> failed = const Value.absent(),
+                Value<int> avgMs = const Value.absent(),
+                Value<int> maxMs = const Value.absent(),
+                Value<String?> lastError = const Value.absent(),
+                Value<int> lastAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => EngineStatsRowsCompanion(
+                toolName: toolName,
+                calls: calls,
+                ok: ok,
+                failed: failed,
+                avgMs: avgMs,
+                maxMs: maxMs,
+                lastError: lastError,
+                lastAt: lastAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String toolName,
+                Value<int> calls = const Value.absent(),
+                Value<int> ok = const Value.absent(),
+                Value<int> failed = const Value.absent(),
+                Value<int> avgMs = const Value.absent(),
+                Value<int> maxMs = const Value.absent(),
+                Value<String?> lastError = const Value.absent(),
+                Value<int> lastAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => EngineStatsRowsCompanion.insert(
+                toolName: toolName,
+                calls: calls,
+                ok: ok,
+                failed: failed,
+                avgMs: avgMs,
+                maxMs: maxMs,
+                lastError: lastError,
+                lastAt: lastAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$EngineStatsRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $EngineStatsRowsTable,
+      EngineStatsRow,
+      $$EngineStatsRowsTableFilterComposer,
+      $$EngineStatsRowsTableOrderingComposer,
+      $$EngineStatsRowsTableAnnotationComposer,
+      $$EngineStatsRowsTableCreateCompanionBuilder,
+      $$EngineStatsRowsTableUpdateCompanionBuilder,
+      (
+        EngineStatsRow,
+        BaseReferences<_$AppDatabase, $EngineStatsRowsTable, EngineStatsRow>,
+      ),
+      EngineStatsRow,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -18871,4 +23405,14 @@ class $AppDatabaseManager {
       $$UserProfileFieldRowsTableTableManager(_db, _db.userProfileFieldRows);
   $$MessagePromptRowsTableTableManager get messagePromptRows =>
       $$MessagePromptRowsTableTableManager(_db, _db.messagePromptRows);
+  $$ApkProjectRowsTableTableManager get apkProjectRows =>
+      $$ApkProjectRowsTableTableManager(_db, _db.apkProjectRows);
+  $$ModifyRuleRowsTableTableManager get modifyRuleRows =>
+      $$ModifyRuleRowsTableTableManager(_db, _db.modifyRuleRows);
+  $$RuleSubscriptionRowsTableTableManager get ruleSubscriptionRows =>
+      $$RuleSubscriptionRowsTableTableManager(_db, _db.ruleSubscriptionRows);
+  $$SoWorkspaceRowsTableTableManager get soWorkspaceRows =>
+      $$SoWorkspaceRowsTableTableManager(_db, _db.soWorkspaceRows);
+  $$EngineStatsRowsTableTableManager get engineStatsRows =>
+      $$EngineStatsRowsTableTableManager(_db, _db.engineStatsRows);
 }

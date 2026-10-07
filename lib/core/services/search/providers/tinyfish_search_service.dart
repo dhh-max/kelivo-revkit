@@ -51,7 +51,7 @@ class TinyFishSearchService extends SearchService<TinyFishOptions> {
         serviceOptions.resolvedUrl,
       ).replace(queryParameters: params);
 
-      final response = await withHttpClient(
+      final response = await SearchService.withHttpClient(
         (client) => client
             .get(
               uri,

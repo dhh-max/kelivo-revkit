@@ -1,17 +1,11 @@
 import 'package:flutter/foundation.dart';
 
-import '../database/business_preferences.dart';
 import '../models/instruction_injection.dart';
 import '../services/instruction_injection_store.dart';
 
 class InstructionInjectionProvider with ChangeNotifier {
-  InstructionInjectionProvider({required BusinessPreferences preferences})
-    : _store = InstructionInjectionStore(preferences);
-
-  final InstructionInjectionStore _store;
   List<InstructionInjection> _items = const <InstructionInjection>[];
   bool _initialized = false;
-  Future<void>? _initializationFuture;
   Map<String, List<String>> _activeIdsByAssistant =
       const <String, List<String>>{};
 
@@ -55,24 +49,17 @@ class InstructionInjectionProvider with ChangeNotifier {
     return list.first;
   }
 
-  Future<void> initialize() {
-    if (_initialized) return Future<void>.value();
-    return _initializationFuture ??= _initialize();
-  }
-
-  Future<void> _initialize() async {
-    try {
-      await loadAll();
-      _initialized = true;
-    } finally {
-      _initializationFuture = null;
-    }
+  Future<void> initialize() async {
+    if (_initialized) return;
+    await loadAll();
+    _initialized = true;
   }
 
   Future<void> loadAll() async {
     try {
-      _items = await _store.getAll();
-      _activeIdsByAssistant = await _store.getActiveIdsByAssistant();
+      _items = await InstructionInjectionStore.getAll();
+      _activeIdsByAssistant =
+          await InstructionInjectionStore.getActiveIdsByAssistant();
       notifyListeners();
     } catch (e) {
       debugPrint('Failed to load instruction injections: $e');
@@ -83,28 +70,28 @@ class InstructionInjectionProvider with ChangeNotifier {
   }
 
   Future<void> add(InstructionInjection item) async {
-    await _store.add(item);
+    await InstructionInjectionStore.add(item);
     await loadAll();
   }
 
   Future<void> addMany(List<InstructionInjection> items) async {
     if (items.isEmpty) return;
-    await _store.addMany(items);
+    await InstructionInjectionStore.addMany(items);
     await loadAll();
   }
 
   Future<void> update(InstructionInjection item) async {
-    await _store.update(item);
+    await InstructionInjectionStore.update(item);
     await loadAll();
   }
 
   Future<void> delete(String id) async {
-    await _store.delete(id);
+    await InstructionInjectionStore.delete(id);
     await loadAll();
   }
 
   Future<void> clear() async {
-    await _store.clear();
+    await InstructionInjectionStore.clear();
     _items = const <InstructionInjection>[];
     _activeIdsByAssistant = const <String, List<String>>{};
     notifyListeners();
@@ -119,7 +106,7 @@ class InstructionInjectionProvider with ChangeNotifier {
     list.insert(newIndex, item);
     _items = list;
     notifyListeners();
-    await _store.save(_items);
+    await InstructionInjectionStore.save(_items);
   }
 
   Future<void> reorderWithinGroup({
@@ -158,7 +145,7 @@ class InstructionInjectionProvider with ChangeNotifier {
 
     _items = list;
     notifyListeners();
-    await _store.save(_items);
+    await InstructionInjectionStore.save(_items);
   }
 
   Future<void> setActiveId(String? id, {String? assistantId}) async {
@@ -175,7 +162,7 @@ class InstructionInjectionProvider with ChangeNotifier {
     nextMap[key] = ids.toSet().toList(growable: false);
     _activeIdsByAssistant = nextMap;
     notifyListeners();
-    await _store.setActiveIds(ids, assistantId: assistantId);
+    await InstructionInjectionStore.setActiveIds(ids, assistantId: assistantId);
   }
 
   Future<void> toggleActiveId(String id, {String? assistantId}) async {

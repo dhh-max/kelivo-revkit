@@ -1,17 +1,25 @@
 import 'package:flutter/foundation.dart';
 
-import '../database/business_preferences.dart';
 import '../models/world_book.dart';
+import '../database/business_preferences.dart';
 import '../services/world_book_store.dart';
 
 class WorldBookProvider with ChangeNotifier {
-  WorldBookProvider({required BusinessPreferences preferences})
-    : _store = WorldBookStore(preferences);
-
+  WorldBookProvider({BusinessPreferences? preferences})
+    : _store = preferences != null
+        ? WorldBookStore(preferences)
+        : (_fallbackPreferences != null
+            ? WorldBookStore(_fallbackPreferences!)
+            : WorldBookStore.fallback());
+  
+  static BusinessPreferences? _fallbackPreferences;
+  static void setFallbackPreferences(BusinessPreferences prefs) {
+    _fallbackPreferences = prefs;
+  }
+  
   final WorldBookStore _store;
   List<WorldBook> _books = const <WorldBook>[];
   bool _initialized = false;
-  Future<void>? _initializationFuture;
   Map<String, List<String>> _activeIdsByAssistant =
       const <String, List<String>>{};
   Map<String, bool> _collapsedBooks = const <String, bool>{};
@@ -42,18 +50,10 @@ class WorldBookProvider with ChangeNotifier {
 
   bool isBookCollapsed(String id) => _collapsedBooks[id] ?? false;
 
-  Future<void> initialize() {
-    if (_initialized) return Future<void>.value();
-    return _initializationFuture ??= _initialize();
-  }
-
-  Future<void> _initialize() async {
-    try {
-      await loadAll();
-      _initialized = true;
-    } finally {
-      _initializationFuture = null;
-    }
+  Future<void> initialize() async {
+    if (_initialized) return;
+    await loadAll();
+    _initialized = true;
   }
 
   Future<void> loadAll() async {
@@ -197,5 +197,66 @@ class WorldBookProvider with ChangeNotifier {
       set.toList(growable: false),
       assistantId: assistantId,
     );
+  }
+
+  /// 按 Agent 已激活的知识书和任务主题返回少量相关条目。
+  List<Map<String, dynamic>> retrieveActiveEntries({
+    required String? assistantId,
+    required List<String> topics,
+    int limit = 3,
+  }) {
+    const genericTopics = <String>{
+      'apk', '工作流', 'workflow', '规则', 'rules',
+      '工具', '定位', '分析', '验证', '文件',
+    };
+    final normalizedTopics = topics
+        .map((topic) => topic.trim().toLowerCase())
+        .where((topic) => topic.isNotEmpty && !genericTopics.contains(topic))
+        .toSet();
+    if (limit <= 0) return const <Map<String, dynamic>>[];
+    final activeIds = activeBookIdsFor(assistantId).toSet();
+    final candidates = <Map<String, dynamic>>[];
+    for (final book in _books) {
+      if (!book.enabled || !activeIds.contains(book.id)) continue;
+      for (final entry in book.entries) {
+        if (!entry.enabled || entry.content.trim().isEmpty) continue;
+        final name = entry.name.toLowerCase();
+        final content = entry.content.toLowerCase();
+        final keywords = entry.keywords
+            .map((keyword) => keyword.trim().toLowerCase())
+            .where((keyword) => keyword.isNotEmpty)
+            .toList(growable: false);
+        var score = 0;
+        if (entry.constantActive) score += 1;
+        for (final topic in normalizedTopics) {
+          if (name.contains(topic)) score += 8;
+          if (content.contains(topic)) score += 2;
+          for (final keyword in keywords) {
+            if (keyword.contains(topic) || topic.contains(keyword)) score += 6;
+          }
+        }
+        if (score == 0) continue;
+        candidates.add({
+          'bookId': book.id,
+          'bookName': book.name,
+          'entryId': entry.id,
+          'entryName': entry.name,
+          'priority': entry.priority,
+          'constantActive': entry.constantActive,
+          'score': score,
+          'content': entry.content,
+        });
+      }
+    }
+    candidates.sort((a, b) {
+      final alwaysOrder = ((b['constantActive'] as bool) ? 1 : 0).compareTo(
+        (a['constantActive'] as bool) ? 1 : 0,
+      );
+      if (alwaysOrder != 0) return alwaysOrder;
+      final scoreOrder = (b['score'] as int).compareTo(a['score'] as int);
+      if (scoreOrder != 0) return scoreOrder;
+      return (b['priority'] as int).compareTo(a['priority'] as int);
+    });
+    return candidates.take(limit.clamp(1, 5).toInt()).toList(growable: false);
   }
 }

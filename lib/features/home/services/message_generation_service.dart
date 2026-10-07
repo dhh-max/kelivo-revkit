@@ -3,13 +3,13 @@ import 'package:flutter/widgets.dart';
 import '../../../core/models/assistant.dart';
 import '../../../core/models/chat_input_data.dart';
 import '../../../core/models/chat_message.dart';
-import '../../../core/models/message_part.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/providers/settings_provider.dart';
 import '../../../core/services/api/chat_api_service.dart';
 import '../../../core/services/chat/chat_service.dart';
+import '../../../core/services/model_override_payload_parser.dart';
 import '../../../core/utils/multimodal_input_utils.dart';
-import '../../../utils/sandbox_path_resolver.dart';
+import '../../../core/utils/openai_model_compat.dart';
 import '../../../utils/assistant_regex.dart';
 import '../../../core/models/assistant_regex.dart';
 import '../controllers/stream_controller.dart' as stream_ctrl;
@@ -157,14 +157,20 @@ class MessageGenerationService {
       }
     }
 
-    // Inject prompts first so WorldBook can scan the full untrimmed history
-    // (same keyword trigger range as before OCR-after-trim). Document/OCR work
-    // runs only after the single final context trim below.
+    // Process user messages (documents, OCR, templates)
+    final lastUserImagePaths = await messageBuilderService
+        .processUserMessagesForApi(apiMessages, settings, assistant);
+
+    // Signal processing finished
+    onFileProcessingFinished?.call();
+
+    // Inject prompts
     messageBuilderService.injectSystemPrompt(apiMessages, assistant, modelId);
+    await messageBuilderService.injectSkillPrompts(apiMessages, assistant);
     await messageBuilderService.injectMemoryAndRecentChats(
       apiMessages,
       assistant,
-      settings: settings,
+      currentConversationId: currentConversation?.id,
     );
 
     final hasBuiltInSearch = messageBuilderService.hasBuiltInSearch(
@@ -187,36 +193,17 @@ class MessageGenerationService {
       assistantId,
     );
 
-    // Single final trim after WorldBook TOP/BOTTOM/AT_DEPTH injections. OCR and
-    // document extraction must run only on this retained set so images that will
-    // not be sent are never processed (#769).
+    // Apply context limit and inline images
     messageBuilderService.applyContextLimit(apiMessages, assistant);
-
-    final lastUserImagePaths = await messageBuilderService
-        .processUserMessagesForApi(
-          apiMessages,
-          settings,
-          assistant,
-          conversation: currentConversation,
-          sourceMessages: messages,
-        );
-
-    onFileProcessingFinished?.call();
-
     await messageBuilderService.inlineLocalImages(apiMessages);
-    messageBuilderService.stripInternalRevisionIds(apiMessages);
 
     // Prepare tools
-    final mcpRouteSnapshot = generationController.captureMcpToolRoutes(
-      assistant,
-    );
     final toolDefs = generationController.buildToolDefinitions(
       settings,
       assistant,
       providerKey,
       modelId,
       hasBuiltInSearch,
-      mcpRouteSnapshot: mcpRouteSnapshot,
     );
     final onToolCall = toolDefs.isNotEmpty
         ? generationController.buildToolCallHandler(
@@ -224,8 +211,6 @@ class MessageGenerationService {
             assistant,
             approvalService: approvalService,
             askUserService: askUserService,
-            conversationId: currentConversation?.id,
-            mcpRouteSnapshot: mcpRouteSnapshot,
           )
         : null;
 
@@ -244,166 +229,35 @@ class MessageGenerationService {
     required ChatInputData input,
     required Assistant? assistant,
   }) async {
-    final parts = await MessageGenerationService.buildPersistedUserMessageParts(
-      input,
-      assistant: assistant,
-    );
     return chatService.addMessage(
       conversationId: conversationId,
       role: 'user',
-      parts: parts,
+      content: MessageGenerationService.buildPersistedUserMessageContent(
+        input,
+        assistant: assistant,
+      ),
     );
   }
 
-  Future<
-    ({ChatMessage userMessage, ChatMessage assistantMessage, String? runId})
-  >
-  beginSendGeneration({
-    required String conversationId,
-    required ChatInputData input,
-    required Assistant? assistant,
-    required String modelId,
-    required String providerKey,
-  }) async {
-    final userParts = await buildPersistedUserMessageParts(
-      input,
-      assistant: assistant,
-    );
-    if (chatService.isTemporaryConversation(conversationId)) {
-      final userMessage = await chatService.addMessage(
-        conversationId: conversationId,
-        role: 'user',
-        parts: userParts,
-      );
-      final assistantMessage = await createAssistantPlaceholder(
-        conversationId: conversationId,
-        modelId: modelId,
-        providerKey: providerKey,
-      );
-      return (
-        userMessage: userMessage,
-        assistantMessage: assistantMessage,
-        runId: null,
-      );
-    }
-    final result = await chatService.beginSendGeneration(
-      conversationId: conversationId,
-      userParts: userParts,
-      modelId: modelId,
-      providerId: providerKey,
-    );
-    return (
-      userMessage: result.userMessage!,
-      assistantMessage: result.assistantMessage,
-      runId: result.run.id,
-    );
-  }
-
-  Future<({ChatMessage assistantMessage, String? runId})> beginRegeneration({
-    required String conversationId,
-    required String modelId,
-    required String providerKey,
-    required String groupId,
-    required int version,
-    required bool truncateFuture,
-  }) async {
-    if (chatService.isTemporaryConversation(conversationId)) {
-      final assistantMessage = await createAssistantPlaceholder(
-        conversationId: conversationId,
-        modelId: modelId,
-        providerKey: providerKey,
-        groupId: groupId,
-        version: version,
-      );
-      return (assistantMessage: assistantMessage, runId: null);
-    }
-    final result = await chatService.beginRegeneration(
-      conversationId: conversationId,
-      modelId: modelId,
-      providerId: providerKey,
-      groupId: groupId,
-      version: version,
-      truncateFuture: truncateFuture,
-    );
-    return (assistantMessage: result.assistantMessage, runId: result.run.id);
-  }
-
-  Future<({ChatMessage assistantMessage, String? runId})>
-  beginAssistantGeneration({
-    required String conversationId,
-    required String modelId,
-    required String providerKey,
-    required String anchorGroupId,
-    required bool truncateFuture,
-  }) async {
-    if (chatService.isTemporaryConversation(conversationId)) {
-      final assistantMessage = await createAssistantPlaceholder(
-        conversationId: conversationId,
-        modelId: modelId,
-        providerKey: providerKey,
-      );
-      return (assistantMessage: assistantMessage, runId: null);
-    }
-    final result = await chatService.beginAssistantGeneration(
-      conversationId: conversationId,
-      modelId: modelId,
-      providerId: providerKey,
-      anchorGroupId: anchorGroupId,
-      truncateFuture: truncateFuture,
-    );
-    return (assistantMessage: result.assistantMessage, runId: result.run.id);
-  }
-
-  /// Build structured parts for a persisted user message.
-  ///
-  /// Text is always present (possibly empty). Attachments follow in the
-  /// user's selection order. No legacy attachment markers are produced.
-  static Future<List<MessagePart>> buildPersistedUserMessageParts(
+  /// Build the persisted content string for a user message.
+  static String buildPersistedUserMessageContent(
     ChatInputData input, {
     required Assistant? assistant,
-  }) async {
+  }) {
+    final content = input.text.trim();
+    final imageMarkers = input.imagePaths.map((p) => '\n[image:$p]').join();
+    final docMarkers = input.documents
+        .map((d) => '\n[file:${d.path}|${d.fileName}|${d.mime}]')
+        .join();
+
     final processedUserText = applyAssistantRegexes(
-      input.text.trim(),
+      content,
       assistant: assistant,
       scope: AssistantRegexScope.user,
       target: AssistantRegexTransformTarget.persist,
     );
 
-    final parts = <MessagePart>[TextPart(processedUserText)];
-    for (final path in input.imagePaths) {
-      parts.add(
-        ImagePart(
-          uri: SandboxPathResolver.canonicalize(path),
-          mime: await inferAttachmentMime(uri: path),
-        ),
-      );
-    }
-    for (final document in input.documents) {
-      parts.add(
-        FilePart(
-          uri: SandboxPathResolver.canonicalize(document.path),
-          name: document.fileName,
-          mime: await inferAttachmentMime(
-            uri: document.path,
-            explicitMime: document.mime,
-            fileName: document.fileName,
-          ),
-        ),
-      );
-    }
-    return parts;
-  }
-
-  /// Derived text body for callers that still need a plain string.
-  static Future<String> buildPersistedUserMessageContent(
-    ChatInputData input, {
-    required Assistant? assistant,
-  }) async {
-    final parts = await buildPersistedUserMessageParts(
-      input,
-      assistant: assistant,
-    );
-    return parts.whereType<TextPart>().map((part) => part.text).join();
+    return processedUserText + imageMarkers + docMarkers;
   }
 
   /// Create assistant message placeholder.
@@ -423,7 +277,6 @@ class MessageGenerationService {
       isStreaming: true,
       groupId: groupId,
       version: version,
-      selectVersion: groupId != null,
     );
   }
 
@@ -455,7 +308,6 @@ class MessageGenerationService {
     required bool supportsReasoning,
     required bool enableReasoning,
     required bool generateTitleOnFinish,
-    String? generationRunId,
   }) {
     final bool ocrActive =
         settings.ocrEnabled &&
@@ -484,7 +336,6 @@ class MessageGenerationService {
       streamOutput: assistant?.streamOutput ?? true,
       ocrActive: ocrActive,
       generateTitleOnFinish: generateTitleOnFinish,
-      generationRunId: generationRunId,
     );
   }
 
@@ -617,29 +468,16 @@ class MessageGenerationService {
       targetGroupId: targetGroupId,
     );
 
-    var deletedIds = removeIds;
-    if (removeIds.isNotEmpty && messages.isNotEmpty) {
-      final removeIdSet = removeIds.toSet();
-      final conversationId = messages.first.conversationId;
-      final selectionChanges = <String, int?>{};
-      for (final message in messages) {
-        if (removeIdSet.contains(message.id)) {
-          selectionChanges[message.groupId ?? message.id] = null;
-        }
-      }
-      deletedIds = (await chatService.deleteMessages(
-        conversationId: conversationId,
-        messageIds: removeIdSet,
-        versionSelectionChanges: selectionChanges,
-      )).toList(growable: false);
-    }
-    for (final id in deletedIds) {
+    for (final id in removeIds) {
+      try {
+        await chatService.deleteMessage(id);
+      } catch (_) {}
       streamController.reasoning.remove(id);
       streamController.toolParts.remove(id);
       streamController.reasoningSegments.remove(id);
     }
 
-    return deletedIds;
+    return removeIds;
   }
 
   bool _shouldIncludeAudioForProvider(
@@ -647,9 +485,17 @@ class MessageGenerationService {
     required String providerKey,
     required String modelId,
   }) {
-    // Former Omni audio allowlist removed; OpenAI-compatible providers do not
-    // receive special audio attachment support via this gate.
-    return false;
+    final cfg = settings.getProviderConfig(providerKey);
+    if (ProviderConfig.classify(providerKey, explicitType: cfg.providerType) !=
+        ProviderKind.openai) {
+      return false;
+    }
+    final override = ModelOverridePayloadParser.modelOverride(
+      cfg.modelOverrides,
+      modelId,
+    );
+    final upstreamModelId = resolveApiModelIdOverride(override, modelId);
+    return isLongCatOmniModelId(upstreamModelId);
   }
 
   bool supportsAudioAttachmentsForProvider(
@@ -679,15 +525,14 @@ class MessageGenerationService {
 
   bool apiMessagesContainAudioAttachments(List<Map<String, dynamic>> messages) {
     for (final message in messages) {
-      for (final ref in parseInternalMediaRefs(
-        message[MessageBuilderService.internalMediaPathsKey],
+      if ((message['role'] ?? '').toString() != 'user') continue;
+      final parsed = messageBuilderService.parseInputFromRaw(
+        (message['content'] ?? '').toString(),
+      );
+      if (parsed.documents.any(
+        (attachment) => isAudioMime(_effectiveAttachmentMime(attachment)),
       )) {
-        final mime = (ref.mime != null && ref.mime!.trim().isNotEmpty)
-            ? ref.mime!.trim()
-            : inferMediaMimeFromSource(ref.uri);
-        if (isAudioMime(mime)) {
-          return true;
-        }
+        return true;
       }
     }
     return false;

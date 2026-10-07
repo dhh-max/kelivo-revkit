@@ -1,6 +1,4 @@
 import 'dart:convert';
-
-import '../../database/chat_database_repository.dart';
 import '../../models/memory_entry.dart';
 import '../../models/user_profile_field.dart';
 import 'memory_block_builder.dart';
@@ -11,7 +9,6 @@ import 'memory_trace.dart';
 /// One distilled profile field from Distiller JSON (§12.7).
 class MemoryDistilledField {
   const MemoryDistilledField({required this.key, required this.value});
-
   final String key;
   final String value;
 }
@@ -19,29 +16,21 @@ class MemoryDistilledField {
 /// Distiller parse outcome. [ok] false means unparseable JSON.
 class MemoryDistillParseResult {
   const MemoryDistillParseResult._({required this.ok, required this.fields});
-
   factory MemoryDistillParseResult.ok(List<MemoryDistilledField> fields) =>
       MemoryDistillParseResult._(ok: true, fields: fields);
-
   factory MemoryDistillParseResult.malformed() =>
       const MemoryDistillParseResult._(
         ok: false,
         fields: <MemoryDistilledField>[],
       );
-
   final bool ok;
   final List<MemoryDistilledField> fields;
 }
 
 /// Profile Distiller (§12.7).
 class MemoryProfileDistiller {
-  MemoryProfileDistiller({
-    required this.repository,
-    required this.chatRepository,
-  });
-
+  MemoryProfileDistiller({required this.repository});
   final MemoryRepository repository;
-  final ChatDatabaseRepository chatRepository;
 
   static String resolveTemplate({
     required MemoryPromptLang lang,
@@ -74,7 +63,6 @@ class MemoryProfileDistiller {
         .replaceAll('{{identityEntries}}', identityEntries);
   }
 
-  /// Format identity memories for `{{identityEntries}}`.
   static String formatIdentityEntries(List<MemoryEntry> entries) {
     if (entries.isEmpty) return '';
     final buf = StringBuffer();
@@ -84,7 +72,6 @@ class MemoryProfileDistiller {
     return buf.toString().trimRight();
   }
 
-  /// Extract a JSON object from model output (prose / fences tolerated).
   static Object? extractJsonObject(String response) {
     var text = response.trim();
     final fence = RegExp(
@@ -109,7 +96,6 @@ class MemoryProfileDistiller {
     if (decoded is! Map) return MemoryDistillParseResult.malformed();
     final rawFields = decoded['fields'];
     if (rawFields is! List) return MemoryDistillParseResult.malformed();
-
     final fields = <MemoryDistilledField>[];
     for (final item in rawFields) {
       if (item is! Map) continue;
@@ -118,14 +104,11 @@ class MemoryProfileDistiller {
       final value = (map['value'] ?? '').toString().trim();
       if (key.isEmpty || value.isEmpty) continue;
       if (!UserProfileField.isValidKey(key)) continue;
-      // Distiller never clears (§12.7); empty already skipped.
       fields.add(MemoryDistilledField(key: key, value: value));
     }
     return MemoryDistillParseResult.ok(fields);
   }
 
-  /// Run Distiller after identity NEW/MERGE/CONFLICT. Returns false on LLM/parse
-  /// failure (caller still advances watermark per §12.8).
   Future<bool> run({
     required MemoryPromptLang lang,
     required String? assistantId,
@@ -134,7 +117,7 @@ class MemoryProfileDistiller {
     String? overrideEn,
     MemoryTraceStep? traceStep,
   }) async {
-    final identity = await chatRepository.queryVisibleMemories(
+    final identity = await repository.queryVisibleMemories(
       assistantId: assistantId,
       type: MemoryType.identity,
     );
@@ -142,8 +125,7 @@ class MemoryProfileDistiller {
       traceStep?.parsedResult = 'no_identity_entries';
       return true;
     }
-
-    final profile = await chatRepository.readProfileFields();
+    final profile = await repository.readProfileFields();
     final profileBlock = MemoryBlockBuilder.buildProfileBlock(
       fields: profile,
       lang: lang,
@@ -155,7 +137,6 @@ class MemoryProfileDistiller {
       overrideZh: overrideZh,
       overrideEn: overrideEn,
     );
-
     traceStep?.appendPrompt(prompt);
     final String raw;
     try {
@@ -165,7 +146,6 @@ class MemoryProfileDistiller {
       return false;
     }
     traceStep?.appendResponse(raw);
-
     final parsed = parse(raw);
     if (!parsed.ok) {
       traceStep?.parsedResult = 'malformed';
@@ -176,7 +156,6 @@ class MemoryProfileDistiller {
         for (final f in parsed.fields) {'key': f.key, 'value': f.value},
       ],
     });
-
     for (final field in parsed.fields) {
       try {
         String? before;
@@ -199,9 +178,7 @@ class MemoryProfileDistiller {
             after: field.value,
           ),
         );
-      } catch (_) {
-        // Illegal keys already filtered; ignore write races.
-      }
+      } catch (_) {}
     }
     return true;
   }

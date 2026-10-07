@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:dio/dio.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
@@ -18,12 +17,10 @@ import 'package:Kelivo/secrets/fallback.dart';
 import '../../../utils/markdown_media_sanitizer.dart';
 import '../../../utils/unicode_sanitizer.dart';
 import 'builtin_tools.dart';
-import 'kimi_formula_search.dart';
 import 'gemini_tool_config.dart';
 import '../logging/flutter_logger.dart';
 import '../model_override_resolver.dart';
 import '../model_override_payload_parser.dart';
-import '../custom_request_merger.dart';
 import 'provider_request_headers.dart';
 import '../../utils/multimodal_input_utils.dart';
 
@@ -58,21 +55,6 @@ class ChatApiService {
   static const String _aihubmixAppCode = 'ZKRT3588';
   static final Map<String, CancelToken> _activeCancelTokens =
       <String, CancelToken>{};
-
-  @visibleForTesting
-  static bool shouldAttachVertexMediaAuthForTest(Uri uri) =>
-      _shouldAttachVertexMediaAuth(uri);
-
-  @visibleForTesting
-  static String normalizeClaudeImageMimeForTest(String mime) =>
-      _normalizeClaudeImageMime(mime);
-
-  @visibleForTesting
-  static bool isLongCatHostForTest(String baseUrl) => _isLongCatHost(baseUrl);
-
-  @visibleForTesting
-  static bool shouldIncludeStreamingUsageOptionsForTest(String host) =>
-      _shouldIncludeStreamingUsageOptions(host);
 
   static bool supportsOpenAIImagesApiRouting(
     ProviderConfig config,
@@ -156,38 +138,27 @@ class ChatApiService {
 
   static Map<String, String> _customHeaders(
     ProviderConfig cfg,
-    String modelId, {
-    Map<String, String> baseHeaders = const <String, String>{},
-    Map<String, String>? assistantHeaders,
-  }) {
+    String modelId,
+  ) {
     final ov = _modelOverride(cfg, modelId);
-    final automatic = <String, String>{...providerDefaultHeaders(cfg)};
+    final out = <String, String>{
+      ...providerDefaultHeaders(cfg),
+      ...ModelOverridePayloadParser.customHeaders(ov),
+    };
     // AIhubmix promo header (opt-in per-provider)
     if (_isAihubmix(cfg) && cfg.aihubmixAppCodeEnabled == true) {
-      automatic.putIfAbsent('APP-Code', () => _aihubmixAppCode);
+      out.putIfAbsent('APP-Code', () => _aihubmixAppCode);
     }
-    return CustomRequestMerger.mergeHeaders(
-      base: baseHeaders,
-      assistant: assistantHeaders,
-      providerAutomatic: automatic,
-      provider: ModelOverridePayloadParser.customHeadersFromRows(
-        cfg.customHeaders,
-      ),
-      model: ModelOverridePayloadParser.customHeaders(ov),
-    );
+    return out;
   }
 
-  static Map<String, dynamic> _customBody(
-    ProviderConfig cfg,
-    String modelId, {
-    Map<String, dynamic>? assistantBody,
-  }) {
+  static dynamic _parseOverrideValue(String v) {
+    return ModelOverridePayloadParser.parseOverrideValue(v);
+  }
+
+  static Map<String, dynamic> _customBody(ProviderConfig cfg, String modelId) {
     final ov = _modelOverride(cfg, modelId);
-    return CustomRequestMerger.mergeBody(
-      assistant: assistantBody,
-      providerRows: cfg.customBody,
-      model: ModelOverridePayloadParser.customBody(ov),
-    );
+    return ModelOverridePayloadParser.customBody(ov);
   }
 
   static bool _isAihubmix(ProviderConfig cfg) {
@@ -265,8 +236,9 @@ class ChatApiService {
   }) async {
     if (raw.isEmpty) return const _ParsedTextAndImages('', <_ImageRef>[]);
     final mdImg = RegExp(r'!\[[^\]]*\]\(([^)]+)\)');
-    // Custom attachment markers are intentionally not recognized here.
-    // Attachments arrive via structured parts / media-path keys.
+    // Match custom inline image markers like: [image:/absolute/path.png]
+    // Use a single backslash in a raw string to escape '[' and ']' in regex.
+    final customImg = RegExp(r"\[image:(.+?)\]");
     final images = <_ImageRef>[];
     final buf = StringBuffer();
     int i = 0;
@@ -338,6 +310,7 @@ class ChatApiService {
       }
 
       final m1 = mdImg.matchAsPrefix(raw, i);
+      final m2 = customImg.matchAsPrefix(raw, i);
       if (m1 != null) {
         final full = raw.substring(m1.start, m1.end);
         final url = (m1.group(1) ?? '').trim();
@@ -388,13 +361,8 @@ class ChatApiService {
           continue;
         }
         try {
-          final resolved = SandboxPathResolver.resolveForIo(url);
-          if (resolved == null) {
-            buf.write(full);
-            i = m1.end;
-            continue;
-          }
-          final file = File(resolved);
+          final fixed = SandboxPathResolver.fix(url);
+          final file = File(fixed);
           if (!file.existsSync()) {
             // Missing local file: do NOT treat as image; keep original markdown.
             buf.write(full);
@@ -412,6 +380,55 @@ class ChatApiService {
         i = m1.end;
         continue;
       }
+      if (m2 != null) {
+        final full = raw.substring(m2.start, m2.end);
+        final p = (m2.group(1) ?? '').trim();
+        if (p.isEmpty) {
+          buf.write(full);
+          i = m2.end;
+          continue;
+        }
+        if (p.startsWith('data:')) {
+          if (allowDataImages) {
+            images.add(_ImageRef('data', p));
+          } else if (keepDisallowedImageText) {
+            buf.write(full);
+          }
+          i = m2.end;
+          continue;
+        }
+        if (p.startsWith('http://') || p.startsWith('https://')) {
+          if (!allowRemoteImages) {
+            if (keepDisallowedImageText) buf.write(full);
+            i = m2.end;
+            continue;
+          }
+          images.add(_ImageRef('url', p));
+          i = m2.end;
+          continue;
+        }
+        if (!allowLocalImages) {
+          if (keepDisallowedImageText) buf.write(full);
+          i = m2.end;
+          continue;
+        }
+        try {
+          final fixed = SandboxPathResolver.fix(p);
+          final file = File(fixed);
+          if (!file.existsSync()) {
+            buf.write(full);
+            i = m2.end;
+            continue;
+          }
+        } catch (_) {
+          buf.write(full);
+          i = m2.end;
+          continue;
+        }
+        images.add(_ImageRef('path', p));
+        i = m2.end;
+        continue;
+      }
       buf.write(raw[i]);
       i++;
     }
@@ -422,35 +439,15 @@ class ChatApiService {
     String path, {
     bool withPrefix = false,
   }) async {
-    final resolved = SandboxPathResolver.resolveForIo(path);
-    if (resolved == null) {
-      throw FileSystemException('rejected local path', path);
-    }
-    final file = File(resolved);
+    final fixed = SandboxPathResolver.fix(path);
+    final file = File(fixed);
     final bytes = await file.readAsBytes();
     final b64 = base64Encode(bytes);
     if (withPrefix) {
-      final mime = _mimeFromPath(resolved);
+      final mime = _mimeFromPath(fixed);
       return 'data:$mime;base64,$b64';
     }
     return b64;
-  }
-
-  /// Like [_encodeBase64File], but returns null for missing/unreadable files
-  /// so provider request builders can skip unavailable attachments.
-  static Future<String?> _tryEncodeBase64File(
-    String path, {
-    bool withPrefix = false,
-  }) async {
-    try {
-      final resolved = SandboxPathResolver.resolveForIo(path);
-      if (resolved == null) return null;
-      final file = File(resolved);
-      if (!await file.exists()) return null;
-      return _encodeBase64File(resolved, withPrefix: withPrefix);
-    } catch (_) {
-      return null;
-    }
   }
 
   static String _textFromContentParts(dynamic content) {
@@ -509,7 +506,6 @@ class ChatApiService {
     for (final message in messages) {
       final copy = Map<String, dynamic>.from(message);
       copy.remove(multimodalInternalMediaPathsKey);
-      copy.remove(multimodalInternalRevisionIdKey);
       if (copy.containsKey('content')) {
         copy['content'] = await _stripImageInputsFromContent(copy['content']);
       }
@@ -776,19 +772,13 @@ class ChatApiService {
                 id,
               );
             }
-            if (BuiltInToolsHelper.isArkProvider(config)) {
-              return BuiltInToolsHelper.isDoubaoResponsesBuiltInSearchSupportedModel(
-                id,
-              );
-            }
             return false;
           }
 
           if (isResponsesWebSearchSupported(upstreamModelId)) {
             final builtIns = _builtInTools(config, modelId);
             if (builtIns.contains(BuiltInToolNames.search)) {
-              if (BuiltInToolsHelper.isDashScopeProvider(config) ||
-                  BuiltInToolsHelper.isArkProvider(config)) {
+              if (BuiltInToolsHelper.isDashScopeProvider(config)) {
                 toolsList.add({'type': 'web_search'});
               } else {
                 Map<String, dynamic> ws = const <String, dynamic>{};
@@ -843,6 +833,7 @@ class ChatApiService {
             'messages': [
               {'role': 'user', 'content': safePrompt},
             ],
+            'temperature': 0.3,
             if (isReasoning && effort != 'off' && effort != 'auto')
               'reasoning_effort': effort,
           };
@@ -866,17 +857,21 @@ class ChatApiService {
           isReasoning: isReasoning,
           thinkingBudget: thinkingBudget,
         );
-        final headers = _customHeaders(
-          config,
-          modelId,
-          baseHeaders: <String, String>{
-            'Authorization': 'Bearer ${_apiKeyForRequest(config, modelId)}',
-            'Content-Type': 'application/json',
-          },
-          assistantHeaders: extraHeaders,
-        );
-        final extra = _customBody(config, modelId, assistantBody: extraBody);
+        final headers = <String, String>{
+          'Authorization': 'Bearer ${_apiKeyForRequest(config, modelId)}',
+          'Content-Type': 'application/json',
+        };
+        headers.addAll(_customHeaders(config, modelId));
+        if (extraHeaders != null && extraHeaders.isNotEmpty) {
+          headers.addAll(extraHeaders);
+        }
+        final extra = _customBody(config, modelId);
         if (extra.isNotEmpty) body.addAll(extra);
+        if (extraBody != null && extraBody.isNotEmpty) {
+          (extraBody).forEach((k, v) {
+            body[k] = (v is String) ? _parseOverrideValue(v) : v;
+          });
+        }
         // Vendor-specific reasoning knobs for chat-completions compatible hosts (non-streaming)
         if (config.useResponseApi != true) {
           _applyVendorReasoningKnobs(
@@ -962,6 +957,10 @@ class ChatApiService {
         final isReasoning = effectiveInfo.abilities.contains(
           ModelAbility.reasoning,
         );
+        final omitSamplingParams = _claudeShouldOmitSamplingParams(
+          upstreamModelId,
+          thinkingBudget,
+        );
         final thinking = isReasoning
             ? _claudeThinkingConfig(
                 upstreamModelId,
@@ -979,24 +978,30 @@ class ChatApiService {
         final body = <String, dynamic>{
           'model': upstreamModelId,
           'max_tokens': 512,
+          if (!omitSamplingParams && !_isClaudeReasoningEnabled(thinkingBudget))
+            'temperature': 0.3,
           'messages': [
             {'role': 'user', 'content': safePrompt},
           ],
           if (thinking != null) 'thinking': thinking,
           if (outputConfig != null) 'output_config': outputConfig,
         };
-        final headers = _customHeaders(
-          config,
-          modelId,
-          baseHeaders: <String, String>{
-            'x-api-key': _apiKeyForRequest(config, modelId),
-            'anthropic-version': '2023-06-01',
-            'Content-Type': 'application/json',
-          },
-          assistantHeaders: extraHeaders,
-        );
-        final extra = _customBody(config, modelId, assistantBody: extraBody);
+        final headers = <String, String>{
+          'x-api-key': _apiKeyForRequest(config, modelId),
+          'anthropic-version': '2023-06-01',
+          'Content-Type': 'application/json',
+        };
+        headers.addAll(_customHeaders(config, modelId));
+        if (extraHeaders != null && extraHeaders.isNotEmpty) {
+          headers.addAll(extraHeaders);
+        }
+        final extra = _customBody(config, modelId);
         if (extra.isNotEmpty) body.addAll(extra);
+        if (extraBody != null && extraBody.isNotEmpty) {
+          (extraBody).forEach((k, v) {
+            body[k] = (v is String) ? _parseOverrideValue(v) : v;
+          });
+        }
         final resp = await client.post(
           url,
           headers: headers,
@@ -1067,6 +1072,7 @@ class ChatApiService {
               ],
             },
           ],
+          'generationConfig': {'temperature': 0.3},
         };
 
         // Inject Gemini built-in tools with version-aware mutual exclusion.
@@ -1085,33 +1091,34 @@ class ChatApiService {
             body['tools'] = toolsArr;
           }
         }
-        final baseHeaders = <String, String>{
-          'Content-Type': 'application/json',
-        };
+        final headers = <String, String>{'Content-Type': 'application/json'};
         // Add API Key header for non-Vertex
         if (!(config.vertexAI == true)) {
           final apiKey = _apiKeyForRequest(config, modelId);
           if (apiKey.isNotEmpty) {
-            baseHeaders['x-goog-api-key'] = apiKey;
+            headers['x-goog-api-key'] = apiKey;
           }
         }
         // Add Bearer for Vertex via service account JSON
         if (config.vertexAI == true) {
           final token = await _maybeVertexAccessToken(config);
           if (token != null && token.isNotEmpty) {
-            baseHeaders['Authorization'] = 'Bearer $token';
+            headers['Authorization'] = 'Bearer $token';
           }
           final proj = (config.projectId ?? '').trim();
-          if (proj.isNotEmpty) baseHeaders['X-Goog-User-Project'] = proj;
+          if (proj.isNotEmpty) headers['X-Goog-User-Project'] = proj;
         }
-        final headers = _customHeaders(
-          config,
-          modelId,
-          baseHeaders: baseHeaders,
-          assistantHeaders: extraHeaders,
-        );
-        final extra = _customBody(config, modelId, assistantBody: extraBody);
+        headers.addAll(_customHeaders(config, modelId));
+        if (extraHeaders != null && extraHeaders.isNotEmpty) {
+          headers.addAll(extraHeaders);
+        }
+        final extra = _customBody(config, modelId);
         if (extra.isNotEmpty) body.addAll(extra);
+        if (extraBody != null && extraBody.isNotEmpty) {
+          (extraBody).forEach((k, v) {
+            body[k] = (v is String) ? _parseOverrideValue(v) : v;
+          });
+        }
         final resp = await client.post(
           Uri.parse(url),
           headers: headers,
@@ -1188,18 +1195,10 @@ class ChatApiService {
         providerName.contains('deepseek');
   }
 
-  static bool _isClaude5AdaptiveThinkingModel(String modelId) {
-    return RegExp(
-      r'claude-(?:opus|sonnet)-5(?:$|[._:@/-])',
-      caseSensitive: false,
-    ).hasMatch(modelId.trim());
-  }
-
   static bool _supportsClaudeAdaptiveThinking(String modelId) {
     final lower = modelId.trim().toLowerCase();
     if (!lower.contains('claude-')) return false;
     if (lower.contains('fable') || lower.contains('mythos')) return true;
-    if (_isClaude5AdaptiveThinkingModel(lower)) return true;
     final m = RegExp(
       r'claude-(opus|sonnet)-(\d+)[-.](\d+)',
       caseSensitive: false,
@@ -1218,7 +1217,6 @@ class ChatApiService {
     final lower = modelId.trim().toLowerCase();
     if (!lower.contains('claude-')) return false;
     if (lower.contains('fable') || lower.contains('mythos')) return true;
-    if (_isClaude5AdaptiveThinkingModel(lower)) return true;
     final m = RegExp(
       r'claude-(opus|sonnet)-(\d+)[-.](\d+)',
       caseSensitive: false,
@@ -1263,7 +1261,6 @@ class ChatApiService {
 
     final lower = modelId.trim().toLowerCase();
     final supportsXhigh =
-        _isClaude5AdaptiveThinkingModel(lower) ||
         lower.contains('claude-opus-4-7') ||
         lower.contains('claude-opus-4.7') ||
         lower.contains('claude-opus-4-8') ||
@@ -1354,12 +1351,6 @@ class ChatApiService {
 
   static bool _claudeShouldOmitSamplingParams(String modelId, int? budget) {
     if (_isClaudeThinkingAlwaysOnModel(modelId)) return true;
-    final lower = modelId.trim().toLowerCase();
-    if (_isClaude5AdaptiveThinkingModel(lower) ||
-        lower.contains('claude-opus-4-8') ||
-        lower.contains('claude-opus-4.8')) {
-      return true;
-    }
     return _isClaudeAdaptiveOnlyThinkingModel(modelId) &&
         _isClaudeReasoningEnabled(budget);
   }
@@ -1451,8 +1442,7 @@ class ChatApiService {
 class _ImageRef {
   final String kind; // 'data' | 'path' | 'url'
   final String src;
-  final String? mime;
-  const _ImageRef(this.kind, this.src, {this.mime});
+  const _ImageRef(this.kind, this.src);
 }
 
 class _ParsedTextAndImages {
@@ -1489,10 +1479,6 @@ class ChatStreamChunk {
   final String content;
   // Optional reasoning delta (when model supports reasoning)
   final String? reasoning;
-  // Optional vendor reasoning details (OpenRouter-style `reasoning_details`
-  // array, may carry thinking signatures). Emitted as a cumulative snapshot so
-  // it can be persisted and echoed back on later requests.
-  final dynamic reasoningDetails;
   final bool isDone;
   final int totalTokens;
   final TokenUsage? usage;
@@ -1502,7 +1488,6 @@ class ChatStreamChunk {
   ChatStreamChunk({
     required this.content,
     this.reasoning,
-    this.reasoningDetails,
     required this.isDone,
     required this.totalTokens,
     this.usage,

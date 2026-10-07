@@ -9,7 +9,6 @@ import '../l10n/app_localizations.dart';
 import '../icons/lucide_adapter.dart' as lucide;
 import '../core/providers/settings_provider.dart';
 import '../theme/app_font_weights.dart';
-import 'package:Kelivo/theme/app_semantic_colors.dart';
 
 Future<String?> showDesktopAddProviderDialog(BuildContext context) async {
   String? result;
@@ -17,7 +16,7 @@ Future<String?> showDesktopAddProviderDialog(BuildContext context) async {
     context: context,
     barrierDismissible: true,
     barrierLabel: 'add-provider-dialog',
-    barrierColor: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.25),
+    barrierColor: Colors.black.withValues(alpha: 0.25),
     pageBuilder: (ctx, _, __) => const _AddProviderDialogBody(),
     transitionBuilder: (ctx, anim, _, child) {
       final curved = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
@@ -103,12 +102,13 @@ class _AddProviderDialogBodyState extends State<_AddProviderDialogBody>
   }
 
   InputDecoration _deskInputDecoration(BuildContext context, {String? hint}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final cs = Theme.of(context).colorScheme;
     return InputDecoration(
       isDense: true,
       hintText: hint,
       filled: true,
-      fillColor: context.appColors.surfaceFill,
+      fillColor: isDark ? Colors.white10 : const Color(0xFFF7F7F9),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
         borderSide: BorderSide(
@@ -152,7 +152,9 @@ class _AddProviderDialogBodyState extends State<_AddProviderDialogBody>
   }) {
     return Container(
       decoration: BoxDecoration(
-        color: context.appColors.surfaceFill,
+        color: Theme.of(context).brightness == Brightness.dark
+            ? Colors.white10
+            : const Color(0xFFF7F7F9),
         borderRadius: BorderRadius.circular(10),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -623,7 +625,9 @@ class _SmallSegTabBarState extends State<_SmallSegTabBar> {
                 widget.tabs.length;
             final double rowWidth =
                 segWidth * widget.tabs.length + gap * (widget.tabs.length - 1);
-            final Color shellBg = context.appColors.surfaceCard;
+            final Color shellBg = isDark
+                ? Colors.white.withValues(alpha: 0.08)
+                : Colors.white;
             List<Widget> children = [];
             for (int index = 0; index < widget.tabs.length; index++) {
               final bool selected = widget.controller.index == index;
@@ -631,7 +635,9 @@ class _SmallSegTabBarState extends State<_SmallSegTabBar> {
               final Color bg = selected
                   ? cs.primary.withValues(alpha: 0.14)
                   : hovered
-                  ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.03))
+                  ? (isDark
+                        ? Colors.white.withValues(alpha: 0.06)
+                        : Colors.black.withValues(alpha: 0.03))
                   : Colors.transparent;
               final Color fg = selected
                   ? cs.primary

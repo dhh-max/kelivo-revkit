@@ -5,6 +5,9 @@ import '../models/world_book.dart';
 
 class WorldBookStore {
   WorldBookStore(this._preferences);
+  WorldBookStore.fallback() : _preferences = null;
+  
+
 
   static const String _itemsKey = 'world_books_v1';
   static const String _activeIdsByAssistantKey =
@@ -12,7 +15,8 @@ class WorldBookStore {
   static const String _collapsedBooksKey = 'world_books_collapsed_v1';
   static const String _defaultAssistantKey = '__global__';
 
-  final BusinessPreferences _preferences;
+  final BusinessPreferences? _preferences;
+  BusinessPreferences get _prefs => _preferences!;
 
   static String assistantKey(String? assistantId) {
     final id = (assistantId ?? '').trim();
@@ -38,8 +42,8 @@ class WorldBookStore {
   }
 
   Future<List<WorldBook>> getAll() async {
-    await _preferences.load();
-    final raw = _preferences.getString(_itemsKey);
+    await _prefs.load();
+    final raw = _prefs.getString(_itemsKey);
     if (raw == null || raw.isEmpty) return const <WorldBook>[];
     try {
       final list = jsonDecode(raw) as List;
@@ -53,7 +57,7 @@ class WorldBookStore {
   }
 
   Future<void> save(List<WorldBook> items) async {
-    await _preferences.setString(
+    await _prefs.setString(
       _itemsKey,
       jsonEncode(items.map((e) => e.toJson()).toList(growable: false)),
     );
@@ -99,8 +103,8 @@ class WorldBookStore {
 
   Future<void> clear() async {
     await save(const <WorldBook>[]);
-    await _preferences.remove(_activeIdsByAssistantKey);
-    await _preferences.remove(_collapsedBooksKey);
+    await _prefs.remove(_activeIdsByAssistantKey);
+    await _prefs.remove(_collapsedBooksKey);
   }
 
   Future<void> reorder({required int oldIndex, required int newIndex}) async {
@@ -161,8 +165,8 @@ class WorldBookStore {
   }
 
   Future<Map<String, List<String>>> _loadActiveIdsMap() async {
-    await _preferences.load();
-    final raw = _preferences.getString(_activeIdsByAssistantKey);
+    await _prefs.load();
+    final raw = _prefs.getString(_activeIdsByAssistantKey);
     if (raw == null || raw.isEmpty) return <String, List<String>>{};
     try {
       final decoded = jsonDecode(raw) as Map;
@@ -178,8 +182,8 @@ class WorldBookStore {
   }
 
   Future<Map<String, bool>> _loadCollapsedBooksMap() async {
-    await _preferences.load();
-    final raw = _preferences.getString(_collapsedBooksKey);
+    await _prefs.load();
+    final raw = _prefs.getString(_collapsedBooksKey);
     if (raw == null || raw.isEmpty) return <String, bool>{};
     try {
       final decoded = jsonDecode(raw) as Map;
@@ -198,10 +202,11 @@ class WorldBookStore {
   }
 
   Future<void> _persistActiveIdsMap(Map<String, List<String>> map) {
-    return _preferences.setString(_activeIdsByAssistantKey, jsonEncode(map));
+    return _prefs.setString(_activeIdsByAssistantKey, jsonEncode(map));
   }
 
   Future<void> _persistCollapsedBooksMap(Map<String, bool> map) {
-    return _preferences.setString(_collapsedBooksKey, jsonEncode(map));
+    return _prefs.setString(_collapsedBooksKey, jsonEncode(map));
   }
 }
+

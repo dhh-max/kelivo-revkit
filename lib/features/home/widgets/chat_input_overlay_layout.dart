@@ -140,19 +140,18 @@ class _TopBackgroundFade extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final surface = Theme.of(context).colorScheme.surface;
     return ShaderMask(
       blendMode: BlendMode.dstIn,
       shaderCallback: (bounds) {
-        return LinearGradient(
+        return const LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          stops: const [0.0, 0.48, 0.78, 1.0],
+          stops: [0.0, 0.48, 0.78, 1.0],
           colors: [
-            surface,
-            surface,
-            surface.withValues(alpha: 0.9),
-            surface.withValues(alpha: 0),
+            Color(0xFFFFFFFF),
+            Color(0xFFFFFFFF),
+            Color(0xE6FFFFFF),
+            Color(0x00FFFFFF),
           ],
         ).createShader(Rect.fromLTWH(0, 0, bounds.width, height));
       },
@@ -171,7 +170,6 @@ class _BottomBackgroundFade extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final surface = theme.colorScheme.surface;
     return ShaderMask(
       blendMode: BlendMode.dstIn,
       shaderCallback: (bounds) {
@@ -180,9 +178,9 @@ class _BottomBackgroundFade extends StatelessWidget {
           end: Alignment.bottomCenter,
           stops: const [0.0, 0.48, 1.0],
           colors: [
-            surface.withValues(alpha: 0),
-            surface.withValues(alpha: isDark ? 0.74 : 0.82),
-            surface.withValues(alpha: isDark ? 0.92 : 0.98),
+            Colors.white.withValues(alpha: 0),
+            Colors.white.withValues(alpha: isDark ? 0.74 : 0.82),
+            Colors.white.withValues(alpha: isDark ? 0.92 : 0.98),
           ],
         ).createShader(
           Rect.fromLTWH(0, bounds.height - height, bounds.width, height),

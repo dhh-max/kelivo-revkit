@@ -12,7 +12,6 @@ import '../../../icons/lucide_adapter.dart';
 import '../../../core/providers/settings_provider.dart';
 import '../../../shared/widgets/ios_switch.dart';
 import '../../../shared/widgets/ios_tactile.dart';
-import 'package:Kelivo/theme/app_semantic_colors.dart';
 
 class NetworkProxyPage extends StatefulWidget {
   const NetworkProxyPage({super.key});
@@ -267,7 +266,7 @@ class _NetworkProxyPageState extends State<NetworkProxyPage> {
               child: Text(
                 l10n.networkProxyTestSuccess,
                 style: TextStyle(
-                  color: context.appColors.success,
+                  color: Colors.green.shade600,
                   fontWeight: AppFontWeights.semibold,
                 ),
               ),
@@ -359,7 +358,8 @@ class _ProxyTypeSheetField extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final cs = Theme.of(context).colorScheme;
-    final fillColor = context.appColors.surfaceFill;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final fillColor = isDark ? Colors.white10 : const Color(0xFFF7F7F9);
 
     String labelOf(String v) {
       switch (v) {
@@ -543,7 +543,9 @@ Widget _sectionCard({required List<Widget> children}) {
       final theme = Theme.of(context);
       final cs = theme.colorScheme;
       final isDark = theme.brightness == Brightness.dark;
-      final Color bg = context.appColors.surfaceCard;
+      final Color bg = isDark
+          ? Colors.white10
+          : Colors.white.withValues(alpha: 0.96);
       return Container(
         decoration: BoxDecoration(
           color: bg,
@@ -592,11 +594,12 @@ Widget _labeledField(
 
 // Reuse desktop input styles to keep consistent look
 InputDecoration _deskInputDecoration(BuildContext context) {
+  final isDark = Theme.of(context).brightness == Brightness.dark;
   final cs = Theme.of(context).colorScheme;
   return InputDecoration(
     isDense: true,
     filled: true,
-    fillColor: context.appColors.surfaceFill,
+    fillColor: isDark ? Colors.white10 : const Color(0xFFF7F7F9),
     hintStyle: TextStyle(
       fontSize: 14,
       color: cs.onSurface.withValues(alpha: 0.5),
@@ -648,11 +651,13 @@ class _DeskIosButtonState extends State<_DeskIosButton> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textColor = widget.filled
-        ? cs.onPrimary
+        ? Colors.white
         : cs.onSurface.withValues(alpha: 0.9);
     final bg = widget.filled
         ? cs.primary
-        : (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05));
+        : (isDark
+              ? Colors.white.withValues(alpha: 0.06)
+              : Colors.black.withValues(alpha: 0.05));
     final borderColor = widget.filled
         ? Colors.transparent
         : cs.outlineVariant.withValues(alpha: isDark ? 0.22 : 0.18);

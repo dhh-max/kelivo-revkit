@@ -1,17 +1,13 @@
 import 'dart:convert';
-
-import '../../database/chat_database_repository.dart';
 import '../../models/assistant.dart';
 import '../../models/memory_entry.dart';
+import 'memory_json_utils.dart';
 import 'memory_prompts.dart';
 import 'memory_repository.dart';
 import 'memory_tokenizer.dart';
-import 'memory_tools.dart';
 import 'memory_trace.dart';
-
 /// Smart Add action (§12.6).
 enum SmartAddAction { neu, merge, conflict, skip }
-
 /// Parsed / resolved decision for one candidate item.
 class SmartAddDecision {
   const SmartAddDecision({
@@ -21,14 +17,12 @@ class SmartAddDecision {
     this.relatedIds = const <String>[],
     this.degraded = false,
   });
-
   final SmartAddAction action;
   final String? targetId;
   final String? mergedContent;
   final List<String> relatedIds;
   final bool degraded;
 }
-
 /// Result of applying one Smart Add decision.
 class SmartAddResult {
   const SmartAddResult({
@@ -42,7 +36,6 @@ class SmartAddResult {
   final String? id;
   final String? content;
   final String? reason;
-
   Map<String, dynamic> toToolJson() {
     switch (action) {
       case SmartAddAction.skip:
@@ -65,7 +58,6 @@ class SmartAddResult {
     }
   }
 }
-
 /// Input item for Smart Add (from Extract or `memory_update`).
 class SmartAddItem {
   const SmartAddItem({
@@ -74,22 +66,17 @@ class SmartAddItem {
     required this.scope,
     this.assistantId,
   });
-
   final MemoryType type;
   final String content;
   final MemoryScope scope;
   final String? assistantId;
 }
-
 /// Smart Add: candidate retrieval, LLM judge, NEW/MERGE/CONFLICT/SKIP (§12.6).
 class MemorySmartAdd {
-  MemorySmartAdd({required this.repository, required this.chatRepository});
-
+  MemorySmartAdd({required this.repository});
   final MemoryRepository repository;
-  final ChatDatabaseRepository chatRepository;
 
   static const int candidateLimit = 5;
-
   static String resolvePerItemTemplate({
     required MemoryPromptLang lang,
     String? overrideZh,
@@ -104,7 +91,6 @@ class MemorySmartAdd {
     if (o != null && o.isNotEmpty) return o;
     return MemoryPrompts.smartAddEn;
   }
-
   static String resolveBatchTemplate({
     required MemoryPromptLang lang,
     String? overrideZh,
@@ -119,7 +105,6 @@ class MemorySmartAdd {
     if (o != null && o.isNotEmpty) return o;
     return MemoryPrompts.smartAddBatchEn;
   }
-
   static String buildPerItemPrompt({
     required MemoryPromptLang lang,
     required MemoryType type,
@@ -153,7 +138,6 @@ class MemorySmartAdd {
         .replaceAll('{{itemsText}}', itemsText)
         .replaceAll('{{entriesText}}', entriesText);
   }
-
   static String formatEntriesPerItem(List<MemoryEntry> entries) {
     if (entries.isEmpty) return '';
     final buf = StringBuffer();
@@ -162,7 +146,6 @@ class MemorySmartAdd {
     }
     return buf.toString().trimRight();
   }
-
   static String formatEntriesBatched(List<MemoryEntry> entries) {
     if (entries.isEmpty) return '';
     final buf = StringBuffer();
@@ -171,7 +154,6 @@ class MemorySmartAdd {
     }
     return buf.toString().trimRight();
   }
-
   static String formatItemsText(List<SmartAddItem> items) {
     final buf = StringBuffer();
     for (var i = 0; i < items.length; i++) {
@@ -182,7 +164,6 @@ class MemorySmartAdd {
     }
     return buf.toString().trimRight();
   }
-
   /// Candidate retrieval (§12.6): OR + hits, pad to 5 with recent same-type.
   Future<List<MemoryEntry>> candidatesFor({
     required String? assistantId,
@@ -191,12 +172,11 @@ class MemorySmartAdd {
   }) async {
     final tokens = MemoryTokenizer.tokenize(newInfo);
     final escaped = [for (final t in tokens) MemoryTokenizer.escapeLike(t)];
-
     var base = <MemoryEntry>[];
     if (escaped.isNotEmpty) {
       // Copy: search may return an unmodifiable const empty list.
       base = List<MemoryEntry>.of(
-        await chatRepository.searchMemories(
+        await repository.searchMemories(
           assistantId: assistantId,
           tokens: escaped,
           type: type,
@@ -205,11 +185,10 @@ class MemorySmartAdd {
         ),
       );
     }
-
     if (base.length >= candidateLimit) return base;
 
     final recent = List<MemoryEntry>.of(
-      await chatRepository.queryVisibleMemories(
+      await repository.queryVisibleMemories(
         assistantId: assistantId,
         type: type,
       ),
@@ -228,38 +207,8 @@ class MemorySmartAdd {
     }
     return base;
   }
-
-  static Object? extractJson(String response) {
-    var text = response.trim();
-    final fence = RegExp(
-      r'```(?:json)?\s*([\s\S]*?)```',
-      caseSensitive: false,
-    ).firstMatch(text);
-    if (fence != null) {
-      text = fence.group(1)!.trim();
-    }
-    final startObj = text.indexOf('{');
-    final startArr = text.indexOf('[');
-    int start;
-    if (startObj < 0 && startArr < 0) return null;
-    if (startObj < 0) {
-      start = startArr;
-    } else if (startArr < 0) {
-      start = startObj;
-    } else {
-      start = startObj < startArr ? startObj : startArr;
-    }
-    final endObj = text.lastIndexOf('}');
-    final endArr = text.lastIndexOf(']');
-    final end = endObj > endArr ? endObj : endArr;
-    if (end <= start) return null;
-    try {
-      return jsonDecode(text.substring(start, end + 1));
-    } catch (_) {
-      return null;
-    }
-  }
-
+  /// Extract JSON from LLM response. Delegates to [MemoryJsonUtils] (SoLab v2 fusion).
+  static Object? extractJson(String response) => MemoryJsonUtils.extractJson(response);
   static SmartAddAction? _parseAction(dynamic raw) {
     final s = raw?.toString().trim().toUpperCase();
     switch (s) {
@@ -275,7 +224,6 @@ class MemorySmartAdd {
         return null;
     }
   }
-
   /// Validate / degrade one decision against [candidateIds] (§12.6).
   static SmartAddDecision normalizeDecision(
     SmartAddDecision decision,
@@ -288,7 +236,6 @@ class MemorySmartAdd {
       for (final id in decision.relatedIds)
         if (candidateIds.contains(id)) id,
     ];
-
     if (action == SmartAddAction.merge || action == SmartAddAction.conflict) {
       if (targetId == null || !candidateIds.contains(targetId)) {
         action = SmartAddAction.neu;
@@ -313,7 +260,6 @@ class MemorySmartAdd {
       degraded: decision.degraded,
     );
   }
-
   /// Parse a per-item JSON response. Null → caller should degrade.
   static SmartAddDecision? parsePerItem(String response) {
     final decoded = extractJson(response);
@@ -339,14 +285,12 @@ class MemorySmartAdd {
       relatedIds: related,
     );
   }
-
   /// Parse batched JSON. Missing indexes are left null for degrade.
   static List<SmartAddDecision?>? parseBatch(String response, int count) {
     final decoded = extractJson(response);
     if (decoded is! Map) return null;
     final results = decoded['results'];
     if (results is! List) return null;
-
     final byIndex = <int, SmartAddDecision>{};
     for (final item in results) {
       if (item is! Map) continue;
@@ -374,7 +318,6 @@ class MemorySmartAdd {
         relatedIds: related,
       );
     }
-
     return [for (var i = 1; i <= count; i++) byIndex[i]];
   }
 
@@ -384,7 +327,7 @@ class MemorySmartAdd {
     required MemoryType type,
     required String content,
   }) async {
-    final exact = await chatRepository.findExactMemory(
+    final exact = await repository.findExactMemory(
       assistantId: visibilityAssistantId,
       type: type,
       contentNormalized: MemoryEntry.normalizeContent(content),
@@ -398,18 +341,16 @@ class MemorySmartAdd {
     }
     return const SmartAddDecision(action: SmartAddAction.neu, degraded: true);
   }
-
   /// Read an entry's current content, for trace before/after values only.
   Future<String?> _contentBefore(String? id) async {
     if (id == null) return null;
     try {
-      final found = await chatRepository.memoriesByIds([id]);
+      final found = await repository.memoriesByIds([id]);
       return found.isEmpty ? null : found.first.content;
     } catch (_) {
       return null;
     }
   }
-
   Future<SmartAddResult> applyDecision({
     required SmartAddItem item,
     required SmartAddDecision decision,
@@ -525,7 +466,6 @@ class MemorySmartAdd {
         );
     }
   }
-
   /// Run Smart Add for a single item (`memory_update` / perItem mode).
   Future<SmartAddResult> addOne({
     required SmartAddItem item,
@@ -538,7 +478,7 @@ class MemorySmartAdd {
     MemoryTraceStep? traceStep,
   }) async {
     // Fast path: exact duplicate (§12.6).
-    final exact = await chatRepository.findExactMemory(
+    final exact = await repository.findExactMemory(
       assistantId: visibilityAssistantId,
       type: item.type,
       contentNormalized: MemoryEntry.normalizeContent(item.content),
@@ -550,7 +490,6 @@ class MemorySmartAdd {
         reason: 'duplicate',
       );
     }
-
     final candidates = await candidatesFor(
       assistantId: visibilityAssistantId,
       type: item.type,
@@ -595,7 +534,6 @@ class MemorySmartAdd {
         );
       }
     }
-
     return applyDecision(
       item: item,
       decision: decision,
@@ -604,7 +542,6 @@ class MemorySmartAdd {
       traceStep: traceStep,
     );
   }
-
   /// Run Smart Add for multiple items (batched or perItem).
   ///
   /// Returns results in the same order as [items], plus whether any identity
@@ -625,7 +562,6 @@ class MemorySmartAdd {
     if (items.isEmpty) {
       return (results: <SmartAddResult>[], identityChanged: false);
     }
-
     if (mode == MemorySmartAddMode.perItem || llmCall == null) {
       final results = <SmartAddResult>[];
       var identityChanged = false;
@@ -650,14 +586,12 @@ class MemorySmartAdd {
       }
       return (results: results, identityChanged: identityChanged);
     }
-
     // Batched path
     final perItemCandidates = <List<MemoryEntry>>[];
     final union = <String, MemoryEntry>{};
     final decisions = <SmartAddDecision?>[];
-
     for (final item in items) {
-      final exact = await chatRepository.findExactMemory(
+      final exact = await repository.findExactMemory(
         assistantId: visibilityAssistantId,
         type: item.type,
         contentNormalized: MemoryEntry.normalizeContent(item.content),
@@ -680,7 +614,6 @@ class MemorySmartAdd {
       }
       decisions.add(null); // to fill from LLM
     }
-
     final needLlm = decisions.any((d) => d == null);
     List<SmartAddDecision?>? batchParsed;
     if (needLlm) {
@@ -741,7 +674,6 @@ class MemorySmartAdd {
         }
       }
     }
-
     final results = <SmartAddResult>[];
     var identityChanged = false;
     for (var i = 0; i < items.length; i++) {
@@ -774,12 +706,22 @@ class MemorySmartAdd {
     }
     return (results: results, identityChanged: identityChanged);
   }
-
   /// Resolve write scope for an Extract item under [policy].
   static MemoryScope resolveScopeForExtracted({
     required MemoryWriteScope policy,
     required String? scopeAttr,
   }) {
-    return MemoryTools.resolveWriteScope(policy, scopeAttr);
+    switch (policy) {
+      case MemoryWriteScope.alwaysGlobal:
+        return MemoryScope.global;
+      case MemoryWriteScope.alwaysAssistant:
+        return MemoryScope.assistant;
+      case MemoryWriteScope.toolDefaultGlobal:
+        if (scopeAttr == 'assistant') return MemoryScope.assistant;
+        return MemoryScope.global;
+      case MemoryWriteScope.toolDefaultAssistant:
+        if (scopeAttr == 'global') return MemoryScope.global;
+        return MemoryScope.assistant;
+    }
   }
 }

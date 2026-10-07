@@ -8,7 +8,6 @@ import '../../../shared/widgets/ios_tactile.dart';
 import '../../../shared/widgets/snackbar.dart';
 import '../../../utils/provider_grouping_logic.dart';
 import '../../../theme/app_font_weights.dart';
-import 'package:Kelivo/theme/app_semantic_colors.dart';
 
 class ProviderGroupsPage extends StatefulWidget {
   const ProviderGroupsPage({super.key});
@@ -106,7 +105,7 @@ class _ProviderGroupsPageState extends State<ProviderGroupsPage> {
             onPressed: () => Navigator.of(ctx).pop(true),
             child: Text(
               l10n.providerGroupsDeleteConfirmOk,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
+              style: TextStyle(color: Colors.red),
             ),
           ),
         ],
@@ -252,7 +251,7 @@ class _ProviderGroupCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = context.appColors.surfaceFill;
+    final bg = isDark ? Colors.white10 : const Color(0xFFF7F7F9);
     final borderColor = cs.outlineVariant.withValues(
       alpha: isDark ? 0.12 : 0.10,
     );

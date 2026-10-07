@@ -564,7 +564,14 @@ class MemoryEntryRows extends Table {
   TextColumn get assistantId => text().nullable()();
   TextColumn get type => text().check(
     // ignore: recursive_getters
-    type.isIn(const ['identity', 'workflow', 'voice', 'instruction']),
+    type.isIn(const [
+      'identity',
+      'workflow',
+      'voice',
+      'instruction',
+      'apk_patch',
+      'apk_note',
+    ]),
   )();
   TextColumn get status => text().check(
     // ignore: recursive_getters
@@ -621,12 +628,134 @@ class MessagePromptRows extends Table {
   @override
   Set<Column<Object>> get primaryKey => {revisionId};
 
+  // 无外键：prompt 行是派生缓存（读不到就重算）。合成修订
+  // （context-summary-* 摘要消息）从未落 message_rows，保留 FK 会
+  // 在冻结时 FOREIGN KEY constraint failed。删除消息时由
+  // chat_database_repository 显式清理本表。
+}
+
+/// SoLab APK 项目记录：一个确定版本的安装包 + 分析元数据。
+/// 大体积分析报告本体存 SharedPreferences/文件，表中只放引用与指纹。
+class ApkProjectRows extends Table {
+  TextColumn get id => text()();
+  TextColumn get sourcePath => text()();
+  TextColumn get fileName => text()();
+  TextColumn get packageName => text().nullable()();
+  TextColumn get versionName => text().nullable()();
+  IntColumn get versionCode => integer().nullable()();
+  TextColumn get apkSha256 => text()();
+  TextColumn get certificateSha256 => text().nullable()();
+  IntColumn get analysisVersion => integer().withDefault(const Constant(0))();
+  IntColumn get ruleSetVersion => integer().withDefault(const Constant(1))();
+  TextColumn get conversationId => text().nullable()();
+  TextColumn get latestReportId => text().nullable()();
+  IntColumn get createdAt =>
+      integer().map(const MicrosecondDateTimeConverter())();
+  IntColumn get lastOpenedAt =>
+      integer().map(const MicrosecondDateTimeConverter())();
+
   @override
-  List<String> get customConstraints => [
-    'FOREIGN KEY (revision_id) '
-        'REFERENCES message_rows (id) '
-        'ON DELETE CASCADE',
-  ];
+  Set<Column<Object>> get primaryKey => {id};
+}
+
+/// SoLab APK 规则库条目：一条规则对应一个可编辑的匹配模式
+/// （SDK 包 / 类关键词 / 方法 / URL / 组件 / 权限等）。
+/// 规则库页面修改后同步写 SharedPreferences 的规则 key（与原生
+/// SolabChannel 约定一致）；hitCount/successCount/failureCount 为暂存统计，
+/// 供后续分析回写。
+class ModifyRuleRows extends Table {
+  TextColumn get id =>
+      text()(); // 稳定 ID：seed 为 "<category>:<pattern>"，用户自建为 uuid
+  TextColumn get name => text()();
+  TextColumn get category => text().check(
+    // ignore: recursive_getters
+    category.isNotValue(''),
+  )();
+
+  /// JSON 编码的匹配器：`{"type": "<category>", "patterns": ["..."]}`
+  TextColumn get matcherJson => text()();
+  BoolColumn get enabled => boolean().withDefault(const Constant(true))();
+
+  /// 规则来源：seed（内置种子）/ user（手动新增）/ import（粘贴导入）
+  TextColumn get source => text().withDefault(const Constant('seed'))();
+
+  /// 风险等级：low / medium / high
+  TextColumn get risk => text().withDefault(const Constant('low'))();
+  IntColumn get hitCount => integer()
+      // ignore: recursive_getters
+      .check(hitCount.isBiggerOrEqualValue(0))
+      .withDefault(const Constant(0))();
+  IntColumn get successCount => integer()
+      // ignore: recursive_getters
+      .check(successCount.isBiggerOrEqualValue(0))
+      .withDefault(const Constant(0))();
+  IntColumn get failureCount => integer()
+      // ignore: recursive_getters
+      .check(failureCount.isBiggerOrEqualValue(0))
+      .withDefault(const Constant(0))();
+  IntColumn get version => integer()
+      // ignore: recursive_getters
+      .check(version.isBiggerOrEqualValue(0))
+      .withDefault(const Constant(0))();
+  IntColumn get updatedAt =>
+      integer().map(const MicrosecondDateTimeConverter())();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
+/// SoLab APK 规则订阅源：网络 URL 订阅（ad_patterns.json 格式）。
+/// 订阅元信息存库；拉取到的规则合并进 modify_rule_rows
+/// （source 标记 'subscription'），不落文件。
+class RuleSubscriptionRows extends Table {
+  TextColumn get id => text()(); // 稳定 ID：预置源为 'default'，用户新增为 uuid
+  TextColumn get name => text()();
+  TextColumn get url => text()();
+  BoolColumn get enabled => boolean().withDefault(const Constant(true))();
+
+  /// 最近一次成功同步时间；null = 从未同步。
+  IntColumn get lastSyncAt =>
+      integer().nullable().map(const MicrosecondDateTimeConverter())();
+
+  /// 最近一次同步合并的规则总数（含订阅前已存在的）。
+  IntColumn get lastRuleCount => integer().withDefault(const Constant(0))();
+  IntColumn get createdAt =>
+      integer().map(const MicrosecondDateTimeConverter())();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
+/// M6: SO 分析工作区（内置 SO 引擎）。
+/// sourceKey = path|size|modified 去重键；editSessionId 为最近编辑会话。
+class SoWorkspaceRows extends Table {
+  TextColumn get id => text()();
+  TextColumn get path => text()();
+  TextColumn get sourceKey => text()();
+  BoolColumn get temporary => boolean().withDefault(const Constant(false))();
+  TextColumn get editSessionId => text().nullable()();
+  IntColumn get createdAt =>
+      integer().map(const MicrosecondDateTimeConverter())();
+  IntColumn get lastOpenedAt =>
+      integer().map(const MicrosecondDateTimeConverter())();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
+/// M6: SO 引擎工具统计（ToolStats 持久化）。
+class EngineStatsRows extends Table {
+  TextColumn get toolName => text()();
+  IntColumn get calls => integer().withDefault(const Constant(0))();
+  IntColumn get ok => integer().withDefault(const Constant(0))();
+  IntColumn get failed => integer().withDefault(const Constant(0))();
+  IntColumn get avgMs => integer().withDefault(const Constant(0))();
+  IntColumn get maxMs => integer().withDefault(const Constant(0))();
+  TextColumn get lastError => text().nullable()();
+  IntColumn get lastAt => integer().withDefault(const Constant(0))();
+
+  @override
+  Set<Column<Object>> get primaryKey => {toolName};
 }
 
 @DriftDatabase(
@@ -658,6 +787,11 @@ class MessagePromptRows extends Table {
     MemoryEntryRows,
     UserProfileFieldRows,
     MessagePromptRows,
+    ApkProjectRows,
+    ModifyRuleRows,
+    RuleSubscriptionRows,
+    SoWorkspaceRows,
+    EngineStatsRows,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -665,9 +799,22 @@ class AppDatabase extends _$AppDatabase {
 
   static const databaseFileName = 'kelivo.db';
 
-  // Schema 1 is the first published SQLite contract. Every other non-zero
-  // version belongs to an unpublished or future format and is rejected.
-  static const currentSchemaVersion = 1;
+  // Schema 1 is the first published SQLite contract. Schema 2 adds the
+  // apk_project_rows table (SoLab APK projects). Schema 3 adds the
+  // modify_rule_rows table (SoLab APK rule library). Schema 4 rebuilds
+  // message_prompt_rows without its FK to message_rows — prompt rows are a
+  // derived cache and the FK breaks synthetic revisions (context-summary-*).
+  // Schema 5 widens memory_entry_rows.type CHECK to accept apk_patch/apk_note
+  // (SoLab APK memories folded into the memory system). Schema 6 repairs
+  // memory_entry_rows indexes lost by an early schema-5 migration (partial
+  // migration left userVersion=5 without visible/recent indexes); the repair
+  // is idempotent (IF NOT EXISTS) and also covers fresh schema-5 databases.
+  // Schema 7 adds so_workspace_rows (SO analysis workspaces) and
+  // engine_stats_rows (SO engine tool stats).
+  // Schema 8 adds rule_subscription_rows (SoLab APK rule subscriptions).
+  // Every other non-zero version belongs to an unpublished or future format
+  // and is rejected.
+  static const currentSchemaVersion = 8;
   // Keep SQLite's established 1000-page cadence explicit. At the usual 4 KiB
   // page size this starts a checkpoint around 4 MiB, but page size remains the
   // source of truth.
@@ -707,8 +854,11 @@ class AppDatabase extends _$AppDatabase {
       file,
       setup: (database) {
         final installedSchema = database.userVersion;
+        // 只拒绝「比当前新」的 schema（需升级 App）。旧 schema 由 drift
+        // onUpgrade 迁移后 userVersion 更新；此处若要求严格相等，迁移
+        // 永远不会执行（setup 先于 onUpgrade 运行），升级用户直接失败屏。
         if (installedSchema != 0 &&
-            installedSchema != AppDatabase.currentSchemaVersion) {
+            installedSchema > AppDatabase.currentSchemaVersion) {
           throw StateError('database_schema_version');
         }
         // This callback is registered and invoked by SQLite on drift's worker
@@ -775,8 +925,93 @@ FROM probe;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
-    onUpgrade: (_, _, _) async {
-      throw StateError('database_schema_version');
+    onUpgrade: (m, from, to) async {
+      if (from < 2) {
+        await m.createTable($ApkProjectRowsTable(m.database));
+      }
+      if (from < 3) {
+        await m.createTable($ModifyRuleRowsTable(m.database));
+      }
+      if (from < 4) {
+        // Schema 4：message_prompt_rows 去掉 message_rows 外键。SQLite 无法
+        // ALTER 删除约束，用新表定义重建并拷贝数据（新表无 FK；索引重建）。
+        final newTable = $MessagePromptRowsTable(
+          m.database,
+        ).createAlias('message_prompt_rows_new');
+        await m.database.customStatement(
+          'DROP TABLE IF EXISTS message_prompt_rows_new;',
+        );
+        await m.createTable(newTable);
+        await m.database.customStatement(
+          'INSERT INTO message_prompt_rows_new '
+          '(revision_id, conversation_id, payload, carries_memory_snapshot, created_at) '
+          'SELECT revision_id, conversation_id, payload, '
+          'carries_memory_snapshot, created_at FROM message_prompt_rows;',
+        );
+        await m.database.customStatement('DROP TABLE message_prompt_rows;');
+        await m.database.customStatement(
+          'ALTER TABLE message_prompt_rows_new RENAME TO message_prompt_rows;',
+        );
+        await m.database.customStatement(
+          'CREATE INDEX IF NOT EXISTS idx_message_prompts_conversation_snapshot '
+          'ON message_prompt_rows (conversation_id, carries_memory_snapshot);',
+        );
+      }
+      if (from < 5) {
+        // Schema 5：memory_entry_rows 的 type CHECK 扩为 6 值。SQLite 无法
+        // ALTER CHECK，列结构不变（仅约束变化），按列原样重建表。
+        final newTable = $MemoryEntryRowsTable(
+          m.database,
+        ).createAlias('memory_entry_rows_new');
+        await m.database.customStatement(
+          'DROP TABLE IF EXISTS memory_entry_rows_new;',
+        );
+        await m.createTable(newTable);
+        await m.database.customStatement(
+          'INSERT INTO memory_entry_rows_new '
+          '(id, sort_order, scope, assistant_id, type, status, content, '
+          'content_normalized, entry_created_at, entry_updated_at, payload, '
+          'updated_at) '
+          'SELECT id, sort_order, scope, assistant_id, type, status, content, '
+          'content_normalized, entry_created_at, entry_updated_at, payload, '
+          'updated_at FROM memory_entry_rows;',
+        );
+        await m.database.customStatement('DROP TABLE memory_entry_rows;');
+        await m.database.customStatement(
+          'ALTER TABLE memory_entry_rows_new RENAME TO memory_entry_rows;',
+        );
+      }
+      if (from < 6) {
+        // Schema 6：补建 memory_entry_rows 索引（幂等）。早期 schema-5 迁移
+        // 只建了 dedupe 索引就把 userVersion 提交为 5，导致部分迁移卡死
+        //（visible/recent 缺失 → index_schema 校验失败）；此处对任何
+        // 1..5 的库都幂等补全，与表定义 @TableIndex 的 DDL 完全一致。
+        await m.database.customStatement(
+          'CREATE INDEX IF NOT EXISTS idx_memory_entries_visible '
+          'ON memory_entry_rows (status, type, scope, assistant_id);',
+        );
+        await m.database.customStatement(
+          'CREATE INDEX IF NOT EXISTS idx_memory_entries_recent '
+          'ON memory_entry_rows (status, type, entry_updated_at, id);',
+        );
+        await m.database.customStatement(
+          'CREATE INDEX IF NOT EXISTS idx_memory_entries_dedupe '
+          'ON memory_entry_rows (scope, assistant_id, type, content_normalized);',
+        );
+      }
+      if (from < 7) {
+        // Schema 7：SO 引擎表（so_workspace_rows / engine_stats_rows）
+        await m.createTable($SoWorkspaceRowsTable(m.database));
+        await m.createTable($EngineStatsRowsTable(m.database));
+      }
+      if (from < 8) {
+        // Schema 8：规则订阅源表（rule_subscription_rows）
+        await m.createTable($RuleSubscriptionRowsTable(m.database));
+      }
+      if (from > to) {
+        // A newer database format must not be silently downgraded.
+        throw StateError('database_schema_version');
+      }
     },
     beforeOpen: (details) async {
       await customStatement('PRAGMA foreign_keys = ON;');

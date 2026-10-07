@@ -14,14 +14,13 @@ import '../shared/widgets/emoji_picker_dialog.dart';
 import '../shared/widgets/snackbar.dart';
 import '../utils/sandbox_path_resolver.dart';
 import '../theme/app_font_weights.dart';
-import 'package:Kelivo/theme/app_semantic_colors.dart';
 
 Future<void> showUserProfileDialog(BuildContext context) async {
   await showGeneralDialog<void>(
     context: context,
     barrierDismissible: true,
     barrierLabel: 'user-profile-dialog',
-    barrierColor: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.25),
+    barrierColor: Colors.black.withValues(alpha: 0.25),
     pageBuilder: (ctx, _, __) {
       return const _UserProfileDialogBody();
     },
@@ -120,13 +119,13 @@ class _UserProfileDialogBodyState extends State<_UserProfileDialogBody> {
       child: ConstrainedBox(
         constraints: const BoxConstraints(minWidth: 320, maxWidth: 420),
         child: Material(
-          color: Theme.of(context).colorScheme.surfaceContainerHigh,
+          color: isDark ? const Color(0xFF1C1C1E) : Colors.white,
           elevation: 0,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),
             side: BorderSide(
               color: isDark
-                  ? cs.onSurface.withValues(alpha: 0.08)
+                  ? Colors.white.withValues(alpha: 0.08)
                   : cs.outlineVariant.withValues(alpha: 0.25),
               width: 1,
             ),
@@ -164,7 +163,9 @@ class _UserProfileDialogBodyState extends State<_UserProfileDialogBody> {
                             color: cs.primary,
                             shape: BoxShape.circle,
                             border: Border.all(
-                              color: Theme.of(context).colorScheme.surfaceContainerHigh,
+                              color: isDark
+                                  ? const Color(0xFF1C1C1E)
+                                  : Colors.white,
                               width: 2,
                             ),
                           ),
@@ -339,7 +340,9 @@ class _UserProfileDialogBodyState extends State<_UserProfileDialogBody> {
                 decoration: InputDecoration(
                   hintText: l10n.sideDrawerImageUrlDialogHint,
                   filled: true,
-                  fillColor: ctx.appColors.surfaceFill,
+                  fillColor: Theme.of(ctx).brightness == Brightness.dark
+                      ? Colors.white10
+                      : const Color(0xFFF2F3F5),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                     borderSide: BorderSide(color: Colors.transparent),
@@ -461,7 +464,9 @@ class _UserProfileDialogBodyState extends State<_UserProfileDialogBody> {
                 decoration: InputDecoration(
                   hintText: l10n.sideDrawerQQAvatarInputHint,
                   filled: true,
-                  fillColor: ctx.appColors.surfaceFill,
+                  fillColor: Theme.of(ctx).brightness == Brightness.dark
+                      ? Colors.white10
+                      : const Color(0xFFF2F3F5),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                     borderSide: BorderSide(color: Colors.transparent),

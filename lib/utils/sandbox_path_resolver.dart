@@ -2,7 +2,7 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import './app_directories.dart';
-import './kelivo_file_uri.dart';
+import './solab_file_uri.dart';
 
 /// Resolves persisted absolute file paths that include the iOS sandbox UUID
 /// to the current app container path after an app update.
@@ -17,7 +17,7 @@ import './kelivo_file_uri.dart';
 /// Documents directory. If the rewritten file exists, it returns the new path;
 /// otherwise returns the original path.
 ///
-/// Canonical `kelivo-file:///` URIs are resolved lexically against the cached
+/// Canonical `solab-file:///` URIs are resolved lexically against the cached
 /// Documents root with no filesystem existence checks.
 class SandboxPathResolver {
   SandboxPathResolver._();
@@ -62,14 +62,14 @@ class SandboxPathResolver {
   /// If mapping succeeds and the target exists, returns the mapped path;
   /// otherwise returns [path] unchanged.
   ///
-  /// Canonical `kelivo-file:` URIs are resolved without existence probes.
+  /// Canonical `solab-file:` URIs are resolved without existence probes.
   static String fix(String path) {
     if (path.isEmpty) return path;
 
-    if (KelivoFileUri.isKelivoFileUri(path)) {
+    if (SolabFileUri.isSolabFileUri(path)) {
       final docs = _docsDir;
       if (docs == null || docs.isEmpty) return path;
-      return KelivoFileUri.resolveToAbsolute(path, root: docs) ?? path;
+      return SolabFileUri.resolveToAbsolute(path, root: docs) ?? path;
     }
 
     // Decode file:// percent-escapes before remapping (avoid %20 → %2520).
@@ -86,17 +86,17 @@ class SandboxPathResolver {
     if (docs == null || docs.isEmpty) return raw;
 
     // Determine root and tail to map. Prefer the same structured sandbox
-    // markers as KelivoFileUri.tryEncodeLegacyAbsolutePath, then generic.
+    // markers as SolabFileUri.tryEncodeLegacyAbsolutePath, then generic.
     const subdirs = ['avatars', 'fonts', 'images', 'upload'];
     String? tail; // starts with '/'
     String rootType = 'unknown';
 
-    final encoded = KelivoFileUri.tryEncodeLegacyAbsolutePath(
+    final encoded = SolabFileUri.tryEncodeLegacyAbsolutePath(
       raw,
       allowGenericFallback: false,
     );
     if (encoded != null) {
-      final segs = KelivoFileUri.decodeToSegments(encoded);
+      final segs = SolabFileUri.decodeToSegments(encoded);
       if (segs != null && segs.isNotEmpty) {
         tail = '/${segs.join('/')}';
         rootType = 'structured_legacy';
@@ -126,7 +126,9 @@ class SandboxPathResolver {
     }
 
     // Primary: map to current ApplicationDocumentsDirectory
-    final String mapped = '$docs$tail';
+    final String mapped = encoded == null
+        ? '$docs$tail'
+        : SolabFileUri.resolveToAbsolute(encoded, root: docs) ?? '$docs$tail';
     try {
       if (File(mapped).existsSync()) {
         if (debug) {
@@ -152,7 +154,10 @@ class SandboxPathResolver {
 
     // Secondary: try ApplicationSupportDirectory
     if (support != null && support.isNotEmpty) {
-      final alt = '$support$tail';
+      final alt = encoded == null
+          ? '$support$tail'
+          : SolabFileUri.resolveToAbsolute(encoded, root: support) ??
+                '$support$tail';
       try {
         if (File(alt).existsSync()) {
           if (debug) {
@@ -223,9 +228,9 @@ class SandboxPathResolver {
   }
 
   /// Convert a local absolute path (or `file://` URL) into a stable
-  /// `kelivo-file:///` URI when it points under managed app storage.
+  /// `solab-file:///` URI when it points under managed app storage.
   ///
-  /// Remote (`http`/`https`), `data:`, and already-canonical kelivo-file URIs
+  /// Remote (`http`/`https`), `data:`, and already-canonical solab-file URIs
   /// pass through unchanged. External absolute paths that cannot be encoded
   /// are returned as-is (after decoding an optional local `file://` prefix).
   ///
@@ -235,7 +240,7 @@ class SandboxPathResolver {
   /// UUID paths canonicalize even when [_docsDir] is already set.
   static String canonicalize(String uri) {
     if (uri.isEmpty) return uri;
-    if (KelivoFileUri.isKelivoFileUri(uri)) return uri;
+    if (SolabFileUri.isSolabFileUri(uri)) return uri;
     // Case-insensitive: HTTPS://… must not fall into local-path heuristics.
     final lower = uri.toLowerCase();
     if (lower.startsWith('http://') ||
@@ -246,7 +251,7 @@ class SandboxPathResolver {
 
     // Portable slash path for legacy matching (Windows must still recognize
     // iOS file:///var/mobile/... markers; Uri.toFilePath is host-specific).
-    final portable = KelivoFileUri.toPortableSlashPath(uri);
+    final portable = SolabFileUri.toPortableSlashPath(uri);
     if (portable == null) {
       // Non-local file: / UNC / empty — leave unchanged.
       return uri;
@@ -255,24 +260,21 @@ class SandboxPathResolver {
     final docs = _docsDir;
     if (docs != null && docs.isNotEmpty) {
       // Prefer encode under the live root (case-insensitive on Windows).
-      final underRoot = KelivoFileUri.encodeFromAbsolute(portable, root: docs);
+      final underRoot = SolabFileUri.encodeFromAbsolute(portable, root: docs);
       if (underRoot != null) return underRoot;
       // Also try host-native absolute form when docsDir uses backslashes.
       final native = _decodeFileUri(uri);
       if (native != portable) {
-        final underNative = KelivoFileUri.encodeFromAbsolute(
-          native,
-          root: docs,
-        );
+        final underNative = SolabFileUri.encodeFromAbsolute(native, root: docs);
         if (underNative != null) return underNative;
       }
-      return KelivoFileUri.tryEncodeLegacyAbsolutePath(
+      return SolabFileUri.tryEncodeLegacyAbsolutePath(
             portable,
             allowGenericFallback: false,
           ) ??
           portable;
     }
-    return KelivoFileUri.tryEncodeLegacyAbsolutePath(
+    return SolabFileUri.tryEncodeLegacyAbsolutePath(
           portable,
           allowGenericFallback: false,
         ) ??
@@ -281,29 +283,29 @@ class SandboxPathResolver {
 
   /// Restore-boundary remap: if [uri] is a known previous managed sandbox
   /// absolute path and the corresponding file exists under the current docs
-  /// root (because backup files were copied), return the kelivo-file URI.
+  /// root (because backup files were copied), return the solab-file URI.
   ///
   /// Does **not** reopen generic `/images/` fallback for arbitrary external
   /// paths that merely share a basename with a restored file.
   static String? tryRemapRestoredManagedAbsolute(String uri) {
     final docs = _docsDir;
     if (docs == null || docs.isEmpty) return null;
-    if (KelivoFileUri.isKelivoFileUri(uri)) return uri;
+    if (SolabFileUri.isSolabFileUri(uri)) return uri;
     final lower = uri.toLowerCase();
     if (lower.startsWith('http://') ||
         lower.startsWith('https://') ||
         lower.startsWith('data:')) {
       return null;
     }
-    final portable = KelivoFileUri.toPortableSlashPath(uri);
+    final portable = SolabFileUri.toPortableSlashPath(uri);
     if (portable == null) return null;
 
-    final encoded = KelivoFileUri.tryEncodeLegacyAbsolutePath(
+    final encoded = SolabFileUri.tryEncodeLegacyAbsolutePath(
       portable,
       allowGenericFallback: false,
     );
     if (encoded == null) return null;
-    final abs = KelivoFileUri.resolveToAbsolute(encoded, root: docs);
+    final abs = SolabFileUri.resolveToAbsolute(encoded, root: docs);
     if (abs == null) return null;
     try {
       if (File(abs).existsSync()) return encoded;
@@ -345,7 +347,7 @@ class SandboxPathResolver {
   /// Returns `null` when [path] is a non-local `file:` URI.
   static String? resolveForIo(String path) {
     if (path.isEmpty) return path;
-    if (KelivoFileUri.isKelivoFileUri(path)) return fix(path);
+    if (SolabFileUri.isSolabFileUri(path)) return fix(path);
 
     var candidate = path;
     if (path.toLowerCase().startsWith('file:')) {
@@ -377,12 +379,12 @@ class SandboxPathResolver {
   static String? _remapStructuredIfExists(String abs) {
     final docs = _docsDir;
     if (docs == null || docs.isEmpty) return null;
-    final uri = KelivoFileUri.tryEncodeLegacyAbsolutePath(
+    final uri = SolabFileUri.tryEncodeLegacyAbsolutePath(
       abs,
       allowGenericFallback: false,
     );
     if (uri == null) return null;
-    final mapped = KelivoFileUri.resolveToAbsolute(uri, root: docs);
+    final mapped = SolabFileUri.resolveToAbsolute(uri, root: docs);
     if (mapped == null) return null;
     try {
       if (File(mapped).existsSync()) return mapped;

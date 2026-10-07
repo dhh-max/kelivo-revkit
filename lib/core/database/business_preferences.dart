@@ -93,6 +93,48 @@ final class BusinessPreferences {
     return List<String>.of((value as List).cast<String>());
   }
 
+  Future<List<BusinessEntityValue>> readMemoryEntriesByType(String type) async {
+    await load();
+    return _repository.readMemoryEntriesByType(type);
+  }
+
+  Future<void> upsertMemoryEntry(BusinessEntityValue row) async {
+    await load();
+    await _serialize(() async {
+      await _repository.upsertEntity(BusinessEntityKind.memoryEntry, row);
+      final key = BusinessEntityKind.memoryEntry.sourceKey;
+      final items = _decodeEntityPayloads(_values[key]);
+      items.removeWhere((item) => item['id'] == row.id);
+      items.insert(
+        0,
+        Map<String, dynamic>.from(jsonDecode(row.payload) as Map),
+      );
+      _values[key] = jsonEncode(items);
+    });
+  }
+
+  Future<void> deleteMemoryEntry(String id) async {
+    if (id.isEmpty) return;
+    await load();
+    await _serialize(() async {
+      await _repository.deleteEntity(BusinessEntityKind.memoryEntry, id);
+      final key = BusinessEntityKind.memoryEntry.sourceKey;
+      final items = _decodeEntityPayloads(_values[key])
+        ..removeWhere((item) => item['id'] == id);
+      _values[key] = jsonEncode(items);
+    });
+  }
+
+  static List<Map<String, dynamic>> _decodeEntityPayloads(Object? raw) {
+    if (raw is! String || raw.isEmpty) return <Map<String, dynamic>>[];
+    final decoded = jsonDecode(raw);
+    if (decoded is! List) return <Map<String, dynamic>>[];
+    return [
+      for (final value in decoded.whereType<Map>())
+        Map<String, dynamic>.from(value),
+    ];
+  }
+
   Future<bool> setBool(String key, bool value) => _setValue(key, value);
 
   Future<bool> setInt(String key, int value) => _setValue(key, value);
@@ -291,3 +333,4 @@ final class BusinessPreferences {
     return value;
   }
 }
+

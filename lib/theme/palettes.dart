@@ -29,6 +29,7 @@ class ThemePalettes {
   static const String terracottaId = 'terracotta';
   static const String monochromeId = 'monochrome';
   static const String docThemeId = 'doc_theme';
+  static const String customPaletteId = 'custom';
 
   static const ThemePalette defaultPalette = ThemePalette(
     id: defaultId,
@@ -641,10 +642,6 @@ class ThemePalettes {
     monochrome,
     docTheme,
   ];
-
-  /// Id of the user-customized palette (built at runtime from the selected
-  /// [CustomTheme] — see theme/custom_theme.dart — not part of [all]).
-  static const String customPaletteId = 'custom';
 
   static ThemePalette byId(String id) {
     return all.firstWhere((p) => p.id == id, orElse: () => defaultPalette);

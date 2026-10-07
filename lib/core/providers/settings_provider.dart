@@ -11,11 +11,11 @@ import 'dart:convert';
 import 'package:path/path.dart' as p;
 import '../services/search/search_service.dart';
 import '../services/tts/network_tts.dart';
+import '../services/memory/memory_prompts.dart';
+import '../services/memory/memory_trace.dart';
 import '../services/tts/tts_text_selection.dart';
-import '../services/asr/asr_service_options.dart';
 import '../services/network/request_logger.dart';
 import '../services/logging/flutter_logger.dart';
-import '../services/learning_mode_store.dart';
 import '../models/api_keys.dart';
 import '../models/backup.dart';
 import '../models/provider_group.dart';
@@ -26,12 +26,12 @@ import '../../utils/avatar_cache.dart';
 import '../utils/openai_model_compat.dart';
 import '../../utils/provider_grouping_logic.dart';
 import '../../utils/brand_assets.dart';
-import '../../utils/image_compressor.dart';
-import '../database/business_preferences.dart';
-import '../services/memory/memory_prompts.dart';
-import '../services/memory/memory_trace.dart';
-import '../../theme/palettes.dart';
+import '../services/asr/asr_service_options.dart';
+import '../services/model_override_payload_parser.dart';
 import '../../theme/custom_theme.dart';
+
+/// Quality levels for image upload/compression.
+enum ImageUploadQuality { original, high, balanced, saver, custom }
 
 // Desktop: topic list position
 enum DesktopTopicPosition { left, right }
@@ -51,9 +51,61 @@ enum DesktopMessageNavButtonsMode {
 // Mobile: message navigation buttons visibility mode
 enum MobileMessageNavButtonsMode { always, scroll, never }
 
-enum ImageUploadQuality { original, high, balanced, saver, custom }
+enum _MigrationResult { noChange, applied, failed }
 
 class SettingsProvider extends ChangeNotifier {
+  // ─── Memory background-organize settings (adapted from master) ─────────
+  String? _memoryModelProvider;
+  String? _memoryModelId;
+  String? get memoryModelProvider => _memoryModelProvider;
+  String? get memoryModelId => _memoryModelId;
+  String? get memoryModelKey =>
+      (_memoryModelProvider != null && _memoryModelId != null)
+          ? '${_memoryModelProvider!}::${_memoryModelId!}'
+          : null;
+  bool _memoryModelThinkingEnabled = false;
+  bool get memoryModelThinkingEnabled => _memoryModelThinkingEnabled;
+  String _memoryPromptLang = 'auto';
+  String get memoryPromptLang => _memoryPromptLang;
+  MemoryPromptLang get resolvedMemoryPromptLang {
+    switch (_memoryPromptLang) {
+      case 'zh':
+        return MemoryPromptLang.zh;
+      case 'en':
+        return MemoryPromptLang.en;
+      default:
+        final tag = _appLocaleTag;
+        return (tag != null && tag.startsWith('zh'))
+            ? MemoryPromptLang.zh
+            : MemoryPromptLang.en;
+    }
+  }
+  String _memoryGatePromptZh = MemoryPrompts.gateZh;
+  String _memoryGatePromptEn = MemoryPrompts.gateEn;
+  String _memoryExtractPromptZh = MemoryPrompts.extractZh;
+  String _memoryExtractPromptEn = MemoryPrompts.extractEn;
+  String _memorySmartAddPromptZh = MemoryPrompts.smartAddZh;
+  String _memorySmartAddPromptEn = MemoryPrompts.smartAddEn;
+  String _memorySmartAddBatchPromptZh = MemoryPrompts.smartAddBatchZh;
+  String _memorySmartAddBatchPromptEn = MemoryPrompts.smartAddBatchEn;
+  String _memoryProfileDistillPromptZh = MemoryPrompts.profileDistillZh;
+  String _memoryProfileDistillPromptEn = MemoryPrompts.profileDistillEn;
+  String get memoryGatePromptZh => _memoryGatePromptZh;
+  String get memoryGatePromptEn => _memoryGatePromptEn;
+  String get memoryExtractPromptZh => _memoryExtractPromptZh;
+  String get memoryExtractPromptEn => _memoryExtractPromptEn;
+  String get memorySmartAddPromptZh => _memorySmartAddPromptZh;
+  String get memorySmartAddPromptEn => _memorySmartAddPromptEn;
+  String get memorySmartAddBatchPromptZh => _memorySmartAddBatchPromptZh;
+  String get memorySmartAddBatchPromptEn => _memorySmartAddBatchPromptEn;
+  String get memoryProfileDistillPromptZh => _memoryProfileDistillPromptZh;
+  String get memoryProfileDistillPromptEn => _memoryProfileDistillPromptEn;
+  String _memoryRulesPromptZh = MemoryPrompts.rulesZh;
+  String _memoryRulesPromptEn = MemoryPrompts.rulesEn;
+  String get memoryRulesPromptZh => _memoryRulesPromptZh;
+  String get memoryRulesPromptEn => _memoryRulesPromptEn;
+  bool _memoryTraceEnabled = false;
+  bool get memoryTraceEnabled => _memoryTraceEnabled;
   static const String _providersOrderKey = 'providers_order_v1';
   static const String _providerGroupsKey =
       'provider_groups_v1'; // [{id,name,createdAt}]
@@ -73,7 +125,6 @@ class SettingsProvider extends ChangeNotifier {
     'Tensdaq',
     'DeepSeek',
     'AIhubmix',
-    '随想AI中转站',
     'Aliyun',
     'Zhipu AI',
     'Claude',
@@ -85,6 +136,17 @@ class SettingsProvider extends ChangeNotifier {
   };
   static const String _themeModeKey = 'theme_mode_v1';
   static const String _providerConfigsKey = 'provider_configs_v1';
+  static const String _providerConfigsBackupKey = 'provider_configs_backup_v1';
+  static const String _migrationsVersionKey = 'migrations_version_v1';
+  static const int _embeddingOverridesMigrationVersion = 3;
+  static const Set<String> _embeddingTypeStrings = {'embedding', 'embeddings'};
+  static const Set<String> _embeddingChatOnlyFields = {
+    'abilities',
+    'output',
+    'builtInTools',
+    'built_in_tools',
+    'tools',
+  };
   static const String _pinnedModelsKey = 'pinned_models_v1';
   static const String _selectedModelKey = 'selected_model_v1';
   static const String _titleModelKey = 'title_model_v1';
@@ -101,48 +163,9 @@ class SettingsProvider extends ChangeNotifier {
   static const String _compressPromptKey = 'compress_prompt_v1';
   static const String _themePaletteKey = 'theme_palette_v1';
   static const String _useDynamicColorKey = 'use_dynamic_color_v1';
-  static const String _customThemesKey = 'custom_themes_v1';
-  static const String _customThemeSelectedKey = 'custom_theme_selected_v1';
-  // Legacy single-custom-palette keys (migrated into _customThemesKey on load)
-  static const String _legacyCustomSeedColorKey = 'theme_custom_seed_v1';
-  static const String _legacyCustomPrimaryOverrideKey =
-      'theme_custom_primary_v1';
   static const String _thinkingBudgetKey = 'thinking_budget_v1';
   static const String _titleGenerationThinkingEnabledKey =
       'title_generation_thinking_enabled_v1';
-  static const String _summaryGenerationThinkingEnabledKey =
-      'summary_generation_thinking_enabled_v1';
-  static const String _suggestionGenerationThinkingEnabledKey =
-      'suggestion_generation_thinking_enabled_v1';
-  static const String _compressGenerationThinkingEnabledKey =
-      'compress_generation_thinking_enabled_v1';
-  static const String _translateGenerationThinkingEnabledKey =
-      'translate_generation_thinking_enabled_v1';
-  static const String _ocrGenerationThinkingEnabledKey =
-      'ocr_generation_thinking_enabled_v1';
-  static const String _memoryModelKey = 'memory_model_v1';
-  static const String _memoryModelThinkingEnabledKey =
-      'memory_model_thinking_enabled_v1';
-  static const String _memoryPromptLangKey = 'memory_prompt_lang_v1';
-  static const String _memoryTraceEnabledKey = 'memory_trace_enabled_v1';
-  static const String _memoryRulesPromptZhKey = 'memory_rules_prompt_zh_v1';
-  static const String _memoryRulesPromptEnKey = 'memory_rules_prompt_en_v1';
-  static const String _memoryGatePromptZhKey = 'memory_gate_prompt_zh_v1';
-  static const String _memoryGatePromptEnKey = 'memory_gate_prompt_en_v1';
-  static const String _memoryExtractPromptZhKey = 'memory_extract_prompt_zh_v1';
-  static const String _memoryExtractPromptEnKey = 'memory_extract_prompt_en_v1';
-  static const String _memorySmartAddPromptZhKey =
-      'memory_smart_add_prompt_zh_v1';
-  static const String _memorySmartAddPromptEnKey =
-      'memory_smart_add_prompt_en_v1';
-  static const String _memorySmartAddBatchPromptZhKey =
-      'memory_smart_add_batch_prompt_zh_v1';
-  static const String _memorySmartAddBatchPromptEnKey =
-      'memory_smart_add_batch_prompt_en_v1';
-  static const String _memoryProfileDistillPromptZhKey =
-      'memory_profile_distill_prompt_zh_v1';
-  static const String _memoryProfileDistillPromptEnKey =
-      'memory_profile_distill_prompt_en_v1';
   static const String _displayShowUserAvatarKey = 'display_show_user_avatar_v1';
   static const String _displayShowModelIconKey = 'display_show_model_icon_v1';
   static const String _displayShowModelNameTimestampKey =
@@ -231,11 +254,6 @@ class SettingsProvider extends ChangeNotifier {
   static const String _displayShowChatListDateKey =
       'display_show_chat_list_date_v1';
   static const String _imageCropperEnabledKey = 'image_cropper_enabled_v1';
-  static const String _imageUploadQualityKey = 'image_upload_quality_v1';
-  static const String _imageCompressCustomQualityKey =
-      'image_compress_custom_quality_v1';
-  static const String _imageCompressTransparentEnabledKey =
-      'image_compress_transparent_enabled_v1';
   static const String _displayMobileCodeBlockWrapKey =
       'display_mobile_code_block_wrap_v1';
   static const String _displayAutoCollapseCodeBlockKey =
@@ -326,14 +344,10 @@ class SettingsProvider extends ChangeNotifier {
       'localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,::1';
   // TTS services (network)
   static const String _ttsServicesKey = 'tts_services_v1';
-  static const String _ttsSelectedServiceIdKey = 'tts_selected_service_id_v1';
-  // Legacy index key, read once during migration.
   static const String _ttsSelectedKey = 'tts_selected_v1';
   static const String _ttsAutoPlayAssistantRepliesKey =
       'tts_auto_play_assistant_replies_v1';
   static const String _ttsTextSelectionModeKey = 'tts_text_selection_mode_v1';
-  static const String _asrServicesKey = 'asr_services_v1';
-  static const String _asrSelectedServiceIdKey = 'asr_selected_service_id_v1';
   // Desktop UI
   static const String _desktopSidebarWidthKey = 'desktop_sidebar_width_v1';
   static const String _desktopSidebarOpenKey = 'desktop_sidebar_open_v1';
@@ -342,42 +356,18 @@ class SettingsProvider extends ChangeNotifier {
 
   // ===== Network TTS services =====
   List<TtsServiceOptions> _ttsServices = const <TtsServiceOptions>[];
-  String? _selectedTtsServiceId; // null => use System TTS
+  int _ttsServiceSelected = -1; // -1 => use System TTS
   bool _ttsAutoPlayAssistantReplies = false;
   TtsTextSelectionMode _ttsTextSelectionMode = TtsTextSelectionMode.fullText;
   List<TtsServiceOptions> get ttsServices => _ttsServices;
-  String? get selectedTtsServiceId => _selectedTtsServiceId;
-  int get ttsServiceSelected {
-    final selectedId = _selectedTtsServiceId;
-    if (selectedId == null) return -1;
-    return _ttsServices.indexWhere((service) => service.id == selectedId);
-  }
-
-  bool get usingSystemTts => _selectedTtsServiceId == null;
+  int get ttsServiceSelected => _ttsServiceSelected;
+  bool get usingSystemTts => _ttsServiceSelected < 0;
   bool get ttsAutoPlayAssistantReplies => _ttsAutoPlayAssistantReplies;
   TtsTextSelectionMode get ttsTextSelectionMode => _ttsTextSelectionMode;
-  TtsServiceOptions? get selectedTtsService {
-    final selectedId = _selectedTtsServiceId;
-    if (selectedId == null) return null;
-    for (final service in _ttsServices) {
-      if (service.id == selectedId) return service;
-    }
-    return null;
-  }
-
-  // ASR is opt-in. An empty list intentionally keeps voice input hidden.
-  List<AsrServiceOptions> _asrServices = const <AsrServiceOptions>[];
-  String? _selectedAsrServiceId;
-  List<AsrServiceOptions> get asrServices => _asrServices;
-  String? get selectedAsrServiceId => _selectedAsrServiceId;
-  AsrServiceOptions? get selectedAsrService {
-    final selectedId = _selectedAsrServiceId;
-    if (selectedId == null) return null;
-    for (final service in _asrServices) {
-      if (service.id == selectedId) return service;
-    }
-    return null;
-  }
+  TtsServiceOptions? get selectedTtsService =>
+      (_ttsServiceSelected >= 0 && _ttsServiceSelected < _ttsServices.length)
+      ? _ttsServices[_ttsServiceSelected]
+      : null;
 
   List<String> _providersOrder = const [];
   List<String> get providersOrder => _providersOrder;
@@ -427,21 +417,6 @@ class SettingsProvider extends ChangeNotifier {
   bool get useDynamicColor => _useDynamicColor;
   bool _dynamicColorSupported = false; // runtime capability, not persisted
   bool get dynamicColorSupported => _dynamicColorSupported;
-
-  // Custom user themes (RikkaHub-style: name + primary/secondary/tertiary)
-  List<CustomTheme> _customThemes = const <CustomTheme>[];
-  List<CustomTheme> get customThemes =>
-      List<CustomTheme>.unmodifiable(_customThemes);
-  String? _selectedCustomThemeId;
-  String? get selectedCustomThemeId => _selectedCustomThemeId;
-  CustomTheme? get selectedCustomTheme {
-    final id = _selectedCustomThemeId;
-    if (id == null) return null;
-    for (final t in _customThemes) {
-      if (t.id == id) return t;
-    }
-    return null;
-  }
 
   // When enabled, force pure white/black backgrounds regardless of theme color
   bool _usePureBackground = false;
@@ -521,11 +496,6 @@ class SettingsProvider extends ChangeNotifier {
     );
     switch (kind) {
       case ProviderKind.openai:
-        final modelForCheck = resolveOpenAIUpstreamModelId(
-          providerKey,
-          modelId,
-        );
-        return openAISupportsMaxReasoning(modelForCheck);
       case ProviderKind.google:
         return false;
       case ProviderKind.claude:
@@ -545,12 +515,6 @@ class SettingsProvider extends ChangeNotifier {
     final lower = modelId.trim().toLowerCase();
     if (!lower.contains('claude-')) return false;
     if (lower.contains('fable') || lower.contains('mythos')) return true;
-    if (RegExp(
-      r'claude-(?:opus|sonnet)-5(?:$|[._:@/-])',
-      caseSensitive: false,
-    ).hasMatch(lower)) {
-      return true;
-    }
     final m = RegExp(
       r'claude-(opus|sonnet)-(\d+)[-.](\d+)',
       caseSensitive: false,
@@ -575,12 +539,6 @@ class SettingsProvider extends ChangeNotifier {
     final lower = modelId.trim().toLowerCase();
     if (!lower.contains('claude-')) return false;
     if (lower.contains('fable') || lower.contains('mythos')) return true;
-    if (RegExp(
-      r'claude-(?:opus|sonnet)-5(?:$|[._:@/-])',
-      caseSensitive: false,
-    ).hasMatch(lower)) {
-      return true;
-    }
     final m = RegExp(
       r'claude-(opus|sonnet)-(\d+)[-.](\d+)',
       caseSensitive: false,
@@ -666,21 +624,87 @@ class SettingsProvider extends ChangeNotifier {
   int _appLaunchCount = 0;
   int get appLaunchCount => _appLaunchCount;
 
-  SettingsProvider(this._preferences) {
-    _loaded = _load();
+  SettingsProvider() {
+    _load();
   }
 
-  SettingsProvider._withoutLoad(this._preferences)
-    : _loaded = Future<void>.value();
+  Future<_MigrationResult> _migrateEmbeddingModelOverrides(
+    SharedPreferences prefs,
+  ) async {
+    Map<String, ProviderConfig>? nextProviderConfigs;
+    int providersChanged = 0;
+    int modelsChanged = 0;
 
-  final BusinessPreferences _preferences;
-  late final Future<void> _loaded;
-  Future<void> get loaded => _loaded;
+    for (final entry in _providerConfigs.entries) {
+      final providerKey = entry.key;
+      final cfg = entry.value;
+      Map<String, dynamic>? nextOverrides;
+
+      for (final ovEntry in cfg.modelOverrides.entries) {
+        final modelKey = ovEntry.key;
+        final rawOv = ovEntry.value;
+        if (rawOv is! Map) continue;
+
+        final normalizedRawOv = rawOv.map((k, v) => MapEntry(k.toString(), v));
+        final t = (normalizedRawOv['type'] ?? normalizedRawOv['t'] ?? '')
+            .toString()
+            .trim()
+            .toLowerCase();
+        if (!_embeddingTypeStrings.contains(t)) continue;
+
+        final hasChatOnlyKeys = _embeddingChatOnlyFields.any(
+          normalizedRawOv.containsKey,
+        );
+        if (!hasChatOnlyKeys) continue;
+
+        nextOverrides ??= Map<String, dynamic>.from(cfg.modelOverrides);
+        final m = Map<String, dynamic>.from(normalizedRawOv);
+        for (final k in _embeddingChatOnlyFields) {
+          m.remove(k);
+        }
+        nextOverrides[modelKey] = m;
+        modelsChanged++;
+      }
+
+      if (nextOverrides == null) continue;
+      nextProviderConfigs ??= Map<String, ProviderConfig>.from(
+        _providerConfigs,
+      );
+      nextProviderConfigs[providerKey] = cfg.copyWith(
+        modelOverrides: nextOverrides,
+      );
+      providersChanged++;
+    }
+
+    if (nextProviderConfigs == null) return _MigrationResult.noChange;
+    try {
+      final map = nextProviderConfigs.map((k, v) => MapEntry(k, v.toJson()));
+      final encoded = jsonEncode(map);
+      final ok = await prefs.setString(_providerConfigsKey, encoded);
+      if (!ok) return _MigrationResult.failed;
+    } catch (e, st) {
+      assert(() {
+        debugPrint(
+          '[SettingsProvider] provider configs migration persist failed: $e',
+        );
+        debugPrint('$st');
+        return true;
+      }());
+      return _MigrationResult.failed;
+    }
+
+    _providerConfigs = nextProviderConfigs;
+    assert(() {
+      debugPrint(
+        '[SettingsProvider] embedding overrides migration: providers=$providersChanged, models=$modelsChanged',
+      );
+      return true;
+    }());
+    return _MigrationResult.applied;
+  }
 
   Future<void> _load() async {
-    final prefs = _preferences;
-    await prefs.load();
-    final localPreferences = await SharedPreferences.getInstance();
+    final prefs = await SharedPreferences.getInstance();
     _providersOrder = prefs.getStringList(_providersOrderKey) ?? [];
     final m = prefs.getString(_themeModeKey);
     switch (m) {
@@ -695,7 +719,7 @@ class SettingsProvider extends ChangeNotifier {
     }
     _themePaletteId = prefs.getString(_themePaletteKey) ?? 'default';
     _useDynamicColor = prefs.getBool(_useDynamicColorKey) ?? true;
-    _loadCustomThemes(prefs);
+    var providerConfigsLoaded = false;
     final cfgStr = prefs.getString(_providerConfigsKey);
     if (cfgStr != null && cfgStr.isNotEmpty) {
       try {
@@ -704,6 +728,7 @@ class SettingsProvider extends ChangeNotifier {
           (k, v) =>
               MapEntry(k, ProviderConfig.fromJson(v as Map<String, dynamic>)),
         );
+        providerConfigsLoaded = true;
       } catch (e, st) {
         assert(() {
           debugPrint('[SettingsProvider] providerConfigs decode failed: $e');
@@ -711,6 +736,83 @@ class SettingsProvider extends ChangeNotifier {
           return true;
         }());
       }
+    }
+
+    // Cleanup legacy embedding overrides persisted before type-switch safeguards.
+    try {
+      final migrationVersion = prefs.getInt(_migrationsVersionKey) ?? 0;
+      if (providerConfigsLoaded &&
+          migrationVersion < _embeddingOverridesMigrationVersion) {
+        try {
+          FlutterLogger.log(
+            '[SettingsProvider] provider modelOverrides migration start',
+            tag: 'Migration',
+          );
+        } catch (_) {}
+
+        var backupOk = true;
+        if (!prefs.containsKey(_providerConfigsBackupKey)) {
+          final backup = _providerConfigs.map(
+            (k, v) => MapEntry(k, v.toJson()),
+          );
+          backupOk = await prefs.setString(
+            _providerConfigsBackupKey,
+            jsonEncode(backup),
+          );
+          assert(() {
+            debugPrint(
+              '[SettingsProvider] provider configs backup saved before migration.',
+            );
+            return true;
+          }());
+          if (!backupOk) {
+            assert(() {
+              debugPrint(
+                '[SettingsProvider] provider configs backup failed; abort migration.',
+              );
+              return true;
+            }());
+          }
+        }
+
+        if (backupOk) {
+          final result = await _migrateEmbeddingModelOverrides(prefs);
+          if (result != _MigrationResult.failed) {
+            await prefs.setInt(
+              _migrationsVersionKey,
+              _embeddingOverridesMigrationVersion,
+            );
+          }
+          assert(() {
+            if (result == _MigrationResult.applied) {
+              debugPrint(
+                '[SettingsProvider] provider modelOverrides migration applied.',
+              );
+            }
+            return true;
+          }());
+          try {
+            FlutterLogger.log(
+              '[SettingsProvider] provider modelOverrides migration done (result=$result)',
+              tag: 'Migration',
+            );
+          } catch (_) {}
+        }
+      }
+    } catch (e, st) {
+      try {
+        FlutterLogger.log(
+          '[SettingsProvider] provider modelOverrides migration failed: $e\n$st',
+          tag: 'Migration',
+        );
+      } catch (_) {}
+      assert(() {
+        debugPrint(
+          '[SettingsProvider] provider modelOverrides migration failed: $e',
+        );
+        debugPrint('$st');
+        return true;
+      }());
     }
 
     // load provider grouping
@@ -869,83 +971,7 @@ class SettingsProvider extends ChangeNotifier {
     // load thinking budget (reasoning strength)
     _thinkingBudget = prefs.getInt(_thinkingBudgetKey);
     _titleGenerationThinkingEnabled =
-        prefs.getBool(_titleGenerationThinkingEnabledKey) ?? false;
-    _summaryGenerationThinkingEnabled =
-        prefs.getBool(_summaryGenerationThinkingEnabledKey) ?? false;
-    _suggestionGenerationThinkingEnabled =
-        prefs.getBool(_suggestionGenerationThinkingEnabledKey) ?? false;
-    _compressGenerationThinkingEnabled =
-        prefs.getBool(_compressGenerationThinkingEnabledKey) ?? false;
-    _translateGenerationThinkingEnabled =
-        prefs.getBool(_translateGenerationThinkingEnabledKey) ?? false;
-    _ocrGenerationThinkingEnabled =
-        prefs.getBool(_ocrGenerationThinkingEnabledKey) ?? false;
-
-    // memory system v1 (§4.2)
-    final memorySel = prefs.getString(_memoryModelKey);
-    if (memorySel != null && memorySel.contains('::')) {
-      final parts = memorySel.split('::');
-      if (parts.length >= 2) {
-        _memoryModelProvider = parts[0];
-        _memoryModelId = parts.sublist(1).join('::');
-      }
-    }
-    _memoryModelThinkingEnabled =
-        prefs.getBool(_memoryModelThinkingEnabledKey) ?? false;
-    final memoryLang = prefs.getString(_memoryPromptLangKey);
-    _memoryPromptLang = (memoryLang == 'zh' || memoryLang == 'en')
-        ? memoryLang!
-        : 'auto';
-    _memoryTraceEnabled = prefs.getBool(_memoryTraceEnabledKey) ?? true;
-    MemoryTraceRecorder.instance.setEnabled(_memoryTraceEnabled);
-    _memoryRulesPromptZh = _nonEmptyOr(
-      prefs.getString(_memoryRulesPromptZhKey),
-      MemoryPrompts.rulesZh,
-    );
-    _memoryRulesPromptEn = _nonEmptyOr(
-      prefs.getString(_memoryRulesPromptEnKey),
-      MemoryPrompts.rulesEn,
-    );
-    _memoryGatePromptZh = _nonEmptyOr(
-      prefs.getString(_memoryGatePromptZhKey),
-      MemoryPrompts.gateZh,
-    );
-    _memoryGatePromptEn = _nonEmptyOr(
-      prefs.getString(_memoryGatePromptEnKey),
-      MemoryPrompts.gateEn,
-    );
-    _memoryExtractPromptZh = _nonEmptyOr(
-      prefs.getString(_memoryExtractPromptZhKey),
-      MemoryPrompts.extractZh,
-    );
-    _memoryExtractPromptEn = _nonEmptyOr(
-      prefs.getString(_memoryExtractPromptEnKey),
-      MemoryPrompts.extractEn,
-    );
-    _memorySmartAddPromptZh = _nonEmptyOr(
-      prefs.getString(_memorySmartAddPromptZhKey),
-      MemoryPrompts.smartAddZh,
-    );
-    _memorySmartAddPromptEn = _nonEmptyOr(
-      prefs.getString(_memorySmartAddPromptEnKey),
-      MemoryPrompts.smartAddEn,
-    );
-    _memorySmartAddBatchPromptZh = _nonEmptyOr(
-      prefs.getString(_memorySmartAddBatchPromptZhKey),
-      MemoryPrompts.smartAddBatchZh,
-    );
-    _memorySmartAddBatchPromptEn = _nonEmptyOr(
-      prefs.getString(_memorySmartAddBatchPromptEnKey),
-      MemoryPrompts.smartAddBatchEn,
-    );
-    _memoryProfileDistillPromptZh = _nonEmptyOr(
-      prefs.getString(_memoryProfileDistillPromptZhKey),
-      MemoryPrompts.profileDistillZh,
-    );
-    _memoryProfileDistillPromptEn = _nonEmptyOr(
-      prefs.getString(_memoryProfileDistillPromptEnKey),
-      MemoryPrompts.profileDistillEn,
-    );
+        prefs.getBool(_titleGenerationThinkingEnabledKey) ?? true;
 
     // display settings
     _showUserAvatar = prefs.getBool(_displayShowUserAvatarKey) ?? true;
@@ -1012,8 +1038,7 @@ class SettingsProvider extends ChangeNotifier {
         false;
     _requestLogEnabled = prefs.getBool(_requestLogEnabledKey) ?? false;
     await RequestLogger.setEnabled(_requestLogEnabled);
-    _flutterLogEnabled =
-        localPreferences.getBool(_flutterLogEnabledKey) ?? false;
+    _flutterLogEnabled = prefs.getBool(_flutterLogEnabledKey) ?? false;
     await FlutterLogger.setEnabled(_flutterLogEnabled);
     _logSaveOutput = prefs.getBool(_logSaveOutputKey) ?? true;
     RequestLogger.saveOutput = _logSaveOutput;
@@ -1047,8 +1072,7 @@ class SettingsProvider extends ChangeNotifier {
       default:
         _desktopSendShortcut = DesktopSendShortcut.enter;
     }
-    _chatFontScale =
-        localPreferences.getDouble(_displayChatFontScaleKey) ?? 1.0;
+    _chatFontScale = prefs.getDouble(_displayChatFontScaleKey) ?? 1.0;
     _autoScrollEnabled = prefs.getBool(_displayAutoScrollEnabledKey) ?? true;
     _autoScrollIdleSeconds =
         prefs.getInt(_displayAutoScrollIdleSecondsKey) ?? 8;
@@ -1082,17 +1106,6 @@ class SettingsProvider extends ChangeNotifier {
         prefs.getBool(_displayEnableAssistantMarkdownKey) ?? true;
     _showChatListDate = prefs.getBool(_displayShowChatListDateKey) ?? false;
     _imageCropperEnabled = prefs.getBool(_imageCropperEnabledKey) ?? false;
-    _imageUploadQuality = switch (prefs.getString(_imageUploadQualityKey)) {
-      'original' => ImageUploadQuality.original,
-      'high' => ImageUploadQuality.high,
-      'saver' => ImageUploadQuality.saver,
-      'custom' => ImageUploadQuality.custom,
-      _ => ImageUploadQuality.balanced,
-    };
-    _imageCompressCustomQuality =
-        (prefs.getInt(_imageCompressCustomQualityKey) ?? 85).clamp(10, 100);
-    _imageCompressTransparentEnabled =
-        prefs.getBool(_imageCompressTransparentEnabledKey) ?? false;
     _mobileCodeBlockWrap =
         prefs.getBool(_displayMobileCodeBlockWrapKey) ?? false;
     _autoCollapseCodeBlock =
@@ -1178,6 +1191,55 @@ class SettingsProvider extends ChangeNotifier {
       await prefs.setString(_appLocaleKey, 'system');
     }
 
+    // Memory system settings
+    _memoryModelProvider = prefs.getString('memory_model_provider');
+    if (_memoryModelProvider != null && _memoryModelProvider!.isEmpty) {
+      _memoryModelProvider = null;
+    }
+    _memoryModelId = prefs.getString('memory_model_id');
+    if (_memoryModelId != null && _memoryModelId!.isEmpty) {
+      _memoryModelId = null;
+    }
+    _memoryModelThinkingEnabled =
+        prefs.getBool('memory_model_thinking_enabled') ?? false;
+    _memoryPromptLang = prefs.getString('memory_prompt_lang') ?? 'auto';
+    _memoryRulesPromptZh =
+        prefs.getString('memory_rules_prompt_zh') ?? MemoryPrompts.rulesZh;
+    _memoryRulesPromptEn =
+        prefs.getString('memory_rules_prompt_en') ?? MemoryPrompts.rulesEn;
+    _memoryGatePromptZh =
+        prefs.getString('memory_gate_prompt_zh') ?? MemoryPrompts.gateZh;
+    _memoryGatePromptEn =
+        prefs.getString('memory_gate_prompt_en') ?? MemoryPrompts.gateEn;
+    _memoryExtractPromptZh =
+        prefs.getString('memory_extract_prompt_zh') ?? MemoryPrompts.extractZh;
+    _memoryExtractPromptEn =
+        prefs.getString('memory_extract_prompt_en') ?? MemoryPrompts.extractEn;
+    _memorySmartAddPromptZh =
+        prefs.getString('memory_smart_add_prompt_zh') ?? MemoryPrompts.smartAddZh;
+    _memorySmartAddPromptEn =
+        prefs.getString('memory_smart_add_prompt_en') ?? MemoryPrompts.smartAddEn;
+    _memorySmartAddBatchPromptZh =
+        prefs.getString('memory_smart_add_batch_prompt_zh') ??
+            MemoryPrompts.smartAddBatchZh;
+    _memorySmartAddBatchPromptEn =
+        prefs.getString('memory_smart_add_batch_prompt_en') ??
+            MemoryPrompts.smartAddBatchEn;
+    _memoryProfileDistillPromptZh =
+        prefs.getString('memory_profile_distill_prompt_zh') ??
+            MemoryPrompts.profileDistillZh;
+    _memoryProfileDistillPromptEn =
+        prefs.getString('memory_profile_distill_prompt_en') ??
+            MemoryPrompts.profileDistillEn;
+    _memoryTraceEnabled =
+        prefs.getBool('memory_trace_enabled') ?? false;
+    if (_memoryTraceEnabled) {
+      MemoryTraceRecorder.instance.setEnabled(true);
+    }
+    // Chat real-time notification
+    _chatRealtimeNotificationEnabled =
+        prefs.getBool(_chatRealtimeNotificationKey) ?? true;
+
     // Android background chat mode (Android only; default ON on first run)
     try {
       final rawBg = prefs.getString(_androidBackgroundChatModeKey);
@@ -1215,12 +1277,18 @@ class SettingsProvider extends ChangeNotifier {
     if (searchServicesStr != null && searchServicesStr.isNotEmpty) {
       try {
         final list = jsonDecode(searchServicesStr) as List;
-        final decoded = list
+        final loadedServices = list
             .map(
               (e) => SearchServiceOptions.fromJson(e as Map<String, dynamic>),
             )
             .toList();
-        if (decoded.isNotEmpty) _searchServices = decoded;
+        final loadedSelected = prefs.getInt(_searchSelectedKey) ?? 0;
+        final normalized = _normalizeSearchServiceState(
+          loadedServices,
+          loadedSelected,
+        );
+        _searchServices = normalized.services;
+        _searchServiceSelected = normalized.selectedIndex;
       } catch (_) {}
     }
     final searchCommonStr = prefs.getString(_searchCommonKey);
@@ -1231,7 +1299,9 @@ class SettingsProvider extends ChangeNotifier {
         );
       } catch (_) {}
     }
-    _searchServiceSelected = prefs.getInt(_searchSelectedKey) ?? 0;
+    if (searchServicesStr == null || searchServicesStr.isEmpty) {
+      _searchServiceSelected = prefs.getInt(_searchSelectedKey) ?? 0;
+    }
     _searchEnabled = prefs.getBool(_searchEnabledKey) ?? false;
     _searchAutoTestOnLaunch =
         prefs.getBool(_searchAutoTestOnLaunchKey) ?? false;
@@ -1256,87 +1326,29 @@ class SettingsProvider extends ChangeNotifier {
       final ttsStr = prefs.getString(_ttsServicesKey) ?? '';
       if (ttsStr.isNotEmpty) {
         final list = jsonDecode(ttsStr) as List;
-        var generatedMissingIds = false;
         _ttsServices = [
-          for (final value in list)
-            TtsServiceOptions.fromJson(() {
-              final map = value is Map<String, dynamic>
-                  ? value
-                  : Map<String, dynamic>.from(value as Map);
-              if ((map['id'] ?? '').toString().trim().isEmpty) {
-                generatedMissingIds = true;
-              }
-              return map;
-            }()),
+          for (final e in list)
+            if (e is Map<String, dynamic>)
+              TtsServiceOptions.fromJson(e)
+            else
+              TtsServiceOptions.fromJson(Map<String, dynamic>.from(e as Map)),
         ];
-        // Legacy rows had no stable identifier. Persist generated IDs before
-        // migrating the selected index so the UUID remains valid next launch.
-        if (generatedMissingIds) {
-          await prefs.setString(
-            _ttsServicesKey,
-            jsonEncode(
-              _ttsServices.map((service) => service.toJson()).toList(),
-            ),
-          );
-        }
       } else {
         _ttsServices = const <TtsServiceOptions>[];
       }
     } catch (_) {
       _ttsServices = const <TtsServiceOptions>[];
     }
-    final storedTtsId = prefs.getString(_ttsSelectedServiceIdKey);
-    if (storedTtsId != null) {
-      _selectedTtsServiceId =
-          _ttsServices.any((service) => service.id == storedTtsId)
-          ? storedTtsId
-          : (_ttsServices.isEmpty ? null : _ttsServices.first.id);
-    } else {
-      final legacyIndex = prefs.getInt(_ttsSelectedKey) ?? -1;
-      _selectedTtsServiceId =
-          legacyIndex >= 0 && legacyIndex < _ttsServices.length
-          ? _ttsServices[legacyIndex].id
-          : null;
+    _ttsServiceSelected = prefs.getInt(_ttsSelectedKey) ?? -1;
+    if (_ttsServiceSelected >= _ttsServices.length) {
+      _ttsServiceSelected = _ttsServices.isEmpty ? -1 : 0;
+      await prefs.setInt(_ttsSelectedKey, _ttsServiceSelected);
     }
-    await _persistSelectedTtsServiceId(prefs);
-    await prefs.remove(_ttsSelectedKey);
     _ttsAutoPlayAssistantReplies =
         prefs.getBool(_ttsAutoPlayAssistantRepliesKey) ?? false;
     _ttsTextSelectionMode = TtsTextSelectionModeStorage.fromStorageValue(
       prefs.getString(_ttsTextSelectionModeKey),
     );
-    // ASR has no implicit system default: users explicitly add a provider.
-    final decodedAsrServices = <AsrServiceOptions>[];
-    try {
-      final raw = prefs.getString(_asrServicesKey) ?? '';
-      if (raw.isNotEmpty) {
-        final list = jsonDecode(raw) as List<dynamic>;
-        for (final value in list) {
-          try {
-            decodedAsrServices.add(
-              AsrServiceOptions.fromJson(
-                Map<String, dynamic>.from(value as Map),
-              ),
-            );
-          } catch (_) {
-            // Preserve other valid services when one legacy row is malformed.
-          }
-        }
-      }
-    } catch (_) {}
-    _asrServices = List<AsrServiceOptions>.unmodifiable(decodedAsrServices);
-    final storedAsrId = prefs.getString(_asrSelectedServiceIdKey);
-    _selectedAsrServiceId =
-        decodedAsrServices.any((service) => service.id == storedAsrId)
-        ? storedAsrId
-        : (decodedAsrServices.isEmpty ? null : decodedAsrServices.first.id);
-    if (_selectedAsrServiceId != storedAsrId) {
-      if (_selectedAsrServiceId == null) {
-        await prefs.remove(_asrSelectedServiceIdKey);
-      } else {
-        await prefs.setString(_asrSelectedServiceIdKey, _selectedAsrServiceId!);
-      }
-    }
     // webdav config
     final webdavStr = prefs.getString(_webDavConfigKey);
     if (webdavStr != null && webdavStr.isNotEmpty) {
@@ -1362,10 +1374,6 @@ class SettingsProvider extends ChangeNotifier {
       ensureProviderConfig('Tensdaq', defaultName: 'Tensdaq');
       ensureProviderConfig('SiliconFlow', defaultName: 'SiliconFlow');
       ensureProviderConfig('AIhubmix', defaultName: 'AIhubmix');
-      final seededConfigs = _providerConfigs.map(
-        (key, config) => MapEntry(key, config.toJson()),
-      );
-      await prefs.setString(_providerConfigsKey, jsonEncode(seededConfigs));
     }
 
     // kick off a one-time connectivity test for services (exclude local Bing)
@@ -1397,53 +1405,49 @@ class SettingsProvider extends ChangeNotifier {
   Future<void> setGlobalProxyEnabled(bool v) async {
     _globalProxyEnabled = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_globalProxyEnabledKey, _globalProxyEnabled);
   }
 
   Future<void> setGlobalProxyType(String v) async {
     _globalProxyType = v.trim().isEmpty ? 'http' : v.trim();
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_globalProxyTypeKey, _globalProxyType);
   }
 
   Future<void> setGlobalProxyHost(String v) async {
     _globalProxyHost = v.trim();
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_globalProxyHostKey, _globalProxyHost);
   }
 
   Future<void> setGlobalProxyPort(String v) async {
     _globalProxyPort = v.trim();
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_globalProxyPortKey, _globalProxyPort);
   }
 
   Future<void> setGlobalProxyUsername(String v) async {
     _globalProxyUsername = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_globalProxyUsernameKey, _globalProxyUsername);
   }
 
   Future<void> setGlobalProxyPassword(String v) async {
     _globalProxyPassword = v;
     notifyListeners();
-    final prefs = _preferences;
-    if (_globalProxyPassword.isEmpty) {
-      await prefs.remove(_globalProxyPasswordKey);
-    } else {
-      await prefs.setString(_globalProxyPasswordKey, _globalProxyPassword);
-    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_globalProxyPasswordKey, _globalProxyPassword);
   }
 
   Future<void> setGlobalProxyBypass(String v) async {
     _globalProxyBypass = v.trim();
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_globalProxyBypassKey, _globalProxyBypass);
   }
 
@@ -1490,50 +1494,28 @@ class SettingsProvider extends ChangeNotifier {
 
   Future<void> setTtsServices(List<TtsServiceOptions> v) async {
     _ttsServices = List.unmodifiable(v);
-    final prefs = _preferences;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
     final list = v.map((e) => e.toJson()).toList();
     await prefs.setString(_ttsServicesKey, jsonEncode(list));
-    if (_selectedTtsServiceId != null &&
-        !_ttsServices.any((service) => service.id == _selectedTtsServiceId)) {
-      _selectedTtsServiceId = _ttsServices.isEmpty
-          ? null
-          : _ttsServices.first.id;
-      await _persistSelectedTtsServiceId(prefs);
+    if (_ttsServiceSelected >= _ttsServices.length) {
+      _ttsServiceSelected = _ttsServices.isEmpty ? -1 : 0;
+      await prefs.setInt(_ttsSelectedKey, _ttsServiceSelected);
     }
-    notifyListeners();
   }
 
   Future<void> setTtsServiceSelected(int index) async {
-    await setSelectedTtsServiceId(
-      index >= 0 && index < _ttsServices.length ? _ttsServices[index].id : null,
-    );
-  }
-
-  Future<void> setSelectedTtsServiceId(String? id) async {
-    final normalized =
-        id != null && _ttsServices.any((service) => service.id == id)
-        ? id
-        : null;
-    if (_selectedTtsServiceId == normalized) return;
-    _selectedTtsServiceId = normalized;
-    await _persistSelectedTtsServiceId(_preferences);
+    _ttsServiceSelected = index;
     notifyListeners();
-  }
-
-  Future<void> _persistSelectedTtsServiceId(BusinessPreferences prefs) async {
-    final selectedId = _selectedTtsServiceId;
-    if (selectedId == null) {
-      await prefs.remove(_ttsSelectedServiceIdKey);
-    } else {
-      await prefs.setString(_ttsSelectedServiceIdKey, selectedId);
-    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_ttsSelectedKey, _ttsServiceSelected);
   }
 
   Future<void> setTtsAutoPlayAssistantReplies(bool value) async {
     if (_ttsAutoPlayAssistantReplies == value) return;
     _ttsAutoPlayAssistantReplies = value;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_ttsAutoPlayAssistantRepliesKey, value);
   }
 
@@ -1541,44 +1523,8 @@ class SettingsProvider extends ChangeNotifier {
     if (_ttsTextSelectionMode == mode) return;
     _ttsTextSelectionMode = mode;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_ttsTextSelectionModeKey, mode.storageValue);
-  }
-
-  Future<void> setAsrServices(List<AsrServiceOptions> value) async {
-    _asrServices = List<AsrServiceOptions>.unmodifiable(value);
-    if (!_asrServices.any((service) => service.id == _selectedAsrServiceId)) {
-      _selectedAsrServiceId = _asrServices.isEmpty
-          ? null
-          : _asrServices.first.id;
-    }
-    final prefs = _preferences;
-    await prefs.setString(
-      _asrServicesKey,
-      jsonEncode(_asrServices.map((service) => service.toJson()).toList()),
-    );
-    await _persistSelectedAsrServiceId(prefs);
-    notifyListeners();
-  }
-
-  Future<void> setSelectedAsrServiceId(String? id) async {
-    final normalized =
-        id != null && _asrServices.any((service) => service.id == id)
-        ? id
-        : null;
-    if (_selectedAsrServiceId == normalized) return;
-    _selectedAsrServiceId = normalized;
-    await _persistSelectedAsrServiceId(_preferences);
-    notifyListeners();
-  }
-
-  Future<void> _persistSelectedAsrServiceId(BusinessPreferences prefs) async {
-    final selectedId = _selectedAsrServiceId;
-    if (selectedId == null) {
-      await prefs.remove(_asrSelectedServiceIdKey);
-    } else {
-      await prefs.setString(_asrSelectedServiceIdKey, selectedId);
-    }
   }
 
   // ===== User Font Settings =====
@@ -1617,7 +1563,7 @@ class SettingsProvider extends ChangeNotifier {
     _appFontLocalAlias = null;
     _appFontLocalPath = null;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_displayAppFontFamilyKey, _appFontFamily ?? '');
     await prefs.setBool(_displayAppFontIsGoogleKey, _appFontIsGoogle);
     await prefs.remove(_displayAppFontLocalAliasKey);
@@ -1632,7 +1578,7 @@ class SettingsProvider extends ChangeNotifier {
     _codeFontLocalAlias = null;
     _codeFontLocalPath = null;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_displayCodeFontFamilyKey, _codeFontFamily ?? '');
     await prefs.setBool(_displayCodeFontIsGoogleKey, _codeFontIsGoogle);
     await prefs.remove(_displayCodeFontLocalAliasKey);
@@ -1645,7 +1591,7 @@ class SettingsProvider extends ChangeNotifier {
     _appFontLocalAlias = null;
     _appFontLocalPath = null;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_displayAppFontFamilyKey, _appFontFamily!);
     await prefs.setBool(_displayAppFontIsGoogleKey, true);
     await prefs.remove(_displayAppFontLocalAliasKey);
@@ -1658,7 +1604,7 @@ class SettingsProvider extends ChangeNotifier {
     _codeFontLocalAlias = null;
     _codeFontLocalPath = null;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_displayCodeFontFamilyKey, _codeFontFamily!);
     await prefs.setBool(_displayCodeFontIsGoogleKey, true);
     await prefs.remove(_displayCodeFontLocalAliasKey);
@@ -1685,7 +1631,7 @@ class SettingsProvider extends ChangeNotifier {
     _appFontLocalAlias = fam;
     _appFontLocalPath = localPath;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_displayAppFontFamilyKey, _appFontFamily!);
     await prefs.setBool(_displayAppFontIsGoogleKey, false);
     await prefs.setString(_displayAppFontLocalAliasKey, _appFontLocalAlias!);
@@ -1713,7 +1659,7 @@ class SettingsProvider extends ChangeNotifier {
     _codeFontLocalAlias = fam;
     _codeFontLocalPath = localPath;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_displayCodeFontFamilyKey, _codeFontFamily!);
     await prefs.setBool(_displayCodeFontIsGoogleKey, false);
     await prefs.setString(_displayCodeFontLocalAliasKey, _codeFontLocalAlias!);
@@ -1728,7 +1674,7 @@ class SettingsProvider extends ChangeNotifier {
     _appFontLocalAlias = null;
     _appFontLocalPath = null;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_displayAppFontFamilyKey);
     await prefs.remove(_displayAppFontIsGoogleKey);
     await prefs.remove(_displayAppFontLocalAliasKey);
@@ -1743,7 +1689,7 @@ class SettingsProvider extends ChangeNotifier {
     _codeFontLocalAlias = null;
     _codeFontLocalPath = null;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_displayCodeFontFamilyKey);
     await prefs.remove(_displayCodeFontIsGoogleKey);
     await prefs.remove(_displayCodeFontLocalAliasKey);
@@ -1752,7 +1698,7 @@ class SettingsProvider extends ChangeNotifier {
   }
 
   Future<void> _reloadLocalFontsIfAny() async {
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     // Load persisted values
     _appFontFamily = _nonEmpty(prefs.getString(_displayAppFontFamilyKey));
     _codeFontFamily = _nonEmpty(prefs.getString(_displayCodeFontFamilyKey));
@@ -1824,7 +1770,7 @@ class SettingsProvider extends ChangeNotifier {
 
   String? _nonEmpty(String? s) => (s == null || s.isEmpty) ? null : s;
 
-  Future<void> _persistFontSettings(BusinessPreferences prefs) async {
+  Future<void> _persistFontSettings(SharedPreferences prefs) async {
     if (_appFontFamily == null || _appFontFamily!.isEmpty) {
       await prefs.remove(_displayAppFontFamilyKey);
     } else {
@@ -1945,7 +1891,7 @@ class SettingsProvider extends ChangeNotifier {
     if ((w - _desktopSidebarWidth).abs() < 0.5) return;
     _desktopSidebarWidth = w;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(_desktopSidebarWidthKey, _desktopSidebarWidth);
   }
 
@@ -1953,7 +1899,7 @@ class SettingsProvider extends ChangeNotifier {
     if (_desktopSidebarOpen == open) return;
     _desktopSidebarOpen = open;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_desktopSidebarOpenKey, _desktopSidebarOpen);
   }
 
@@ -1961,7 +1907,7 @@ class SettingsProvider extends ChangeNotifier {
     if ((_desktopRightSidebarWidth - w).abs() < 0.5) return;
     _desktopRightSidebarWidth = w;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(
       _desktopRightSidebarWidthKey,
       _desktopRightSidebarWidth,
@@ -1973,7 +1919,7 @@ class SettingsProvider extends ChangeNotifier {
     if (_desktopTopicPosition == pos) return;
     _desktopTopicPosition = pos;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     final v = (pos == DesktopTopicPosition.right) ? 'right' : 'left';
     await prefs.setString(_desktopTopicPositionKey, v);
   }
@@ -1983,7 +1929,7 @@ class SettingsProvider extends ChangeNotifier {
     if (_desktopRightSidebarOpen == open) return;
     _desktopRightSidebarOpen = open;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_desktopRightSidebarOpenKey, _desktopRightSidebarOpen);
   }
 
@@ -1999,7 +1945,7 @@ class SettingsProvider extends ChangeNotifier {
     if (_appLocaleTag == tag) return;
     _appLocaleTag = tag;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_appLocaleKey, _appLocaleTag!);
   }
 
@@ -2007,7 +1953,7 @@ class SettingsProvider extends ChangeNotifier {
     if (_appLocaleTag == 'system') return;
     _appLocaleTag = 'system';
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_appLocaleKey, 'system');
   }
 
@@ -2039,7 +1985,7 @@ class SettingsProvider extends ChangeNotifier {
   Future<void> setWebDavConfig(WebDavConfig cfg) async {
     _webDavConfig = cfg;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_webDavConfigKey, jsonEncode(cfg.toJson()));
   }
 
@@ -2048,16 +1994,21 @@ class SettingsProvider extends ChangeNotifier {
   Future<void> setS3Config(S3Config cfg) async {
     _s3Config = cfg;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_s3ConfigKey, jsonEncode(cfg.toJson()));
   }
 
   Future<void> _initSearchConnectivityTests() async {
-    final services = List<SearchServiceOptions>.from(_searchServices);
+    final services = List<SearchServiceOptions>.from(
+      _normalizeSearchServiceState(
+        _searchServices,
+        _searchServiceSelected,
+      ).services,
+    );
     final common = _searchCommonOptions;
     for (final s in services) {
-      if (s is BingLocalOptions) {
-        _searchConnection[s.id] = null; // no label for local Bing
+      if (s is HybridLocalSearchOptions || s is BingLocalOptions) {
+        _searchConnection[s.id] = null; // no label for local HTML search
         continue;
       }
       // Run in background; don't await all
@@ -2089,24 +2040,10 @@ class SettingsProvider extends ChangeNotifier {
   }
 
   Future<void> setProvidersOrder(List<String> order) async {
-    var seededBuiltIn = false;
-    for (final key in order) {
-      if (_builtInProviderKeys.contains(key) &&
-          !_providerConfigs.containsKey(key)) {
-        ensureProviderConfig(key, defaultName: key);
-        seededBuiltIn = true;
-      }
-    }
     _providersOrder = List.unmodifiable(order);
     _cleanupProviderOrderAndGrouping();
     notifyListeners();
-    final prefs = _preferences;
-    if (seededBuiltIn) {
-      final configs = _providerConfigs.map(
-        (key, config) => MapEntry(key, config.toJson()),
-      );
-      await prefs.setString(_providerConfigsKey, jsonEncode(configs));
-    }
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList(_providersOrderKey, _providersOrder);
   }
 
@@ -2198,7 +2135,7 @@ class SettingsProvider extends ChangeNotifier {
     return changed;
   }
 
-  Future<void> _persistProviderGrouping(BusinessPreferences prefs) async {
+  Future<void> _persistProviderGrouping(SharedPreferences prefs) async {
     await prefs.setString(
       _providerGroupsKey,
       ProviderGroup.encodeList(_providerGroups),
@@ -2233,7 +2170,7 @@ class SettingsProvider extends ChangeNotifier {
     _providerUngroupedPosition = res.ungroupedIndex;
     _cleanupProviderOrderAndGrouping();
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await _persistProviderGrouping(prefs);
     return id;
   }
@@ -2256,7 +2193,7 @@ class SettingsProvider extends ChangeNotifier {
     _providerGroups = List.unmodifiable(mut);
     _cleanupProviderOrderAndGrouping();
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await _persistProviderGrouping(prefs);
   }
 
@@ -2273,7 +2210,7 @@ class SettingsProvider extends ChangeNotifier {
     _providerGroups = List.unmodifiable(mut);
     _cleanupProviderOrderAndGrouping();
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await _persistProviderGrouping(prefs);
   }
 
@@ -2297,7 +2234,7 @@ class SettingsProvider extends ChangeNotifier {
     _providerUngroupedPosition = res.ungroupedIndex;
     _cleanupProviderOrderAndGrouping();
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await _persistProviderGrouping(prefs);
   }
 
@@ -2318,7 +2255,7 @@ class SettingsProvider extends ChangeNotifier {
       ..addAll(res.collapsed);
     _cleanupProviderOrderAndGrouping();
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await _persistProviderGrouping(prefs);
   }
 
@@ -2338,7 +2275,7 @@ class SettingsProvider extends ChangeNotifier {
     }
     _cleanupProviderOrderAndGrouping();
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await _persistProviderGrouping(prefs);
   }
 
@@ -2395,7 +2332,7 @@ class SettingsProvider extends ChangeNotifier {
     _providerGroupMap = Map<String, String>.from(groupMap);
     _cleanupProviderOrderAndGrouping();
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await _persistProviderGrouping(prefs);
   }
 
@@ -2407,7 +2344,7 @@ class SettingsProvider extends ChangeNotifier {
     _providerGroupCollapsed[groupIdOrUngrouped] = value;
     _cleanupProviderOrderAndGrouping();
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await _persistProviderGrouping(prefs);
   }
 
@@ -2439,14 +2376,14 @@ class SettingsProvider extends ChangeNotifier {
     _providerGroupMap = Map<String, String>.from(res.providerGroupMap);
     _cleanupProviderOrderAndGrouping();
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await _persistProviderGrouping(prefs);
   }
 
   Future<void> setThemeMode(ThemeMode mode) async {
     _themeMode = mode;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     final v = mode == ThemeMode.light
         ? 'light'
         : mode == ThemeMode.dark
@@ -2459,7 +2396,7 @@ class SettingsProvider extends ChangeNotifier {
     if (_themePaletteId == id) return;
     _themePaletteId = id;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_themePaletteKey, id);
   }
 
@@ -2467,7 +2404,7 @@ class SettingsProvider extends ChangeNotifier {
     if (_useDynamicColor == v) return;
     _useDynamicColor = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_useDynamicColorKey, v);
   }
 
@@ -2475,127 +2412,8 @@ class SettingsProvider extends ChangeNotifier {
     if (_usePureBackground == v) return;
     _usePureBackground = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayUsePureBackgroundKey, v);
-  }
-
-  void _loadCustomThemes(BusinessPreferences prefs) {
-    final raw = prefs.getStringList(_customThemesKey) ?? const <String>[];
-    final themes = <CustomTheme>[];
-    for (final s in raw) {
-      try {
-        themes.add(CustomTheme.parse(s));
-      } catch (_) {}
-    }
-    _customThemes = themes;
-    _selectedCustomThemeId = prefs.getString(_customThemeSelectedKey);
-    if (_selectedCustomThemeId != null &&
-        !_customThemes.any((t) => t.id == _selectedCustomThemeId)) {
-      _selectedCustomThemeId = null;
-    }
-    // One-time migration from the legacy single seed/primary palette.
-    final legacyArgb =
-        prefs.getInt(_legacyCustomPrimaryOverrideKey) ??
-        prefs.getInt(_legacyCustomSeedColorKey);
-    if (legacyArgb != null) {
-      if (_customThemes.isEmpty) {
-        final migrated = CustomTheme(
-          id: 'migrated_$legacyArgb',
-          name: '',
-          primaryArgb: legacyArgb,
-        );
-        _customThemes = <CustomTheme>[migrated];
-        _selectedCustomThemeId ??= migrated.id;
-        unawaited(
-          prefs.setStringList(
-            _customThemesKey,
-            _customThemes.map((t) => t.export()).toList(),
-          ),
-        );
-        unawaited(prefs.setString(_customThemeSelectedKey, migrated.id));
-      }
-      unawaited(prefs.remove(_legacyCustomSeedColorKey));
-      unawaited(prefs.remove(_legacyCustomPrimaryOverrideKey));
-      unawaited(prefs.remove('theme_custom_surface_v1'));
-    }
-  }
-
-  Future<void> _persistCustomThemes() async {
-    final prefs = _preferences;
-    await prefs.setStringList(
-      _customThemesKey,
-      _customThemes.map((t) => t.export()).toList(),
-    );
-    final sel = _selectedCustomThemeId;
-    if (sel == null) {
-      await prefs.remove(_customThemeSelectedKey);
-    } else {
-      await prefs.setString(_customThemeSelectedKey, sel);
-    }
-  }
-
-  /// Insert or update a custom theme. Returns the saved theme (with an id
-  /// assigned when [theme.id] is empty).
-  Future<CustomTheme> saveCustomTheme(CustomTheme theme) async {
-    var t = theme;
-    if (t.id.isEmpty) {
-      t = t.copyWith(id: 'ct_${DateTime.now().microsecondsSinceEpoch}');
-    }
-    final idx = _customThemes.indexWhere((e) => e.id == t.id);
-    final next = List<CustomTheme>.of(_customThemes);
-    if (idx >= 0) {
-      next[idx] = t;
-    } else {
-      next.add(t);
-    }
-    _customThemes = next;
-    notifyListeners();
-    await _persistCustomThemes();
-    return t;
-  }
-
-  Future<void> deleteCustomTheme(String id) async {
-    if (!_customThemes.any((t) => t.id == id)) return;
-    _customThemes = _customThemes.where((t) => t.id != id).toList();
-    if (_selectedCustomThemeId == id) {
-      _selectedCustomThemeId = _customThemes.isEmpty
-          ? null
-          : _customThemes.first.id;
-      if (_selectedCustomThemeId == null &&
-          _themePaletteId == ThemePalettes.customPaletteId) {
-        _themePaletteId = ThemePalettes.defaultId;
-        unawaited(
-          _preferences.setString(_themePaletteKey, ThemePalettes.defaultId),
-        );
-      }
-    }
-    notifyListeners();
-    await _persistCustomThemes();
-  }
-
-  /// Select a custom theme and make it the active palette.
-  Future<void> selectCustomTheme(String id) async {
-    if (!_customThemes.any((t) => t.id == id)) return;
-    final changed =
-        _selectedCustomThemeId != id ||
-        _themePaletteId != ThemePalettes.customPaletteId;
-    if (!changed) return;
-    _selectedCustomThemeId = id;
-    _themePaletteId = ThemePalettes.customPaletteId;
-    notifyListeners();
-    final prefs = _preferences;
-    await prefs.setString(_customThemeSelectedKey, id);
-    await prefs.setString(_themePaletteKey, ThemePalettes.customPaletteId);
-  }
-
-  /// Parse a shared custom-theme JSON string, save it and return the stored
-  /// theme (a fresh id is assigned when the id is missing or already taken).
-  Future<CustomTheme> importCustomTheme(String source) {
-    var t = CustomTheme.parse(source);
-    if (t.id.isEmpty || _customThemes.any((e) => e.id == t.id)) {
-      t = t.copyWith(id: 'ct_${DateTime.now().microsecondsSinceEpoch}');
-    }
-    return saveCustomTheme(t);
   }
 
   // Display: chat message background style (affects user/assistant bubbles)
@@ -2609,7 +2427,7 @@ class SettingsProvider extends ChangeNotifier {
     if (_chatMessageBackgroundStyle == style) return;
     _chatMessageBackgroundStyle = style;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     final v = switch (style) {
       ChatMessageBackgroundStyle.frosted => 'frosted',
       ChatMessageBackgroundStyle.solid => 'solid',
@@ -2625,7 +2443,7 @@ class SettingsProvider extends ChangeNotifier {
     if (listEquals(_mobileAssistantEditTabOrder, next)) return;
     _mobileAssistantEditTabOrder = next;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList(_mobileAssistantEditTabOrderKey, next);
   }
 
@@ -2638,7 +2456,7 @@ class SettingsProvider extends ChangeNotifier {
     if (setEquals(_hiddenMobileAssistantEditTabs, next)) return;
     _hiddenMobileAssistantEditTabs = next;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList(_mobileAssistantEditTabHiddenKey, sorted);
   }
 
@@ -2649,8 +2467,20 @@ class SettingsProvider extends ChangeNotifier {
     if (_mobileAssistantDetailOutlineEnabled == enabled) return;
     _mobileAssistantDetailOutlineEnabled = enabled;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_mobileAssistantDetailOutlineEnabledKey, enabled);
+  }
+
+  // ===== Chat real-time notification settings =====
+  static const String _chatRealtimeNotificationKey = 'chat_realtime_notification_v1';
+  bool _chatRealtimeNotificationEnabled = true;
+  bool get chatRealtimeNotificationEnabled => _chatRealtimeNotificationEnabled;
+  Future<void> setChatRealtimeNotificationEnabled(bool v) async {
+    if (_chatRealtimeNotificationEnabled == v) return;
+    _chatRealtimeNotificationEnabled = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_chatRealtimeNotificationKey, v);
   }
 
   // ===== Android background chat generation =====
@@ -2664,7 +2494,7 @@ class SettingsProvider extends ChangeNotifier {
     if (_androidBackgroundChatMode == mode) return;
     _androidBackgroundChatMode = mode;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     final v = switch (mode) {
       AndroidBackgroundChatMode.onNotify => 'on_notify',
       AndroidBackgroundChatMode.on => 'on',
@@ -2695,7 +2525,7 @@ class SettingsProvider extends ChangeNotifier {
       _iosBackgroundNotificationsEnabled = false;
     }
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(
       _iosBackgroundGenerationEnabledKey,
       _iosBackgroundGenerationEnabled,
@@ -2714,7 +2544,7 @@ class SettingsProvider extends ChangeNotifier {
     _iosBackgroundTaskRefreshEnabled = v;
     if (v) _iosBackgroundGenerationEnabled = true;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(
       _iosBackgroundTaskRefreshEnabledKey,
       _iosBackgroundTaskRefreshEnabled,
@@ -2731,7 +2561,7 @@ class SettingsProvider extends ChangeNotifier {
     _iosLiveActivityEnabled = v;
     if (v) _iosBackgroundGenerationEnabled = true;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_iosLiveActivityEnabledKey, _iosLiveActivityEnabled);
     if (v) {
       await prefs.setBool(_iosBackgroundGenerationEnabledKey, true);
@@ -2746,7 +2576,7 @@ class SettingsProvider extends ChangeNotifier {
     _iosBackgroundNotificationsEnabled = v;
     if (v) _iosBackgroundGenerationEnabled = true;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(
       _iosBackgroundNotificationsEnabledKey,
       _iosBackgroundNotificationsEnabled,
@@ -2771,7 +2601,7 @@ class SettingsProvider extends ChangeNotifier {
   Future<void> setProviderConfig(String key, ProviderConfig config) async {
     _providerConfigs[key] = config;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     final map = _providerConfigs.map((k, v) => MapEntry(k, v.toJson()));
     await prefs.setString(_providerConfigsKey, jsonEncode(map));
   }
@@ -2934,7 +2764,7 @@ class SettingsProvider extends ChangeNotifier {
   /// Clears all global model selections (current, title, translate, OCR) that reference the given provider.
   /// Used when a provider is disabled or deleted.
   Future<void> clearSelectionsForProvider(String providerKey) async {
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     bool changed = false;
     if (_currentModelProvider == providerKey) {
       _currentModelProvider = null;
@@ -2980,12 +2810,6 @@ class SettingsProvider extends ChangeNotifier {
       await prefs.remove(_compressModelKey);
       changed = true;
     }
-    if (_memoryModelProvider == providerKey) {
-      _memoryModelProvider = null;
-      _memoryModelId = null;
-      await prefs.remove(_memoryModelKey);
-      changed = true;
-    }
     if (changed) notifyListeners();
   }
 
@@ -2995,7 +2819,7 @@ class SettingsProvider extends ChangeNotifier {
     String providerKey,
     String modelId,
   ) async {
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     bool changed = false;
     if (_currentModelProvider == providerKey && _currentModelId == modelId) {
       _currentModelProvider = null;
@@ -3043,12 +2867,6 @@ class SettingsProvider extends ChangeNotifier {
       await prefs.remove(_compressModelKey);
       changed = true;
     }
-    if (_memoryModelProvider == providerKey && _memoryModelId == modelId) {
-      _memoryModelProvider = null;
-      _memoryModelId = null;
-      await prefs.remove(_memoryModelKey);
-      changed = true;
-    }
     // Also remove from pinned if applicable
     final pinKey = '$providerKey::$modelId';
     if (_pinnedModels.contains(pinKey)) {
@@ -3069,7 +2887,7 @@ class SettingsProvider extends ChangeNotifier {
     _cleanupProviderOrderAndGrouping();
 
     // Clear selections referencing this provider to avoid re-creating defaults
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     if (_currentModelProvider == key) {
       _currentModelProvider = null;
       _currentModelId = null;
@@ -3107,11 +2925,6 @@ class SettingsProvider extends ChangeNotifier {
       _compressModelId = null;
       await prefs.remove(_compressModelKey);
     }
-    if (_memoryModelProvider == key) {
-      _memoryModelProvider = null;
-      _memoryModelId = null;
-      await prefs.remove(_memoryModelKey);
-    }
 
     // Remove pinned models for this provider
     final beforePinned = _pinnedModels.length;
@@ -3141,7 +2954,7 @@ class SettingsProvider extends ChangeNotifier {
       _pinnedModels.add(k);
     }
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList(_pinnedModelsKey, _pinnedModels.toList());
   }
 
@@ -3158,7 +2971,7 @@ class SettingsProvider extends ChangeNotifier {
     _currentModelProvider = providerKey;
     _currentModelId = modelId;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_selectedModelKey, '$providerKey::$modelId');
   }
 
@@ -3166,7 +2979,7 @@ class SettingsProvider extends ChangeNotifier {
     _currentModelProvider = null;
     _currentModelId = null;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_selectedModelKey);
   }
 
@@ -3200,7 +3013,7 @@ You need to summarize the conversation between user and assistant into a short t
     _titleModelProvider = providerKey;
     _titleModelId = modelId;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_titleModelKey, '$providerKey::$modelId');
   }
 
@@ -3208,14 +3021,14 @@ You need to summarize the conversation between user and assistant into a short t
     _titleModelProvider = null;
     _titleModelId = null;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_titleModelKey);
   }
 
   Future<void> setTitlePrompt(String prompt) async {
     _titlePrompt = prompt.trim().isEmpty ? defaultTitlePrompt : prompt;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_titlePromptKey, _titlePrompt);
   }
 
@@ -3249,7 +3062,7 @@ Please translate the <source_text> section:
     _translateModelProvider = providerKey;
     _translateModelId = modelId;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_translateModelKey, '$providerKey::$modelId');
   }
 
@@ -3257,14 +3070,14 @@ Please translate the <source_text> section:
     _translateModelProvider = null;
     _translateModelId = null;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_translateModelKey);
   }
 
   Future<void> setTranslatePrompt(String prompt) async {
     _translatePrompt = prompt.trim().isEmpty ? defaultTranslatePrompt : prompt;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_translatePromptKey, _translatePrompt);
   }
 
@@ -3275,14 +3088,14 @@ Please translate the <source_text> section:
     if (trimmed.isEmpty) return;
     _translateTargetLang = trimmed;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_translateTargetLangKey, trimmed);
   }
 
   Future<void> resetTranslateTargetLang() async {
     _translateTargetLang = null;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_translateTargetLangKey);
   }
 
@@ -3319,7 +3132,7 @@ Do not interpret or translate—only transcribe and describe what is visually pr
     _ocrModelProvider = providerKey;
     _ocrModelId = modelId;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_ocrModelKey, '$providerKey::$modelId');
   }
 
@@ -3328,7 +3141,7 @@ Do not interpret or translate—only transcribe and describe what is visually pr
     _ocrModelId = null;
     _ocrEnabled = false;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_ocrModelKey);
     await prefs.setBool(_ocrEnabledKey, false);
   }
@@ -3336,7 +3149,7 @@ Do not interpret or translate—only transcribe and describe what is visually pr
   Future<void> setOcrPrompt(String prompt) async {
     _ocrPrompt = prompt.trim().isEmpty ? defaultOcrPrompt : prompt;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_ocrPromptKey, _ocrPrompt);
   }
 
@@ -3350,7 +3163,7 @@ Do not interpret or translate—only transcribe and describe what is visually pr
     if (_ocrEnabled == value) return;
     _ocrEnabled = value;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_ocrEnabledKey, _ocrEnabled);
   }
 
@@ -3389,7 +3202,7 @@ Generate or update a brief summary of the user's questions and intentions.
     _summaryModelProvider = providerKey;
     _summaryModelId = modelId;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_summaryModelKey, '$providerKey::$modelId');
   }
 
@@ -3397,14 +3210,14 @@ Generate or update a brief summary of the user's questions and intentions.
     _summaryModelProvider = null;
     _summaryModelId = null;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_summaryModelKey);
   }
 
   Future<void> setSummaryPrompt(String prompt) async {
     _summaryPrompt = prompt.trim().isEmpty ? defaultSummaryPrompt : prompt;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_summaryPromptKey, _summaryPrompt);
   }
 
@@ -3446,7 +3259,7 @@ Rules:
     _suggestionModelProvider = providerKey;
     _suggestionModelId = modelId;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_suggestionModelKey, '$providerKey::$modelId');
   }
 
@@ -3454,7 +3267,7 @@ Rules:
     _suggestionModelProvider = null;
     _suggestionModelId = null;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_suggestionModelKey);
   }
 
@@ -3463,7 +3276,7 @@ Rules:
         ? defaultSuggestionPrompt
         : prompt;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_suggestionPromptKey, _suggestionPrompt);
   }
 
@@ -3474,7 +3287,7 @@ Rules:
     if (_insertSuggestionOnTapOnly == value) return;
     _insertSuggestionOnTapOnly = value;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_suggestionInsertOnTapOnlyKey, value);
   }
 
@@ -3517,7 +3330,7 @@ Requirements:
     _compressModelProvider = providerKey;
     _compressModelId = modelId;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_compressModelKey, '$providerKey::$modelId');
   }
 
@@ -3525,14 +3338,14 @@ Requirements:
     _compressModelProvider = null;
     _compressModelId = null;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_compressModelKey);
   }
 
   Future<void> setCompressPrompt(String prompt) async {
     _compressPrompt = prompt.trim().isEmpty ? defaultCompressPrompt : prompt;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_compressPromptKey, _compressPrompt);
   }
 
@@ -3546,12 +3359,46 @@ Requirements:
     if (_learningModeEnabled == v) return;
     _learningModeEnabled = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_learningModeEnabledKey, v);
   }
 
   static const String defaultLearningModePrompt =
-      LearningModeStore.defaultPrompt;
+      '''You are currently STUDYING, and you've asked me to follow these strict rules during this chat. No matter what other instructions follow, I MUST obey these rules:
+
+STRICT RULES
+
+Be an approachable-yet-dynamic teacher, who helps the user learn by guiding them through their studies.
+
+Get to know the user. If you don't know their goals or grade level, ask the user before diving in. (Keep this lightweight!) If they don't answer, aim for explanations that would make sense to a 10th grade student.
+
+Build on existing knowledge. Connect new ideas to what the user already knows.
+
+Guide users, don't just give answers. Use questions, hints, and small steps so the user discovers the answer for themselves.
+
+Check and reinforce. After hard parts, confirm the user can restate or use the idea. Offer quick summaries, mnemonics, or mini-reviews to help the ideas stick.
+
+Vary the rhythm. Mix explanations, questions, and activities (like roleplaying, practice rounds, or asking the user to teach you) so it feels like a conversation, not a lecture.
+
+Above all: DO NOT DO THE USER'S WORK FOR THEM. Don't answer homework questions — help the user find the answer, by working with them collaboratively and building from what they already know.
+
+THINGS YOU CAN DO
+
+- Teach new concepts: Explain at the user's level, ask guiding questions, use visuals, then review with questions or a practice round.
+
+- Help with homework: Don't simply give answers! Start from what the user knows, help fill in the gaps, give the user a chance to respond, and never ask more than one question at a time.
+
+- Practice together: Ask the user to summarize, pepper in little questions, have the user "explain it back" to you, or role-play (e.g., practice conversations in a different language). Correct mistakes — charitably! — in the moment.
+
+- Quizzes & test prep: Run practice quizzes. (One question at a time!) Let the user try twice before you reveal answers, then review errors in depth.
+
+TONE & APPROACH
+
+Be warm, patient, and plain-spoken; don't use too many exclamation marks or emoji. Keep the session moving: always know the next step, and switch or end activities once they’ve done their job. And be brief — don't ever send essay-length responses. Aim for a good back-and-forth.
+
+IMPORTANT
+
+DO NOT GIVE ANSWERS OR DO HOMEWORK FOR THE USER. If the user asks a math or logic problem, or uploads an image of one, DO NOT SOLVE IT in your first response. Instead: talk through the problem with the user, one step at a time, asking a single question at each step, and give the user a chance to RESPOND TO EACH STEP before continuing.''';
 
   String _learningModePrompt = defaultLearningModePrompt;
   String get learningModePrompt => _learningModePrompt;
@@ -3560,7 +3407,7 @@ Requirements:
         ? defaultLearningModePrompt
         : prompt;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_learningModePromptKey, _learningModePrompt);
   }
 
@@ -3574,7 +3421,7 @@ Requirements:
   Future<void> setThinkingBudget(int? budget) async {
     _thinkingBudget = budget;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     if (budget == null) {
       await prefs.remove(_thinkingBudgetKey);
     } else {
@@ -3582,379 +3429,22 @@ Requirements:
     }
   }
 
-  // Background model thinking toggles. All default to off to keep these
-  // latency-sensitive utility requests fast.
-  bool _titleGenerationThinkingEnabled = false;
+  // Title generation thinking toggle. Defaults to true for backward compatibility.
+  bool _titleGenerationThinkingEnabled = true;
   bool get titleGenerationThinkingEnabled => _titleGenerationThinkingEnabled;
   Future<void> setTitleGenerationThinkingEnabled(bool enabled) async {
     if (_titleGenerationThinkingEnabled == enabled) return;
     _titleGenerationThinkingEnabled = enabled;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_titleGenerationThinkingEnabledKey, enabled);
   }
 
   Future<void> resetTitleGenerationThinkingEnabled() async =>
-      setTitleGenerationThinkingEnabled(false);
-
-  bool _summaryGenerationThinkingEnabled = false;
-  bool get summaryGenerationThinkingEnabled =>
-      _summaryGenerationThinkingEnabled;
-  Future<void> setSummaryGenerationThinkingEnabled(bool enabled) async {
-    if (_summaryGenerationThinkingEnabled == enabled) return;
-    _summaryGenerationThinkingEnabled = enabled;
-    notifyListeners();
-    await _preferences.setBool(_summaryGenerationThinkingEnabledKey, enabled);
-  }
-
-  Future<void> resetSummaryGenerationThinkingEnabled() async =>
-      setSummaryGenerationThinkingEnabled(false);
-
-  bool _suggestionGenerationThinkingEnabled = false;
-  bool get suggestionGenerationThinkingEnabled =>
-      _suggestionGenerationThinkingEnabled;
-  Future<void> setSuggestionGenerationThinkingEnabled(bool enabled) async {
-    if (_suggestionGenerationThinkingEnabled == enabled) return;
-    _suggestionGenerationThinkingEnabled = enabled;
-    notifyListeners();
-    await _preferences.setBool(
-      _suggestionGenerationThinkingEnabledKey,
-      enabled,
-    );
-  }
-
-  Future<void> resetSuggestionGenerationThinkingEnabled() async =>
-      setSuggestionGenerationThinkingEnabled(false);
-
-  bool _compressGenerationThinkingEnabled = false;
-  bool get compressGenerationThinkingEnabled =>
-      _compressGenerationThinkingEnabled;
-  Future<void> setCompressGenerationThinkingEnabled(bool enabled) async {
-    if (_compressGenerationThinkingEnabled == enabled) return;
-    _compressGenerationThinkingEnabled = enabled;
-    notifyListeners();
-    await _preferences.setBool(_compressGenerationThinkingEnabledKey, enabled);
-  }
-
-  Future<void> resetCompressGenerationThinkingEnabled() async =>
-      setCompressGenerationThinkingEnabled(false);
-
-  bool _translateGenerationThinkingEnabled = false;
-  bool get translateGenerationThinkingEnabled =>
-      _translateGenerationThinkingEnabled;
-  Future<void> setTranslateGenerationThinkingEnabled(bool enabled) async {
-    if (_translateGenerationThinkingEnabled == enabled) return;
-    _translateGenerationThinkingEnabled = enabled;
-    notifyListeners();
-    await _preferences.setBool(_translateGenerationThinkingEnabledKey, enabled);
-  }
-
-  Future<void> resetTranslateGenerationThinkingEnabled() async =>
-      setTranslateGenerationThinkingEnabled(false);
-
-  bool _ocrGenerationThinkingEnabled = false;
-  bool get ocrGenerationThinkingEnabled => _ocrGenerationThinkingEnabled;
-  Future<void> setOcrGenerationThinkingEnabled(bool enabled) async {
-    if (_ocrGenerationThinkingEnabled == enabled) return;
-    _ocrGenerationThinkingEnabled = enabled;
-    notifyListeners();
-    await _preferences.setBool(_ocrGenerationThinkingEnabledKey, enabled);
-  }
-
-  Future<void> resetOcrGenerationThinkingEnabled() async =>
-      setOcrGenerationThinkingEnabled(false);
-
-  // Memory system v1 (§4.2)
-  String? _memoryModelProvider;
-  String? _memoryModelId;
-  String? get memoryModelProvider => _memoryModelProvider;
-  String? get memoryModelId => _memoryModelId;
-  String? get memoryModelKey =>
-      (_memoryModelProvider != null && _memoryModelId != null)
-      ? '${_memoryModelProvider!}::${_memoryModelId!}'
-      : null;
-
-  bool _memoryModelThinkingEnabled = false;
-  bool get memoryModelThinkingEnabled => _memoryModelThinkingEnabled;
-
-  /// Stored value: `auto` / `zh` / `en`. Default `auto`.
-  String _memoryPromptLang = 'auto';
-  String get memoryPromptLang => _memoryPromptLang;
-
-  /// Records step-by-step traces of every background memory run. Default on.
-  bool _memoryTraceEnabled = true;
-  bool get memoryTraceEnabled => _memoryTraceEnabled;
-
-  /// The locale the interface is actually rendered in.
-  ///
-  /// [appLocale] parses the stored tag, and the `system` tag has no locale to
-  /// parse, so it falls through to `en_US`. Anything deciding what language to
-  /// speak to the user in must ask the platform instead.
-  Locale get effectiveLocale =>
-      isFollowingSystemLocale ? PlatformDispatcher.instance.locale : appLocale;
-
-  /// Resolves `auto` → zh when the interface is Chinese, else en.
-  MemoryPromptLang get resolvedMemoryPromptLang {
-    switch (_memoryPromptLang) {
-      case 'zh':
-        return MemoryPromptLang.zh;
-      case 'en':
-        return MemoryPromptLang.en;
-      default:
-        return effectiveLocale.languageCode == 'zh'
-            ? MemoryPromptLang.zh
-            : MemoryPromptLang.en;
-    }
-  }
-
-  String _memoryRulesPromptZh = MemoryPrompts.rulesZh;
-  String _memoryRulesPromptEn = MemoryPrompts.rulesEn;
-  String _memoryGatePromptZh = MemoryPrompts.gateZh;
-  String _memoryGatePromptEn = MemoryPrompts.gateEn;
-  String _memoryExtractPromptZh = MemoryPrompts.extractZh;
-  String _memoryExtractPromptEn = MemoryPrompts.extractEn;
-  String _memorySmartAddPromptZh = MemoryPrompts.smartAddZh;
-  String _memorySmartAddPromptEn = MemoryPrompts.smartAddEn;
-  String _memorySmartAddBatchPromptZh = MemoryPrompts.smartAddBatchZh;
-  String _memorySmartAddBatchPromptEn = MemoryPrompts.smartAddBatchEn;
-  String _memoryProfileDistillPromptZh = MemoryPrompts.profileDistillZh;
-  String _memoryProfileDistillPromptEn = MemoryPrompts.profileDistillEn;
-
-  String get memoryRulesPromptZh => _memoryRulesPromptZh;
-  String get memoryRulesPromptEn => _memoryRulesPromptEn;
-  String get memoryGatePromptZh => _memoryGatePromptZh;
-  String get memoryGatePromptEn => _memoryGatePromptEn;
-  String get memoryExtractPromptZh => _memoryExtractPromptZh;
-  String get memoryExtractPromptEn => _memoryExtractPromptEn;
-  String get memorySmartAddPromptZh => _memorySmartAddPromptZh;
-  String get memorySmartAddPromptEn => _memorySmartAddPromptEn;
-  String get memorySmartAddBatchPromptZh => _memorySmartAddBatchPromptZh;
-  String get memorySmartAddBatchPromptEn => _memorySmartAddBatchPromptEn;
-  String get memoryProfileDistillPromptZh => _memoryProfileDistillPromptZh;
-  String get memoryProfileDistillPromptEn => _memoryProfileDistillPromptEn;
-
-  Future<void> setMemoryModel(String providerKey, String modelId) async {
-    _memoryModelProvider = providerKey;
-    _memoryModelId = modelId;
-    notifyListeners();
-    final prefs = _preferences;
-    await prefs.setString(_memoryModelKey, '$providerKey::$modelId');
-  }
-
-  Future<void> resetMemoryModel() async {
-    _memoryModelProvider = null;
-    _memoryModelId = null;
-    notifyListeners();
-    final prefs = _preferences;
-    await prefs.remove(_memoryModelKey);
-  }
-
-  Future<void> setMemoryModelThinkingEnabled(bool enabled) async {
-    if (_memoryModelThinkingEnabled == enabled) return;
-    _memoryModelThinkingEnabled = enabled;
-    notifyListeners();
-    final prefs = _preferences;
-    await prefs.setBool(_memoryModelThinkingEnabledKey, enabled);
-  }
-
-  /// Turning this off also drops every retained trace immediately.
-  Future<void> setMemoryTraceEnabled(bool enabled) async {
-    if (_memoryTraceEnabled == enabled) return;
-    _memoryTraceEnabled = enabled;
-    MemoryTraceRecorder.instance.setEnabled(enabled);
-    notifyListeners();
-    await _preferences.setBool(_memoryTraceEnabledKey, enabled);
-  }
-
-  Future<void> setMemoryPromptLang(String lang) async {
-    final normalized = (lang == 'zh' || lang == 'en') ? lang : 'auto';
-    if (_memoryPromptLang == normalized) return;
-    _memoryPromptLang = normalized;
-    notifyListeners();
-    final prefs = _preferences;
-    await prefs.setString(_memoryPromptLangKey, _memoryPromptLang);
-  }
-
-  Future<void> setMemoryRulesPromptZh(String prompt) async {
-    _memoryRulesPromptZh = prompt.trim().isEmpty
-        ? MemoryPrompts.rulesZh
-        : prompt;
-    notifyListeners();
-    await _preferences.setString(_memoryRulesPromptZhKey, _memoryRulesPromptZh);
-  }
-
-  Future<void> setMemoryRulesPromptEn(String prompt) async {
-    _memoryRulesPromptEn = prompt.trim().isEmpty
-        ? MemoryPrompts.rulesEn
-        : prompt;
-    notifyListeners();
-    await _preferences.setString(_memoryRulesPromptEnKey, _memoryRulesPromptEn);
-  }
-
-  Future<void> setMemoryGatePromptZh(String prompt) async {
-    _memoryGatePromptZh = prompt.trim().isEmpty ? MemoryPrompts.gateZh : prompt;
-    notifyListeners();
-    await _preferences.setString(_memoryGatePromptZhKey, _memoryGatePromptZh);
-  }
-
-  Future<void> setMemoryGatePromptEn(String prompt) async {
-    _memoryGatePromptEn = prompt.trim().isEmpty ? MemoryPrompts.gateEn : prompt;
-    notifyListeners();
-    await _preferences.setString(_memoryGatePromptEnKey, _memoryGatePromptEn);
-  }
-
-  Future<void> setMemoryExtractPromptZh(String prompt) async {
-    _memoryExtractPromptZh = prompt.trim().isEmpty
-        ? MemoryPrompts.extractZh
-        : prompt;
-    notifyListeners();
-    await _preferences.setString(
-      _memoryExtractPromptZhKey,
-      _memoryExtractPromptZh,
-    );
-  }
-
-  Future<void> setMemoryExtractPromptEn(String prompt) async {
-    _memoryExtractPromptEn = prompt.trim().isEmpty
-        ? MemoryPrompts.extractEn
-        : prompt;
-    notifyListeners();
-    await _preferences.setString(
-      _memoryExtractPromptEnKey,
-      _memoryExtractPromptEn,
-    );
-  }
-
-  Future<void> setMemorySmartAddPromptZh(String prompt) async {
-    _memorySmartAddPromptZh = prompt.trim().isEmpty
-        ? MemoryPrompts.smartAddZh
-        : prompt;
-    notifyListeners();
-    await _preferences.setString(
-      _memorySmartAddPromptZhKey,
-      _memorySmartAddPromptZh,
-    );
-  }
-
-  Future<void> setMemorySmartAddPromptEn(String prompt) async {
-    _memorySmartAddPromptEn = prompt.trim().isEmpty
-        ? MemoryPrompts.smartAddEn
-        : prompt;
-    notifyListeners();
-    await _preferences.setString(
-      _memorySmartAddPromptEnKey,
-      _memorySmartAddPromptEn,
-    );
-  }
-
-  Future<void> setMemorySmartAddBatchPromptZh(String prompt) async {
-    _memorySmartAddBatchPromptZh = prompt.trim().isEmpty
-        ? MemoryPrompts.smartAddBatchZh
-        : prompt;
-    notifyListeners();
-    await _preferences.setString(
-      _memorySmartAddBatchPromptZhKey,
-      _memorySmartAddBatchPromptZh,
-    );
-  }
-
-  Future<void> setMemorySmartAddBatchPromptEn(String prompt) async {
-    _memorySmartAddBatchPromptEn = prompt.trim().isEmpty
-        ? MemoryPrompts.smartAddBatchEn
-        : prompt;
-    notifyListeners();
-    await _preferences.setString(
-      _memorySmartAddBatchPromptEnKey,
-      _memorySmartAddBatchPromptEn,
-    );
-  }
-
-  Future<void> setMemoryProfileDistillPromptZh(String prompt) async {
-    _memoryProfileDistillPromptZh = prompt.trim().isEmpty
-        ? MemoryPrompts.profileDistillZh
-        : prompt;
-    notifyListeners();
-    await _preferences.setString(
-      _memoryProfileDistillPromptZhKey,
-      _memoryProfileDistillPromptZh,
-    );
-  }
-
-  Future<void> setMemoryProfileDistillPromptEn(String prompt) async {
-    _memoryProfileDistillPromptEn = prompt.trim().isEmpty
-        ? MemoryPrompts.profileDistillEn
-        : prompt;
-    notifyListeners();
-    await _preferences.setString(
-      _memoryProfileDistillPromptEnKey,
-      _memoryProfileDistillPromptEn,
-    );
-  }
-
-  Future<void> resetMemoryRulesPromptZh() async =>
-      setMemoryRulesPromptZh(MemoryPrompts.rulesZh);
-  Future<void> resetMemoryRulesPromptEn() async =>
-      setMemoryRulesPromptEn(MemoryPrompts.rulesEn);
-  Future<void> resetMemoryGatePromptZh() async =>
-      setMemoryGatePromptZh(MemoryPrompts.gateZh);
-  Future<void> resetMemoryGatePromptEn() async =>
-      setMemoryGatePromptEn(MemoryPrompts.gateEn);
-  Future<void> resetMemoryExtractPromptZh() async =>
-      setMemoryExtractPromptZh(MemoryPrompts.extractZh);
-  Future<void> resetMemoryExtractPromptEn() async =>
-      setMemoryExtractPromptEn(MemoryPrompts.extractEn);
-  Future<void> resetMemorySmartAddPromptZh() async =>
-      setMemorySmartAddPromptZh(MemoryPrompts.smartAddZh);
-  Future<void> resetMemorySmartAddPromptEn() async =>
-      setMemorySmartAddPromptEn(MemoryPrompts.smartAddEn);
-  Future<void> resetMemorySmartAddBatchPromptZh() async =>
-      setMemorySmartAddBatchPromptZh(MemoryPrompts.smartAddBatchZh);
-  Future<void> resetMemorySmartAddBatchPromptEn() async =>
-      setMemorySmartAddBatchPromptEn(MemoryPrompts.smartAddBatchEn);
-  Future<void> resetMemoryProfileDistillPromptZh() async =>
-      setMemoryProfileDistillPromptZh(MemoryPrompts.profileDistillZh);
-  Future<void> resetMemoryProfileDistillPromptEn() async =>
-      setMemoryProfileDistillPromptEn(MemoryPrompts.profileDistillEn);
+      setTitleGenerationThinkingEnabled(true);
 
   int? titleGenerationThinkingBudgetFor(int? assistantBudget) {
-    return _backgroundThinkingBudgetFor(
-      _titleGenerationThinkingEnabled,
-      assistantBudget,
-    );
-  }
-
-  int? summaryGenerationThinkingBudgetFor(int? assistantBudget) =>
-      _backgroundThinkingBudgetFor(
-        _summaryGenerationThinkingEnabled,
-        assistantBudget,
-      );
-
-  int? suggestionGenerationThinkingBudgetFor(int? assistantBudget) =>
-      _backgroundThinkingBudgetFor(
-        _suggestionGenerationThinkingEnabled,
-        assistantBudget,
-      );
-
-  int? compressGenerationThinkingBudgetFor(int? assistantBudget) =>
-      _backgroundThinkingBudgetFor(
-        _compressGenerationThinkingEnabled,
-        assistantBudget,
-      );
-
-  int? translateGenerationThinkingBudgetFor(int? assistantBudget) =>
-      _backgroundThinkingBudgetFor(
-        _translateGenerationThinkingEnabled,
-        assistantBudget,
-      );
-
-  int? ocrGenerationThinkingBudgetFor(int? assistantBudget) =>
-      _backgroundThinkingBudgetFor(
-        _ocrGenerationThinkingEnabled,
-        assistantBudget,
-      );
-
-  int? _backgroundThinkingBudgetFor(bool enabled, int? assistantBudget) {
-    if (!enabled) return 0;
+    if (!_titleGenerationThinkingEnabled) return 0;
     return assistantBudget ?? _thinkingBudget;
   }
 
@@ -3965,7 +3455,7 @@ Requirements:
     if (_showUserAvatar == v) return;
     _showUserAvatar = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayShowUserAvatarKey, v);
   }
 
@@ -3976,7 +3466,7 @@ Requirements:
     if (_showUserNameTimestamp == v) return;
     _showUserNameTimestamp = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayShowUserNameTimestampKey, v);
   }
 
@@ -3987,7 +3477,7 @@ Requirements:
     if (_showUserName == v) return;
     _showUserName = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayShowUserNameKey, v);
   }
 
@@ -3998,7 +3488,7 @@ Requirements:
     if (_showUserTimestamp == v) return;
     _showUserTimestamp = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayShowUserTimestampKey, v);
   }
 
@@ -4008,7 +3498,7 @@ Requirements:
     if (_showUserMessageActions == v) return;
     _showUserMessageActions = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayShowUserMessageActionsKey, v);
   }
 
@@ -4018,7 +3508,7 @@ Requirements:
     if (_showModelIcon == v) return;
     _showModelIcon = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayShowModelIconKey, v);
   }
 
@@ -4029,7 +3519,7 @@ Requirements:
     if (_showModelNameTimestamp == v) return;
     _showModelNameTimestamp = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayShowModelNameTimestampKey, v);
   }
 
@@ -4040,7 +3530,7 @@ Requirements:
     if (_showModelName == v) return;
     _showModelName = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayShowModelNameKey, v);
   }
 
@@ -4051,7 +3541,7 @@ Requirements:
     if (_showModelTimestamp == v) return;
     _showModelTimestamp = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayShowModelTimestampKey, v);
   }
 
@@ -4062,7 +3552,7 @@ Requirements:
     if (_showTokenStats == v) return;
     _showTokenStats = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayShowTokenStatsKey, v);
   }
 
@@ -4073,7 +3563,7 @@ Requirements:
     if (_autoCollapseThinking == v) return;
     _autoCollapseThinking = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayAutoCollapseThinkingKey, v);
   }
 
@@ -4083,7 +3573,7 @@ Requirements:
     if (_collapseThinkingSteps == v) return;
     _collapseThinkingSteps = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayCollapseThinkingStepsKey, v);
   }
 
@@ -4093,7 +3583,7 @@ Requirements:
     if (_showToolResultSummary == v) return;
     _showToolResultSummary = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayShowToolResultSummaryKey, v);
   }
 
@@ -4104,7 +3594,7 @@ Requirements:
     if (_regenerateDeleteTrailingMessages == v) return;
     _regenerateDeleteTrailingMessages = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayRegenerateDeleteTrailingMessagesKey, v);
   }
 
@@ -4114,7 +3604,7 @@ Requirements:
     if (_showRegenerateConfirmDialog == v) return;
     _showRegenerateConfirmDialog = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayShowRegenerateConfirmDialogKey, v);
   }
 
@@ -4125,7 +3615,7 @@ Requirements:
     if (_showMessageNavButtons == v) return;
     _showMessageNavButtons = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayShowMessageNavKey, v);
   }
 
@@ -4136,7 +3626,7 @@ Requirements:
     if (_useNewAssistantAvatarUx == v) return;
     _useNewAssistantAvatarUx = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayUseNewAssistantAvatarUxKey, v);
   }
 
@@ -4147,7 +3637,7 @@ Requirements:
     if (_showProviderInModelCapsule == v) return;
     _showProviderInModelCapsule = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayShowProviderInModelCapsuleKey, v);
   }
 
@@ -4158,7 +3648,7 @@ Requirements:
     if (_showProviderInChatMessage == v) return;
     _showProviderInChatMessage = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayShowProviderInChatMessageKey, v);
   }
 
@@ -4169,7 +3659,7 @@ Requirements:
     if (_newChatOnLaunch == v) return;
     _newChatOnLaunch = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayNewChatOnLaunchKey, v);
   }
 
@@ -4180,7 +3670,7 @@ Requirements:
     if (_newChatOnAssistantSwitch == v) return;
     _newChatOnAssistantSwitch = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayNewChatOnAssistantSwitchKey, v);
   }
 
@@ -4191,7 +3681,7 @@ Requirements:
     if (_newChatAfterDelete == v) return;
     _newChatAfterDelete = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayNewChatAfterDeleteKey, v);
   }
 
@@ -4202,7 +3692,7 @@ Requirements:
     if (_enterToSendOnMobile == v) return;
     _enterToSendOnMobile = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayEnterToSendOnMobileKey, v);
   }
 
@@ -4213,7 +3703,7 @@ Requirements:
     if (_desktopSendShortcut == v) return;
     _desktopSendShortcut = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     final str = v == DesktopSendShortcut.ctrlEnter ? 'ctrlEnter' : 'enter';
     await prefs.setString(_desktopSendShortcutKey, str);
   }
@@ -4230,7 +3720,7 @@ Requirements:
     if (_desktopMessageNavButtonsMode == mode) return;
     _desktopMessageNavButtonsMode = mode;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
       _displayDesktopMessageNavButtonsModeKey,
       _desktopMessageNavButtonsModeToString(mode),
@@ -4288,7 +3778,7 @@ Requirements:
     if (_mobileMessageNavButtonsMode == mode) return;
     _mobileMessageNavButtonsMode = mode;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
       _displayMobileMessageNavButtonsModeKey,
       _mobileMessageNavButtonsModeToString(mode),
@@ -4345,7 +3835,7 @@ Requirements:
     if (_autoScrollEnabled == v) return;
     _autoScrollEnabled = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayAutoScrollEnabledKey, v);
   }
 
@@ -4357,7 +3847,7 @@ Requirements:
     if (_autoScrollIdleSeconds == v) return;
     _autoScrollIdleSeconds = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(
       _displayAutoScrollIdleSecondsKey,
       _autoScrollIdleSeconds,
@@ -4372,7 +3862,7 @@ Requirements:
     if (_chatBackgroundMaskStrength == s) return;
     _chatBackgroundMaskStrength = s;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(
       _displayChatBackgroundMaskStrengthKey,
       _chatBackgroundMaskStrength,
@@ -4409,7 +3899,7 @@ Requirements:
       _chatInputBackgroundOpacityLight = v;
     }
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(
       brightness == Brightness.dark
           ? _displayChatInputBackgroundOpacityDarkKey
@@ -4425,7 +3915,7 @@ Requirements:
     if (_enableDollarLatex == v) return;
     _enableDollarLatex = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayEnableDollarLatexKey, v);
   }
 
@@ -4436,7 +3926,7 @@ Requirements:
     if (_enableMathRendering == v) return;
     _enableMathRendering = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayEnableMathRenderingKey, v);
   }
 
@@ -4447,7 +3937,7 @@ Requirements:
     if (_enableUserMarkdown == v) return;
     _enableUserMarkdown = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayEnableUserMarkdownKey, v);
   }
 
@@ -4458,7 +3948,7 @@ Requirements:
     if (_enableReasoningMarkdown == v) return;
     _enableReasoningMarkdown = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayEnableReasoningMarkdownKey, v);
   }
 
@@ -4469,7 +3959,7 @@ Requirements:
     if (_enableAssistantMarkdown == v) return;
     _enableAssistantMarkdown = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayEnableAssistantMarkdownKey, v);
   }
 
@@ -4480,7 +3970,7 @@ Requirements:
     if (_showChatListDate == v) return;
     _showChatListDate = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayShowChatListDateKey, v);
   }
 
@@ -4491,71 +3981,8 @@ Requirements:
     if (_imageCropperEnabled == v) return;
     _imageCropperEnabled = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_imageCropperEnabledKey, v);
-  }
-
-  ImageUploadQuality _imageUploadQuality = ImageUploadQuality.balanced;
-  ImageUploadQuality get imageUploadQuality => _imageUploadQuality;
-  Future<void> setImageUploadQuality(ImageUploadQuality value) async {
-    if (_imageUploadQuality == value) return;
-    _imageUploadQuality = value;
-    notifyListeners();
-    await _preferences.setString(_imageUploadQualityKey, value.name);
-  }
-
-  int _imageCompressCustomQuality = 85;
-  int get imageCompressCustomQuality => _imageCompressCustomQuality;
-  Future<void> setImageCompressCustomQuality(int value) async {
-    final next = value.clamp(10, 100);
-    if (_imageCompressCustomQuality == next) return;
-    _imageCompressCustomQuality = next;
-    notifyListeners();
-    await _preferences.setInt(_imageCompressCustomQualityKey, next);
-  }
-
-  bool _imageCompressTransparentEnabled = false;
-  bool get imageCompressTransparentEnabled => _imageCompressTransparentEnabled;
-  Future<void> setImageCompressTransparentEnabled(bool value) async {
-    if (_imageCompressTransparentEnabled == value) return;
-    _imageCompressTransparentEnabled = value;
-    notifyListeners();
-    await _preferences.setBool(_imageCompressTransparentEnabledKey, value);
-  }
-
-  ImageCompressConfig resolveImageCompressConfig() {
-    return switch (_imageUploadQuality) {
-      ImageUploadQuality.original => ImageCompressConfig(
-        enabled: false,
-        quality: 100,
-        maxLongEdge: 1568,
-        includeTransparent: _imageCompressTransparentEnabled,
-      ),
-      ImageUploadQuality.high => ImageCompressConfig(
-        enabled: true,
-        quality: 90,
-        maxLongEdge: 2048,
-        includeTransparent: _imageCompressTransparentEnabled,
-      ),
-      ImageUploadQuality.balanced => ImageCompressConfig(
-        enabled: true,
-        quality: 85,
-        maxLongEdge: 1568,
-        includeTransparent: _imageCompressTransparentEnabled,
-      ),
-      ImageUploadQuality.saver => ImageCompressConfig(
-        enabled: true,
-        quality: 70,
-        maxLongEdge: 1024,
-        includeTransparent: _imageCompressTransparentEnabled,
-      ),
-      ImageUploadQuality.custom => ImageCompressConfig(
-        enabled: true,
-        quality: _imageCompressCustomQuality,
-        maxLongEdge: 1568,
-        includeTransparent: _imageCompressTransparentEnabled,
-      ),
-    };
   }
 
   // Display: mobile code block word wrap
@@ -4565,7 +3992,7 @@ Requirements:
     if (_mobileCodeBlockWrap == v) return;
     _mobileCodeBlockWrap = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayMobileCodeBlockWrapKey, v);
   }
 
@@ -4576,7 +4003,7 @@ Requirements:
     if (_autoCollapseCodeBlock == v) return;
     _autoCollapseCodeBlock = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayAutoCollapseCodeBlockKey, v);
   }
 
@@ -4588,7 +4015,7 @@ Requirements:
     if (_autoCollapseCodeBlockLines == next) return;
     _autoCollapseCodeBlockLines = next;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_displayAutoCollapseCodeBlockLinesKey, next);
   }
 
@@ -4599,7 +4026,7 @@ Requirements:
     if (_desktopAutoSwitchTopics == v) return;
     _desktopAutoSwitchTopics = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayDesktopAutoSwitchTopicsKey, v);
   }
 
@@ -4613,7 +4040,7 @@ Requirements:
       _desktopMinimizeToTrayOnClose = false;
     }
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayDesktopShowTrayKey, _desktopShowTray);
     await prefs.setBool(
       _displayDesktopMinimizeToTrayOnCloseKey,
@@ -4629,7 +4056,7 @@ Requirements:
     if (_desktopMinimizeToTrayOnClose == next) return;
     _desktopMinimizeToTrayOnClose = next;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(
       _displayDesktopMinimizeToTrayOnCloseKey,
       _desktopMinimizeToTrayOnClose,
@@ -4643,7 +4070,7 @@ Requirements:
     if (_hapticsOnGenerate == v) return;
     _hapticsOnGenerate = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayHapticsOnGenerateKey, v);
   }
 
@@ -4654,7 +4081,7 @@ Requirements:
     if (_hapticsOnDrawer == v) return;
     _hapticsOnDrawer = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayHapticsOnDrawerKey, v);
   }
 
@@ -4667,7 +4094,7 @@ Requirements:
     // Apply immediately to service
     Haptics.setEnabled(v);
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayHapticsGlobalEnabledKey, v);
   }
 
@@ -4678,7 +4105,7 @@ Requirements:
     if (_hapticsIosSwitch == v) return;
     _hapticsIosSwitch = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayHapticsIosSwitchKey, v);
   }
 
@@ -4689,7 +4116,7 @@ Requirements:
     if (_hapticsOnListItemTap == v) return;
     _hapticsOnListItemTap = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayHapticsOnListItemTapKey, v);
   }
 
@@ -4700,7 +4127,7 @@ Requirements:
     if (_hapticsOnCardTap == v) return;
     _hapticsOnCardTap = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayHapticsOnCardTapKey, v);
   }
 
@@ -4711,7 +4138,7 @@ Requirements:
     if (_showAppUpdates == v) return;
     _showAppUpdates = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayShowAppUpdatesKey, v);
   }
 
@@ -4722,7 +4149,7 @@ Requirements:
     if (_keepSidebarOpenOnAssistantTap == v) return;
     _keepSidebarOpenOnAssistantTap = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayKeepSidebarOpenOnAssistantTapKey, v);
   }
 
@@ -4733,7 +4160,7 @@ Requirements:
     if (_keepSidebarOpenOnTopicTap == v) return;
     _keepSidebarOpenOnTopicTap = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayKeepSidebarOpenOnTopicTapKey, v);
   }
 
@@ -4745,7 +4172,7 @@ Requirements:
     if (_keepAssistantListExpandedOnSidebarClose == v) return;
     _keepAssistantListExpandedOnSidebarClose = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_displayKeepAssistantListExpandedOnSidebarCloseKey, v);
   }
 
@@ -4756,7 +4183,7 @@ Requirements:
     if (_requestLogEnabled == v) return;
     _requestLogEnabled = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_requestLogEnabledKey, v);
     await RequestLogger.setEnabled(v);
   }
@@ -4774,7 +4201,7 @@ Requirements:
   }
 
   Future<void> incrementAppLaunchCount() async {
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     final next = (prefs.getInt(_appLaunchCountKey) ?? _appLaunchCount) + 1;
     _appLaunchCount = next;
     await prefs.setInt(_appLaunchCountKey, next);
@@ -4789,7 +4216,7 @@ Requirements:
     _logSaveOutput = v;
     RequestLogger.saveOutput = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_logSaveOutputKey, v);
   }
 
@@ -4800,7 +4227,7 @@ Requirements:
     if (_logAutoDeleteDays == v) return;
     _logAutoDeleteDays = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_logAutoDeleteDaysKey, v);
     RequestLogger.cleanupLogs(autoDeleteDays: v, maxSizeMB: _logMaxSizeMB);
   }
@@ -4812,21 +4239,26 @@ Requirements:
     if (_logMaxSizeMB == v) return;
     _logMaxSizeMB = v;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_logMaxSizeMBKey, v);
     RequestLogger.cleanupLogs(autoDeleteDays: _logAutoDeleteDays, maxSizeMB: v);
   }
 
   // Search service settings
   Future<void> setSearchServices(List<SearchServiceOptions> services) async {
-    _searchServices = List.from(services);
+    final normalized = _normalizeSearchServiceState(
+      services,
+      _searchServiceSelected,
+    );
+    _searchServices = normalized.services;
+    _searchServiceSelected = normalized.selectedIndex;
     if (_searchServiceSelected >= _searchServices.length) {
       _searchServiceSelected = _searchServices.isNotEmpty
           ? _searchServices.length - 1
           : 0;
     }
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
       _searchServicesKey,
       jsonEncode(_searchServices.map((e) => e.toJson()).toList()),
@@ -4837,7 +4269,7 @@ Requirements:
   Future<void> setSearchCommonOptions(SearchCommonOptions options) async {
     _searchCommonOptions = options;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_searchCommonKey, jsonEncode(options.toJson()));
   }
 
@@ -4847,21 +4279,57 @@ Requirements:
       _searchServices.isNotEmpty ? _searchServices.length - 1 : 0,
     );
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_searchSelectedKey, _searchServiceSelected);
+  }
+
+  ({List<SearchServiceOptions> services, int selectedIndex})
+  _normalizeSearchServiceState(
+    List<SearchServiceOptions> services,
+    int selectedIndex,
+  ) {
+    final out = <SearchServiceOptions>[];
+    var hasHybrid = false;
+    var hadStandaloneChinese = false;
+    var selectedWasStandaloneChinese = false;
+    var shiftedSelectedIndex = selectedIndex;
+    for (final service in services) {
+      if (service is BaiduLocalOptions ||
+          service is SogouLocalOptions ||
+          service is So360LocalOptions) {
+        hadStandaloneChinese = true;
+        final originalIndex = services.indexOf(service);
+        if (originalIndex == selectedIndex) selectedWasStandaloneChinese = true;
+        if (originalIndex < selectedIndex) shiftedSelectedIndex--;
+        continue;
+      }
+      if (service is HybridLocalSearchOptions) hasHybrid = true;
+      out.add(service);
+    }
+    if (!hasHybrid && (out.isEmpty || hadStandaloneChinese)) {
+      out.insert(0, HybridLocalSearchOptions(id: 'hybrid-local'));
+      if (selectedWasStandaloneChinese) {
+        shiftedSelectedIndex = 0;
+      } else {
+        shiftedSelectedIndex++;
+      }
+    }
+    if (out.isEmpty) out.add(SearchServiceOptions.defaultOption);
+    final safeIndex = shiftedSelectedIndex.clamp(0, out.length - 1);
+    return (services: out, selectedIndex: safeIndex);
   }
 
   Future<void> setSearchEnabled(bool enabled) async {
     _searchEnabled = enabled;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_searchEnabledKey, enabled);
   }
 
   Future<void> setSearchAutoTestOnLaunch(bool enabled) async {
     _searchAutoTestOnLaunch = enabled;
     notifyListeners();
-    final prefs = _preferences;
+    final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_searchAutoTestOnLaunchKey, enabled);
   }
 
@@ -4891,7 +4359,7 @@ Requirements:
     bool? searchEnabled,
     bool? searchAutoTestOnLaunch,
   }) {
-    final copy = SettingsProvider._withoutLoad(_preferences);
+    final copy = SettingsProvider();
     copy._searchServices = searchServices ?? _searchServices;
     copy._searchCommonOptions = searchCommonOptions ?? _searchCommonOptions;
     copy._searchServiceSelected =
@@ -4900,18 +4368,12 @@ Requirements:
     copy._searchAutoTestOnLaunch =
         searchAutoTestOnLaunch ?? _searchAutoTestOnLaunch;
     copy._ttsServices = _ttsServices;
-    copy._selectedTtsServiceId = _selectedTtsServiceId;
+    copy._ttsServiceSelected = _ttsServiceSelected;
     copy._ttsAutoPlayAssistantReplies = _ttsAutoPlayAssistantReplies;
     copy._ttsTextSelectionMode = _ttsTextSelectionMode;
-    copy._asrServices = _asrServices;
-    copy._selectedAsrServiceId = _selectedAsrServiceId;
     // Copy other fields
     copy._providersOrder = _providersOrder;
     copy._themeMode = _themeMode;
-    copy._themePaletteId = _themePaletteId;
-    copy._useDynamicColor = _useDynamicColor;
-    copy._customThemes = _customThemes;
-    copy._selectedCustomThemeId = _selectedCustomThemeId;
     copy._providerConfigs = _providerConfigs;
     copy._pinnedModels.addAll(_pinnedModels);
     copy._currentModelProvider = _currentModelProvider;
@@ -4939,31 +4401,6 @@ Requirements:
     copy._ocrEnabled = _ocrEnabled;
     copy._thinkingBudget = _thinkingBudget;
     copy._titleGenerationThinkingEnabled = _titleGenerationThinkingEnabled;
-    copy._summaryGenerationThinkingEnabled = _summaryGenerationThinkingEnabled;
-    copy._suggestionGenerationThinkingEnabled =
-        _suggestionGenerationThinkingEnabled;
-    copy._compressGenerationThinkingEnabled =
-        _compressGenerationThinkingEnabled;
-    copy._translateGenerationThinkingEnabled =
-        _translateGenerationThinkingEnabled;
-    copy._ocrGenerationThinkingEnabled = _ocrGenerationThinkingEnabled;
-    copy._memoryModelProvider = _memoryModelProvider;
-    copy._memoryModelId = _memoryModelId;
-    copy._memoryModelThinkingEnabled = _memoryModelThinkingEnabled;
-    copy._memoryPromptLang = _memoryPromptLang;
-    copy._memoryTraceEnabled = _memoryTraceEnabled;
-    copy._memoryRulesPromptZh = _memoryRulesPromptZh;
-    copy._memoryRulesPromptEn = _memoryRulesPromptEn;
-    copy._memoryGatePromptZh = _memoryGatePromptZh;
-    copy._memoryGatePromptEn = _memoryGatePromptEn;
-    copy._memoryExtractPromptZh = _memoryExtractPromptZh;
-    copy._memoryExtractPromptEn = _memoryExtractPromptEn;
-    copy._memorySmartAddPromptZh = _memorySmartAddPromptZh;
-    copy._memorySmartAddPromptEn = _memorySmartAddPromptEn;
-    copy._memorySmartAddBatchPromptZh = _memorySmartAddBatchPromptZh;
-    copy._memorySmartAddBatchPromptEn = _memorySmartAddBatchPromptEn;
-    copy._memoryProfileDistillPromptZh = _memoryProfileDistillPromptZh;
-    copy._memoryProfileDistillPromptEn = _memoryProfileDistillPromptEn;
     copy._showUserAvatar = _showUserAvatar;
     copy._showModelIcon = _showModelIcon;
     copy._showModelNameTimestamp = _showModelNameTimestamp;
@@ -5033,11 +4470,194 @@ Requirements:
         _mobileAssistantDetailOutlineEnabled;
     return copy;
   }
-}
+  // ─── Memory setters ───────────────────────────────────────────────────
+  Future<void> setMemoryModel(String? providerKey, String? modelId) async {
+    _memoryModelProvider = providerKey;
+    _memoryModelId = modelId;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('memory_model_provider', providerKey ?? '');
+    await prefs.setString('memory_model_id', modelId ?? '');
+  }
+  Future<void> setMemoryModelThinkingEnabled(bool v) async {
+    _memoryModelThinkingEnabled = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('memory_model_thinking_enabled', v);
+  }
+  Future<void> setMemoryPromptLang(String lang) async {
+    _memoryPromptLang = lang;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('memory_prompt_lang', lang);
+  }
+  Future<void> setMemoryRulesPromptZh(String v) async {
+    _memoryRulesPromptZh = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('memory_rules_prompt_zh', v);
+  }
+  Future<void> setMemoryRulesPromptEn(String v) async {
+    _memoryRulesPromptEn = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('memory_rules_prompt_en', v);
+  }
+  Future<void> setMemoryGatePromptZh(String v) async {
+    _memoryGatePromptZh = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('memory_gate_prompt_zh', v);
+  }
+  Future<void> setMemoryGatePromptEn(String v) async {
+    _memoryGatePromptEn = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('memory_gate_prompt_en', v);
+  }
+  Future<void> setMemoryExtractPromptZh(String v) async {
+    _memoryExtractPromptZh = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('memory_extract_prompt_zh', v);
+  }
+  Future<void> setMemoryExtractPromptEn(String v) async {
+    _memoryExtractPromptEn = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('memory_extract_prompt_en', v);
+  }
+  Future<void> setMemorySmartAddPromptZh(String v) async {
+    _memorySmartAddPromptZh = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('memory_smart_add_prompt_zh', v);
+  }
+  Future<void> setMemorySmartAddPromptEn(String v) async {
+    _memorySmartAddPromptEn = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('memory_smart_add_prompt_en', v);
+  }
+  Future<void> setMemorySmartAddBatchPromptZh(String v) async {
+    _memorySmartAddBatchPromptZh = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('memory_smart_add_batch_prompt_zh', v);
+  }
+  Future<void> setMemorySmartAddBatchPromptEn(String v) async {
+    _memorySmartAddBatchPromptEn = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('memory_smart_add_batch_prompt_en', v);
+  }
+  Future<void> setMemoryProfileDistillPromptZh(String v) async {
+    _memoryProfileDistillPromptZh = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('memory_profile_distill_prompt_zh', v);
+  }
+  Future<void> setMemoryProfileDistillPromptEn(String v) async {
+    _memoryProfileDistillPromptEn = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('memory_profile_distill_prompt_en', v);
+  }
+  Future<void> resetMemoryRulesPromptZh() async {
+    await setMemoryRulesPromptZh(MemoryPrompts.rulesZh);
+  }
+  Future<void> resetMemoryRulesPromptEn() async {
+    await setMemoryRulesPromptEn(MemoryPrompts.rulesEn);
+  }
+  Future<void> resetMemoryGatePromptZh() async {
+    await setMemoryGatePromptZh(MemoryPrompts.gateZh);
+  }
+  Future<void> resetMemoryGatePromptEn() async {
+    await setMemoryGatePromptEn(MemoryPrompts.gateEn);
+  }
+  Future<void> resetMemoryExtractPromptZh() async {
+    await setMemoryExtractPromptZh(MemoryPrompts.extractZh);
+  }
+  Future<void> resetMemoryExtractPromptEn() async {
+    await setMemoryExtractPromptEn(MemoryPrompts.extractEn);
+  }
+  Future<void> resetMemorySmartAddPromptZh() async {
+    await setMemorySmartAddPromptZh(MemoryPrompts.smartAddZh);
+  }
+  Future<void> resetMemorySmartAddPromptEn() async {
+    await setMemorySmartAddPromptEn(MemoryPrompts.smartAddEn);
+  }
+  Future<void> resetMemorySmartAddBatchPromptZh() async {
+    await setMemorySmartAddBatchPromptZh(MemoryPrompts.smartAddBatchZh);
+  }
+  Future<void> resetMemorySmartAddBatchPromptEn() async {
+    await setMemorySmartAddBatchPromptEn(MemoryPrompts.smartAddBatchEn);
+  }
+  Future<void> resetMemoryProfileDistillPromptZh() async {
+    await setMemoryProfileDistillPromptZh(MemoryPrompts.profileDistillZh);
+  }
+  Future<void> resetMemoryProfileDistillPromptEn() async {
+    await setMemoryProfileDistillPromptEn(MemoryPrompts.profileDistillEn);
+  }
+  Future<void> setMemoryTraceEnabled(bool v) async {
+    _memoryTraceEnabled = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('memory_trace_enabled', v);
+    MemoryTraceRecorder.instance.setEnabled(v);
+  }
 
-String _nonEmptyOr(String? value, String fallback) {
-  if (value == null || value.trim().isEmpty) return fallback;
-  return value;
+  // ─── ASR services (minimal stub) ─────────────────────────────────
+  List<AsrServiceOptions> _asrServices = const [];
+  String? _selectedAsrServiceId;
+
+  List<AsrServiceOptions> get asrServices => List.unmodifiable(_asrServices);
+  AsrServiceOptions? get selectedAsrService =>
+      _selectedAsrServiceId == null
+          ? null
+          : _asrServices
+              .where((s) => s.id == _selectedAsrServiceId)
+              .firstOrNull;
+  String? get selectedAsrServiceId => _selectedAsrServiceId;
+
+  Future<void> setAsrServices(List<AsrServiceOptions> services) async {
+    _asrServices = List.from(services);
+    notifyListeners();
+  }
+
+  Future<void> setSelectedAsrServiceId(String? id) async {
+    _selectedAsrServiceId = id;
+    notifyListeners();
+  }
+
+  // ─── Image upload quality (minimal stub) ───────────────────────────
+  ImageUploadQuality _imageUploadQuality = ImageUploadQuality.original;
+  double _imageCompressCustomQuality = 0.75;
+  bool _imageCompressTransparentEnabled = true;
+
+  ImageUploadQuality get imageUploadQuality => _imageUploadQuality;
+  double get imageCompressCustomQuality => _imageCompressCustomQuality;
+  bool get imageCompressTransparentEnabled => _imageCompressTransparentEnabled;
+
+  void setImageUploadQuality(ImageUploadQuality value) {
+    _imageUploadQuality = value;
+    notifyListeners();
+  }
+
+  void setImageCompressCustomQuality(double value) {
+    _imageCompressCustomQuality = value;
+    notifyListeners();
+  }
+
+  void setImageCompressTransparentEnabled(bool value) {
+    _imageCompressTransparentEnabled = value;
+    notifyListeners();
+  }
+
+  // ─── Custom themes (minimal stub) ──────────────────────────────────
+  Future<CustomTheme> saveCustomTheme(CustomTheme theme) async => theme;
+  Future<void> selectCustomTheme(String id) async {}
+  Future<void> importCustomTheme(String exportedJson) async {}
 }
 
 String _normalizeProxyHost(String host) {
@@ -5254,8 +4874,6 @@ enum ChatMessageBackgroundStyle { defaultStyle, frosted, solid }
 enum AndroidBackgroundChatMode { off, on, onNotify }
 
 class ProviderConfig {
-  static const _kelivoInPublicApiKey = 'kelivo';
-
   final String id;
   final bool enabled;
   final String name;
@@ -5271,14 +4889,17 @@ class ProviderConfig {
   // Google Vertex AI via service account JSON (paste or import)
   final String? serviceAccountJson; // google vertex ai only
   final List<String> models; // placeholder for future model management
+final Map<String, dynamic> modelOverrides;
   // Per-model overrides (by logical model key).
   // Each entry may point to an upstream/vendor model id via `apiModelId` so that
   // multiple logical models can share the same backend model with different params.
   // {'<key>': {'apiModelId': String?, 'name': String?, 'type': 'chat'|'embedding', 'input': ['text','image'], 'output': [...], 'abilities': ['tool','reasoning']}}
-  final Map<String, dynamic> modelOverrides;
-  // Per-provider custom request overrides.
-  final List<Map<String, String>> customHeaders;
-  final List<Map<String, String>> customBody;
+
+  Map<String, String> get customHeaders =>
+      ModelOverridePayloadParser.customHeaders(modelOverrides);
+
+  Map<String, dynamic> get customBody =>
+      ModelOverridePayloadParser.customBody(modelOverrides);
   // Per-provider proxy
   final bool? proxyEnabled;
   final String? proxyType; // http|https|socks5
@@ -5349,8 +4970,6 @@ class ProviderConfig {
     this.serviceAccountJson,
     this.models = const [],
     this.modelOverrides = const {},
-    this.customHeaders = const <Map<String, String>>[],
-    this.customBody = const <Map<String, String>>[],
     this.proxyEnabled,
     this.proxyType,
     this.proxyHost,
@@ -5388,8 +5007,6 @@ class ProviderConfig {
     String? serviceAccountJson,
     List<String>? models,
     Map<String, dynamic>? modelOverrides,
-    List<Map<String, String>>? customHeaders,
-    List<Map<String, String>>? customBody,
     bool? proxyEnabled,
     String? proxyType,
     String? proxyHost,
@@ -5422,8 +5039,6 @@ class ProviderConfig {
     serviceAccountJson: serviceAccountJson ?? this.serviceAccountJson,
     models: models ?? this.models,
     modelOverrides: modelOverrides ?? this.modelOverrides,
-    customHeaders: customHeaders ?? this.customHeaders,
-    customBody: customBody ?? this.customBody,
     proxyEnabled: proxyEnabled ?? this.proxyEnabled,
     proxyType: proxyType ?? this.proxyType,
     proxyHost: proxyHost ?? this.proxyHost,
@@ -5465,8 +5080,6 @@ class ProviderConfig {
     'serviceAccountJson': serviceAccountJson,
     'models': models,
     'modelOverrides': modelOverrides,
-    'customHeaders': customHeaders,
-    'customBody': customBody,
     'proxyEnabled': proxyEnabled,
     'proxyType': proxyType,
     'proxyHost': proxyHost,
@@ -5492,7 +5105,7 @@ class ProviderConfig {
     id: json['id'] as String? ?? (json['name'] as String? ?? ''),
     enabled: json['enabled'] as bool? ?? true,
     name: json['name'] as String? ?? '',
-    apiKey: _apiKeyFromJson(json),
+    apiKey: json['apiKey'] as String? ?? '',
     baseUrl: json['baseUrl'] as String? ?? '',
     providerType: json['providerType'] != null
         ? ProviderKind.values.firstWhere(
@@ -5514,16 +5127,6 @@ class ProviderConfig {
           (k, v) => MapEntry(k.toString(), v),
         ) ??
         const {},
-    customHeaders: _customRequestRowsFromJson(
-      json['customHeaders'],
-      keyName: 'name',
-      fallbackKeyName: 'key',
-    ),
-    customBody: _customRequestRowsFromJson(
-      json['customBody'],
-      keyName: 'key',
-      fallbackKeyName: 'name',
-    ),
     proxyEnabled: json['proxyEnabled'] as bool?,
     proxyType: json['proxyType'] as String?,
     proxyHost: json['proxyHost'] as String?,
@@ -5551,31 +5154,6 @@ class ProviderConfig {
     ),
   );
 
-  static String _apiKeyFromJson(Map<String, dynamic> json) {
-    final stored = json['apiKey'] as String? ?? '';
-    if (stored.isNotEmpty) return stored;
-    final id = json['id'] as String? ?? json['name'] as String? ?? '';
-    return id.trim().toLowerCase() == 'kelivoin' ? _kelivoInPublicApiKey : '';
-  }
-
-  static List<Map<String, String>> _customRequestRowsFromJson(
-    Object? raw, {
-    required String keyName,
-    required String fallbackKeyName,
-  }) {
-    if (raw is! List) return const <Map<String, String>>[];
-    return raw
-        .whereType<Map>()
-        .map(
-          (entry) => <String, String>{
-            keyName: (entry[keyName] ?? entry[fallbackKeyName] ?? '')
-                .toString(),
-            'value': (entry['value'] ?? '').toString(),
-          },
-        )
-        .toList();
-  }
-
   static ProviderKind classify(String key, {ProviderKind? explicitType}) {
     // If an explicit type is provided, use it
     if (explicitType != null) return explicitType;
@@ -5597,7 +5175,6 @@ class ProviderConfig {
     if (k.contains('kelivoin')) return 'https://text.pollinations.ai/openai';
     if (k.contains('openrouter')) return 'https://openrouter.ai/api/v1';
     if (k.contains('aihubmix')) return 'https://aihubmix.com/v1';
-    if (k.contains('随想')) return 'https://sui-xiang.com/v1';
     if (RegExp(r'qwen|aliyun|dashscope').hasMatch(k)) {
       return 'https://dashscope.aliyuncs.com/compatible-mode/v1';
     }
@@ -5698,7 +5275,7 @@ class ProviderConfig {
             id: key,
             enabled: defaultEnabled(key),
             name: displayName ?? key,
-            apiKey: _kelivoInPublicApiKey,
+            apiKey: 'kelivo',
             baseUrl: _defaultBase(key),
             providerType: ProviderKind.openai,
             chatPath:

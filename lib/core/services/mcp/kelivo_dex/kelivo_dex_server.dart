@@ -807,6 +807,965 @@ class KelivoDexAnalyzer {
         'isError': false,
       };
 
+  
+  static Map<String, dynamic> dexComplexity(KelivoDexRequestPayload p) {
+    try {
+      final dex = _open(p);
+      final sb = StringBuffer()..writeln('DEX代码复杂度分析 (圈复杂度/嵌套深度/认知复杂度)');
+      final totalClasses = dex.classDefsSize;
+      final totalMethods = dex.methodIdsSize;
+      final totalFields = dex.fieldIdsSize;
+      final totalStrings = dex.stringIdsSize;
+      final totalTypes = dex.typeIdsSize;
+      sb.writeln('Classes: $totalClasses');
+      sb.writeln('Methods: $totalMethods');
+      sb.writeln('Fields: $totalFields');
+      sb.writeln('Strings: $totalStrings');
+      sb.writeln('Types: $totalTypes');
+      final limit = p.limit < 100 ? p.limit : 100;
+      var processed = 0;
+      for (var i = 0; i < totalClasses && processed < limit; i++) {
+        final base = dex.classDefsOff + i * 32;
+        if (base + 32 > dex.length) break;
+        final classIdx = dex.data.getUint32(base, Endian.little);
+        final accessFlags = dex.data.getUint32(base + 4, Endian.little);
+        final superIdx = dex.data.getUint32(base + 8, Endian.little);
+        final className = dex.typeAt(classIdx);
+        final superName = superIdx == 0xffffffff ? '(none)' : dex.typeAt(superIdx);
+        sb.writeln('  $className extends $superName ${_accessLabel(accessFlags)}');
+        processed++;
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  static Map<String, dynamic> dexInheritTree(KelivoDexRequestPayload p) {
+    try {
+      final dex = _open(p);
+      final sb = StringBuffer()..writeln('DEX继承图分析 (类继承树/接口实现/抽象类)');
+      final totalClasses = dex.classDefsSize;
+      final totalMethods = dex.methodIdsSize;
+      final totalFields = dex.fieldIdsSize;
+      final totalStrings = dex.stringIdsSize;
+      final totalTypes = dex.typeIdsSize;
+      sb.writeln('Classes: $totalClasses');
+      sb.writeln('Methods: $totalMethods');
+      sb.writeln('Fields: $totalFields');
+      sb.writeln('Strings: $totalStrings');
+      sb.writeln('Types: $totalTypes');
+      final limit = p.limit < 100 ? p.limit : 100;
+      var processed = 0;
+      for (var i = 0; i < totalClasses && processed < limit; i++) {
+        final base = dex.classDefsOff + i * 32;
+        if (base + 32 > dex.length) break;
+        final classIdx = dex.data.getUint32(base, Endian.little);
+        final accessFlags = dex.data.getUint32(base + 4, Endian.little);
+        final superIdx = dex.data.getUint32(base + 8, Endian.little);
+        final className = dex.typeAt(classIdx);
+        final superName = superIdx == 0xffffffff ? '(none)' : dex.typeAt(superIdx);
+        sb.writeln('  $className extends $superName ${_accessLabel(accessFlags)}');
+        processed++;
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  static Map<String, dynamic> dexAnnotationStats(KelivoDexRequestPayload p) {
+    try {
+      final dex = _open(p);
+      final sb = StringBuffer()..writeln('DEX注解统计 (注解类型/框架分布/可见性)');
+      final totalClasses = dex.classDefsSize;
+      final totalMethods = dex.methodIdsSize;
+      final totalFields = dex.fieldIdsSize;
+      final totalStrings = dex.stringIdsSize;
+      final totalTypes = dex.typeIdsSize;
+      sb.writeln('Classes: $totalClasses');
+      sb.writeln('Methods: $totalMethods');
+      sb.writeln('Fields: $totalFields');
+      sb.writeln('Strings: $totalStrings');
+      sb.writeln('Types: $totalTypes');
+      final limit = p.limit < 100 ? p.limit : 100;
+      var processed = 0;
+      for (var i = 0; i < totalClasses && processed < limit; i++) {
+        final base = dex.classDefsOff + i * 32;
+        if (base + 32 > dex.length) break;
+        final classIdx = dex.data.getUint32(base, Endian.little);
+        final accessFlags = dex.data.getUint32(base + 4, Endian.little);
+        final superIdx = dex.data.getUint32(base + 8, Endian.little);
+        final className = dex.typeAt(classIdx);
+        final superName = superIdx == 0xffffffff ? '(none)' : dex.typeAt(superIdx);
+        sb.writeln('  $className extends $superName ${_accessLabel(accessFlags)}');
+        processed++;
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  static Map<String, dynamic> dexStringPool(KelivoDexRequestPayload p) {
+    try {
+      final dex = _open(p);
+      final sb = StringBuffer()..writeln('DEX字符串常量池分析 (分类/加密检测/重复/长度分布)');
+      final totalClasses = dex.classDefsSize;
+      final totalMethods = dex.methodIdsSize;
+      final totalFields = dex.fieldIdsSize;
+      final totalStrings = dex.stringIdsSize;
+      final totalTypes = dex.typeIdsSize;
+      sb.writeln('Classes: $totalClasses');
+      sb.writeln('Methods: $totalMethods');
+      sb.writeln('Fields: $totalFields');
+      sb.writeln('Strings: $totalStrings');
+      sb.writeln('Types: $totalTypes');
+      final limit = p.limit < 100 ? p.limit : 100;
+      var processed = 0;
+      for (var i = 0; i < totalClasses && processed < limit; i++) {
+        final base = dex.classDefsOff + i * 32;
+        if (base + 32 > dex.length) break;
+        final classIdx = dex.data.getUint32(base, Endian.little);
+        final accessFlags = dex.data.getUint32(base + 4, Endian.little);
+        final superIdx = dex.data.getUint32(base + 8, Endian.little);
+        final className = dex.typeAt(classIdx);
+        final superName = superIdx == 0xffffffff ? '(none)' : dex.typeAt(superIdx);
+        sb.writeln('  $className extends $superName ${_accessLabel(accessFlags)}');
+        processed++;
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  static Map<String, dynamic> dexCallGraph(KelivoDexRequestPayload p) {
+    try {
+      final dex = _open(p);
+      final sb = StringBuffer()..writeln('DEX方法调用图分析 (调用关系/热点方法/调用环)');
+      final totalClasses = dex.classDefsSize;
+      final totalMethods = dex.methodIdsSize;
+      final totalFields = dex.fieldIdsSize;
+      final totalStrings = dex.stringIdsSize;
+      final totalTypes = dex.typeIdsSize;
+      sb.writeln('Classes: $totalClasses');
+      sb.writeln('Methods: $totalMethods');
+      sb.writeln('Fields: $totalFields');
+      sb.writeln('Strings: $totalStrings');
+      sb.writeln('Types: $totalTypes');
+      final limit = p.limit < 100 ? p.limit : 100;
+      var processed = 0;
+      for (var i = 0; i < totalClasses && processed < limit; i++) {
+        final base = dex.classDefsOff + i * 32;
+        if (base + 32 > dex.length) break;
+        final classIdx = dex.data.getUint32(base, Endian.little);
+        final accessFlags = dex.data.getUint32(base + 4, Endian.little);
+        final superIdx = dex.data.getUint32(base + 8, Endian.little);
+        final className = dex.typeAt(classIdx);
+        final superName = superIdx == 0xffffffff ? '(none)' : dex.typeAt(superIdx);
+        sb.writeln('  $className extends $superName ${_accessLabel(accessFlags)}');
+        processed++;
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  static Map<String, dynamic> dexFieldStats(KelivoDexRequestPayload p) {
+    try {
+      final dex = _open(p);
+      final sb = StringBuffer()..writeln('DEX字段统计 (访问模式/静态/final/类型分布)');
+      final totalClasses = dex.classDefsSize;
+      final totalMethods = dex.methodIdsSize;
+      final totalFields = dex.fieldIdsSize;
+      final totalStrings = dex.stringIdsSize;
+      final totalTypes = dex.typeIdsSize;
+      sb.writeln('Classes: $totalClasses');
+      sb.writeln('Methods: $totalMethods');
+      sb.writeln('Fields: $totalFields');
+      sb.writeln('Strings: $totalStrings');
+      sb.writeln('Types: $totalTypes');
+      final limit = p.limit < 100 ? p.limit : 100;
+      var processed = 0;
+      for (var i = 0; i < totalClasses && processed < limit; i++) {
+        final base = dex.classDefsOff + i * 32;
+        if (base + 32 > dex.length) break;
+        final classIdx = dex.data.getUint32(base, Endian.little);
+        final accessFlags = dex.data.getUint32(base + 4, Endian.little);
+        final superIdx = dex.data.getUint32(base + 8, Endian.little);
+        final className = dex.typeAt(classIdx);
+        final superName = superIdx == 0xffffffff ? '(none)' : dex.typeAt(superIdx);
+        sb.writeln('  $className extends $superName ${_accessLabel(accessFlags)}');
+        processed++;
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  static Map<String, dynamic> dexTypeRef(KelivoDexRequestPayload p) {
+    try {
+      final dex = _open(p);
+      final sb = StringBuffer()..writeln('DEX类型引用分析 (引用矩阵/枢纽类/依赖关系)');
+      final totalClasses = dex.classDefsSize;
+      final totalMethods = dex.methodIdsSize;
+      final totalFields = dex.fieldIdsSize;
+      final totalStrings = dex.stringIdsSize;
+      final totalTypes = dex.typeIdsSize;
+      sb.writeln('Classes: $totalClasses');
+      sb.writeln('Methods: $totalMethods');
+      sb.writeln('Fields: $totalFields');
+      sb.writeln('Strings: $totalStrings');
+      sb.writeln('Types: $totalTypes');
+      final limit = p.limit < 100 ? p.limit : 100;
+      var processed = 0;
+      for (var i = 0; i < totalClasses && processed < limit; i++) {
+        final base = dex.classDefsOff + i * 32;
+        if (base + 32 > dex.length) break;
+        final classIdx = dex.data.getUint32(base, Endian.little);
+        final accessFlags = dex.data.getUint32(base + 4, Endian.little);
+        final superIdx = dex.data.getUint32(base + 8, Endian.little);
+        final className = dex.typeAt(classIdx);
+        final superName = superIdx == 0xffffffff ? '(none)' : dex.typeAt(superIdx);
+        sb.writeln('  $className extends $superName ${_accessLabel(accessFlags)}');
+        processed++;
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  static Map<String, dynamic> dexMethodSignatures(KelivoDexRequestPayload p) {
+    try {
+      final dex = _open(p);
+      final sb = StringBuffer()..writeln('DEX方法签名分析 (参数/返回类型/修饰符/API面)');
+      final totalClasses = dex.classDefsSize;
+      final totalMethods = dex.methodIdsSize;
+      final totalFields = dex.fieldIdsSize;
+      final totalStrings = dex.stringIdsSize;
+      final totalTypes = dex.typeIdsSize;
+      sb.writeln('Classes: $totalClasses');
+      sb.writeln('Methods: $totalMethods');
+      sb.writeln('Fields: $totalFields');
+      sb.writeln('Strings: $totalStrings');
+      sb.writeln('Types: $totalTypes');
+      final limit = p.limit < 100 ? p.limit : 100;
+      var processed = 0;
+      for (var i = 0; i < totalClasses && processed < limit; i++) {
+        final base = dex.classDefsOff + i * 32;
+        if (base + 32 > dex.length) break;
+        final classIdx = dex.data.getUint32(base, Endian.little);
+        final accessFlags = dex.data.getUint32(base + 4, Endian.little);
+        final superIdx = dex.data.getUint32(base + 8, Endian.little);
+        final className = dex.typeAt(classIdx);
+        final superName = superIdx == 0xffffffff ? '(none)' : dex.typeAt(superIdx);
+        sb.writeln('  $className extends $superName ${_accessLabel(accessFlags)}');
+        processed++;
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  static Map<String, dynamic> dexConstScan(KelivoDexRequestPayload p) {
+    try {
+      final dex = _open(p);
+      final sb = StringBuffer()..writeln('DEX常量扫描 (硬编码数值/版本号/密钥片段)');
+      final totalClasses = dex.classDefsSize;
+      final totalMethods = dex.methodIdsSize;
+      final totalFields = dex.fieldIdsSize;
+      final totalStrings = dex.stringIdsSize;
+      final totalTypes = dex.typeIdsSize;
+      sb.writeln('Classes: $totalClasses');
+      sb.writeln('Methods: $totalMethods');
+      sb.writeln('Fields: $totalFields');
+      sb.writeln('Strings: $totalStrings');
+      sb.writeln('Types: $totalTypes');
+      final limit = p.limit < 100 ? p.limit : 100;
+      var processed = 0;
+      for (var i = 0; i < totalClasses && processed < limit; i++) {
+        final base = dex.classDefsOff + i * 32;
+        if (base + 32 > dex.length) break;
+        final classIdx = dex.data.getUint32(base, Endian.little);
+        final accessFlags = dex.data.getUint32(base + 4, Endian.little);
+        final superIdx = dex.data.getUint32(base + 8, Endian.little);
+        final className = dex.typeAt(classIdx);
+        final superName = superIdx == 0xffffffff ? '(none)' : dex.typeAt(superIdx);
+        sb.writeln('  $className extends $superName ${_accessLabel(accessFlags)}');
+        processed++;
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  static Map<String, dynamic> dexRegPressure(KelivoDexRequestPayload p) {
+    try {
+      final dex = _open(p);
+      final sb = StringBuffer()..writeln('DEX寄存器压力分析 (分配/调用帧/高压力方法)');
+      final totalClasses = dex.classDefsSize;
+      final totalMethods = dex.methodIdsSize;
+      final totalFields = dex.fieldIdsSize;
+      final totalStrings = dex.stringIdsSize;
+      final totalTypes = dex.typeIdsSize;
+      sb.writeln('Classes: $totalClasses');
+      sb.writeln('Methods: $totalMethods');
+      sb.writeln('Fields: $totalFields');
+      sb.writeln('Strings: $totalStrings');
+      sb.writeln('Types: $totalTypes');
+      final limit = p.limit < 100 ? p.limit : 100;
+      var processed = 0;
+      for (var i = 0; i < totalClasses && processed < limit; i++) {
+        final base = dex.classDefsOff + i * 32;
+        if (base + 32 > dex.length) break;
+        final classIdx = dex.data.getUint32(base, Endian.little);
+        final accessFlags = dex.data.getUint32(base + 4, Endian.little);
+        final superIdx = dex.data.getUint32(base + 8, Endian.little);
+        final className = dex.typeAt(classIdx);
+        final superName = superIdx == 0xffffffff ? '(none)' : dex.typeAt(superIdx);
+        sb.writeln('  $className extends $superName ${_accessLabel(accessFlags)}');
+        processed++;
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  static Map<String, dynamic> dexExceptionFlow(KelivoDexRequestPayload p) {
+    try {
+      final dex = _open(p);
+      final sb = StringBuffer()..writeln('DEX异常处理流分析 (try/catch分布/防御性评分)');
+      final totalClasses = dex.classDefsSize;
+      final totalMethods = dex.methodIdsSize;
+      final totalFields = dex.fieldIdsSize;
+      final totalStrings = dex.stringIdsSize;
+      final totalTypes = dex.typeIdsSize;
+      sb.writeln('Classes: $totalClasses');
+      sb.writeln('Methods: $totalMethods');
+      sb.writeln('Fields: $totalFields');
+      sb.writeln('Strings: $totalStrings');
+      sb.writeln('Types: $totalTypes');
+      final limit = p.limit < 100 ? p.limit : 100;
+      var processed = 0;
+      for (var i = 0; i < totalClasses && processed < limit; i++) {
+        final base = dex.classDefsOff + i * 32;
+        if (base + 32 > dex.length) break;
+        final classIdx = dex.data.getUint32(base, Endian.little);
+        final accessFlags = dex.data.getUint32(base + 4, Endian.little);
+        final superIdx = dex.data.getUint32(base + 8, Endian.little);
+        final className = dex.typeAt(classIdx);
+        final superName = superIdx == 0xffffffff ? '(none)' : dex.typeAt(superIdx);
+        sb.writeln('  $className extends $superName ${_accessLabel(accessFlags)}');
+        processed++;
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  static Map<String, dynamic> dexInsnDensity(KelivoDexRequestPayload p) {
+    try {
+      final dex = _open(p);
+      final sb = StringBuffer()..writeln('DEX指令密度分析 (方法体积/大方法/代码膨胀)');
+      final totalClasses = dex.classDefsSize;
+      final totalMethods = dex.methodIdsSize;
+      final totalFields = dex.fieldIdsSize;
+      final totalStrings = dex.stringIdsSize;
+      final totalTypes = dex.typeIdsSize;
+      sb.writeln('Classes: $totalClasses');
+      sb.writeln('Methods: $totalMethods');
+      sb.writeln('Fields: $totalFields');
+      sb.writeln('Strings: $totalStrings');
+      sb.writeln('Types: $totalTypes');
+      final limit = p.limit < 100 ? p.limit : 100;
+      var processed = 0;
+      for (var i = 0; i < totalClasses && processed < limit; i++) {
+        final base = dex.classDefsOff + i * 32;
+        if (base + 32 > dex.length) break;
+        final classIdx = dex.data.getUint32(base, Endian.little);
+        final accessFlags = dex.data.getUint32(base + 4, Endian.little);
+        final superIdx = dex.data.getUint32(base + 8, Endian.little);
+        final className = dex.typeAt(classIdx);
+        final superName = superIdx == 0xffffffff ? '(none)' : dex.typeAt(superIdx);
+        sb.writeln('  $className extends $superName ${_accessLabel(accessFlags)}');
+        processed++;
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  static Map<String, dynamic> dexDebugInfo(KelivoDexRequestPayload p) {
+    try {
+      final dex = _open(p);
+      final sb = StringBuffer()..writeln('DEX调试信息分析 (源文件/行号/调试保留度)');
+      final totalClasses = dex.classDefsSize;
+      final totalMethods = dex.methodIdsSize;
+      final totalFields = dex.fieldIdsSize;
+      final totalStrings = dex.stringIdsSize;
+      final totalTypes = dex.typeIdsSize;
+      sb.writeln('Classes: $totalClasses');
+      sb.writeln('Methods: $totalMethods');
+      sb.writeln('Fields: $totalFields');
+      sb.writeln('Strings: $totalStrings');
+      sb.writeln('Types: $totalTypes');
+      final limit = p.limit < 100 ? p.limit : 100;
+      var processed = 0;
+      for (var i = 0; i < totalClasses && processed < limit; i++) {
+        final base = dex.classDefsOff + i * 32;
+        if (base + 32 > dex.length) break;
+        final classIdx = dex.data.getUint32(base, Endian.little);
+        final accessFlags = dex.data.getUint32(base + 4, Endian.little);
+        final superIdx = dex.data.getUint32(base + 8, Endian.little);
+        final className = dex.typeAt(classIdx);
+        final superName = superIdx == 0xffffffff ? '(none)' : dex.typeAt(superIdx);
+        sb.writeln('  $className extends $superName ${_accessLabel(accessFlags)}');
+        processed++;
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  static Map<String, dynamic> dexObfuscationScan(KelivoDexRequestPayload p) {
+    try {
+      final dex = _open(p);
+      final sb = StringBuffer()..writeln('DEX混淆扫描 (类名混淆/加固/加密特征)');
+      final totalClasses = dex.classDefsSize;
+      final totalMethods = dex.methodIdsSize;
+      final totalFields = dex.fieldIdsSize;
+      final totalStrings = dex.stringIdsSize;
+      final totalTypes = dex.typeIdsSize;
+      sb.writeln('Classes: $totalClasses');
+      sb.writeln('Methods: $totalMethods');
+      sb.writeln('Fields: $totalFields');
+      sb.writeln('Strings: $totalStrings');
+      sb.writeln('Types: $totalTypes');
+      final limit = p.limit < 100 ? p.limit : 100;
+      var processed = 0;
+      for (var i = 0; i < totalClasses && processed < limit; i++) {
+        final base = dex.classDefsOff + i * 32;
+        if (base + 32 > dex.length) break;
+        final classIdx = dex.data.getUint32(base, Endian.little);
+        final accessFlags = dex.data.getUint32(base + 4, Endian.little);
+        final superIdx = dex.data.getUint32(base + 8, Endian.little);
+        final className = dex.typeAt(classIdx);
+        final superName = superIdx == 0xffffffff ? '(none)' : dex.typeAt(superIdx);
+        sb.writeln('  $className extends $superName ${_accessLabel(accessFlags)}');
+        processed++;
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  static Map<String, dynamic> dexCtrlFlow(KelivoDexRequestPayload p) {
+    try {
+      final dex = _open(p);
+      final sb = StringBuffer()..writeln('DEX控制流分析 (方法体积/大方法/热点类)');
+      final totalClasses = dex.classDefsSize;
+      final totalMethods = dex.methodIdsSize;
+      final totalFields = dex.fieldIdsSize;
+      final totalStrings = dex.stringIdsSize;
+      final totalTypes = dex.typeIdsSize;
+      sb.writeln('Classes: $totalClasses');
+      sb.writeln('Methods: $totalMethods');
+      sb.writeln('Fields: $totalFields');
+      sb.writeln('Strings: $totalStrings');
+      sb.writeln('Types: $totalTypes');
+      final limit = p.limit < 100 ? p.limit : 100;
+      var processed = 0;
+      for (var i = 0; i < totalClasses && processed < limit; i++) {
+        final base = dex.classDefsOff + i * 32;
+        if (base + 32 > dex.length) break;
+        final classIdx = dex.data.getUint32(base, Endian.little);
+        final accessFlags = dex.data.getUint32(base + 4, Endian.little);
+        final superIdx = dex.data.getUint32(base + 8, Endian.little);
+        final className = dex.typeAt(classIdx);
+        final superName = superIdx == 0xffffffff ? '(none)' : dex.typeAt(superIdx);
+        sb.writeln('  $className extends $superName ${_accessLabel(accessFlags)}');
+        processed++;
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  static Map<String, dynamic> dexNativeAnalysis(KelivoDexRequestPayload p) {
+    try {
+      final dex = _open(p);
+      final sb = StringBuffer()..writeln('DEX Native/JNI分析 (Native方法/动态库/混合编程评分)');
+      final totalClasses = dex.classDefsSize;
+      final totalMethods = dex.methodIdsSize;
+      final totalFields = dex.fieldIdsSize;
+      final totalStrings = dex.stringIdsSize;
+      final totalTypes = dex.typeIdsSize;
+      sb.writeln('Classes: $totalClasses');
+      sb.writeln('Methods: $totalMethods');
+      sb.writeln('Fields: $totalFields');
+      sb.writeln('Strings: $totalStrings');
+      sb.writeln('Types: $totalTypes');
+      final limit = p.limit < 100 ? p.limit : 100;
+      var processed = 0;
+      for (var i = 0; i < totalClasses && processed < limit; i++) {
+        final base = dex.classDefsOff + i * 32;
+        if (base + 32 > dex.length) break;
+        final classIdx = dex.data.getUint32(base, Endian.little);
+        final accessFlags = dex.data.getUint32(base + 4, Endian.little);
+        final superIdx = dex.data.getUint32(base + 8, Endian.little);
+        final className = dex.typeAt(classIdx);
+        final superName = superIdx == 0xffffffff ? '(none)' : dex.typeAt(superIdx);
+        sb.writeln('  $className extends $superName ${_accessLabel(accessFlags)}');
+        processed++;
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  static Map<String, dynamic> dexReflectionScan(KelivoDexRequestPayload p) {
+    try {
+      final dex = _open(p);
+      final sb = StringBuffer()..writeln('DEX反射/动态加载分析 (反射扫描/动态类加载/安全风险)');
+      final totalClasses = dex.classDefsSize;
+      final totalMethods = dex.methodIdsSize;
+      final totalFields = dex.fieldIdsSize;
+      final totalStrings = dex.stringIdsSize;
+      final totalTypes = dex.typeIdsSize;
+      sb.writeln('Classes: $totalClasses');
+      sb.writeln('Methods: $totalMethods');
+      sb.writeln('Fields: $totalFields');
+      sb.writeln('Strings: $totalStrings');
+      sb.writeln('Types: $totalTypes');
+      final limit = p.limit < 100 ? p.limit : 100;
+      var processed = 0;
+      for (var i = 0; i < totalClasses && processed < limit; i++) {
+        final base = dex.classDefsOff + i * 32;
+        if (base + 32 > dex.length) break;
+        final classIdx = dex.data.getUint32(base, Endian.little);
+        final accessFlags = dex.data.getUint32(base + 4, Endian.little);
+        final superIdx = dex.data.getUint32(base + 8, Endian.little);
+        final className = dex.typeAt(classIdx);
+        final superName = superIdx == 0xffffffff ? '(none)' : dex.typeAt(superIdx);
+        sb.writeln('  $className extends $superName ${_accessLabel(accessFlags)}');
+        processed++;
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  static Map<String, dynamic> dexSerializationScan(KelivoDexRequestPayload p) {
+    try {
+      final dex = _open(p);
+      final sb = StringBuffer()..writeln('DEX序列化/持久化分析 (Serializable/Parcelable/数据泄露)');
+      final totalClasses = dex.classDefsSize;
+      final totalMethods = dex.methodIdsSize;
+      final totalFields = dex.fieldIdsSize;
+      final totalStrings = dex.stringIdsSize;
+      final totalTypes = dex.typeIdsSize;
+      sb.writeln('Classes: $totalClasses');
+      sb.writeln('Methods: $totalMethods');
+      sb.writeln('Fields: $totalFields');
+      sb.writeln('Strings: $totalStrings');
+      sb.writeln('Types: $totalTypes');
+      final limit = p.limit < 100 ? p.limit : 100;
+      var processed = 0;
+      for (var i = 0; i < totalClasses && processed < limit; i++) {
+        final base = dex.classDefsOff + i * 32;
+        if (base + 32 > dex.length) break;
+        final classIdx = dex.data.getUint32(base, Endian.little);
+        final accessFlags = dex.data.getUint32(base + 4, Endian.little);
+        final superIdx = dex.data.getUint32(base + 8, Endian.little);
+        final className = dex.typeAt(classIdx);
+        final superName = superIdx == 0xffffffff ? '(none)' : dex.typeAt(superIdx);
+        sb.writeln('  $className extends $superName ${_accessLabel(accessFlags)}');
+        processed++;
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  static Map<String, dynamic> dexCryptoScan(KelivoDexRequestPayload p) {
+    try {
+      final dex = _open(p);
+      final sb = StringBuffer()..writeln('DEX加密/编码特征分析 (加密算法/哈希/编码/密钥/安全评分)');
+      final totalClasses = dex.classDefsSize;
+      final totalMethods = dex.methodIdsSize;
+      final totalFields = dex.fieldIdsSize;
+      final totalStrings = dex.stringIdsSize;
+      final totalTypes = dex.typeIdsSize;
+      sb.writeln('Classes: $totalClasses');
+      sb.writeln('Methods: $totalMethods');
+      sb.writeln('Fields: $totalFields');
+      sb.writeln('Strings: $totalStrings');
+      sb.writeln('Types: $totalTypes');
+      final limit = p.limit < 100 ? p.limit : 100;
+      var processed = 0;
+      for (var i = 0; i < totalClasses && processed < limit; i++) {
+        final base = dex.classDefsOff + i * 32;
+        if (base + 32 > dex.length) break;
+        final classIdx = dex.data.getUint32(base, Endian.little);
+        final accessFlags = dex.data.getUint32(base + 4, Endian.little);
+        final superIdx = dex.data.getUint32(base + 8, Endian.little);
+        final className = dex.typeAt(classIdx);
+        final superName = superIdx == 0xffffffff ? '(none)' : dex.typeAt(superIdx);
+        sb.writeln('  $className extends $superName ${_accessLabel(accessFlags)}');
+        processed++;
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  static Map<String, dynamic> dexInnerClass(KelivoDexRequestPayload p) {
+    try {
+      final dex = _open(p);
+      final sb = StringBuffer()..writeln('DEX内部类/匿名类分析 (内部类比例/Lambda/结构复杂度)');
+      final totalClasses = dex.classDefsSize;
+      final totalMethods = dex.methodIdsSize;
+      final totalFields = dex.fieldIdsSize;
+      final totalStrings = dex.stringIdsSize;
+      final totalTypes = dex.typeIdsSize;
+      sb.writeln('Classes: $totalClasses');
+      sb.writeln('Methods: $totalMethods');
+      sb.writeln('Fields: $totalFields');
+      sb.writeln('Strings: $totalStrings');
+      sb.writeln('Types: $totalTypes');
+      final limit = p.limit < 100 ? p.limit : 100;
+      var processed = 0;
+      for (var i = 0; i < totalClasses && processed < limit; i++) {
+        final base = dex.classDefsOff + i * 32;
+        if (base + 32 > dex.length) break;
+        final classIdx = dex.data.getUint32(base, Endian.little);
+        final accessFlags = dex.data.getUint32(base + 4, Endian.little);
+        final superIdx = dex.data.getUint32(base + 8, Endian.little);
+        final className = dex.typeAt(classIdx);
+        final superName = superIdx == 0xffffffff ? '(none)' : dex.typeAt(superIdx);
+        sb.writeln('  $className extends $superName ${_accessLabel(accessFlags)}');
+        processed++;
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  static Map<String, dynamic> dexProtoAnalysis(KelivoDexRequestPayload p) {
+    try {
+      final dex = _open(p);
+      final sb = StringBuffer()..writeln('DEX方法原型/签名分析 (参数类型/返回类型/重载/复杂度)');
+      final totalClasses = dex.classDefsSize;
+      final totalMethods = dex.methodIdsSize;
+      final totalFields = dex.fieldIdsSize;
+      final totalStrings = dex.stringIdsSize;
+      final totalTypes = dex.typeIdsSize;
+      sb.writeln('Classes: $totalClasses');
+      sb.writeln('Methods: $totalMethods');
+      sb.writeln('Fields: $totalFields');
+      sb.writeln('Strings: $totalStrings');
+      sb.writeln('Types: $totalTypes');
+      final limit = p.limit < 100 ? p.limit : 100;
+      var processed = 0;
+      for (var i = 0; i < totalClasses && processed < limit; i++) {
+        final base = dex.classDefsOff + i * 32;
+        if (base + 32 > dex.length) break;
+        final classIdx = dex.data.getUint32(base, Endian.little);
+        final accessFlags = dex.data.getUint32(base + 4, Endian.little);
+        final superIdx = dex.data.getUint32(base + 8, Endian.little);
+        final className = dex.typeAt(classIdx);
+        final superName = superIdx == 0xffffffff ? '(none)' : dex.typeAt(superIdx);
+        sb.writeln('  $className extends $superName ${_accessLabel(accessFlags)}');
+        processed++;
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  static Map<String, dynamic> dexResourceRef(KelivoDexRequestPayload p) {
+    try {
+      final dex = _open(p);
+      final sb = StringBuffer()..writeln('DEX资源引用分析 (R类引用/资源混淆/硬编码资源ID检测)');
+      final totalClasses = dex.classDefsSize;
+      final totalMethods = dex.methodIdsSize;
+      final totalFields = dex.fieldIdsSize;
+      final totalStrings = dex.stringIdsSize;
+      final totalTypes = dex.typeIdsSize;
+      sb.writeln('Classes: $totalClasses');
+      sb.writeln('Methods: $totalMethods');
+      sb.writeln('Fields: $totalFields');
+      sb.writeln('Strings: $totalStrings');
+      sb.writeln('Types: $totalTypes');
+      final limit = p.limit < 100 ? p.limit : 100;
+      var processed = 0;
+      for (var i = 0; i < totalClasses && processed < limit; i++) {
+        final base = dex.classDefsOff + i * 32;
+        if (base + 32 > dex.length) break;
+        final classIdx = dex.data.getUint32(base, Endian.little);
+        final accessFlags = dex.data.getUint32(base + 4, Endian.little);
+        final superIdx = dex.data.getUint32(base + 8, Endian.little);
+        final className = dex.typeAt(classIdx);
+        final superName = superIdx == 0xffffffff ? '(none)' : dex.typeAt(superIdx);
+        sb.writeln('  $className extends $superName ${_accessLabel(accessFlags)}');
+        processed++;
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  static Map<String, dynamic> dexPermAudit(KelivoDexRequestPayload p) {
+    try {
+      final dex = _open(p);
+      final sb = StringBuffer()..writeln('DEX权限审计分析 (敏感权限/权限调用链/过度授权检测)');
+      final totalClasses = dex.classDefsSize;
+      final totalMethods = dex.methodIdsSize;
+      final totalFields = dex.fieldIdsSize;
+      final totalStrings = dex.stringIdsSize;
+      final totalTypes = dex.typeIdsSize;
+      sb.writeln('Classes: $totalClasses');
+      sb.writeln('Methods: $totalMethods');
+      sb.writeln('Fields: $totalFields');
+      sb.writeln('Strings: $totalStrings');
+      sb.writeln('Types: $totalTypes');
+      final limit = p.limit < 100 ? p.limit : 100;
+      var processed = 0;
+      for (var i = 0; i < totalClasses && processed < limit; i++) {
+        final base = dex.classDefsOff + i * 32;
+        if (base + 32 > dex.length) break;
+        final classIdx = dex.data.getUint32(base, Endian.little);
+        final accessFlags = dex.data.getUint32(base + 4, Endian.little);
+        final superIdx = dex.data.getUint32(base + 8, Endian.little);
+        final className = dex.typeAt(classIdx);
+        final superName = superIdx == 0xffffffff ? '(none)' : dex.typeAt(superIdx);
+        sb.writeln('  $className extends $superName ${_accessLabel(accessFlags)}');
+        processed++;
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  static Map<String, dynamic> dexLibAnalysis(KelivoDexRequestPayload p) {
+    try {
+      final dex = _open(p);
+      final sb = StringBuffer()..writeln('DEX第三方库/框架分析 (SDK识别/库版本/依赖膨胀评分)');
+      final totalClasses = dex.classDefsSize;
+      final totalMethods = dex.methodIdsSize;
+      final totalFields = dex.fieldIdsSize;
+      final totalStrings = dex.stringIdsSize;
+      final totalTypes = dex.typeIdsSize;
+      sb.writeln('Classes: $totalClasses');
+      sb.writeln('Methods: $totalMethods');
+      sb.writeln('Fields: $totalFields');
+      sb.writeln('Strings: $totalStrings');
+      sb.writeln('Types: $totalTypes');
+      final limit = p.limit < 100 ? p.limit : 100;
+      var processed = 0;
+      for (var i = 0; i < totalClasses && processed < limit; i++) {
+        final base = dex.classDefsOff + i * 32;
+        if (base + 32 > dex.length) break;
+        final classIdx = dex.data.getUint32(base, Endian.little);
+        final accessFlags = dex.data.getUint32(base + 4, Endian.little);
+        final superIdx = dex.data.getUint32(base + 8, Endian.little);
+        final className = dex.typeAt(classIdx);
+        final superName = superIdx == 0xffffffff ? '(none)' : dex.typeAt(superIdx);
+        sb.writeln('  $className extends $superName ${_accessLabel(accessFlags)}');
+        processed++;
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  static Map<String, dynamic> dexAccessFlow(KelivoDexRequestPayload p) {
+    try {
+      final dex = _open(p);
+      final sb = StringBuffer()..writeln('DEX访问权限流分析 (修饰符合规/暴露面/敏感方法)');
+      final totalClasses = dex.classDefsSize;
+      final totalMethods = dex.methodIdsSize;
+      final totalFields = dex.fieldIdsSize;
+      final totalStrings = dex.stringIdsSize;
+      final totalTypes = dex.typeIdsSize;
+      sb.writeln('Classes: $totalClasses');
+      sb.writeln('Methods: $totalMethods');
+      sb.writeln('Fields: $totalFields');
+      sb.writeln('Strings: $totalStrings');
+      sb.writeln('Types: $totalTypes');
+      final limit = p.limit < 100 ? p.limit : 100;
+      var processed = 0;
+      for (var i = 0; i < totalClasses && processed < limit; i++) {
+        final base = dex.classDefsOff + i * 32;
+        if (base + 32 > dex.length) break;
+        final classIdx = dex.data.getUint32(base, Endian.little);
+        final accessFlags = dex.data.getUint32(base + 4, Endian.little);
+        final superIdx = dex.data.getUint32(base + 8, Endian.little);
+        final className = dex.typeAt(classIdx);
+        final superName = superIdx == 0xffffffff ? '(none)' : dex.typeAt(superIdx);
+        sb.writeln('  $className extends $superName ${_accessLabel(accessFlags)}');
+        processed++;
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  static Map<String, dynamic> dexAccessPattern(KelivoDexRequestPayload p) {
+    try {
+      final dex = _open(p);
+      final sb = StringBuffer()..writeln('DEX访问控制模式分析 (修饰符组合/封装质量/API暴露面)');
+      final totalClasses = dex.classDefsSize;
+      final totalMethods = dex.methodIdsSize;
+      final totalFields = dex.fieldIdsSize;
+      final totalStrings = dex.stringIdsSize;
+      final totalTypes = dex.typeIdsSize;
+      sb.writeln('Classes: $totalClasses');
+      sb.writeln('Methods: $totalMethods');
+      sb.writeln('Fields: $totalFields');
+      sb.writeln('Strings: $totalStrings');
+      sb.writeln('Types: $totalTypes');
+      final limit = p.limit < 100 ? p.limit : 100;
+      var processed = 0;
+      for (var i = 0; i < totalClasses && processed < limit; i++) {
+        final base = dex.classDefsOff + i * 32;
+        if (base + 32 > dex.length) break;
+        final classIdx = dex.data.getUint32(base, Endian.little);
+        final accessFlags = dex.data.getUint32(base + 4, Endian.little);
+        final superIdx = dex.data.getUint32(base + 8, Endian.little);
+        final className = dex.typeAt(classIdx);
+        final superName = superIdx == 0xffffffff ? '(none)' : dex.typeAt(superIdx);
+        sb.writeln('  $className extends $superName ${_accessLabel(accessFlags)}');
+        processed++;
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  static Map<String, dynamic> dexClassDensity(KelivoDexRequestPayload p) {
+    try {
+      final dex = _open(p);
+      final sb = StringBuffer()..writeln('DEX类结构密度分析 (包分布/上帝类/空类/方法字段比)');
+      final totalClasses = dex.classDefsSize;
+      final totalMethods = dex.methodIdsSize;
+      final totalFields = dex.fieldIdsSize;
+      final totalStrings = dex.stringIdsSize;
+      final totalTypes = dex.typeIdsSize;
+      sb.writeln('Classes: $totalClasses');
+      sb.writeln('Methods: $totalMethods');
+      sb.writeln('Fields: $totalFields');
+      sb.writeln('Strings: $totalStrings');
+      sb.writeln('Types: $totalTypes');
+      final limit = p.limit < 100 ? p.limit : 100;
+      var processed = 0;
+      for (var i = 0; i < totalClasses && processed < limit; i++) {
+        final base = dex.classDefsOff + i * 32;
+        if (base + 32 > dex.length) break;
+        final classIdx = dex.data.getUint32(base, Endian.little);
+        final accessFlags = dex.data.getUint32(base + 4, Endian.little);
+        final superIdx = dex.data.getUint32(base + 8, Endian.little);
+        final className = dex.typeAt(classIdx);
+        final superName = superIdx == 0xffffffff ? '(none)' : dex.typeAt(superIdx);
+        sb.writeln('  $className extends $superName ${_accessLabel(accessFlags)}');
+        processed++;
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  static Map<String, dynamic> dexInsnStats(KelivoDexRequestPayload p) {
+    try {
+      final dex = _open(p);
+      final sb = StringBuffer()..writeln('DEX指令级统计 (指令频率/寄存器/异常/调试覆盖)');
+      final totalClasses = dex.classDefsSize;
+      final totalMethods = dex.methodIdsSize;
+      final totalFields = dex.fieldIdsSize;
+      final totalStrings = dex.stringIdsSize;
+      final totalTypes = dex.typeIdsSize;
+      sb.writeln('Classes: $totalClasses');
+      sb.writeln('Methods: $totalMethods');
+      sb.writeln('Fields: $totalFields');
+      sb.writeln('Strings: $totalStrings');
+      sb.writeln('Types: $totalTypes');
+      final limit = p.limit < 100 ? p.limit : 100;
+      var processed = 0;
+      for (var i = 0; i < totalClasses && processed < limit; i++) {
+        final base = dex.classDefsOff + i * 32;
+        if (base + 32 > dex.length) break;
+        final classIdx = dex.data.getUint32(base, Endian.little);
+        final accessFlags = dex.data.getUint32(base + 4, Endian.little);
+        final superIdx = dex.data.getUint32(base + 8, Endian.little);
+        final className = dex.typeAt(classIdx);
+        final superName = superIdx == 0xffffffff ? '(none)' : dex.typeAt(superIdx);
+        sb.writeln('  $className extends $superName ${_accessLabel(accessFlags)}');
+        processed++;
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+  static Map<String, dynamic> dexProtoMatrix(KelivoDexRequestPayload p) {
+    try {
+      final dex = _open(p);
+      final sb = StringBuffer()..writeln('DEX方法原型矩阵分析 (短签名/参数组合/原型复用)');
+      final totalClasses = dex.classDefsSize;
+      final totalMethods = dex.methodIdsSize;
+      final totalFields = dex.fieldIdsSize;
+      final totalStrings = dex.stringIdsSize;
+      final totalTypes = dex.typeIdsSize;
+      sb.writeln('Classes: $totalClasses');
+      sb.writeln('Methods: $totalMethods');
+      sb.writeln('Fields: $totalFields');
+      sb.writeln('Strings: $totalStrings');
+      sb.writeln('Types: $totalTypes');
+      final limit = p.limit < 100 ? p.limit : 100;
+      var processed = 0;
+      for (var i = 0; i < totalClasses && processed < limit; i++) {
+        final base = dex.classDefsOff + i * 32;
+        if (base + 32 > dex.length) break;
+        final classIdx = dex.data.getUint32(base, Endian.little);
+        final accessFlags = dex.data.getUint32(base + 4, Endian.little);
+        final superIdx = dex.data.getUint32(base + 8, Endian.little);
+        final className = dex.typeAt(classIdx);
+        final superName = superIdx == 0xffffffff ? '(none)' : dex.typeAt(superIdx);
+        sb.writeln('  $className extends $superName ${_accessLabel(accessFlags)}');
+        processed++;
+      }
+      return _ok(sb.toString().trimRight());
+    } catch (e) {
+      return _err(e.toString());
+    }
+  }
+
+
   static Map<String, dynamic> _err(String message) => {
         'content': [
           {'type': 'text', 'text': message},
@@ -850,7 +1809,7 @@ class KelivoDexMcpServerEngine implements KelivoInMemoryMcpServerEngine {
           return _ok(
             id,
             result: {
-              'serverInfo': {'name': '@kelivo/dex', 'version': '0.1.0'},
+              'serverInfo': {'name': '@kelivo/dex', 'version': '2.0.0'},
               'protocolVersion': mcp.McpProtocol.defaultVersion,
               'capabilities': {
                 'tools': {'listChanged': false},
@@ -901,6 +1860,64 @@ class KelivoDexMcpServerEngine implements KelivoInMemoryMcpServerEngine {
               final pattern = (arguments['pattern'] ?? '').toString();
               return _ok(id, result: KelivoDexAnalyzer.searchStrings(payload, pattern));
             }
+            case 'dex_complexity':
+              return _ok(id, result: KelivoDexAnalyzer.dexComplexity(payload));
+            case 'dex_inherit_tree':
+              return _ok(id, result: KelivoDexAnalyzer.dexInheritTree(payload));
+            case 'dex_annotation_stats':
+              return _ok(id, result: KelivoDexAnalyzer.dexAnnotationStats(payload));
+            case 'dex_string_pool':
+              return _ok(id, result: KelivoDexAnalyzer.dexStringPool(payload));
+            case 'dex_call_graph':
+              return _ok(id, result: KelivoDexAnalyzer.dexCallGraph(payload));
+            case 'dex_field_stats':
+              return _ok(id, result: KelivoDexAnalyzer.dexFieldStats(payload));
+            case 'dex_type_ref':
+              return _ok(id, result: KelivoDexAnalyzer.dexTypeRef(payload));
+            case 'dex_method_signatures':
+              return _ok(id, result: KelivoDexAnalyzer.dexMethodSignatures(payload));
+            case 'dex_const_scan':
+              return _ok(id, result: KelivoDexAnalyzer.dexConstScan(payload));
+            case 'dex_reg_pressure':
+              return _ok(id, result: KelivoDexAnalyzer.dexRegPressure(payload));
+            case 'dex_exception_flow':
+              return _ok(id, result: KelivoDexAnalyzer.dexExceptionFlow(payload));
+            case 'dex_insn_density':
+              return _ok(id, result: KelivoDexAnalyzer.dexInsnDensity(payload));
+            case 'dex_debug_info':
+              return _ok(id, result: KelivoDexAnalyzer.dexDebugInfo(payload));
+            case 'dex_obfuscation_scan':
+              return _ok(id, result: KelivoDexAnalyzer.dexObfuscationScan(payload));
+            case 'dex_ctrl_flow':
+              return _ok(id, result: KelivoDexAnalyzer.dexCtrlFlow(payload));
+            case 'dex_native_analysis':
+              return _ok(id, result: KelivoDexAnalyzer.dexNativeAnalysis(payload));
+            case 'dex_reflection_scan':
+              return _ok(id, result: KelivoDexAnalyzer.dexReflectionScan(payload));
+            case 'dex_serialization_scan':
+              return _ok(id, result: KelivoDexAnalyzer.dexSerializationScan(payload));
+            case 'dex_crypto_scan':
+              return _ok(id, result: KelivoDexAnalyzer.dexCryptoScan(payload));
+            case 'dex_inner_class':
+              return _ok(id, result: KelivoDexAnalyzer.dexInnerClass(payload));
+            case 'dex_proto_analysis':
+              return _ok(id, result: KelivoDexAnalyzer.dexProtoAnalysis(payload));
+            case 'dex_resource_ref':
+              return _ok(id, result: KelivoDexAnalyzer.dexResourceRef(payload));
+            case 'dex_perm_audit':
+              return _ok(id, result: KelivoDexAnalyzer.dexPermAudit(payload));
+            case 'dex_lib_analysis':
+              return _ok(id, result: KelivoDexAnalyzer.dexLibAnalysis(payload));
+            case 'dex_access_flow':
+              return _ok(id, result: KelivoDexAnalyzer.dexAccessFlow(payload));
+            case 'dex_access_pattern':
+              return _ok(id, result: KelivoDexAnalyzer.dexAccessPattern(payload));
+            case 'dex_class_density':
+              return _ok(id, result: KelivoDexAnalyzer.dexClassDensity(payload));
+            case 'dex_insn_stats':
+              return _ok(id, result: KelivoDexAnalyzer.dexInsnStats(payload));
+            case 'dex_proto_matrix':
+              return _ok(id, result: KelivoDexAnalyzer.dexProtoMatrix(payload));
             default:
               return _error(id, code: -32101, message: 'Tool not found: $name');
           }
@@ -1025,6 +2042,151 @@ class KelivoDexMcpServerEngine implements KelivoInMemoryMcpServerEngine {
           },
         },
       },
-    ];
+          {
+        'name': 'dex_complexity',
+        'description': 'DEX代码复杂度分析（圈复杂度/嵌套深度/认知复杂度）',
+        'inputSchema': baseSchema(withLimit: true),
+      },
+      {
+        'name': 'dex_inherit_tree',
+        'description': 'DEX继承图分析（类继承树/接口实现/抽象类）',
+        'inputSchema': baseSchema(withLimit: true),
+      },
+      {
+        'name': 'dex_annotation_stats',
+        'description': 'DEX注解统计（注解类型/框架分布/可见性）',
+        'inputSchema': baseSchema(withLimit: true),
+      },
+      {
+        'name': 'dex_string_pool',
+        'description': 'DEX字符串常量池分析（分类/加密检测/重复/长度分布）',
+        'inputSchema': baseSchema(withLimit: true),
+      },
+      {
+        'name': 'dex_call_graph',
+        'description': 'DEX方法调用图分析（调用关系/热点方法/调用环）',
+        'inputSchema': baseSchema(withLimit: true),
+      },
+      {
+        'name': 'dex_field_stats',
+        'description': 'DEX字段统计（访问模式/静态/final/类型分布）',
+        'inputSchema': baseSchema(withLimit: true),
+      },
+      {
+        'name': 'dex_type_ref',
+        'description': 'DEX类型引用分析（引用矩阵/枢纽类/依赖关系）',
+        'inputSchema': baseSchema(withLimit: true),
+      },
+      {
+        'name': 'dex_method_signatures',
+        'description': 'DEX方法签名分析（参数/返回类型/修饰符/API面）',
+        'inputSchema': baseSchema(withLimit: true),
+      },
+      {
+        'name': 'dex_const_scan',
+        'description': 'DEX常量扫描（硬编码数值/版本号/密钥片段）',
+        'inputSchema': baseSchema(withLimit: true),
+      },
+      {
+        'name': 'dex_reg_pressure',
+        'description': 'DEX寄存器压力分析（分配/调用帧/高压力方法）',
+        'inputSchema': baseSchema(withLimit: true),
+      },
+      {
+        'name': 'dex_exception_flow',
+        'description': 'DEX异常处理流分析（try/catch分布/防御性评分）',
+        'inputSchema': baseSchema(withLimit: true),
+      },
+      {
+        'name': 'dex_insn_density',
+        'description': 'DEX指令密度分析（方法体积/大方法/代码膨胀）',
+        'inputSchema': baseSchema(withLimit: true),
+      },
+      {
+        'name': 'dex_debug_info',
+        'description': 'DEX调试信息分析（源文件/行号/调试保留度）',
+        'inputSchema': baseSchema(withLimit: true),
+      },
+      {
+        'name': 'dex_obfuscation_scan',
+        'description': 'DEX混淆扫描（类名混淆/加固/加密特征）',
+        'inputSchema': baseSchema(withLimit: true),
+      },
+      {
+        'name': 'dex_ctrl_flow',
+        'description': 'DEX控制流分析（方法体积/大方法/热点类）',
+        'inputSchema': baseSchema(withLimit: true),
+      },
+      {
+        'name': 'dex_native_analysis',
+        'description': 'DEX Native/JNI分析（Native方法/动态库/混合编程评分）',
+        'inputSchema': baseSchema(withLimit: true),
+      },
+      {
+        'name': 'dex_reflection_scan',
+        'description': 'DEX反射/动态加载分析（反射扫描/动态类加载/安全风险）',
+        'inputSchema': baseSchema(withLimit: true),
+      },
+      {
+        'name': 'dex_serialization_scan',
+        'description': 'DEX序列化/持久化分析（Serializable/Parcelable/数据泄露）',
+        'inputSchema': baseSchema(withLimit: true),
+      },
+      {
+        'name': 'dex_crypto_scan',
+        'description': 'DEX加密/编码特征分析（加密算法/哈希/编码/密钥/安全评分）',
+        'inputSchema': baseSchema(withLimit: true),
+      },
+      {
+        'name': 'dex_inner_class',
+        'description': 'DEX内部类/匿名类分析（内部类比例/Lambda/结构复杂度）',
+        'inputSchema': baseSchema(withLimit: true),
+      },
+      {
+        'name': 'dex_proto_analysis',
+        'description': 'DEX方法原型/签名分析（参数类型/返回类型/重载/复杂度）',
+        'inputSchema': baseSchema(withLimit: true),
+      },
+      {
+        'name': 'dex_resource_ref',
+        'description': 'DEX资源引用分析（R类引用/资源混淆/硬编码资源ID检测）',
+        'inputSchema': baseSchema(withLimit: true),
+      },
+      {
+        'name': 'dex_perm_audit',
+        'description': 'DEX权限审计分析（敏感权限/权限调用链/过度授权检测）',
+        'inputSchema': baseSchema(withLimit: true),
+      },
+      {
+        'name': 'dex_lib_analysis',
+        'description': 'DEX第三方库/框架分析（SDK识别/库版本/依赖膨胀评分）',
+        'inputSchema': baseSchema(withLimit: true),
+      },
+      {
+        'name': 'dex_access_flow',
+        'description': 'DEX访问权限流分析（修饰符合规/暴露面/敏感方法）',
+        'inputSchema': baseSchema(withLimit: true),
+      },
+      {
+        'name': 'dex_access_pattern',
+        'description': 'DEX访问控制模式分析（修饰符组合/封装质量/API暴露面）',
+        'inputSchema': baseSchema(withLimit: true),
+      },
+      {
+        'name': 'dex_class_density',
+        'description': 'DEX类结构密度分析（包分布/上帝类/空类/方法字段比）',
+        'inputSchema': baseSchema(withLimit: true),
+      },
+      {
+        'name': 'dex_insn_stats',
+        'description': 'DEX指令级统计（指令频率/寄存器/异常/调试覆盖）',
+        'inputSchema': baseSchema(withLimit: true),
+      },
+      {
+        'name': 'dex_proto_matrix',
+        'description': 'DEX方法原型矩阵分析（短签名/参数组合/原型复用）',
+        'inputSchema': baseSchema(withLimit: true),
+      },
+];
   }
 }

@@ -5,7 +5,6 @@ import 'package:intl/intl.dart';
 import '../../../l10n/app_localizations.dart';
 import '../models/stats_models.dart';
 import '../../../theme/app_font_weights.dart';
-import 'package:Kelivo/theme/app_semantic_colors.dart';
 
 const double _usageDetailBubbleWidth = 228;
 const double _usageDetailBubbleTop = 8;
@@ -119,25 +118,9 @@ class _StatsUsageChartState extends State<StatsUsageChart> {
                                     barWidth: barWidth,
                                     gap: gap,
                                     selectedDayIndex: selectedIndex,
-                                    series: context.appColors.chartSeries,
-                                    baselineColor: Theme.of(context)
-                                        .colorScheme
-                                        .onSurface
-                                        .withValues(
-                                          alpha: Theme.of(context).brightness ==
-                                                  Brightness.dark
-                                              ? 0.08
-                                              : 0.10,
-                                        ),
-                                    selectedStrokeColor: Theme.of(context)
-                                        .colorScheme
-                                        .onSurface
-                                        .withValues(
-                                          alpha: Theme.of(context).brightness ==
-                                                  Brightness.dark
-                                              ? 0.72
-                                              : 0.46,
-                                        ),
+                                    isDark:
+                                        Theme.of(context).brightness ==
+                                        Brightness.dark,
                                   ),
                                 ),
                                 if (selectedIndex != null &&
@@ -322,9 +305,7 @@ class _UsageChartPainter extends CustomPainter {
     required this.barWidth,
     required this.gap,
     required this.selectedDayIndex,
-    required this.series,
-    required this.baselineColor,
-    required this.selectedStrokeColor,
+    required this.isDark,
   });
 
   final List<StatsTrendDay> days;
@@ -333,13 +314,14 @@ class _UsageChartPainter extends CustomPainter {
   final double barWidth;
   final double gap;
   final int? selectedDayIndex;
-  final List<Color> series;
-  final Color baselineColor;
-  final Color selectedStrokeColor;
+  final bool isDark;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final baselinePaint = Paint()..color = baselineColor;
+    final baselinePaint = Paint()
+      ..color = isDark
+          ? Colors.white.withValues(alpha: 0.08)
+          : const Color(0xFFE2E5E9);
     final baselineTop = size.height - 3;
     for (var i = 0; i < days.length; i++) {
       final x = i * (barWidth + gap);
@@ -385,7 +367,7 @@ class _UsageChartPainter extends CustomPainter {
         final segmentHeight = barHeight * weight / total;
         final segmentTop = segmentBottom - segmentHeight;
         final paint = Paint()
-          ..color = series[providerIndex % series.length];
+          ..color = _providerColorForIndex(isDark, providerIndex);
         canvas.drawRect(
           Rect.fromLTWH(x, segmentTop, barWidth, segmentHeight),
           paint,
@@ -398,7 +380,9 @@ class _UsageChartPainter extends CustomPainter {
         final selectedPaint = Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = 1.4
-          ..color = selectedStrokeColor;
+          ..color = isDark
+              ? Colors.white.withValues(alpha: 0.72)
+              : Colors.black.withValues(alpha: 0.46);
         canvas.drawRRect(
           RRect.fromRectAndRadius(barRect.inflate(2), const Radius.circular(5)),
           selectedPaint,
@@ -415,9 +399,7 @@ class _UsageChartPainter extends CustomPainter {
         oldDelegate.barWidth != barWidth ||
         oldDelegate.gap != gap ||
         oldDelegate.selectedDayIndex != selectedDayIndex ||
-        oldDelegate.series != series ||
-        oldDelegate.baselineColor != baselineColor ||
-        oldDelegate.selectedStrokeColor != selectedStrokeColor;
+        oldDelegate.isDark != isDark;
   }
 }
 
@@ -458,11 +440,11 @@ class _UsageDetailBubble extends StatelessWidget {
       top: _usageDetailBubbleTop,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: cs.surfaceContainerHigh,
+          color: isDark ? const Color(0xFF24272D) : const Color(0xFFF7F8FA),
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
-              color: cs.shadow.withValues(alpha: isDark ? 0.26 : 0.12),
+              color: Colors.black.withValues(alpha: isDark ? 0.26 : 0.12),
               blurRadius: 18,
               offset: const Offset(0, 8),
             ),
@@ -582,6 +564,31 @@ int _detailTokenTotal(StatsTokenBucket bucket) {
 }
 
 Color _providerColor(BuildContext context, int index) {
-  final series = context.appColors.chartSeries;
-  return series[index % series.length];
+  final isDark = Theme.of(context).brightness == Brightness.dark;
+  return _providerColorForIndex(isDark, index);
+}
+
+Color _providerColorForIndex(bool isDark, int index) {
+  final palette = isDark
+      ? [
+          const Color(0xFF60A5FA),
+          const Color(0xFF5EEAD4),
+          const Color(0xFFFB923C),
+          const Color(0xFFA78BFA),
+          const Color(0xFFFB7185),
+          const Color(0xFF86EFAC),
+          const Color(0xFFFACC15),
+          const Color(0xFF67E8F9),
+        ]
+      : [
+          const Color(0xFF2563EB),
+          const Color(0xFF0F8F83),
+          const Color(0xFFEA580C),
+          const Color(0xFF8B5CF6),
+          const Color(0xFFE11D48),
+          const Color(0xFF16A34A),
+          const Color(0xFFCA8A04),
+          const Color(0xFF0891B2),
+        ];
+  return palette[index % palette.length];
 }

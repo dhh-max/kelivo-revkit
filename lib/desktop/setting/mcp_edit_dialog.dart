@@ -11,7 +11,6 @@ import '../../core/providers/mcp_provider.dart';
 import '../../shared/widgets/snackbar.dart';
 import '../../shared/widgets/ios_switch.dart';
 import '../../theme/app_font_weights.dart';
-import 'package:Kelivo/theme/app_semantic_colors.dart';
 
 Future<void> showDesktopMcpEditDialog(
   BuildContext context, {
@@ -115,7 +114,7 @@ class _DesktopMcpEditDialogState extends State<_DesktopMcpEditDialog>
     // Built-in server: only allow toggling enabled, no other changes
     if (isEdit && _transport == McpTransportType.inmemory) {
       final old = mcp.getById(widget.serverId!)!;
-      await mcp.updateServerMetadata(old.copyWith(enabled: _enabled));
+      await mcp.updateServer(old.copyWith(enabled: _enabled));
       if (mounted) Navigator.of(context).maybePop();
       return;
     }
@@ -157,7 +156,7 @@ class _DesktopMcpEditDialogState extends State<_DesktopMcpEditDialog>
       if (isEdit) {
         final old = mcp.getById(widget.serverId!)!;
         final clearing = cwd.isEmpty;
-        await mcp.updateServerMetadata(
+        await mcp.updateServer(
           old.copyWith(
             enabled: _enabled,
             name: name,
@@ -194,7 +193,7 @@ class _DesktopMcpEditDialogState extends State<_DesktopMcpEditDialog>
       }
       if (isEdit) {
         final old = mcp.getById(widget.serverId!)!;
-        await mcp.updateServerMetadata(
+        await mcp.updateServer(
           old.copyWith(
             enabled: _enabled,
             name: name,
@@ -461,7 +460,9 @@ class _DesktopMcpEditDialogState extends State<_DesktopMcpEditDialog>
                           states,
                         ) {
                           if (states.contains(WidgetState.hovered)) {
-                            return cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05);
+                            return isDark
+                                ? Colors.white.withValues(alpha: 0.06)
+                                : Colors.black.withValues(alpha: 0.05);
                           }
                           return Colors.transparent;
                         }),
@@ -541,7 +542,9 @@ class _DesktopMcpEditDialogState extends State<_DesktopMcpEditDialog>
                           states,
                         ) {
                           if (states.contains(WidgetState.hovered)) {
-                            return cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05);
+                            return isDark
+                                ? Colors.white.withValues(alpha: 0.06)
+                                : Colors.black.withValues(alpha: 0.05);
                           }
                           return Colors.transparent;
                         }),
@@ -777,12 +780,12 @@ class _DesktopMcpEditDialogState extends State<_DesktopMcpEditDialog>
                         states,
                       ) {
                         if (states.contains(WidgetState.hovered)) {
-                          final isDark =
-                              Theme.of(context).brightness == Brightness.dark;
                           return Color.lerp(
                             cs.primary,
-                            isDark ? cs.onSurface : cs.surface,
-                            isDark ? 0.06 : 0.08,
+                            Colors.white,
+                            Theme.of(context).brightness == Brightness.dark
+                                ? 0.06
+                                : 0.08,
                           );
                         }
                         return cs.primary;
@@ -804,6 +807,7 @@ class _DesktopMcpEditDialogState extends State<_DesktopMcpEditDialog>
     bool bold = false,
   }) {
     final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -826,7 +830,7 @@ class _DesktopMcpEditDialogState extends State<_DesktopMcpEditDialog>
           decoration: InputDecoration(
             hintText: hint,
             filled: true,
-            fillColor: context.appColors.surfaceCard,
+            fillColor: isDark ? Colors.white10 : Colors.white,
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
               borderSide: BorderSide(
@@ -858,7 +862,7 @@ class _DesktopMcpEditDialogState extends State<_DesktopMcpEditDialog>
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       decoration: BoxDecoration(
-        color: context.appColors.surfaceCard,
+        color: isDark ? Colors.white10 : Colors.white.withValues(alpha: 0.96),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: cs.outlineVariant.withValues(alpha: isDark ? 0.08 : 0.06),
@@ -897,7 +901,9 @@ class _SmallIconBtnState extends State<_SmallIconBtn> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = _hover
-        ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
+        ? (isDark
+              ? Colors.white.withValues(alpha: 0.06)
+              : Colors.black.withValues(alpha: 0.05))
         : Colors.transparent;
     final btn = Container(
       width: 28,
@@ -935,7 +941,9 @@ class _SegChoiceBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
 
     const double outerHeight = 44;
     const double innerPadding = 4;
@@ -958,7 +966,9 @@ class _SegChoiceBar extends StatelessWidget {
         final double rowWidth =
             segWidth * labels.length + gap * (labels.length - 1);
 
-        final Color shellBg = context.appColors.surfaceCard;
+        final Color shellBg = isDark
+            ? Colors.white.withValues(alpha: 0.08)
+            : Colors.white;
 
         List<Widget> children = [];
         for (int index = 0; index < labels.length; index++) {
@@ -1039,7 +1049,9 @@ class _SegTabBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
 
     const double outerHeight = 44;
     const double innerPadding = 4;
@@ -1062,7 +1074,9 @@ class _SegTabBar extends StatelessWidget {
         final double rowWidth =
             segWidth * tabs.length + gap * (tabs.length - 1);
 
-        final Color shellBg = context.appColors.surfaceCard;
+        final Color shellBg = isDark
+            ? Colors.white.withValues(alpha: 0.08)
+            : Colors.white;
 
         List<Widget> children = [];
         for (int index = 0; index < tabs.length; index++) {

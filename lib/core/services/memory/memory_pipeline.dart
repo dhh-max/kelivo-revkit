@@ -3,13 +3,11 @@ import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
 
-import '../../database/chat_database_repository.dart';
 import '../../models/assistant.dart';
 import '../../models/chat_message.dart';
 import '../../models/memory_entry.dart';
-import '../../models/message_part.dart';
 import '../../providers/assistant_provider.dart';
-import '../../providers/memory_provider_v2.dart';
+import '../../providers/memory_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../api/chat_api_service.dart';
 import '../chat/chat_service.dart';
@@ -74,7 +72,6 @@ class MemoryPipelineService {
   MemoryPipelineService({
     required this.chatService,
     required this.repository,
-    required this.chatRepository,
     required this._settings,
     required this._assistants,
     required this._memoryV2,
@@ -88,14 +85,8 @@ class MemoryPipelineService {
     generateText,
   }) : traceRecorder = traceRecorder ?? MemoryTraceRecorder.instance,
        _generateText = generateText ?? _defaultGenerateText,
-       smartAdd = MemorySmartAdd(
-         repository: repository,
-         chatRepository: chatRepository,
-       ),
-       distiller = MemoryProfileDistiller(
-         repository: repository,
-         chatRepository: chatRepository,
-       );
+       smartAdd = MemorySmartAdd(repository: repository),
+       distiller = MemoryProfileDistiller(repository: repository);
 
   static Future<String> _defaultGenerateText({
     required ProviderConfig config,
@@ -113,7 +104,6 @@ class MemoryPipelineService {
 
   final ChatService chatService;
   final MemoryRepository repository;
-  final ChatDatabaseRepository chatRepository;
   final MemorySmartAdd smartAdd;
   final MemoryProfileDistiller distiller;
 
@@ -122,7 +112,7 @@ class MemoryPipelineService {
 
   final SettingsProvider Function() _settings;
   final AssistantProvider Function() _assistants;
-  final MemoryProviderV2 Function() _memoryV2;
+  final MemoryProvider Function() _memoryV2;
   final Future<String> Function({
     required ProviderConfig config,
     required String modelId,
@@ -196,11 +186,7 @@ class MemoryPipelineService {
         continue;
       }
       // TextPart bodies only — image/file attachments live as structured parts.
-      var text = m.parts
-          .whereType<TextPart>()
-          .map((part) => part.text)
-          .join()
-          .trim();
+      var text = m.content.trim();
       if (text.isEmpty) continue;
       if (text.length > 2000) {
         text = '${text.substring(0, 2000)}…';
@@ -451,7 +437,7 @@ class MemoryPipelineService {
       );
     }
 
-    final all = await chatService.loadMessages(job.conversationId);
+    final all = chatService.getMessages(job.conversationId);
     final selected = collapseSelectedVersions(
       all,
       chatService.getVersionSelections(job.conversationId),
@@ -665,10 +651,10 @@ class MemoryPipelineService {
 
     // ── Extract ───────────────────────────────────────────────────────────
     final extractStep = handle?.beginStep(MemoryTraceStepKind.extract);
-    final visible = await chatRepository.queryVisibleMemories(
+    final visible = await repository.queryVisibleMemories(
       assistantId: assistant.id,
     );
-    final totals = await chatRepository.countVisibleMemoriesByType(
+    final totals = await repository.countVisibleMemoriesByType(
       assistantId: assistant.id,
     );
     final existingMemory = MemoryBlockBuilder.buildMemoryBlock(
@@ -874,7 +860,7 @@ class MemoryPipelineService {
   }
 
   Future<void> _advance(String conversationId, int order) async {
-    await chatRepository.setConversationLastMemoryExtractedOrder(
+    await chatService.setConversationLastMemoryExtractedOrder(
       conversationId,
       order,
     );
@@ -884,7 +870,7 @@ class MemoryPipelineService {
       convo.lastMemoryExtractedOrder = order;
     }
     try {
-      await _memoryV2().reloadCurrentScope();
+      await _memoryV2().loadAll();
     } catch (_) {}
   }
 }

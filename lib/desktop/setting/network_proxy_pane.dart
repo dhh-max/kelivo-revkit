@@ -10,7 +10,6 @@ import '../../shared/widgets/ios_switch.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../core/providers/settings_provider.dart';
-import 'package:Kelivo/theme/app_semantic_colors.dart';
 
 class DesktopNetworkProxyPane extends StatefulWidget {
   const DesktopNetworkProxyPane({super.key});
@@ -312,7 +311,7 @@ class _DesktopNetworkProxyPaneState extends State<DesktopNetworkProxyPane> {
                       child: Text(
                         l10n.networkProxyTestSuccess,
                         style: TextStyle(
-                          color: context.appColors.success,
+                          color: Colors.green.shade600,
                           fontWeight: AppFontWeights.semibold,
                         ),
                       ),
@@ -459,12 +458,14 @@ class _DeskIosButtonState extends State<_DeskIosButton> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textColor = widget.filled
-        ? cs.onPrimary
+        ? Colors.white
         : cs.onSurface.withValues(alpha: 0.9);
     final bg = widget.filled
         ? (_hover ? cs.primary.withValues(alpha: 0.92) : cs.primary)
         : (_hover
-              ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
+              ? (isDark
+                    ? Colors.white.withValues(alpha: 0.06)
+                    : Colors.black.withValues(alpha: 0.05))
               : Colors.transparent);
     final borderColor = widget.filled
         ? Colors.transparent
@@ -514,7 +515,9 @@ Widget _sectionCard({required List<Widget> children}) {
     builder: (context) {
       final cs = Theme.of(context).colorScheme;
       final isDark = Theme.of(context).brightness == Brightness.dark;
-      final baseBg = context.appColors.surfaceCard;
+      final baseBg = isDark
+          ? Colors.white10
+          : Colors.white.withValues(alpha: 0.96);
       return Container(
         decoration: BoxDecoration(
           color: baseBg,
@@ -535,11 +538,12 @@ Widget _sectionCard({required List<Widget> children}) {
 }
 
 InputDecoration _deskInputDecoration(BuildContext context) {
+  final isDark = Theme.of(context).brightness == Brightness.dark;
   final cs = Theme.of(context).colorScheme;
   return InputDecoration(
     isDense: true,
     filled: true,
-    fillColor: context.appColors.surfaceFill,
+    fillColor: isDark ? Colors.white10 : const Color(0xFFF7F7F9),
     hintStyle: TextStyle(
       fontSize: 14,
       color: cs.onSurface.withValues(alpha: 0.5),
@@ -598,7 +602,8 @@ class _ProxyTypeDropdownState extends State<_ProxyTypeDropdown> {
     final size = rb.size;
     _entry = OverlayEntry(
       builder: (ctx) {
-        final bgColor = Theme.of(context).colorScheme.surfaceContainerHigh;
+        final isDark = Theme.of(ctx).brightness == Brightness.dark;
+        final bgColor = isDark ? const Color(0xFF1C1C1E) : Colors.white;
         return Stack(
           children: [
             Positioned.fill(
@@ -634,6 +639,7 @@ class _ProxyTypeDropdownState extends State<_ProxyTypeDropdown> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final baseBorder = cs.outlineVariant.withValues(alpha: 0.18);
     final hoverBorder = cs.primary;
     final borderColor = _open || _hover ? hoverBorder : baseBorder;
@@ -667,7 +673,7 @@ class _ProxyTypeDropdownState extends State<_ProxyTypeDropdown> {
             padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 4),
             constraints: const BoxConstraints(minWidth: 150, minHeight: 40),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceContainerHigh,
+              color: isDark ? const Color(0xFF141414) : Colors.white,
               borderRadius: BorderRadius.circular(10),
               border: Border.all(color: borderColor, width: 1),
               boxShadow: _open
@@ -758,7 +764,7 @@ class _ProxyTypeOverlay extends StatelessWidget {
           ),
           boxShadow: [
             BoxShadow(
-              color: cs.shadow.withValues(alpha: 0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 16,
               offset: const Offset(0, 4),
             ),
@@ -804,7 +810,9 @@ class _ProxyTypeTileState extends State<_ProxyTypeTile> {
     final bg = widget.selected
         ? cs.primary.withValues(alpha: 0.12)
         : (_hover
-              ? (cs.onSurface.withValues(alpha: isDark ? 0.08 : 0.04))
+              ? (isDark
+                    ? Colors.white.withValues(alpha: 0.08)
+                    : Colors.black.withValues(alpha: 0.04))
               : Colors.transparent);
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),

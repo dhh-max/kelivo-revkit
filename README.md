@@ -13,13 +13,15 @@ This repository (`dhh-max/kelivo-revkit`) is a second-level fork of [Kelivo Plus
 | Positioning | Mobile AI self-configuration + general enhancements | Fully inherits Plus; focused on Android security & reverse engineering |
 | Built-in MCP | fetch / files / images / github / so / reverse (basic) | All inherited + new `@kelivo/dex` (DEX bytecode parsing) and `@kelivo/context` (conversation context management) |
 | APK reverse engineering | Basic static analysis and triage | `@kelivo/reverse` deepened to 20 tools: manifest deep parsing, SO/DEX aggregate analysis, JNI bridge discovery, cross-target string search, packer detection, signature bypass, APK resign & DEX injection, etc. |
-| Preset assistants | General-purpose assistants | Adds a “Reverse Analyst” preset bound to `@kelivo/reverse` by default |
+| Preset assistants | General-purpose assistants | Adds a "Reverse Analyst" preset bound to `@kelivo/reverse` by default |
+| RelayGo gateway | Basic proxy | Fully inherited + **request dedup** (2s deduplication window, body-hash key), **exponential backoff with jitter** for all 4xx/5xx/timeout errors, **cleanup timer** to prevent dedup map unbounded growth |
 | 神经权能网关 | Included | Fully inherited |
 | Skills | Included | Fully inherited |
 | GitHub write tools | Included | Fully inherited |
 | Local hybrid search | Included | Fully inherited |
 | Mobile import flow | Included | Fully inherited |
 | Tool UX | Chinese tool descriptions + grouped tools | Fully inherited |
+| Documentation | Basic README | **3 major technical reference docs**: App reference (19 ch.), Gateway reference (19 ch.), Credits (11 ch. / 532 lines) |
 
 ## Highlights
 
@@ -55,9 +57,10 @@ Create a world book from this setting document and use character and location na
 - `@kelivo/images`: image-oriented helper tools.
 - `@kelivo/github`: GitHub repository, file, issue, PR, release, Actions, secrets, and variables operations.
 - `@kelivo/so`: pure-Dart ELF/.so reverse engineering toolkit (26 tools). No native dependencies required.
-- `@kelivo/dex`: pure-Dart DEX/ODEX bytecode parsing toolkit (10 tools). No native dependencies required.
+- `@kelivo/dex`: pure-Dart DEX/ODEX bytecode parsing and analysis toolkit (39 tools). No native dependencies required.
 - `@kelivo/context`: conversation context management toolkit (6 tools) — stats, summary, search, export, and boundary management.
 - `@kelivo/reverse`: APK-oriented static analysis and triage toolkit (20 tools, incl. signature bypass, APK resign & DEX injection) for Android reverse engineering.
+- `@kelivo/memory`: per-assistant memory persistence toolkit — list/add/update/delete/search/clear/stats of structured memories and preference key-values.
 
 ### SO/ELF Reverse Engineering Tools
 
@@ -81,20 +84,23 @@ Create a world book from this setting document and use character and location na
 
 ### DEX Bytecode Parsing Tools
 
-`@kelivo/dex` provides pure-Dart DEX/ODEX bytecode-level parsing:
+`@kelivo/dex` provides pure-Dart DEX/ODEX bytecode-level parsing and static analysis:
 
 | Category | Tools |
 | --- | --- |
 | Header | `dex_parse_header` |
-| Strings | `dex_list_strings` |
-| Types | `dex_list_types` |
-| Classes | `dex_list_classes` |
-| Methods | `dex_list_methods` |
-| Fields | `dex_list_fields` |
-| Annotations | `dex_list_annotations` (class-level annotation extraction, deobfuscation hints) |
-| Disassembly | `dex_disassemble_method` (per-method Dalvik bytecode disassembly) |
-| Cross-reference | `dex_xref_method` (method-level call graph — find all callers) |
-| String search | `dex_search_strings` (regex/substring search over DEX string pool) |
+| Strings | `dex_list_strings`, `dex_string_pool`, `dex_search_strings` (regex/substring search over string pool) |
+| Types | `dex_list_types`, `dex_type_ref` |
+| Classes | `dex_list_classes`, `dex_inner_class`, `dex_inherit_tree`, `dex_debug_info` |
+| Methods | `dex_list_methods`, `dex_method_signatures`, `dex_disassemble_method` (per-method Dalvik bytecode disassembly) |
+| Fields | `dex_list_fields`, `dex_field_stats` |
+| Annotations | `dex_list_annotations`, `dex_annotation_stats` (annotation extraction and statistics) |
+| Cross-reference | `dex_xref_method` (method-level call graph — find all callers), `dex_call_graph` |
+| Control flow | `dex_ctrl_flow`, `dex_exception_flow`, `dex_access_flow` |
+| Complexity | `dex_complexity` (per-method cyclomatic/size complexity), `dex_reg_pressure`, `dex_insn_stats`, `dex_insn_density`, `dex_class_density` |
+| Security scan | `dex_crypto_scan`, `dex_const_scan`, `dex_serialization_scan`, `dex_reflection_scan`, `dex_obfuscation_scan`, `dex_lib_analysis`, `dex_native_analysis`, `dex_resource_ref`, `dex_access_pattern` |
+| Protocol | `dex_proto_analysis`, `dex_proto_matrix` |
+| Permission | `dex_perm_audit` |
 
 ### Conversation Context Management Tools
 
@@ -108,6 +114,20 @@ Create a world book from this setting document and use character and location na
 | Export | `context_export` |
 | Boundary | `context_set_boundary` |
 | Messages | `context_get_messages` |
+
+### Memory Tools
+
+`@kelivo/memory` provides per-assistant structured memory persistence (built on the `AssistantMemory` system):
+
+| Category | Tools |
+| --- | --- |
+| List | `memory_list` |
+| Add | `memory_add` |
+| Update | `memory_update` |
+| Delete | `memory_delete` |
+| Search | `memory_search` |
+| Clear | `memory_clear` |
+| Stats | `memory_stats` |
 
 ### APK Reverse Engineering Tools
 
@@ -316,17 +336,23 @@ The repository does not include signing secrets. Configure your own `android/key
 
 ## Documentation
 
+### Main App
+
 - [Chinese README](README_ZH_CN.md)
 - [Kelivo RevKit change notes (vs Kelivo Plus)](docs/KELIVO_PLUS_CHANGES_ZH.md)
 - [Android installation and coexistence guide](docs/ANDROID_INSTALLATION_ZH.md)
 - [Release notes](docs/RELEASE_NOTES_1.1.17_PLUS.md)
 - [Search upgrade notes](docs/KELIVO_SEARCH_UPGRADE_NOTES.md)
 - [APK analysis anti-crash & performance optimization](docs/APK_ANALYSIS_ANTI_CRASH_ZH.md)
+- [Kelivo App technical reference (19 chapters)](docs/KELIVO_APP_REFERENCE_ZH.md)
 
-## Acknowledgements
+### RelayGo Gateway
 
-- Original project: [Chevey339/kelivo](https://github.com/Chevey339/kelivo)
-- UI inspiration: [RikkaHub](https://github.com/re-ovo/rikkahub)
+- [RelayGo Gateway technical reference (19 chapters)](docs/RELAYGO_GATEWAY_REFERENCE_ZH.md)
+
+### Acknowledgements
+
+- [Full credits (11 chapters / 532 lines)](docs/CREDITS_ZH.md)
 
 ## License
 

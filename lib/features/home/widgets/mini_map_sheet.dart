@@ -2,7 +2,6 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import '../../../core/models/chat_message.dart';
-import '../../../core/models/message_part.dart';
 import '../../../icons/lucide_adapter.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../theme/app_font_weights.dart';
@@ -371,20 +370,10 @@ class _MiniMapRow extends StatelessWidget {
     this.onToggleSelection,
   });
 
-  String _summaryText(ChatMessage? message) {
-    if (message == null) return '';
-    // ImagePart/FilePart are excluded; only TextPart contributes to the summary.
-    final text = message.parts
-        .whereType<TextPart>()
-        .map((part) => part.text)
-        .join();
-    return _oneLine(text);
-  }
-
   String _oneLine(String s) {
-    // Strip vendor inline reasoning blocks if present; attachment markers are
-    // no longer parsed because summaries are built from TextPart only.
+    // Strip inline embed markers used in user messages to avoid noise
     var t = s
+        // remove vendor inline reasoning blocks if present
         .replaceAll(
           RegExp(
             r'<(?:think|thought)>[\s\S]*?<\/(?:think|thought)>',
@@ -392,6 +381,8 @@ class _MiniMapRow extends StatelessWidget {
           ),
           '',
         )
+        .replaceAll(RegExp(r"\[image:[^\]]+\]"), "")
+        .replaceAll(RegExp(r"\[file:[^\]]+\]"), "")
         .replaceAll('\n', ' ')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
@@ -402,8 +393,8 @@ class _MiniMapRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final userText = _summaryText(pair.user);
-    final asstText = _summaryText(pair.assistant);
+    final userText = pair.user?.content ?? '';
+    final asstText = pair.assistant?.content ?? '';
 
     final bool userSelected =
         selectedMessageIds != null &&
@@ -463,7 +454,7 @@ class _MiniMapRow extends StatelessWidget {
                                 : null,
                           ),
                           child: Text(
-                            userText.isNotEmpty ? userText : ' ',
+                            userText.isNotEmpty ? _oneLine(userText) : ' ',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
@@ -490,7 +481,7 @@ class _MiniMapRow extends StatelessWidget {
                             borderRadius: BorderRadius.circular(16),
                           ),
                           child: Text(
-                            userText.isNotEmpty ? userText : ' ',
+                            userText.isNotEmpty ? _oneLine(userText) : ' ',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
@@ -538,7 +529,7 @@ class _MiniMapRow extends StatelessWidget {
                                 : null,
                           ),
                           child: Text(
-                            asstText.isNotEmpty ? asstText : ' ',
+                            asstText.isNotEmpty ? _oneLine(asstText) : ' ',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(fontSize: 15.7, height: 1.5),
@@ -562,7 +553,7 @@ class _MiniMapRow extends StatelessWidget {
                             borderRadius: BorderRadius.circular(16),
                           ),
                           child: Text(
-                            asstText.isNotEmpty ? asstText : ' ',
+                            asstText.isNotEmpty ? _oneLine(asstText) : ' ',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(fontSize: 15.7, height: 1.5),

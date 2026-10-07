@@ -195,7 +195,6 @@ class _GlassPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cs = Theme.of(context).colorScheme;
     return ClipRRect(
       borderRadius: borderRadius ?? BorderRadius.circular(14),
       child: BackdropFilter(
@@ -203,20 +202,20 @@ class _GlassPanel extends StatelessWidget {
         child: DecoratedBox(
           decoration: BoxDecoration(
             // Match the preferred grey smudge style
-            color: cs.surface.withValues(
+            color: (isDark ? Colors.black : Colors.white).withValues(
               alpha: isDark ? 0.28 : 0.56,
             ),
             border: Border(
               top: BorderSide(
-                color: cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.18),
+                color: Colors.white.withValues(alpha: isDark ? 0.06 : 0.18),
                 width: 0.7,
               ),
               left: BorderSide(
-                color: cs.onSurface.withValues(alpha: isDark ? 0.04 : 0.12),
+                color: Colors.white.withValues(alpha: isDark ? 0.04 : 0.12),
                 width: 0.6,
               ),
               right: BorderSide(
-                color: cs.onSurface.withValues(alpha: isDark ? 0.04 : 0.12),
+                color: Colors.white.withValues(alpha: isDark ? 0.04 : 0.12),
                 width: 0.6,
               ),
             ),
@@ -481,7 +480,7 @@ class _HoverRowState extends State<_HoverRow> {
     final cs = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
     final baseBg = Colors.transparent;
-    final hoverBg = cs.onSurface.withValues(
+    final hoverBg = (isDark ? Colors.white : Colors.black).withValues(
       alpha: isDark ? 0.12 : 0.10,
     );
 

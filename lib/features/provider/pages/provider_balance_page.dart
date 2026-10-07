@@ -10,7 +10,6 @@ import '../../../shared/widgets/ios_tactile.dart';
 import '../../../shared/widgets/snackbar.dart';
 import '../widgets/provider_balance_badge.dart';
 import '../../../theme/app_font_weights.dart';
-import 'package:Kelivo/theme/app_semantic_colors.dart';
 
 class ProviderBalancePage extends StatefulWidget {
   const ProviderBalancePage({
@@ -294,11 +293,12 @@ class _ProviderBalancePageState extends State<ProviderBalancePage> {
 }
 
 InputDecoration _balanceInputDecoration(BuildContext context) {
+  final isDark = Theme.of(context).brightness == Brightness.dark;
   final cs = Theme.of(context).colorScheme;
   return InputDecoration(
     isDense: true,
     filled: true,
-    fillColor: context.appColors.surfaceFill,
+    fillColor: isDark ? Colors.white10 : const Color(0xFFF7F7F9),
     hintStyle: TextStyle(
       fontSize: 14,
       color: cs.onSurface.withValues(alpha: 0.5),

@@ -1,6 +1,5 @@
 import 'dart:convert';
 
-import '../../database/chat_database_repository.dart';
 import '../../models/assistant.dart';
 import '../../models/memory_entry.dart';
 import '../../models/user_profile_field.dart';
@@ -9,6 +8,8 @@ import 'memory_block_builder.dart';
 import 'memory_prompts.dart';
 import 'memory_repository.dart';
 import 'memory_smart_add.dart';
+import 'memory_quality.dart';
+import 'memory_search_utils.dart';
 import 'memory_tokenizer.dart';
 import 'memory_trace.dart';
 
@@ -102,7 +103,6 @@ abstract final class MemoryTools {
     required Map<String, dynamic> args,
     required Assistant assistant,
     required MemoryRepository repository,
-    required ChatDatabaseRepository chatRepository,
     ChatService? chatService,
     String? conversationId,
     Future<void> Function()? onMutated,
@@ -190,14 +190,13 @@ abstract final class MemoryTools {
           result = await _handleMemoryRead(
             args: args,
             assistant: assistant,
-            chatRepository: chatRepository,
+            repository: repository,
           );
         case memoryUpdate:
           result = await _handleMemoryUpdate(
             args: args,
             assistant: assistant,
             repository: repository,
-            chatRepository: chatRepository,
             smartAdd: smartAdd,
             promptLang: promptLang,
             memoryLlmCall: memoryLlmCall,
@@ -210,14 +209,13 @@ abstract final class MemoryTools {
           result = await _handleMemorySearchProfile(
             args: args,
             assistant: assistant,
-            chatRepository: chatRepository,
+            repository: repository,
           );
         case memoryEdit:
           result = await _handleMemoryEdit(
             args: args,
             assistant: assistant,
             repository: repository,
-            chatRepository: chatRepository,
             traceStep: step,
           );
           await onMutated?.call();
@@ -226,7 +224,6 @@ abstract final class MemoryTools {
             args: args,
             assistant: assistant,
             repository: repository,
-            chatRepository: chatRepository,
             traceStep: step,
           );
           await onMutated?.call();
@@ -234,7 +231,6 @@ abstract final class MemoryTools {
           result = await _handleUpdateUserProfile(
             args: args,
             repository: repository,
-            chatRepository: chatRepository,
             traceStep: step,
           );
           await onMutated?.call();
@@ -347,22 +343,16 @@ abstract final class MemoryTools {
   }
 
   /// Whitespace-split, lowercase, then [MemoryTokenizer.escapeLike] (§5.9).
-  static List<String> searchTokens(String query) {
-    return query
-        .trim()
-        .toLowerCase()
-        .split(RegExp(r'\s+'))
-        .where((t) => t.isNotEmpty)
-        .map(MemoryTokenizer.escapeLike)
-        .toList(growable: false);
-  }
+  /// Delegates to [MemorySearchUtils.tokenize] (shared impl from SoLab v2).
+  static List<String> searchTokens(String query) =>
+      MemorySearchUtils.tokenize(query, escapeLike: true);
 
   // —— Handlers ——
 
   static Future<String> _handleMemoryRead({
     required Map<String, dynamic> args,
     required Assistant assistant,
-    required ChatDatabaseRepository chatRepository,
+    required MemoryRepository repository,
   }) async {
     final type = _parseMemoryType(args['type']);
     if (args.containsKey('type') && args['type'] != null && type == null) {
@@ -375,7 +365,7 @@ abstract final class MemoryTools {
     final includeArchived = _asBool(args['include_archived']) ?? false;
     final limit = (_asInt(args['limit']) ?? 50).clamp(1, 100);
 
-    final all = await chatRepository.queryVisibleMemories(
+    final all = await repository.queryVisibleMemories(
       assistantId: assistant.id,
       type: type,
       includeArchived: includeArchived,
@@ -394,7 +384,6 @@ abstract final class MemoryTools {
     required Map<String, dynamic> args,
     required Assistant assistant,
     required MemoryRepository repository,
-    required ChatDatabaseRepository chatRepository,
     MemorySmartAdd? smartAdd,
     MemoryPromptLang? promptLang,
     Future<String> Function(String prompt)? memoryLlmCall,
@@ -412,10 +401,12 @@ abstract final class MemoryTools {
       );
     }
     final content = (args['content'] ?? '').toString();
-    if (content.trim().isEmpty) {
+    // MemoryQuality: hard-validate before LLM Smart Add (SoLab v2 fusion).
+    final qualityError = MemoryQuality.validate(content);
+    if (qualityError != null) {
       return toolError(
         error: 'invalid_memory_content',
-        message: 'Memory content must not be empty.',
+        message: qualityError,
         tool: memoryUpdate,
       );
     }
@@ -427,7 +418,7 @@ abstract final class MemoryTools {
     // Real Smart Add when wired (§12.6); else exact-duplicate → SKIP / NEW.
     final adder =
         smartAdd ??
-        MemorySmartAdd(repository: repository, chatRepository: chatRepository);
+        MemorySmartAdd(repository: repository);
     final result = await adder.addOne(
       item: SmartAddItem(
         type: type,
@@ -450,7 +441,7 @@ abstract final class MemoryTools {
   static Future<String> _handleMemorySearchProfile({
     required Map<String, dynamic> args,
     required Assistant assistant,
-    required ChatDatabaseRepository chatRepository,
+    required MemoryRepository repository,
   }) async {
     final query = (args['query'] ?? '').toString();
     if (query.trim().isEmpty) {
@@ -478,7 +469,7 @@ abstract final class MemoryTools {
       });
     }
 
-    final matched = await chatRepository.searchMemories(
+    final matched = await repository.searchMemories(
       assistantId: assistant.id,
       tokens: tokens,
       type: type,
@@ -496,7 +487,7 @@ abstract final class MemoryTools {
       }
     }
 
-    final relatedEntries = await chatRepository.memoriesByIds(
+    final relatedEntries = await repository.memoriesByIds(
       viaByRelated.keys.toList(growable: false),
     );
     final relatedFiltered = relatedEntries
@@ -538,7 +529,6 @@ abstract final class MemoryTools {
     required Map<String, dynamic> args,
     required Assistant assistant,
     required MemoryRepository repository,
-    required ChatDatabaseRepository chatRepository,
     MemoryTraceStep? traceStep,
   }) async {
     final id = (args['id'] ?? '').toString().trim();
@@ -558,7 +548,7 @@ abstract final class MemoryTools {
       );
     }
 
-    final found = await chatRepository.memoriesByIds([id]);
+    final found = await repository.memoriesByIds([id]);
     final entry = found.isEmpty ? null : found.first;
     if (entry == null ||
         entry.status != MemoryStatus.active ||
@@ -602,7 +592,6 @@ abstract final class MemoryTools {
     required Map<String, dynamic> args,
     required Assistant assistant,
     required MemoryRepository repository,
-    required ChatDatabaseRepository chatRepository,
     MemoryTraceStep? traceStep,
   }) async {
     final id = (args['id'] ?? '').toString().trim();
@@ -614,7 +603,7 @@ abstract final class MemoryTools {
       );
     }
 
-    final found = await chatRepository.memoriesByIds([id]);
+    final found = await repository.memoriesByIds([id]);
     final entry = found.isEmpty ? null : found.first;
     if (entry == null || !_isVisible(entry, assistant.id)) {
       return toolError(
@@ -650,7 +639,6 @@ abstract final class MemoryTools {
   static Future<String> _handleUpdateUserProfile({
     required Map<String, dynamic> args,
     required MemoryRepository repository,
-    required ChatDatabaseRepository chatRepository,
     MemoryTraceStep? traceStep,
   }) async {
     final rawFields = args['fields'];
@@ -670,7 +658,7 @@ abstract final class MemoryTools {
     final priorValues = <String, String>{};
     if (traceStep != null) {
       try {
-        for (final field in await chatRepository.readProfileFields()) {
+        for (final field in await repository.readProfileFields()) {
           priorValues[field.key] = field.value;
         }
       } catch (_) {}

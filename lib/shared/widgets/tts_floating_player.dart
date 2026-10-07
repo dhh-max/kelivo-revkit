@@ -1,8 +1,5 @@
-import 'dart:io';
 import 'dart:math' as math;
 
-import 'package:file_picker/file_picker.dart';
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart' as lucide;
 import 'package:provider/provider.dart';
@@ -12,7 +9,6 @@ import '../../core/services/tts/tts_playback_models.dart';
 import '../../l10n/app_localizations.dart';
 import 'ios_tactile.dart';
 import '../../theme/app_font_weights.dart';
-import 'snackbar.dart';
 
 const Duration _ttsFloatingSurfaceAnimationDuration = Duration(
   milliseconds: 220,
@@ -34,7 +30,6 @@ class _TtsFloatingPlayerState extends State<TtsFloatingPlayer> {
   static const double _surfaceHorizontalPadding = 3;
   static const double _collapsedContentWidth = 112;
   static const double _expandedControlsWidth = 112;
-  static const double _saveButtonDelta = 34;
 
   Offset? _position;
   bool _expanded = false;
@@ -67,12 +62,9 @@ class _TtsFloatingPlayerState extends State<TtsFloatingPlayer> {
                         0.0,
                         constraints.maxWidth - _horizontalMargin * 2,
                       );
-                      final expandedWidth =
-                          _expandedWidth +
-                          (tts.canSaveNetworkAudio ? _saveButtonDelta : 0.0);
                       final targetWidth = math
                           .min(
-                            _expanded ? expandedWidth : _collapsedWidth,
+                            _expanded ? _expandedWidth : _collapsedWidth,
                             availableWidth,
                           )
                           .toDouble();
@@ -199,21 +191,15 @@ class _FloatingPlayerSurface extends StatelessWidget {
                   .clamp(0.0, 1.0)
                   .toDouble()
             : 0.0;
-        final saveDelta = tts.canSaveNetworkAudio
-            ? _TtsFloatingPlayerState._saveButtonDelta
-            : 0.0;
-        final expandedWidth =
-            _TtsFloatingPlayerState._expandedWidth + saveDelta;
-        final expandedControlsWidth =
-            _TtsFloatingPlayerState._expandedControlsWidth + saveDelta;
         final expansion =
             ((constraints.maxWidth - _TtsFloatingPlayerState._collapsedWidth) /
-                    (expandedWidth - _TtsFloatingPlayerState._collapsedWidth))
+                    (_TtsFloatingPlayerState._expandedWidth -
+                        _TtsFloatingPlayerState._collapsedWidth))
                 .clamp(0.0, 1.0)
                 .toDouble();
         final controlsWidth = math
             .min(
-              expandedControlsWidth * expansion,
+              _TtsFloatingPlayerState._expandedControlsWidth * expansion,
               math.max(
                 0.0,
                 constraints.maxWidth -
@@ -276,7 +262,6 @@ class _FloatingPlayerSurface extends StatelessWidget {
                         const SizedBox(width: 2),
                         _AnimatedControlSlot(
                           width: controlsWidth,
-                          contentWidth: expandedControlsWidth,
                           opacity: expansion,
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
@@ -298,10 +283,6 @@ class _FloatingPlayerSurface extends StatelessWidget {
                                 icon: lucide.LucideIcons.fastForward,
                                 onTap: tts.seekForward,
                               ),
-                              if (tts.canSaveNetworkAudio) ...[
-                                const SizedBox(width: 2),
-                                _SaveButton(tts: tts, l10n: l10n),
-                              ],
                             ],
                           ),
                         ),
@@ -335,102 +316,14 @@ class _FloatingPlayerSurface extends StatelessWidget {
   }
 }
 
-class _SaveButton extends StatefulWidget {
-  const _SaveButton({required this.tts, required this.l10n});
-
-  final TtsProvider tts;
-  final AppLocalizations l10n;
-
-  @override
-  State<_SaveButton> createState() => _SaveButtonState();
-}
-
-class _SaveButtonState extends State<_SaveButton> {
-  bool _saving = false;
-
-  @override
-  Widget build(BuildContext context) {
-    if (_saving) {
-      return SizedBox.square(
-        dimension: 32,
-        child: Center(
-          child: CupertinoActivityIndicator(
-            radius: 8,
-            color: Theme.of(
-              context,
-            ).colorScheme.onSurface.withValues(alpha: 0.86),
-          ),
-        ),
-      );
-    }
-    return _ToolIcon(
-      tooltip: widget.l10n.ttsFloatingSaveTooltip,
-      icon: lucide.LucideIcons.download,
-      onTap: _save,
-    );
-  }
-
-  Future<void> _save() async {
-    setState(() => _saving = true);
-    try {
-      final audio = await widget.tts.synthesizeAllAndCollect();
-      if (!mounted) return;
-      if (audio == null) {
-        showAppSnackBar(
-          context,
-          message: widget.l10n.ttsSaveNothing,
-          type: NotificationType.info,
-        );
-        return;
-      }
-
-      final bytes = audio.$1;
-      final extension = audio.$2;
-      final fileName =
-          'kelivo_tts_${DateTime.now().millisecondsSinceEpoch}.$extension';
-      final isDesktop =
-          Platform.isWindows || Platform.isLinux || Platform.isMacOS;
-      final savePath = await FilePicker.platform.saveFile(
-        dialogTitle: widget.l10n.ttsSaveDialogTitle,
-        fileName: fileName,
-        type: FileType.custom,
-        allowedExtensions: [extension],
-        bytes: isDesktop ? null : bytes,
-      );
-      if (savePath == null || !mounted) return;
-
-      if (isDesktop) {
-        await File(savePath).writeAsBytes(bytes, flush: true);
-        if (!mounted) return;
-      }
-      showAppSnackBar(
-        context,
-        message: widget.l10n.ttsSaveSuccess,
-        type: NotificationType.success,
-      );
-    } catch (error) {
-      if (!mounted) return;
-      showAppSnackBar(
-        context,
-        message: widget.l10n.ttsSaveFailed('$error'),
-        type: NotificationType.error,
-      );
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-}
-
 class _AnimatedControlSlot extends StatelessWidget {
   const _AnimatedControlSlot({
     required this.width,
-    required this.contentWidth,
     required this.opacity,
     required this.child,
   });
 
   final double width;
-  final double contentWidth;
   final double opacity;
   final Widget child;
 
@@ -450,11 +343,15 @@ class _AnimatedControlSlot extends StatelessWidget {
             opacity: opacity.clamp(0.0, 1.0).toDouble(),
             child: OverflowBox(
               alignment: Alignment.centerRight,
-              minWidth: contentWidth,
-              maxWidth: contentWidth,
+              minWidth: _TtsFloatingPlayerState._expandedControlsWidth,
+              maxWidth: _TtsFloatingPlayerState._expandedControlsWidth,
               minHeight: 32,
               maxHeight: 32,
-              child: SizedBox(width: contentWidth, height: 32, child: child),
+              child: SizedBox(
+                width: _TtsFloatingPlayerState._expandedControlsWidth,
+                height: 32,
+                child: child,
+              ),
             ),
           ),
         ),

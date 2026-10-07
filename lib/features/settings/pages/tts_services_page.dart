@@ -8,15 +8,10 @@ import '../../../utils/brand_assets.dart';
 import '../../../core/services/tts/network_tts.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/snackbar.dart';
-import '../../../shared/widgets/ios_switch.dart';
 import '../../../shared/widgets/ios_tile_button.dart';
 import '../../../core/services/haptics.dart';
 import 'tts_settings_page.dart';
-import '../widgets/asr_services_section.dart';
-import '../widgets/voice_service_widgets.dart';
-import '../widgets/mimo_reference_audio_picker.dart';
 import '../../../theme/app_font_weights.dart';
-import 'package:Kelivo/theme/app_semantic_colors.dart';
 
 class TtsServicesPage extends StatelessWidget {
   const TtsServicesPage({super.key});
@@ -53,6 +48,16 @@ class TtsServicesPage extends StatelessWidget {
               ),
             ),
           ),
+          const SizedBox(width: 6),
+          Tooltip(
+            message: l10n.ttsServicesPageAddTooltip,
+            child: _TactileIconButton(
+              icon: Lucide.Plus,
+              color: cs.onSurface,
+              size: 22,
+              onTap: () => _handleAddNetworkTts(context),
+            ),
+          ),
           const SizedBox(width: 12),
         ],
       ),
@@ -75,12 +80,7 @@ class TtsServicesPage extends StatelessWidget {
           return ListView(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
             children: [
-              VoiceServiceSectionHeader(
-                title: l10n.ttsServicesSectionTitle,
-                addTooltip: l10n.ttsServicesPageAddTooltip,
-                onAdd: () => _handleAddNetworkTts(context),
-                first: true,
-              ),
+              _header(context, l10n.ttsServicesPageTitle, first: true),
               _iosSectionCard(
                 children: [
                   // System TTS as first row
@@ -89,7 +89,7 @@ class TtsServicesPage extends StatelessWidget {
                     haptics: false,
                     onTap: available
                         ? () async {
-                            await sp.setSelectedTtsServiceId(null);
+                            await sp.setTtsServiceSelected(-1);
                           }
                         : null,
                     builder: (pressed) {
@@ -102,9 +102,9 @@ class TtsServicesPage extends StatelessWidget {
                           final isDark =
                               Theme.of(context).brightness == Brightness.dark;
                           final overlay = pressed
-                              ? cs2.surface.withValues(
-                                  alpha: isDark ? 0.06 : 0.05,
-                                )
+                              ? (isDark
+                                    ? Colors.black.withValues(alpha: 0.06)
+                                    : Colors.white.withValues(alpha: 0.05))
                               : Colors.transparent;
                           return Padding(
                             padding: const EdgeInsets.symmetric(
@@ -196,7 +196,6 @@ class TtsServicesPage extends StatelessWidget {
                   ],
                 ],
               ),
-              const AsrServicesSection(),
             ],
           );
         },
@@ -232,7 +231,7 @@ Future<void> _handleAddNetworkTts(BuildContext context) async {
   final list = List<TtsServiceOptions>.from(sp.ttsServices)..add(created);
   await sp.setTtsServices(list);
   if (sp.usingSystemTts) {
-    await sp.setSelectedTtsServiceId(created.id);
+    await sp.setTtsServiceSelected(list.length - 1);
   }
 }
 
@@ -340,9 +339,9 @@ class _AnimatedPressColor extends StatelessWidget {
   final Widget Function(Color c) builder;
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final target = pressed
-        ? (Color.lerp(base, cs.surface, 0.55) ?? base)
+        ? (Color.lerp(base, isDark ? Colors.black : Colors.white, 0.55) ?? base)
         : base;
     return TweenAnimationBuilder<Color?>(
       tween: ColorTween(end: target),
@@ -359,7 +358,9 @@ Widget _iosSectionCard({required List<Widget> children}) {
       final theme = Theme.of(context);
       final cs = theme.colorScheme;
       final isDark = theme.brightness == Brightness.dark;
-      final Color bg = context.appColors.surfaceCard;
+      final Color bg = isDark
+          ? Colors.white10
+          : Colors.white.withValues(alpha: 0.96);
       return Container(
         decoration: BoxDecoration(
           color: bg,
@@ -443,7 +444,7 @@ class _AvatarBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final baseBg = cs.primary.withValues(alpha: isDark ? 0.18 : 0.1);
+    final baseBg = isDark ? Colors.white10 : cs.primary.withValues(alpha: 0.1);
     return Stack(
       alignment: Alignment.center,
       children: [
@@ -480,7 +481,7 @@ class _AvatarBrandBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final baseBg = cs.primary.withValues(alpha: isDark ? 0.18 : 0.1);
+    final baseBg = isDark ? Colors.white10 : cs.primary.withValues(alpha: 0.1);
     final asset =
         BrandAssets.assetForName(name) ??
         BrandAssets.assetForName(name.split(' ').first);
@@ -502,15 +503,7 @@ class _AvatarBrandBadge extends StatelessWidget {
                   ),
                 )
               : (asset.endsWith('.svg')
-                    ? SvgPicture.asset(
-                        asset,
-                        width: 20,
-                        height: 20,
-                        colorFilter:
-                            isDark && BrandAssets.assetNeedsDarkInvert(asset)
-                            ? ColorFilter.mode(cs.onSurface, BlendMode.srcIn)
-                            : null,
-                      )
+                    ? SvgPicture.asset(asset, width: 20, height: 20)
                     : Image.asset(
                         asset,
                         width: 20,
@@ -554,7 +547,7 @@ class _NetworkTtsRowMobileState extends State<_NetworkTtsRowMobile> {
           haptics: false,
           onTap: () async => context
               .read<SettingsProvider>()
-              .setSelectedTtsServiceId(widget.service.id),
+              .setTtsServiceSelected(widget.index),
           builder: (pressed) {
             final base = cs.onSurface.withValues(alpha: 0.9);
             return _AnimatedPressColor(
@@ -563,7 +556,9 @@ class _NetworkTtsRowMobileState extends State<_NetworkTtsRowMobile> {
               builder: (c) {
                 final isDark = Theme.of(context).brightness == Brightness.dark;
                 final overlay = pressed
-                    ? cs.surface.withValues(alpha: isDark ? 0.06 : 0.05)
+                    ? (isDark
+                          ? Colors.black.withValues(alpha: 0.06)
+                          : Colors.white.withValues(alpha: 0.05))
                     : Colors.transparent;
                 return Padding(
                   padding: const EdgeInsets.symmetric(
@@ -638,14 +633,18 @@ class _NetworkTtsRowMobileState extends State<_NetworkTtsRowMobile> {
                           );
                           list.removeAt(widget.index);
                           await sp.setTtsServices(list);
+                          var idx = sp.ttsServiceSelected;
+                          if (idx >= list.length) {
+                            idx = list.isEmpty ? -1 : list.length - 1;
+                          }
+                          await sp.setTtsServiceSelected(idx);
                         },
                       ),
                       const SizedBox(width: 8),
                       Builder(
                         builder: (_) {
                           final sp2 = context.watch<SettingsProvider>();
-                          final sel =
-                              sp2.selectedTtsServiceId == widget.service.id;
+                          final sel = (sp2.ttsServiceSelected == widget.index);
                           return sel
                               ? Icon(Lucide.Check, size: 16, color: c)
                               : const SizedBox(width: 16);
@@ -805,31 +804,6 @@ class _NetworkTtsEditorPageState extends State<_NetworkTtsEditorPage> {
   late final TextEditingController _speedCtl;
   late final TextEditingController _languageTypeCtl;
   late final TextEditingController _languageCtl;
-  late final TextEditingController _volumeCtl;
-  late final TextEditingController _pitchCtl;
-  late final TextEditingController _languageBoostCtl;
-  late final TextEditingController _formatCtl;
-  late final TextEditingController _sampleRateCtl;
-  late final TextEditingController _bitrateCtl;
-  late final TextEditingController _channelCtl;
-  late final TextEditingController _pronunciationCtl;
-  late final TextEditingController _regionCtl;
-  late final TextEditingController _instructionCtl;
-  late final TextEditingController _outputFormatCtl;
-  late final TextEditingController _temperatureCtl;
-  late final TextEditingController _topPCtl;
-  late final TextEditingController _latencyCtl;
-  late bool _subtitleEnable;
-  late bool _stream;
-  late bool _optimizeTextPreview;
-
-  bool get _isMimoVoiceDesign =>
-      _kind == NetworkTtsKind.mimo &&
-      _modelCtl.text.trim() == 'mimo-v2.5-tts-voicedesign';
-
-  bool get _isMimoVoiceClone =>
-      _kind == NetworkTtsKind.mimo &&
-      _modelCtl.text.trim() == 'mimo-v2.5-tts-voiceclone';
 
   @override
   void initState() {
@@ -842,16 +816,10 @@ class _NetworkTtsEditorPageState extends State<_NetworkTtsEditorPage> {
     _modelCtl = TextEditingController(text: _modelOf(initial));
     _voiceCtl = TextEditingController(text: _voiceOf(initial));
     _emotionCtl = TextEditingController(
-      text: (initial is MiniMaxTtsOptions) ? initial.emotion : '',
+      text: (initial is MiniMaxTtsOptions) ? initial.emotion : 'calm',
     );
     _speedCtl = TextEditingController(
-      text: initial is MiniMaxTtsOptions
-          ? initial.speed.toString()
-          : initial is StepTtsOptions
-          ? initial.speed.toString()
-          : initial is FishAudioTtsOptions
-          ? initial.speed.toString()
-          : '1.0',
+      text: (initial is MiniMaxTtsOptions) ? initial.speed.toString() : '1.0',
     );
     _languageTypeCtl = TextEditingController(
       text: (initial is QwenTtsOptions) ? initial.languageType : 'Auto',
@@ -859,87 +827,6 @@ class _NetworkTtsEditorPageState extends State<_NetworkTtsEditorPage> {
     _languageCtl = TextEditingController(
       text: (initial is XaiTtsOptions) ? initial.language : 'auto',
     );
-    _volumeCtl = TextEditingController(
-      text: initial is MiniMaxTtsOptions
-          ? initial.volume.toString()
-          : initial is StepTtsOptions
-          ? initial.volume.toString()
-          : '1.0',
-    );
-    _pitchCtl = TextEditingController(
-      text: initial is MiniMaxTtsOptions ? initial.pitch.toString() : '0',
-    );
-    _languageBoostCtl = TextEditingController(
-      text: initial is MiniMaxTtsOptions ? initial.languageBoost : '',
-    );
-    _formatCtl = TextEditingController(
-      text: initial is MiniMaxTtsOptions
-          ? initial.format
-          : initial is QwenAudioTtsOptions
-          ? initial.format
-          : initial is FishAudioTtsOptions
-          ? initial.format
-          : 'mp3',
-    );
-    _sampleRateCtl = TextEditingController(
-      text: initial is MiniMaxTtsOptions
-          ? initial.sampleRate.toString()
-          : initial is QwenAudioTtsOptions
-          ? initial.sampleRate.toString()
-          : initial is StepTtsOptions
-          ? initial.sampleRate.toString()
-          : initial is FishAudioTtsOptions
-          ? initial.sampleRate.toString()
-          : '32000',
-    );
-    _bitrateCtl = TextEditingController(
-      text: initial is MiniMaxTtsOptions
-          ? initial.bitrate.toString()
-          : '128000',
-    );
-    _channelCtl = TextEditingController(
-      text: initial is MiniMaxTtsOptions ? initial.channel.toString() : '1',
-    );
-    _pronunciationCtl = TextEditingController(
-      text: initial is MiniMaxTtsOptions
-          ? initial.pronunciationDictionary.join('\n')
-          : '',
-    );
-    _regionCtl = TextEditingController(
-      text: initial is QwenAudioTtsOptions ? initial.region : 'cn-beijing',
-    );
-    _instructionCtl = TextEditingController(
-      text: initial is MimoTtsOptions
-          ? initial.instruction
-          : initial is StepTtsOptions
-          ? initial.instruction
-          : '',
-    );
-    _outputFormatCtl = TextEditingController(
-      text: initial is ElevenLabsTtsOptions
-          ? initial.outputFormat
-          : initial is StepTtsOptions
-          ? initial.responseFormat
-          : 'mp3_44100_128',
-    );
-    _temperatureCtl = TextEditingController(
-      text: initial is FishAudioTtsOptions
-          ? initial.temperature.toString()
-          : '0.7',
-    );
-    _topPCtl = TextEditingController(
-      text: initial is FishAudioTtsOptions ? initial.topP.toString() : '0.7',
-    );
-    _latencyCtl = TextEditingController(
-      text: initial is FishAudioTtsOptions ? initial.latency : 'normal',
-    );
-    _subtitleEnable = initial is MiniMaxTtsOptions
-        ? initial.subtitleEnable
-        : false;
-    _stream = initial is MimoTtsOptions ? initial.stream : true;
-    _optimizeTextPreview = initial is MimoTtsOptions
-        ? initial.optimizeTextPreview
-        : false;
   }
 
   @override
@@ -953,20 +840,6 @@ class _NetworkTtsEditorPageState extends State<_NetworkTtsEditorPage> {
     _speedCtl.dispose();
     _languageTypeCtl.dispose();
     _languageCtl.dispose();
-    _volumeCtl.dispose();
-    _pitchCtl.dispose();
-    _languageBoostCtl.dispose();
-    _formatCtl.dispose();
-    _sampleRateCtl.dispose();
-    _bitrateCtl.dispose();
-    _channelCtl.dispose();
-    _pronunciationCtl.dispose();
-    _regionCtl.dispose();
-    _instructionCtl.dispose();
-    _outputFormatCtl.dispose();
-    _temperatureCtl.dispose();
-    _topPCtl.dispose();
-    _latencyCtl.dispose();
     super.dispose();
   }
 
@@ -1027,7 +900,9 @@ class _NetworkTtsEditorPageState extends State<_NetworkTtsEditorPage> {
                           padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
                           child: _ProviderKindWrap(
                             value: _kind,
-                            onChanged: _changeKind,
+                            onChanged: (kind) {
+                              setState(() => _kind = kind);
+                            },
                           ),
                         ),
                       ],
@@ -1044,56 +919,33 @@ class _NetworkTtsEditorPageState extends State<_NetworkTtsEditorPage> {
                           label: l10n.ttsServicesFieldApiKeyLabel,
                           controller: _apiKeyCtl,
                           obscure: true,
+                          validator: (value) =>
+                              (value == null || value.trim().isEmpty)
+                              ? l10n.ttsServicesValidationApiKeyRequired
+                              : null,
                         ),
                         _TtsEditorTextField(
-                          label: _kind == NetworkTtsKind.qwenAudio
-                              ? l10n.ttsServicesFieldWorkspaceIdLabel
-                              : l10n.ttsServicesFieldBaseUrlLabel,
+                          label: l10n.ttsServicesFieldBaseUrlLabel,
                           controller: _baseCtl,
-                          hint: _kind == NetworkTtsKind.qwenAudio
-                              ? null
-                              : _defaultBaseUrl(_kind),
+                          hint: _defaultBaseUrl(_kind),
                         ),
-                        if (_kind != NetworkTtsKind.xai)
+                        if (_kind != NetworkTtsKind.xai) ...[
                           _TtsEditorTextField(
                             label: l10n.ttsServicesFieldModelLabel,
                             controller: _modelCtl,
                             hint: _defaultModel(_kind),
-                            onChanged: _kind == NetworkTtsKind.mimo
-                                ? (_) => setState(() {})
-                                : null,
                           ),
-                        if (!_isMimoVoiceDesign)
-                          _TtsEditorTextField(
-                            label: _isMimoVoiceClone
-                                ? l10n.ttsServicesFieldReferenceAudioLabel
-                                : _voiceLabelFor(_kind, l10n),
-                            controller: _voiceCtl,
-                            hint: _defaultVoice(_kind),
-                          ),
-                        if (_isMimoVoiceClone)
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-                            child: SizedBox(
-                              width: double.infinity,
-                              child: IosTileButton(
-                                label: l10n
-                                    .ttsServicesFieldChooseReferenceAudioButton,
-                                icon: Lucide.FileText,
-                                onTap: _pickMimoReferenceAudio,
-                              ),
-                            ),
-                          ),
+                        ],
+                        _TtsEditorTextField(
+                          label: _voiceLabelFor(_kind, l10n),
+                          controller: _voiceCtl,
+                          hint: _defaultVoice(_kind),
+                        ),
                         if (_kind == NetworkTtsKind.minimax) ...[
-                          _TtsEditorSelectField(
+                          _TtsEditorTextField(
                             label: l10n.ttsServicesFieldEmotionLabel,
-                            value: _emotionCtl.text,
-                            options: miniMaxEmotionValues,
-                            labelFor: (value) => value.isEmpty
-                                ? l10n.ttsServicesEmotionAutoLabel
-                                : value,
-                            onChanged: (value) =>
-                                setState(() => _emotionCtl.text = value),
+                            controller: _emotionCtl,
+                            hint: 'calm',
                           ),
                           _TtsEditorTextField(
                             label: l10n.ttsServicesFieldSpeedLabel,
@@ -1102,63 +954,6 @@ class _NetworkTtsEditorPageState extends State<_NetworkTtsEditorPage> {
                             keyboardType: const TextInputType.numberWithOptions(
                               decimal: true,
                             ),
-                          ),
-                          _TtsEditorTextField(
-                            label: l10n.ttsServicesFieldVolumeLabel,
-                            controller: _volumeCtl,
-                            hint: '1.0',
-                            keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true,
-                            ),
-                          ),
-                          _TtsEditorTextField(
-                            label: l10n.ttsServicesFieldPitchLabel,
-                            controller: _pitchCtl,
-                            hint: '0',
-                            keyboardType: TextInputType.number,
-                          ),
-                          _TtsEditorTextField(
-                            label: l10n.ttsServicesFieldLanguageBoostLabel,
-                            controller: _languageBoostCtl,
-                            hint: 'auto',
-                          ),
-                          _TtsEditorSelectField(
-                            label: l10n.ttsServicesFieldFormatLabel,
-                            value: _formatCtl.text,
-                            options: miniMaxAudioFormats,
-                            onChanged: (value) =>
-                                setState(() => _formatCtl.text = value),
-                          ),
-                          _TtsEditorSelectField(
-                            label: l10n.ttsServicesFieldSampleRateLabel,
-                            value: _sampleRateCtl.text,
-                            options: miniMaxSampleRates
-                                .map((value) => value.toString())
-                                .toList(growable: false),
-                            onChanged: (value) =>
-                                setState(() => _sampleRateCtl.text = value),
-                          ),
-                          _TtsEditorSelectField(
-                            label: l10n.ttsServicesFieldBitrateLabel,
-                            value: _bitrateCtl.text,
-                            options: miniMaxBitrates
-                                .map((value) => value.toString())
-                                .toList(growable: false),
-                            onChanged: (value) =>
-                                setState(() => _bitrateCtl.text = value),
-                          ),
-                          _TtsEditorSelectField(
-                            label: l10n.ttsServicesFieldChannelLabel,
-                            value: _channelCtl.text,
-                            options: const <String>['1', '2'],
-                            onChanged: (value) =>
-                                setState(() => _channelCtl.text = value),
-                          ),
-                          _TtsEditorTextField(
-                            label: l10n
-                                .ttsServicesFieldPronunciationDictionaryLabel,
-                            controller: _pronunciationCtl,
-                            maxLines: 3,
                           ),
                         ],
                         if (_kind == NetworkTtsKind.qwen) ...[
@@ -1173,143 +968,6 @@ class _NetworkTtsEditorPageState extends State<_NetworkTtsEditorPage> {
                             label: l10n.ttsServicesFieldLanguageLabel,
                             controller: _languageCtl,
                             hint: 'auto',
-                          ),
-                        ],
-                        if (_kind == NetworkTtsKind.elevenlabs) ...[
-                          _TtsEditorTextField(
-                            label: l10n.ttsServicesFieldOutputFormatLabel,
-                            controller: _outputFormatCtl,
-                            hint: 'mp3_44100_128',
-                          ),
-                        ],
-                        if (_kind == NetworkTtsKind.mimo) ...[
-                          _TtsEditorTextField(
-                            label: l10n.ttsServicesFieldInstructionLabel,
-                            controller: _instructionCtl,
-                            maxLines: 3,
-                          ),
-                          _TtsEditorSwitchField(
-                            label: l10n.ttsServicesFieldStreamingLabel,
-                            value: _stream,
-                            onChanged: (value) =>
-                                setState(() => _stream = value),
-                          ),
-                          if (_isMimoVoiceDesign)
-                            _TtsEditorSwitchField(
-                              label:
-                                  l10n.ttsServicesFieldOptimizeTextPreviewLabel,
-                              value: _optimizeTextPreview,
-                              onChanged: (value) =>
-                                  setState(() => _optimizeTextPreview = value),
-                            ),
-                        ],
-                        if (_kind == NetworkTtsKind.qwenAudio) ...[
-                          _TtsEditorTextField(
-                            label: l10n.ttsServicesFieldRegionLabel,
-                            controller: _regionCtl,
-                            hint: 'cn-beijing',
-                          ),
-                          _TtsEditorSelectField(
-                            label: l10n.ttsServicesFieldFormatLabel,
-                            value: _formatCtl.text,
-                            options: const <String>['mp3', 'wav', 'pcm'],
-                            onChanged: (value) =>
-                                setState(() => _formatCtl.text = value),
-                          ),
-                          _TtsEditorTextField(
-                            label: l10n.ttsServicesFieldSampleRateLabel,
-                            controller: _sampleRateCtl,
-                            keyboardType: TextInputType.number,
-                          ),
-                        ],
-                        if (_kind == NetworkTtsKind.step) ...[
-                          _TtsEditorSelectField(
-                            label: l10n.ttsServicesFieldOutputFormatLabel,
-                            value: _outputFormatCtl.text,
-                            options: const <String>['mp3', 'wav', 'pcm'],
-                            onChanged: (value) =>
-                                setState(() => _outputFormatCtl.text = value),
-                          ),
-                          _TtsEditorTextField(
-                            label: l10n.ttsServicesFieldSpeedLabel,
-                            controller: _speedCtl,
-                            keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true,
-                            ),
-                          ),
-                          _TtsEditorTextField(
-                            label: l10n.ttsServicesFieldVolumeLabel,
-                            controller: _volumeCtl,
-                            keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true,
-                            ),
-                          ),
-                          _TtsEditorTextField(
-                            label: l10n.ttsServicesFieldSampleRateLabel,
-                            controller: _sampleRateCtl,
-                            keyboardType: TextInputType.number,
-                          ),
-                          _TtsEditorTextField(
-                            label: l10n.ttsServicesFieldInstructionLabel,
-                            controller: _instructionCtl,
-                            maxLines: 3,
-                          ),
-                        ],
-                        if (_kind == NetworkTtsKind.fishAudio) ...[
-                          _TtsEditorSelectField(
-                            label: l10n.ttsServicesFieldFormatLabel,
-                            value: _formatCtl.text,
-                            options: fishAudioSampleRates.keys.toList(
-                              growable: false,
-                            ),
-                            onChanged: (value) {
-                              final allowed = fishAudioSampleRates[value]!;
-                              setState(() {
-                                _formatCtl.text = value;
-                                if (!allowed.contains(
-                                  int.tryParse(_sampleRateCtl.text),
-                                )) {
-                                  _sampleRateCtl.text = allowed.last.toString();
-                                }
-                              });
-                            },
-                          ),
-                          _TtsEditorTextField(
-                            label: l10n.ttsServicesFieldTemperatureLabel,
-                            controller: _temperatureCtl,
-                            keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true,
-                            ),
-                          ),
-                          _TtsEditorTextField(
-                            label: l10n.ttsServicesFieldTopPLabel,
-                            controller: _topPCtl,
-                            keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true,
-                            ),
-                          ),
-                          _TtsEditorTextField(
-                            label: l10n.ttsServicesFieldSpeedLabel,
-                            controller: _speedCtl,
-                            keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true,
-                            ),
-                          ),
-                          _TtsEditorSelectField(
-                            label: l10n.ttsServicesFieldSampleRateLabel,
-                            value: _sampleRateCtl.text,
-                            options:
-                                (fishAudioSampleRates[_formatCtl.text] ??
-                                        const <int>[44100])
-                                    .map((value) => value.toString())
-                                    .toList(growable: false),
-                            onChanged: (value) =>
-                                setState(() => _sampleRateCtl.text = value),
-                          ),
-                          _TtsEditorTextField(
-                            label: l10n.ttsServicesFieldLatencyLabel,
-                            controller: _latencyCtl,
-                            hint: 'normal',
                           ),
                         ],
                       ],
@@ -1340,101 +998,10 @@ class _NetworkTtsEditorPageState extends State<_NetworkTtsEditorPage> {
   }
 
   void _submit() {
-    final l10n = AppLocalizations.of(context)!;
-    if (_apiKeyCtl.text.trim().isEmpty) {
-      showAppSnackBar(
-        context,
-        message: l10n.ttsServicesValidationApiKeyRequired,
-        type: NotificationType.error,
-      );
+    if (!(_formKey.currentState?.validate() ?? false)) {
       return;
-    }
-    if ((_kind == NetworkTtsKind.fishAudio || _isMimoVoiceClone) &&
-        _voiceCtl.text.trim().isEmpty) {
-      showAppSnackBar(
-        context,
-        message: l10n.ttsServicesValidationReferenceIdRequired,
-        type: NotificationType.error,
-      );
-      return;
-    }
-    if (_isMimoVoiceDesign && _instructionCtl.text.trim().isEmpty) {
-      showAppSnackBar(
-        context,
-        message: l10n.ttsServicesValidationInstructionRequired,
-        type: NotificationType.error,
-      );
-      return;
-    }
-    if (_kind == NetworkTtsKind.fishAudio) {
-      final allowed = fishAudioSampleRates[_formatCtl.text] ?? const <int>[];
-      final sampleRate = int.tryParse(_sampleRateCtl.text);
-      if (!allowed.contains(sampleRate)) {
-        showAppSnackBar(
-          context,
-          message: AppLocalizations.of(context)!
-              .ttsServicesValidationSampleRate(
-                _formatCtl.text,
-                allowed.join(', '),
-              ),
-          type: NotificationType.error,
-        );
-        return;
-      }
     }
     Navigator.of(context).pop(_buildOptions());
-  }
-
-  Future<void> _pickMimoReferenceAudio() async {
-    try {
-      final dataUri = await pickMimoReferenceAudioDataUri();
-      if (dataUri == null || !mounted) return;
-      setState(() => _voiceCtl.text = dataUri);
-    } catch (error) {
-      if (!mounted) return;
-      showAppSnackBar(
-        context,
-        message: error.toString(),
-        type: NotificationType.error,
-      );
-    }
-  }
-
-  void _changeKind(NetworkTtsKind kind) {
-    if (_kind == kind) return;
-    setState(() => _kind = kind);
-    _baseCtl.text = kind == NetworkTtsKind.qwenAudio
-        ? ''
-        : _defaultBaseUrl(kind);
-    _modelCtl.text = _defaultModel(kind);
-    _voiceCtl.text = _defaultVoice(kind);
-    _emotionCtl.text = '';
-    _speedCtl.text = '1.0';
-    _volumeCtl.text = '1.0';
-    _pitchCtl.text = '0';
-    _languageBoostCtl.clear();
-    _formatCtl.text = 'mp3';
-    _sampleRateCtl.text = switch (kind) {
-      NetworkTtsKind.qwenAudio => '22050',
-      NetworkTtsKind.step => '24000',
-      _ => '32000',
-    };
-    _bitrateCtl.text = '128000';
-    _channelCtl.text = '1';
-    _pronunciationCtl.clear();
-    _regionCtl.text = 'cn-beijing';
-    _instructionCtl.clear();
-    _outputFormatCtl.text = switch (kind) {
-      NetworkTtsKind.elevenlabs => 'mp3_44100_128',
-      _ => 'mp3',
-    };
-    _temperatureCtl.text = '0.7';
-    _topPCtl.text = '0.7';
-    _latencyCtl.text = 'normal';
-    _subtitleEnable = false;
-    _stream = true;
-    _optimizeTextPreview = false;
-    if (mounted) setState(() {});
   }
 
   TtsServiceOptions _buildOptions() {
@@ -1449,8 +1016,9 @@ class _NetworkTtsEditorPageState extends State<_NetworkTtsEditorPage> {
     final model = _modelCtl.text.trim().isEmpty
         ? _defaultModel(_kind)
         : _modelCtl.text.trim();
-    final rawVoice = _voiceCtl.text.trim();
-    final voice = rawVoice.isEmpty ? _defaultVoice(_kind) : rawVoice;
+    final voice = _voiceCtl.text.trim().isEmpty
+        ? _defaultVoice(_kind)
+        : _voiceCtl.text.trim();
     switch (_kind) {
       case NetworkTtsKind.openai:
         return OpenAiTtsOptions(
@@ -1481,21 +1049,10 @@ class _NetworkTtsEditorPageState extends State<_NetworkTtsEditorPage> {
           baseUrl: base,
           model: model,
           voiceId: voice,
-          emotion: _emotionCtl.text.trim(),
+          emotion: _emotionCtl.text.trim().isEmpty
+              ? 'calm'
+              : _emotionCtl.text.trim(),
           speed: double.tryParse(_speedCtl.text.trim()) ?? 1.0,
-          volume: double.tryParse(_volumeCtl.text.trim()) ?? 1.0,
-          pitch: int.tryParse(_pitchCtl.text.trim()) ?? 0,
-          languageBoost: _languageBoostCtl.text.trim(),
-          format: _formatCtl.text.trim(),
-          sampleRate: int.tryParse(_sampleRateCtl.text.trim()) ?? 32000,
-          bitrate: int.tryParse(_bitrateCtl.text.trim()) ?? 128000,
-          channel: int.tryParse(_channelCtl.text.trim()) ?? 1,
-          subtitleEnable: _subtitleEnable,
-          pronunciationDictionary: _pronunciationCtl.text
-              .split('\n')
-              .map((value) => value.trim())
-              .where((value) => value.isNotEmpty)
-              .toList(growable: false),
         );
       case NetworkTtsKind.qwen:
         return QwenTtsOptions(
@@ -1541,9 +1098,6 @@ class _NetworkTtsEditorPageState extends State<_NetworkTtsEditorPage> {
           baseUrl: base,
           modelId: model,
           voiceId: voice,
-          outputFormat: _outputFormatCtl.text.trim().isEmpty
-              ? 'mp3_44100_128'
-              : _outputFormatCtl.text.trim(),
         );
       case NetworkTtsKind.mimo:
         return MimoTtsOptions(
@@ -1553,66 +1107,7 @@ class _NetworkTtsEditorPageState extends State<_NetworkTtsEditorPage> {
           apiKey: apiKey,
           baseUrl: base,
           model: model,
-          voice: model == 'mimo-v2.5-tts-voicedesign' ? '' : voice,
-          instruction: _instructionCtl.text.trim(),
-          stream: _stream,
-          optimizeTextPreview: _optimizeTextPreview,
-        );
-      case NetworkTtsKind.qwenAudio:
-        return QwenAudioTtsOptions(
-          id: initial?.id,
-          enabled: true,
-          name: name,
-          apiKey: apiKey,
-          workspaceId: base == _defaultBaseUrl(_kind) ? '' : base,
-          region: _regionCtl.text.trim().isEmpty
-              ? 'cn-beijing'
-              : _regionCtl.text.trim(),
-          model: model,
           voice: voice,
-          format: _formatCtl.text.trim().isEmpty
-              ? 'mp3'
-              : _formatCtl.text.trim(),
-          sampleRate: int.tryParse(_sampleRateCtl.text.trim()) ?? 22050,
-        );
-      case NetworkTtsKind.step:
-        return StepTtsOptions(
-          id: initial?.id,
-          enabled: true,
-          name: name,
-          apiKey: apiKey,
-          baseUrl: base,
-          model: model,
-          voice: voice,
-          responseFormat:
-              _outputFormatCtl.text.trim().isEmpty ||
-                  _outputFormatCtl.text.contains('_')
-              ? 'mp3'
-              : _outputFormatCtl.text.trim(),
-          speed: double.tryParse(_speedCtl.text.trim()) ?? 1.0,
-          volume: double.tryParse(_volumeCtl.text.trim()) ?? 1.0,
-          sampleRate: int.tryParse(_sampleRateCtl.text.trim()) ?? 24000,
-          instruction: _instructionCtl.text.trim(),
-        );
-      case NetworkTtsKind.fishAudio:
-        return FishAudioTtsOptions(
-          id: initial?.id,
-          enabled: true,
-          name: name,
-          apiKey: apiKey,
-          baseUrl: base,
-          model: model,
-          referenceId: voice,
-          format: _formatCtl.text.trim().isEmpty
-              ? 'mp3'
-              : _formatCtl.text.trim(),
-          temperature: double.tryParse(_temperatureCtl.text.trim()) ?? 0.7,
-          topP: double.tryParse(_topPCtl.text.trim()) ?? 0.7,
-          speed: double.tryParse(_speedCtl.text.trim()) ?? 1.0,
-          sampleRate: int.tryParse(_sampleRateCtl.text.trim()) ?? 44100,
-          latency: _latencyCtl.text.trim().isEmpty
-              ? 'normal'
-              : _latencyCtl.text.trim(),
         );
     }
   }
@@ -1696,18 +1191,16 @@ class _TtsEditorTextField extends StatefulWidget {
     required this.controller,
     this.hint,
     this.obscure = false,
+    this.validator,
     this.keyboardType,
-    this.maxLines = 1,
-    this.onChanged,
   });
 
   final String label;
   final TextEditingController controller;
   final String? hint;
   final bool obscure;
+  final FormFieldValidator<String>? validator;
   final TextInputType? keyboardType;
-  final int maxLines;
-  final ValueChanged<String>? onChanged;
 
   @override
   State<_TtsEditorTextField> createState() => _TtsEditorTextFieldState();
@@ -1719,7 +1212,8 @@ class _TtsEditorTextFieldState extends State<_TtsEditorTextField> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final fieldBg = context.appColors.surfaceFill;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final fieldBg = isDark ? Colors.white12 : const Color(0xFFF2F3F5);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       child: Column(
@@ -1734,14 +1228,11 @@ class _TtsEditorTextFieldState extends State<_TtsEditorTextField> {
             ),
           ),
           const SizedBox(height: 7),
-          TextField(
+          TextFormField(
             controller: widget.controller,
             obscureText: widget.obscure && _obscured,
-            autocorrect: !widget.obscure,
-            enableSuggestions: !widget.obscure,
             keyboardType: widget.keyboardType,
-            maxLines: widget.obscure ? 1 : widget.maxLines,
-            onChanged: widget.onChanged,
+            validator: widget.validator,
             style: TextStyle(
               fontSize: 15,
               fontWeight: AppFontWeights.medium,
@@ -1764,6 +1255,14 @@ class _TtsEditorTextFieldState extends State<_TtsEditorTextField> {
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide(color: cs.primary, width: 1),
               ),
+              errorBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: cs.error, width: 1),
+              ),
+              focusedErrorBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: cs.error, width: 1),
+              ),
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 12,
                 vertical: 12,
@@ -1777,73 +1276,6 @@ class _TtsEditorTextFieldState extends State<_TtsEditorTextField> {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _TtsEditorSelectField extends StatelessWidget {
-  const _TtsEditorSelectField({
-    required this.label,
-    required this.value,
-    required this.options,
-    required this.onChanged,
-    this.labelFor,
-  });
-
-  final String label;
-  final String value;
-  final List<String> options;
-  final ValueChanged<String> onChanged;
-  final String Function(String value)? labelFor;
-
-  @override
-  Widget build(BuildContext context) {
-    final values = <String>[if (!options.contains(value)) value, ...options];
-    return VoiceServiceMobileSelectRow<String>(
-      label: label,
-      value: value,
-      options: values,
-      labelFor: labelFor ?? (option) => option,
-      onSelected: onChanged,
-    );
-  }
-}
-
-class _TtsEditorSwitchField extends StatelessWidget {
-  const _TtsEditorSwitchField({
-    required this.label,
-    required this.value,
-    required this.onChanged,
-  });
-
-  final String label;
-  final bool value;
-  final ValueChanged<bool> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return _TactileRow(
-      onTap: () => onChanged(!value),
-      builder: (pressed) => Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: AppFontWeights.medium,
-                  color: cs.onSurface.withValues(alpha: pressed ? 0.68 : 0.9),
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            IosSwitch(value: value, onChanged: onChanged),
-          ],
-        ),
       ),
     );
   }
@@ -2096,10 +1528,13 @@ Widget _sheetOption(
     builder: (pressed) {
       final base = cs.onSurface;
       final target = pressed
-          ? (Color.lerp(base, cs.surface, 0.55) ?? base)
+          ? (Color.lerp(base, isDark ? Colors.black : Colors.white, 0.55) ??
+                base)
           : base;
       final bgTarget = pressed
-          ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
+          ? (isDark
+                ? Colors.white.withValues(alpha: 0.06)
+                : Colors.black.withValues(alpha: 0.05))
           : Colors.transparent;
       return TweenAnimationBuilder<Color?>(
         tween: ColorTween(end: target),
@@ -2142,13 +1577,10 @@ const List<NetworkTtsKind> _networkTtsKinds = [
   NetworkTtsKind.gemini,
   NetworkTtsKind.minimax,
   NetworkTtsKind.qwen,
-  NetworkTtsKind.qwenAudio,
   NetworkTtsKind.groq,
   NetworkTtsKind.xai,
   NetworkTtsKind.elevenlabs,
   NetworkTtsKind.mimo,
-  NetworkTtsKind.step,
-  NetworkTtsKind.fishAudio,
 ];
 
 String _apiKeyOf(TtsServiceOptions? option) {
@@ -2156,13 +1588,10 @@ String _apiKeyOf(TtsServiceOptions? option) {
   if (option is GeminiTtsOptions) return option.apiKey;
   if (option is MiniMaxTtsOptions) return option.apiKey;
   if (option is QwenTtsOptions) return option.apiKey;
-  if (option is QwenAudioTtsOptions) return option.apiKey;
   if (option is GroqTtsOptions) return option.apiKey;
   if (option is XaiTtsOptions) return option.apiKey;
   if (option is ElevenLabsTtsOptions) return option.apiKey;
   if (option is MimoTtsOptions) return option.apiKey;
-  if (option is StepTtsOptions) return option.apiKey;
-  if (option is FishAudioTtsOptions) return option.apiKey;
   return '';
 }
 
@@ -2171,13 +1600,10 @@ String _baseUrlOf(TtsServiceOptions? option) {
   if (option is GeminiTtsOptions) return option.baseUrl;
   if (option is MiniMaxTtsOptions) return option.baseUrl;
   if (option is QwenTtsOptions) return option.baseUrl;
-  if (option is QwenAudioTtsOptions) return option.workspaceId;
   if (option is GroqTtsOptions) return option.baseUrl;
   if (option is XaiTtsOptions) return option.baseUrl;
   if (option is ElevenLabsTtsOptions) return option.baseUrl;
   if (option is MimoTtsOptions) return option.baseUrl;
-  if (option is StepTtsOptions) return option.baseUrl;
-  if (option is FishAudioTtsOptions) return option.baseUrl;
   return '';
 }
 
@@ -2186,12 +1612,9 @@ String _modelOf(TtsServiceOptions? option) {
   if (option is GeminiTtsOptions) return option.model;
   if (option is MiniMaxTtsOptions) return option.model;
   if (option is QwenTtsOptions) return option.model;
-  if (option is QwenAudioTtsOptions) return option.model;
   if (option is GroqTtsOptions) return option.model;
   if (option is ElevenLabsTtsOptions) return option.modelId;
   if (option is MimoTtsOptions) return option.model;
-  if (option is StepTtsOptions) return option.model;
-  if (option is FishAudioTtsOptions) return option.model;
   return '';
 }
 
@@ -2200,13 +1623,10 @@ String _voiceOf(TtsServiceOptions? option) {
   if (option is GeminiTtsOptions) return option.voiceName;
   if (option is MiniMaxTtsOptions) return option.voiceId;
   if (option is QwenTtsOptions) return option.voice;
-  if (option is QwenAudioTtsOptions) return option.voice;
   if (option is GroqTtsOptions) return option.voice;
   if (option is XaiTtsOptions) return option.voiceId;
   if (option is ElevenLabsTtsOptions) return option.voiceId;
   if (option is MimoTtsOptions) return option.voice;
-  if (option is StepTtsOptions) return option.voice;
-  if (option is FishAudioTtsOptions) return option.referenceId;
   return '';
 }
 
@@ -2228,12 +1648,6 @@ String _defaultBaseUrl(NetworkTtsKind k) {
       return 'https://api.elevenlabs.io';
     case NetworkTtsKind.mimo:
       return 'https://api.xiaomimimo.com/v1';
-    case NetworkTtsKind.qwenAudio:
-      return 'wss://dashscope.aliyuncs.com/api-ws/v1/inference';
-    case NetworkTtsKind.step:
-      return 'https://api.stepfun.com/v1';
-    case NetworkTtsKind.fishAudio:
-      return 'https://api.fish.audio';
   }
 }
 
@@ -2242,9 +1656,9 @@ String _defaultModel(NetworkTtsKind k) {
     case NetworkTtsKind.openai:
       return 'gpt-4o-mini-tts';
     case NetworkTtsKind.gemini:
-      return 'gemini-3.1-flash-tts-preview';
+      return 'gemini-2.5-flash-preview-tts';
     case NetworkTtsKind.minimax:
-      return 'speech-2.8-turbo';
+      return 'speech-2.6-turbo';
     case NetworkTtsKind.qwen:
       return 'qwen3-tts-flash';
     case NetworkTtsKind.groq:
@@ -2254,13 +1668,7 @@ String _defaultModel(NetworkTtsKind k) {
     case NetworkTtsKind.elevenlabs:
       return 'eleven_multilingual_v2';
     case NetworkTtsKind.mimo:
-      return 'mimo-v2.5-tts';
-    case NetworkTtsKind.qwenAudio:
-      return 'qwen-audio-3.0-tts-flash';
-    case NetworkTtsKind.step:
-      return 'stepaudio-2.5-tts';
-    case NetworkTtsKind.fishAudio:
-      return 's2.1-pro';
+      return 'mimo-v2-tts';
   }
 }
 
@@ -2282,12 +1690,6 @@ String _defaultVoice(NetworkTtsKind k) {
       return '';
     case NetworkTtsKind.mimo:
       return 'mimo_default';
-    case NetworkTtsKind.qwenAudio:
-      return 'longanhuan_v3.6';
-    case NetworkTtsKind.step:
-      return 'cixingnansheng';
-    case NetworkTtsKind.fishAudio:
-      return '';
   }
 }
 
@@ -2309,11 +1711,5 @@ String _voiceLabelFor(NetworkTtsKind k, AppLocalizations l10n) {
       return l10n.ttsServicesFieldVoiceIdLabel;
     case NetworkTtsKind.mimo:
       return l10n.ttsServicesFieldVoiceLabel;
-    case NetworkTtsKind.qwenAudio:
-      return l10n.ttsServicesFieldVoiceLabel;
-    case NetworkTtsKind.step:
-      return l10n.ttsServicesFieldVoiceLabel;
-    case NetworkTtsKind.fishAudio:
-      return l10n.ttsServicesFieldVoiceIdLabel;
   }
 }

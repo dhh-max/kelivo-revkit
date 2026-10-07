@@ -135,6 +135,9 @@ def _info(msg):
 
 def _spacer():
     console.print()
+def _sub(title, style='cyan'):
+    """子标题 — 小标题"""
+    console.print(f'  [bold {style}]▸ {title}[/]')
 
 # ── 命令实现 ──────────────────────────────────────────────────
 
@@ -5508,11 +5511,12 @@ def cmd_dexinnerclass(args):
 
 def cmd_dexcrypto(args):
     """DEX 加密/编码特征分析 — 加密算法/哈希/编码/密钥/安全评分"""
-    from apk_reverse_engine.core.apk_file_ops import ApkFileOps
+    from apk_reverse_engine import open_apk
     from apk_reverse_engine.core.dex_parser import DexParser
     from apk_reverse_engine.analysis.dex_crypto import DexCryptoAnalyzer
-    ops = ApkFileOps(args.apk)
-    dex_datas = ops.get_dex_data()
+    with open_apk(args.apk) as ctx:
+        dex_files = ctx.get_dex_files()
+        dex_datas = [ctx.read_file(f) for f in dex_files]
     if not dex_datas:
         _error("未找到 DEX 文件")
         return
@@ -5566,11 +5570,12 @@ def cmd_dexcrypto(args):
 
 def cmd_dexproto(args):
     """DEX 方法原型/签名分析 — 参数类型/返回类型/重载/API签名复杂度"""
-    from apk_reverse_engine.core.apk_file_ops import ApkFileOps
+    from apk_reverse_engine import open_apk
     from apk_reverse_engine.core.dex_parser import DexParser
     from apk_reverse_engine.analysis.dex_proto_analyzer import DexProtoAnalyzer
-    ops = ApkFileOps(args.apk)
-    dex_datas = ops.get_dex_data()
+    with open_apk(args.apk) as ctx:
+        dex_files = ctx.get_dex_files()
+        dex_datas = [ctx.read_file(f) for f in dex_files]
     if not dex_datas:
         _error("未找到 DEX 文件")
         return
@@ -5616,6 +5621,394 @@ def cmd_dexproto(args):
         _sub("Top 重载方法名")
         for item in result['top_overloads'][:10]:
             console.print(f"  [yellow]•[/] {item['method']} [dim]({item['classes']} 个类)[/]")
+    if args.output:
+        import json
+        with open(args.output, 'w') as f:
+            json.dump(result, f, ensure_ascii=False, indent=2, default=str)
+        _info(f"完整报告已保存到 {args.output}")
+
+def cmd_dexresource(args):
+    """DEX 资源引用分析 — R类引用/资源混淆/硬编码资源ID检测"""
+    from apk_reverse_engine import open_apk
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.analysis.dex_resource_ref import DexResourceRefAnalyzer
+    with open_apk(args.apk) as ctx:
+        dex_files = ctx.get_dex_files()
+        dex_datas = [ctx.read_file(f) for f in dex_files]
+    if not dex_datas:
+        _error("未找到 DEX 文件")
+        return
+    dp = DexParser(dex_datas[0])
+    with console.status(f"{ICO['mag']} 正在分析 DEX 资源引用...", spinner="dots"):
+        result = DexResourceRefAnalyzer.analyze(dp)
+    if 'error' in result:
+        _error(result['error'])
+        return
+    _section("🎨 DEX 资源引用分析")
+    console.print(f"  [cyan]总类数:[/] {result['total_classes']}  [cyan]总R类引用:[/] {result['total_r_refs']}  [cyan]资源类别覆盖:[/] {result['r_category_count']}/{result['r_coverage']}%")
+    osc = 'red' if result['obfuscation_score'] >= 70 else 'yellow' if result['obfuscation_score'] >= 30 else 'green'
+    console.print(f"  [cyan]资源混淆评分:[/] [{osc}]{result['obfuscation_score']}/100 ({result['obfuscation_level']})[/]")
+    console.print(f"  [cyan]硬编码资源ID:[/] {result['hardcoded_id_count']}  [cyan]引用密度:[/] {result['ref_density']}/类  [cyan]密度评分:[/] {result['density_score']}/100")
+    if result['r_category_dist']:
+        console.print()
+        _sub("资源类别引用分布")
+        t = Table(box=box.ROUNDED, border_style='cyan', show_header=True)
+        t.add_column("资源类别", style="cyan", width=18)
+        t.add_column("引用次数", justify="right", style="yellow", width=10)
+        for cat, cnt in result['r_category_dist'].items():
+            t.add_row(cat, str(cnt))
+        console.print(t)
+    if result['top_r_fields']:
+        console.print()
+        _sub("Top 资源字段引用")
+        for item in result['top_r_fields'][:15]:
+            console.print(f"  [yellow]•[/] {item['field']} [dim]({item['count']}次)[/]")
+    if result['hardcoded_id_samples']:
+        console.print()
+        _sub("⚠️ 硬编码资源ID样本")
+        for h in result['hardcoded_id_samples']:
+            console.print(f"  [red]•[/] {h}")
+    if args.output:
+        import json
+        with open(args.output, 'w') as f:
+            json.dump(result, f, ensure_ascii=False, indent=2, default=str)
+        _info(f"完整报告已保存到 {args.output}")
+
+def cmd_dexperm(args):
+    """DEX 权限审计分析 — 敏感权限使用/权限调用链/过度授权检测"""
+    from apk_reverse_engine import open_apk
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.analysis.dex_permission_audit import DexPermissionAuditAnalyzer
+    with open_apk(args.apk) as ctx:
+        dex_files = ctx.get_dex_files()
+        dex_datas = [ctx.read_file(f) for f in dex_files]
+    if not dex_datas:
+        _error("未找到 DEX 文件")
+        return
+    dp = DexParser(dex_datas[0])
+    # 尝试从Manifest提取权限
+    manifest_perms = None
+    try:
+        from apk_reverse_engine.core.manifest_ops import ManifestParser
+        mp = ManifestParser(ops.get_manifest())
+        manifest_perms = mp.get_permissions()
+    except Exception:
+        pass
+    with console.status(f"{ICO['mag']} 正在分析 DEX 权限使用...", spinner="dots"):
+        result = DexPermissionAuditAnalyzer.analyze(dp, manifest_perms)
+    if 'error' in result:
+        _error(result['error'])
+        return
+    _section("🔑 DEX 权限审计分析")
+    psc = 'red' if result['over_privilege_score'] >= 60 else 'yellow' if result['over_privilege_score'] >= 30 else 'green'
+    console.print(f"  [cyan]总方法:[/] {result['total_methods']}  [cyan]含权限方法:[/] {result['methods_with_perm_access']}  [cyan]敏感方法占比:[/] {result['sensitive_perm_ratio']}")
+    console.print(f"  [cyan]敏感权限使用:[/] {result['perm_count']} 种  [cyan]过度授权评分:[/] [{psc}]{result['over_privilege_score']}/100 ({result['privilege_level']})[/]")
+    if manifest_perms is not None:
+        console.print(f"  [cyan]Manifest声明:[/] {result['declared_perm_count']} 种  [cyan]未声明使用:[/] {len(result['undeclared_used_perms'])}  [cyan]声明未用:[/] {len(result['declared_unused_perms'])}")
+    if result['perm_categories']:
+        console.print()
+        _sub("权限类别分布")
+        for cat, cnt in result['perm_categories'].items():
+            bar = '█' * min(cnt // 5, 50)
+            console.print(f"  [cyan]{cat}:[/] {bar} [dim]({cnt})[/]")
+    if result['perm_usage']:
+        console.print()
+        _sub("敏感权限使用 Top 20")
+        t = Table(box=box.ROUNDED, border_style='yellow', show_header=True)
+        t.add_column("权限", style="cyan", width=30)
+        t.add_column("使用次数", justify="right", style="yellow", width=10)
+        for perm, cnt in list(result['perm_usage'].items())[:20]:
+            t.add_row(perm, str(cnt))
+        console.print(t)
+    if result['dangerous_combos']:
+        console.print()
+        _sub("⚠️ 危险权限组合")
+        for combo in result['dangerous_combos']:
+            sev = 'red' if combo['severity'] == '高' else 'yellow'
+            console.print(f"  [{sev}]•[/] {combo['description']} [dim]({'/'.join(combo['perms'])})[/]")
+    if result['undeclared_used_perms']:
+        console.print()
+        _sub("⚠️ 使用但未声明的权限")
+        for p in result['undeclared_used_perms']:
+            console.print(f"  [red]•[/] {p}")
+    if args.output:
+        import json
+        with open(args.output, 'w') as f:
+            json.dump(result, f, ensure_ascii=False, indent=2, default=str)
+        _info(f"完整报告已保存到 {args.output}")
+
+def cmd_dexlib(args):
+    """DEX 第三方库/框架分析 — SDK识别/库版本/库混淆/依赖评估"""
+    from apk_reverse_engine import open_apk
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.analysis.dex_lib_analysis import DexLibAnalysisAnalyzer
+    with open_apk(args.apk) as ctx:
+        dex_files = ctx.get_dex_files()
+        dex_datas = [ctx.read_file(f) for f in dex_files]
+    if not dex_datas:
+        _error("未找到 DEX 文件")
+        return
+    dp = DexParser(dex_datas[0])
+    with console.status(f"{ICO['mag']} 正在分析 DEX 第三方库依赖...", spinner="dots"):
+        result = DexLibAnalysisAnalyzer.analyze(dp)
+    if 'error' in result:
+        _error(result['error'])
+        return
+    _section("📦 DEX 第三方库/框架分析")
+    bsc = 'red' if result['bloat_score'] >= 60 else 'yellow' if result['bloat_score'] >= 30 else 'green'
+    console.print(f"  [cyan]总类数:[/] {result['total_classes']}  [cyan]第三方库类:[/] {result['total_lib_classes']}  [cyan]库占比:[/] {result['lib_ratio']}")
+    console.print(f"  [cyan]检测到库:[/] {result['lib_count']} 个  [cyan]依赖膨胀评分:[/] [{bsc}]{result['bloat_score']}/100 ({result['bloat_level']})[/]  [cyan]混淆迹象:[/] {result['obfuscation_indicators']}")
+    if result['lib_categories']:
+        console.print()
+        _sub("SDK 类别分布")
+        for cat, info in result['lib_categories'].items():
+            lib_str = ', '.join(info['libs'][:5])
+            bar = '█' * min(info['count'] // 10, 50)
+            console.print(f"  [cyan]{cat}:[/] {bar} [dim]({info['count']}类, {lib_str})[/]")
+    if result['detected_libs']:
+        console.print()
+        _sub("检测到的库 Top 20")
+        t = Table(box=box.ROUNDED, border_style='cyan', show_header=True)
+        t.add_column("库名", style="cyan", width=30)
+        t.add_column("类数", justify="right", style="yellow", width=10)
+        for name, cnt in list(result['detected_libs'].items())[:20]:
+            t.add_row(name[:30], str(cnt))
+        console.print(t)
+    if result['top_unknown_pkgs']:
+        console.print()
+        _sub("疑似未知第三方库 (>=5类)")
+        t2 = Table(box=box.ROUNDED, border_style='magenta', show_header=True)
+        t2.add_column("包名", style="cyan", width=40)
+        t2.add_column("类数", justify="right", style="yellow", width=10)
+        for item in result['top_unknown_pkgs'][:10]:
+            t2.add_row(item['package'][:40], str(item['class_count']))
+        console.print(t2)
+    if args.output:
+        import json
+        with open(args.output, 'w') as f:
+            json.dump(result, f, ensure_ascii=False, indent=2, default=str)
+        _info(f"完整报告已保存到 {args.output}")
+
+def cmd_dexaccflow(args):
+    """DEX 访问权限流分析 — 修饰符合规性/暴露面/敏感方法/权限泄漏"""
+    from apk_reverse_engine import open_apk
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.analysis.dex_access_flow import DexAccessFlowAnalyzer
+    with open_apk(args.apk) as ctx:
+        dex_files = ctx.get_dex_files()
+        dex_datas = [ctx.read_file(f) for f in dex_files]
+    if not dex_datas:
+        _error("未找到 DEX 文件")
+        return
+    dp = DexParser(dex_datas[0])
+    with console.status(f"{ICO['mag']} 正在分析 DEX 访问权限流...", spinner="dots"):
+        result = DexAccessFlowAnalyzer.analyze(dp)
+    if 'error' in result:
+        _error(result['error'])
+        return
+    mv = result['method_visibility']
+    _section("🔐 DEX 访问权限流分析")
+    console.print(f"  [cyan]总方法:[/] {result['total_methods']}  [cyan]总字段:[/] {result['total_fields']}")
+    console.print(f"  [cyan]方法可见性:[/] public={mv['public']} private={mv['private']} protected={mv['protected']} default={mv['default']}")
+    console.print(f"  [red]敏感公开方法:[/] {result['sensitive_public_methods']}  [yellow]可覆写公开方法:[/] {result['overridable_public_count']}  [red]暴露Native方法:[/] {result['native_exposed_count']}")
+    console.print(f"  [yellow]暴露字段:[/] {result['exposed_fields_count']}  [cyan]公开常量:[/] {result['public_constants_count']}")
+    if result['sensitive_methods']:
+        console.print()
+        _sub("敏感公开方法 TOP15")
+        t = Table(box=box.ROUNDED, border_style='red', show_header=True)
+        t.add_column("类", style="cyan", width=35)
+        t.add_column("方法", style="yellow", width=25)
+        t.add_column("类别", style="red", width=15)
+        t.add_column("修饰符", style="dim", width=15)
+        for s in result['sensitive_methods'][:15]:
+            t.add_row(s['class'][:35], s['method'][:25], s['category'], s['flags'])
+        console.print(t)
+    if result['top_classes_by_public_methods']:
+        console.print()
+        _sub("公开方法最多的类 TOP10")
+        for c in result['top_classes_by_public_methods'][:10]:
+            console.print(f"  [yellow]•[/] {c['class']} [dim]({c['count']} 个公开方法)[/]")
+    if args.output:
+        import json
+        with open(args.output, 'w') as f:
+            json.dump(result, f, ensure_ascii=False, indent=2, default=str)
+        _info(f"完整报告已保存到 {args.output}")
+
+def cmd_dexaccpattern(args):
+    """DEX 访问控制模式分析 — 修饰符组合/可见性/API暴露面/封装质量"""
+    from apk_reverse_engine import open_apk
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.analysis.dex_access_pattern import DexAccessPatternAnalyzer
+    with open_apk(args.apk) as ctx:
+        dex_files = ctx.get_dex_files()
+        dex_datas = [ctx.read_file(f) for f in dex_files]
+    if not dex_datas:
+        _error("未找到 DEX 文件")
+        return
+    dp = DexParser(dex_datas[0])
+    with console.status(f"{ICO['mag']} 正在分析 DEX 访问控制模式...", spinner="dots"):
+        result = DexAccessPatternAnalyzer.analyze(dp)
+    if 'error' in result:
+        _error(result['error'])
+        return
+    eq = result['encapsulation_quality']
+    sc = 'red' if eq['encapsulation_score'] < 30 else 'yellow' if eq['encapsulation_score'] < 50 else 'green'
+    _section("🛡️ DEX 访问控制模式分析")
+    console.print(f"  [cyan]类可见性:[/] {result['class_visibility']}")
+    console.print(f"  [cyan]方法可见性:[/] {result['method_visibility']}")
+    console.print(f"  [cyan]字段可见性:[/] {result['field_visibility']}")
+    console.print(f"  [cyan]公开API方法:[/] {result['public_api_method_count']}  [yellow]暴露字段:[/] {result['exposed_field_count']}")
+    console.print(f"  [cyan]封装质量评分:[/] [{sc}]{eq['encapsulation_score']}/100 ({eq['rating']})[/]")
+    if result['class_combo_patterns']:
+        console.print()
+        _sub("类修饰符组合模式 TOP10")
+        for combo, cnt in list(result['class_combo_patterns'].items())[:10]:
+            console.print(f"  [yellow]•[/] {combo} [dim]({cnt})[/]")
+    if result['method_combo_patterns']:
+        console.print()
+        _sub("方法修饰符组合模式 TOP10")
+        for combo, cnt in list(result['method_combo_patterns'].items())[:10]:
+            console.print(f"  [yellow]•[/] {combo} [dim]({cnt})[/]")
+    if result['public_api_methods']:
+        console.print()
+        _sub("公开API方法 TOP15")
+        for m in result['public_api_methods'][:15]:
+            console.print(f"  [yellow]•[/] {m}")
+    if args.output:
+        import json
+        with open(args.output, 'w') as f:
+            json.dump(result, f, ensure_ascii=False, indent=2, default=str)
+        _info(f"完整报告已保存到 {args.output}")
+
+def cmd_dexdensity(args):
+    """DEX 类结构密度分析 — 包分布/类密度/方法字段比/空类/上帝类"""
+    from apk_reverse_engine import open_apk
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.analysis.dex_class_density import DexClassDensityAnalyzer
+    with open_apk(args.apk) as ctx:
+        dex_files = ctx.get_dex_files()
+        dex_datas = [ctx.read_file(f) for f in dex_files]
+    if not dex_datas:
+        _error("未找到 DEX 文件")
+        return
+    dp = DexParser(dex_datas[0])
+    with console.status(f"{ICO['mag']} 正在分析 DEX 类结构密度...", spinner="dots"):
+        result = DexClassDensityAnalyzer.analyze(dp)
+    if 'error' in result:
+        _error(result['error'])
+        return
+    _section("🏗️ DEX 类结构密度分析")
+    console.print(f"  [cyan]总类数:[/] {result['total_classes']}  [cyan]总包数:[/] {result['total_packages']}")
+    console.print(f"  [cyan]平均方法/类:[/] {result['avg_methods_per_class']}  [cyan]平均字段/类:[/] {result['avg_fields_per_class']}  [cyan]平均指令/类:[/] {result['avg_insns_per_class']}")
+    console.print(f"  [red]上帝类:[/] {result['god_classes_count']}  [yellow]空类:[/] {result['empty_classes']}")
+    ct = result['class_types']
+    console.print(f"  [cyan]类类型:[/] interface={ct['interface']} abstract={ct['abstract']} enum={ct['enum']} final={ct['final']} annotation={ct['annotation']}")
+    if result['top_packages']:
+        console.print()
+        _sub("Top 包分布")
+        t = Table(box=box.ROUNDED, border_style='cyan', show_header=True)
+        t.add_column("包名", style="cyan", width=45)
+        t.add_column("类数", justify="right", style="yellow", width=8)
+        for p in result['top_packages'][:20]:
+            t.add_row(p['package'][:45], str(p['classes']))
+        console.print(t)
+    if result['god_classes']:
+        console.print()
+        _sub("上帝类 TOP10")
+        for g in result['god_classes'][:10]:
+            console.print(f"  [red]•[/] {g.get('class','?')} [dim](方法:{g.get('methods',0)} 字段:{g.get('fields',0)} 指令:{g.get('insns',0)})[/]")
+    if args.output:
+        import json
+        with open(args.output, 'w') as f:
+            json.dump(result, f, ensure_ascii=False, indent=2, default=str)
+        _info(f"完整报告已保存到 {args.output}")
+
+def cmd_dexinstats(args):
+    """DEX 指令级统计分析 — 指令频率/寄存器压力/异常处理/调试覆盖"""
+    from apk_reverse_engine import open_apk
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.analysis.dex_instruction_stats import DexInstructionStatsAnalyzer
+    with open_apk(args.apk) as ctx:
+        dex_files = ctx.get_dex_files()
+        dex_datas = [ctx.read_file(f) for f in dex_files]
+    if not dex_datas:
+        _error("未找到 DEX 文件")
+        return
+    dp = DexParser(dex_datas[0])
+    with console.status(f"{ICO['mag']} 正在分析 DEX 指令级统计...", spinner="dots"):
+        result = DexInstructionStatsAnalyzer.analyze(dp)
+    if 'error' in result:
+        _error(result['error'])
+        return
+    _section("📊 DEX 指令级统计分析")
+    console.print(f"  [cyan]总方法:[/] {result['total_methods']}  [cyan]有代码方法:[/] {result['total_methods_with_code']}  [cyan]总字段:[/] {result['total_fields']}")
+    rs = result['register_stats']
+    console.print(f"  [cyan]寄存器:[/] max={rs['max_registers']} avg={rs['avg_registers']} max_ins={rs['max_ins']} max_outs={rs['max_outs']}")
+    tc = result['try_catch_stats']
+    console.print(f"  [cyan]try/catch覆盖:[/] {tc['coverage_pct']}%  [cyan]调试信息覆盖:[/] {result['debug_stats']['coverage_pct']}%")
+    if result['instruction_categories']:
+        console.print()
+        _sub("指令类别分布")
+        t = Table(box=box.ROUNDED, border_style='cyan', show_header=True)
+        t.add_column("类别", style="cyan", width=15)
+        t.add_column("次数", justify="right", style="yellow", width=12)
+        t.add_column("占比", justify="right", style="magenta", width=8)
+        total_insn = sum(result['instruction_categories'].values())
+        for cat, cnt in list(result['instruction_categories'].items())[:15]:
+            t.add_row(cat, str(cnt), f"{round(cnt/max(total_insn,1)*100,1)}%")
+        console.print(t)
+    if result['top_methods_by_insns']:
+        console.print()
+        _sub("指令最多的方法 TOP10")
+        for m in result['top_methods_by_insns'][:10]:
+            console.print(f"  [yellow]•[/] {m.get('method','?')} [dim]({m.get('insns',0)} 条指令)[/]")
+    if args.output:
+        import json
+        with open(args.output, 'w') as f:
+            json.dump(result, f, ensure_ascii=False, indent=2, default=str)
+        _info(f"完整报告已保存到 {args.output}")
+
+def cmd_dexpromatrix(args):
+    """DEX 方法原型矩阵分析 — 短签名分布/参数组合/原型复用"""
+    from apk_reverse_engine import open_apk
+    from apk_reverse_engine.core.dex_parser import DexParser
+    from apk_reverse_engine.analysis.dex_proto_matrix import DexProtoMatrixAnalyzer
+    with open_apk(args.apk) as ctx:
+        dex_files = ctx.get_dex_files()
+        dex_datas = [ctx.read_file(f) for f in dex_files]
+    if not dex_datas:
+        _error("未找到 DEX 文件")
+        return
+    dp = DexParser(dex_datas[0])
+    with console.status(f"{ICO['mag']} 正在分析 DEX 方法原型矩阵...", spinner="dots"):
+        result = DexProtoMatrixAnalyzer.analyze(dp)
+    if 'error' in result:
+        _error(result['error'])
+        return
+    _section("🔢 DEX 方法原型矩阵分析")
+    console.print(f"  [cyan]总原型:[/] {result['total_protos']}  [cyan]原型/方法比:[/] {result['proto_per_method_ratio']}")
+    console.print(f"  [cyan]无参数:[/] {result['no_param_count']}  [cyan]单参数:[/] {result['single_param_count']}  [cyan]多参数:[/] {result['multi_param_count']}  [cyan]最大参数数:[/] {result['max_param_count']}")
+    rd = result['proto_reuse_dist']
+    console.print(f"  [cyan]原型复用:[/] unique={rd.get('unique',0)} low={rd.get('low_reuse',0)} medium={rd.get('medium_reuse',0)} high={rd.get('high_reuse',0)} very_high={rd.get('very_high_reuse',0)}")
+    if result['shorty_distribution']:
+        console.print()
+        _sub("短签名分布 TOP15")
+        for sig, cnt in list(result['shorty_distribution'].items())[:15]:
+            console.print(f"  [yellow]•[/] {sig} [dim]({cnt})[/]")
+    if result['top_signatures']:
+        console.print()
+        _sub("Top 可读签名")
+        t = Table(box=box.ROUNDED, border_style='green', show_header=True)
+        t.add_column("签名", style="cyan", width=40)
+        t.add_column("次数", justify="right", style="yellow", width=8)
+        for s in result['top_signatures'][:15]:
+            t.add_row(s['signature'][:40], str(s['count']))
+        console.print(t)
+    if result['return_type_dist']:
+        console.print()
+        _sub("Top 返回类型")
+        for rt in result['return_type_dist'][:10]:
+            console.print(f"  [yellow]•[/] {rt['human']} [dim]({rt['count']})[/]")
     if args.output:
         import json
         with open(args.output, 'w') as f:
@@ -6671,6 +7064,41 @@ def main():
     p.add_argument("apk", help="APK 文件路径")
     p.add_argument("-o", "--output", default=None, help="输出 JSON 报告路径")
     p.set_defaults(func=cmd_dexproto)
+    # ── dexresource: DEX 资源引用分析 ──
+    p = sub.add_parser("dexresource", help="🎨 DEX 资源引用分析 (R类引用/资源混淆/硬编码资源ID检测)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("-o", "--output", default=None, help="输出 JSON 报告路径")
+    p.set_defaults(func=cmd_dexresource)
+    # ── dexperm: DEX 权限审计分析 ──
+    p = sub.add_parser("dexperm", help="🔑 DEX 权限审计分析 (敏感权限/权限调用链/过度授权检测)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("-o", "--output", default=None, help="输出 JSON 报告路径")
+    p.set_defaults(func=cmd_dexperm)
+    # ── dexlib: DEX 第三方库/框架分析 ──
+    p = sub.add_parser("dexlib", help="📦 DEX 第三方库/框架分析 (SDK识别/库版本/依赖膨胀评分)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("-o", "--output", default=None, help="输出 JSON 报告路径")
+    p.set_defaults(func=cmd_dexlib)
+    p = sub.add_parser("dexaccflow", help="🔐 DEX 访问权限流 (修饰符合规/暴露面/敏感方法)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("-o", "--output", default=None, help="输出 JSON 报告路径")
+    p.set_defaults(func=cmd_dexaccflow)
+    p = sub.add_parser("dexaccpattern", help="🛡️ DEX 访问控制模式 (修饰符组合/封装质量/API暴露面)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("-o", "--output", default=None, help="输出 JSON 报告路径")
+    p.set_defaults(func=cmd_dexaccpattern)
+    p = sub.add_parser("dexdensity", help="🏗️ DEX 类结构密度 (包分布/上帝类/空类/方法字段比)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("-o", "--output", default=None, help="输出 JSON 报告路径")
+    p.set_defaults(func=cmd_dexdensity)
+    p = sub.add_parser("dexinstats", help="📊 DEX 指令级统计 (指令频率/寄存器/异常/调试覆盖)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("-o", "--output", default=None, help="输出 JSON 报告路径")
+    p.set_defaults(func=cmd_dexinstats)
+    p = sub.add_parser("dexpromatrix", help="🔢 DEX 方法原型矩阵 (短签名/参数组合/原型复用)")
+    p.add_argument("apk", help="APK 文件路径")
+    p.add_argument("-o", "--output", default=None, help="输出 JSON 报告路径")
+    p.set_defaults(func=cmd_dexpromatrix)
     args = parser.parse_args()
 
     # 交互式模式
@@ -6683,7 +7111,7 @@ def main():
         console.print()
         console.print(Panel.fit(
             "[bold cyan]⚡ APK Reverse Engineering Engine v2[/]\n"
-            "[dim] 全功能 APK 逆向工具集 | 86 命令 | 19,000+ 行核心引擎 [/]",
+            "[dim] 全功能 APK 逆向工具集 | 94 命令 | 19,000+ 行核心引擎 [/]",
             border_style="cyan", box=box.DOUBLE_EDGE
         ))
         console.print()
@@ -6798,6 +7226,14 @@ def main():
                 ("dexcrypto", "🔐 DEX 加密/编码特征 (算法/哈希/安全评分)"),
                 ("dexinnerclass", "🏠 DEX 内部类/匿名类 (Lambda/结构复杂度)"),
                 ("dexproto", "📋 DEX 方法原型/签名 (参数类型/重载/复杂度)"),
+                ("dexresource", "🎨 DEX 资源引用 (R类/混淆/硬编码ID)"),
+                ("dexperm", "🔑 DEX 权限审计 (敏感权限/过度授权)"),
+                ("dexlib", "📦 DEX 第三方库/框架 (SDK/依赖膨胀)"),
+                ("dexaccflow", "🔐 DEX 访问权限流 (修饰符合规/敏感方法)"),
+                ("dexaccpattern", "🛡️ DEX 访问控制模式 (封装质量/API暴露面)"),
+                ("dexdensity", "🏗️ DEX 类结构密度 (包分布/上帝类/空类)"),
+                ("dexinstats", "📊 DEX 指令级统计 (指令频率/寄存器/调试)"),
+                ("dexpromatrix", "🔢 DEX 原型矩阵 (短签名/参数组合/复用)"),
                 ("permtrace", "🔍 权限使用追溯 (DEX中权限API路径)"),
                 ("apistats", "📊 API调用统计 (使用频率/分布)"),
                 ("sigcheck", "🔑 APK签名方案检测 (V1/V2/V3/V4)"),

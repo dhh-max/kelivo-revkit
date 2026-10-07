@@ -19,6 +19,7 @@ import '../../providers/skill_provider.dart';
 import '../../providers/world_book_provider.dart';
 import '../search/search_service.dart';
 import '../../../features/home/services/local_tools_service.dart';
+import '../../../core/services/local_tools/local_tool_names.dart';
 
 class AppControlToolNames {
   const AppControlToolNames._();
@@ -1048,7 +1049,7 @@ Prefer `plan_action` when the user's wording is ambiguous or the change is large
     }
     if (patch.containsKey('recent_chats_reference_enabled')) {
       next = next.copyWith(
-        allowPastConversationRecall: _boolFrom(
+        enableRecentChatsReference: _boolFrom(
           patch['recent_chats_reference_enabled'],
         ),
       );
@@ -3351,7 +3352,7 @@ Prefer `plan_action` when the user's wording is ambiguous or the change is large
     'chat_model_id': assistant.chatModelId,
     'search_enabled': assistant.searchEnabled,
     'memory_enabled': assistant.enableMemory,
-    'recent_chats_reference_enabled': assistant.allowPastConversationRecall,
+    'recent_chats_reference_enabled': assistant.enableRecentChatsReference,
     'app_control_enabled': assistant.appControlEnabled,
     'local_tool_ids': assistant.localToolIds,
     'mcp_server_ids': assistant.mcpServerIds,

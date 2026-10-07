@@ -159,7 +159,7 @@ ColorScheme customThemeColorScheme(CustomTheme theme, {required bool dark}) {
     surfaceContainer: pick(MaterialDynamicColors.surfaceContainer),
     surfaceContainerHigh: pick(MaterialDynamicColors.surfaceContainerHigh),
     surfaceContainerHighest:
-        pick(MaterialDynamicColors.surfaceContainerHighest),
+          pick(MaterialDynamicColors.surfaceContainerHighest),
     outline: pick(MaterialDynamicColors.outline),
     outlineVariant: pick(MaterialDynamicColors.outlineVariant),
     shadow: pick(MaterialDynamicColors.shadow),

@@ -2,6 +2,7 @@ import 'dart:collection';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import '../../models/memory_entry.dart';
 
 import '../../models/assistant.dart';
 

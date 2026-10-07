@@ -27,8 +27,12 @@ class ChatSelectionDeleteBar extends StatelessWidget {
     final isDark = theme.brightness == Brightness.dark;
     final l10n = AppLocalizations.of(context)!;
 
-    final bg = cs.surface.withValues(alpha: isDark ? 0.35 : 0.78);
-    final shadowColor = cs.shadow.withValues(alpha: isDark ? 0.40 : 0.10);
+    final bg = isDark
+        ? Colors.black.withValues(alpha: 0.35)
+        : cs.surface.withValues(alpha: 0.78);
+    final shadowColor = isDark
+        ? Colors.black.withValues(alpha: 0.40)
+        : Colors.black.withValues(alpha: 0.10);
 
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -127,9 +131,8 @@ class _DeleteButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cs = Theme.of(context).colorScheme;
     final bg = Color.alphaBlend(
-      cs.onSurface.withValues(alpha: 0.04),
+      (isDark ? Colors.white : Colors.black).withValues(alpha: 0.04),
       color.withValues(alpha: isDark ? 0.18 : 0.14),
     );
 

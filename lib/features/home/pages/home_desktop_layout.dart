@@ -352,10 +352,6 @@ class HomeDesktopScaffold extends StatelessWidget {
                       width: 16,
                       height: 16,
                       key: ValueKey('brand:$brandAsset'),
-                      colorFilter:
-                          isDark && BrandAssets.assetNeedsDarkInvert(brandAsset)
-                          ? ColorFilter.mode(cs.onSurface, BlendMode.srcIn)
-                          : null,
                     )
                   : Image.asset(
                       brandAsset,
@@ -394,9 +390,9 @@ class HomeDesktopScaffold extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 12,
                       height: 1.1,
-                      color: cs.onSurface.withValues(
-                        alpha: isDark ? 0.92 : 0.9,
-                      ),
+                      color: isDark
+                          ? Colors.white.withValues(alpha: 0.92)
+                          : cs.onSurface.withValues(alpha: 0.9),
                       fontWeight: AppFontWeights.medium,
                     ),
                     maxLines: 1,
@@ -745,7 +741,7 @@ class DesktopScrollNavigationButtons extends StatelessWidget {
             ),
           ),
         ),
-        // Scroll to previous message button
+        // Scroll to previous question button
         Align(
           alignment: Alignment.bottomRight,
           child: SafeArea(
@@ -795,20 +791,21 @@ class _DesktopScrollButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
     return ClipOval(
       child: BackdropFilter(
         filter: ui.ImageFilter.blur(sigmaX: 14, sigmaY: 14),
         child: Container(
           decoration: BoxDecoration(
             color: isDark
-                ? cs.onSurface.withValues(alpha: 0.06)
-                : cs.surface.withValues(alpha: 0.07),
+                ? Colors.white.withValues(alpha: 0.06)
+                : Colors.white.withValues(alpha: 0.07),
             shape: BoxShape.circle,
             border: Border.all(
               color: isDark
-                  ? cs.onSurface.withValues(alpha: 0.10)
-                  : cs.outline.withValues(alpha: 0.20),
+                  ? Colors.white.withValues(alpha: 0.10)
+                  : Theme.of(
+                      context,
+                    ).colorScheme.outline.withValues(alpha: 0.20),
               width: 1,
             ),
           ),
@@ -823,7 +820,7 @@ class _DesktopScrollButton extends StatelessWidget {
                 child: Icon(
                   icon,
                   size: 18,
-                  color: cs.onSurface.withValues(alpha: isDark ? 1.0 : 0.87),
+                  color: isDark ? Colors.white : Colors.black87,
                 ),
               ),
             ),
@@ -921,8 +918,12 @@ class _DesktopGlassCircleButtonState extends State<_DesktopGlassCircleButton> {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
-    final glassBase = cs.surface.withValues(alpha: 0.06);
-    final overlay = cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05);
+    final glassBase = isDark
+        ? Colors.black.withValues(alpha: 0.06)
+        : Colors.white.withValues(alpha: 0.06);
+    final overlay = isDark
+        ? Colors.white.withValues(alpha: 0.06)
+        : Colors.black.withValues(alpha: 0.05);
     final tileColor = _pressed
         ? Color.alphaBlend(overlay, glassBase)
         : glassBase;

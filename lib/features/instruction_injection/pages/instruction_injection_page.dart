@@ -15,7 +15,6 @@ import 'package:uuid/uuid.dart';
 import '../../../core/services/haptics.dart';
 import '../../../shared/widgets/snackbar.dart';
 import '../../../theme/app_font_weights.dart';
-import 'package:Kelivo/theme/app_semantic_colors.dart';
 
 class InstructionInjectionPage extends StatefulWidget {
   const InstructionInjectionPage({super.key});
@@ -374,8 +373,11 @@ class _InstructionInjectionPageState extends State<InstructionInjectionPage> {
                                         onTap: () =>
                                             _showAddEditSheet(item: item),
                                         builder: (pressed, overlay) {
-                                          final baseBg =
-                                              context.appColors.surfaceCard;
+                                          final baseBg = isDark
+                                              ? Colors.white10
+                                              : Colors.white.withValues(
+                                                  alpha: 0.96,
+                                                );
                                           return Container(
                                             decoration: BoxDecoration(
                                               color: Color.alphaBlend(
@@ -583,6 +585,7 @@ class _InstructionInjectionEditSheetState
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return SafeArea(
       top: false,
@@ -626,7 +629,7 @@ class _InstructionInjectionEditSheetState
               decoration: InputDecoration(
                 labelText: l10n.instructionInjectionNameLabel,
                 filled: true,
-                fillColor: context.appColors.surfaceFill,
+                fillColor: isDark ? Colors.white10 : const Color(0xFFF2F3F5),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide(
@@ -654,7 +657,7 @@ class _InstructionInjectionEditSheetState
                 labelText: l10n.instructionInjectionGroupLabel,
                 hintText: l10n.instructionInjectionGroupHint,
                 filled: true,
-                fillColor: context.appColors.surfaceFill,
+                fillColor: isDark ? Colors.white10 : const Color(0xFFF2F3F5),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide(
@@ -683,7 +686,7 @@ class _InstructionInjectionEditSheetState
                 labelText: l10n.instructionInjectionPromptLabel,
                 alignLabelWithHint: true,
                 filled: true,
-                fillColor: context.appColors.surfaceFill,
+                fillColor: isDark ? Colors.white10 : const Color(0xFFF2F3F5),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide(
@@ -804,7 +807,9 @@ class _TactileCardState extends State<_TactileCard> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final overlay = _pressed
-        ? (Theme.of(context).colorScheme.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
+        ? (isDark
+              ? Colors.white.withValues(alpha: 0.06)
+              : Colors.black.withValues(alpha: 0.05))
         : Colors.transparent;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,

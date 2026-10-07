@@ -32,6 +32,14 @@ String memoryTypeLabel(AppLocalizations l10n, MemoryType type) {
       return l10n.memoryEntryTypeVoice;
     case MemoryType.instruction:
       return l10n.memoryEntryTypeInstruction;
+    case MemoryType.apkPatch:
+      return 'APK Patch';
+    case MemoryType.apkNote:
+      return 'APK Note';
+    case MemoryType.apkPatch:
+      return 'APK Patch';
+    case MemoryType.apkNote:
+      return 'APK Note';
   }
 }
 
@@ -58,6 +66,10 @@ Color memoryTypeColor(ColorScheme cs, MemoryType type) {
       return cs.secondary;
     case MemoryType.instruction:
       return cs.error;
+    case MemoryType.apkPatch:
+      return cs.tertiary;
+    case MemoryType.apkNote:
+      return cs.secondary;
   }
 }
 

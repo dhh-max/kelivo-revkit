@@ -6,10 +6,10 @@ import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:path/path.dart' as p;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../utils/app_directories.dart';
 import '../../../utils/file_import_helper.dart';
-import '../../../utils/image_compressor.dart';
 import '../../../utils/platform_utils.dart';
 import '../../../shared/widgets/snackbar.dart';
 import '../../../core/models/chat_input_data.dart';
@@ -24,57 +24,32 @@ import '../widgets/chat_input_bar.dart';
 /// - 桌面拖放处理
 /// - 文件复制到应用目录
 class FileUploadService {
-  FileUploadService({
-    required this.getContext,
-    required this.mediaController,
-    required this.isImageCropperEnabled,
-    required this.getImageCompressConfig,
-  });
+  FileUploadService({required this.getContext, required this.mediaController});
 
   /// 媒体控制器，用于添加图片和文件到输入栏
   final ChatInputBarController mediaController;
 
   /// Context provider callback to avoid storing stale context
   final BuildContext Function() getContext;
-  final bool Function() isImageCropperEnabled;
-  final ImageCompressConfig Function() getImageCompressConfig;
+
+  static const String _imageCropperEnabledKey = 'image_cropper_enabled_v1';
 
   /// 复制选中的文件到应用上传目录
   ///
   /// [files] 要复制的文件列表
   /// 返回复制后的文件路径列表
   Future<List<String>> copyPickedFiles(List<XFile> files) async {
-    final saved = await _copyPickedFilesKeepingSlots(files);
-    return saved.whereType<String>().toList(growable: false);
-  }
-
-  Future<List<String?>> _copyPickedFilesKeepingSlots(List<XFile> files) async {
     final dir = await AppDirectories.getUploadDirectory();
-    final out = <String?>[];
+    final out = <String>[];
     final context = getContext();
     if (!context.mounted) return out;
-    final compressConfig = getImageCompressConfig();
     for (final f in files) {
-      final sourceName = f.name.isNotEmpty ? f.name : f.path;
-      final savedPath = isImageExtension(sourceName) && f.path.isNotEmpty
-          ? await ImageCompressor.compressToUploadDir(
-              f.path,
-              dir,
-              compressConfig,
-            )
-          : await FileImportHelper.copyXFile(f, dir, context);
-      out.add(savedPath);
+      final savedPath = await FileImportHelper.copyXFile(f, dir, context);
+      if (savedPath != null) {
+        out.add(savedPath);
+      }
     }
     return out;
-  }
-
-  void _enqueuePickedImages(Iterable<XFile> files) {
-    final paths = [
-      for (final file in files)
-        if (file.path.isNotEmpty) file.path,
-    ];
-    if (paths.isEmpty) return;
-    mediaController.enqueueImages(paths, getImageCompressConfig());
   }
 
   /// 从相册选取图片
@@ -92,7 +67,6 @@ class FileUploadService {
             'jpeg',
             'gif',
             'webp',
-            'bmp',
             'heic',
             'heif',
           ],
@@ -107,7 +81,10 @@ class FileUploadService {
         if (toCopy.isEmpty) return;
         final croppedFiles = await _maybeCropImages(toCopy);
         if (croppedFiles.isEmpty) return;
-        _enqueuePickedImages(croppedFiles);
+        final paths = await copyPickedFiles(croppedFiles);
+        if (paths.isNotEmpty) {
+          mediaController.addImages(paths);
+        }
         return;
       }
 
@@ -116,7 +93,10 @@ class FileUploadService {
       if (files.isEmpty) return;
       final croppedFiles = await _maybeCropImages(files);
       if (croppedFiles.isEmpty) return;
-      _enqueuePickedImages(croppedFiles);
+      final paths = await copyPickedFiles(croppedFiles);
+      if (paths.isNotEmpty) {
+        mediaController.addImages(paths);
+      }
     } catch (_) {}
   }
 
@@ -155,8 +135,11 @@ class FileUploadService {
       if (file == null) return;
       final croppedFiles = await _maybeCropImages([file]);
       if (croppedFiles.isEmpty) return;
-      if (!context.mounted) return;
-      _enqueuePickedImages(croppedFiles);
+      final paths = await copyPickedFiles(croppedFiles);
+      if (paths.isNotEmpty) {
+        if (!context.mounted) return;
+        mediaController.addImages(paths);
+      }
     } catch (e) {
       try {
         if (!context.mounted) return;
@@ -172,7 +155,9 @@ class FileUploadService {
   }
 
   Future<List<XFile>> _maybeCropImages(List<XFile> files) async {
-    if (!isImageCropperEnabled()) return files;
+    final prefs = await SharedPreferences.getInstance();
+    final enabled = prefs.getBool(_imageCropperEnabledKey) ?? false;
+    if (!enabled) return files;
 
     final context = getContext();
     if (!context.mounted) return files;
@@ -233,7 +218,6 @@ class FileUploadService {
         lower.endsWith('.jpeg') ||
         lower.endsWith('.gif') ||
         lower.endsWith('.webp') ||
-        lower.endsWith('.bmp') ||
         lower.endsWith('.heic') ||
         lower.endsWith('.heif');
   }
@@ -247,7 +231,7 @@ class FileUploadService {
         type: FileType.custom,
         allowedExtensions: const [
           // images
-          'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'heic', 'heif',
+          'png', 'jpg', 'jpeg', 'gif', 'webp', 'heic', 'heif',
           // videos
           'mp4',
           'avi',
@@ -284,34 +268,72 @@ class FileUploadService {
           'mdx',
           'yml',
           'yaml',
+          // archives
+          'zip',
+          'tar',
+          'gz',
+          'bz2',
+          '7z',
+          'rar',
+          'xz',
+          // APK / binaries
+          'apk',
+          'xapk',
+          'aab',
+          'dex',
+          'so',
+          'bin',
+          'elf',
+          // other analysis formats
+          'log',
+          'csv',
+          'toml',
+          'ini',
+          'cfg',
+          'conf',
+          'properties',
+          'sql',
+          'proto',
+          'smali',
         ],
       );
       if (res == null || res.files.isEmpty) return;
+      final images = <String>[];
       final docs = <DocumentAttachment>[];
-      final images = <XFile>[];
-      final documents = <XFile>[];
+
+      // Build a flat list preserving order, then map saved -> type
+      final toCopy = <XFile>[];
+      final kinds = <bool>[]; // true=image, false=document
+      final names = <String>[];
       for (final f in res.files) {
         final path = f.path;
         if (path != null && path.isNotEmpty) {
-          final file = XFile(path);
-          if (isImageExtension(f.name)) {
-            images.add(file);
-          } else {
-            documents.add(file);
-          }
+          toCopy.add(XFile(path));
+          kinds.add(isImageExtension(f.name));
+          names.add(f.name);
         }
       }
-      if (images.isEmpty && documents.isEmpty) return;
-      _enqueuePickedImages(images);
-
-      final saved = await _copyPickedFilesKeepingSlots(documents);
-      for (final savedPath in saved) {
-        if (savedPath == null) continue;
+      if (toCopy.isEmpty) return;
+      final saved = await copyPickedFiles(toCopy);
+      for (int i = 0; i < saved.length; i++) {
+        final savedPath = saved[i];
+        final isImage = kinds[i];
         final savedName = p.basename(savedPath);
-        final mime = inferMimeByExtension(savedName);
-        docs.add(
-          DocumentAttachment(path: savedPath, fileName: savedName, mime: mime),
-        );
+        if (isImage) {
+          images.add(savedPath);
+        } else {
+          final mime = inferMimeByExtension(savedName);
+          docs.add(
+            DocumentAttachment(
+              path: savedPath,
+              fileName: savedName,
+              mime: mime,
+            ),
+          );
+        }
+      }
+      if (images.isNotEmpty) {
+        mediaController.addImages(images);
       }
       if (docs.isNotEmpty) {
         mediaController.addFiles(docs);
@@ -323,30 +345,40 @@ class FileUploadService {
   Future<void> onFilesDroppedDesktop(List<XFile> files) async {
     if (files.isEmpty) return;
     try {
+      final images = <String>[];
       final docs = <DocumentAttachment>[];
-      final images = <XFile>[];
-      final documents = <XFile>[];
+      // Preserve order: copy all, then classify by original names
+      final toCopy = <XFile>[];
+      final kinds = <bool>[]; // true=image, false=document
+      final names = <String>[];
       for (final f in files) {
         final name = (f.name.isNotEmpty
             ? f.name
             : (f.path.split(Platform.pathSeparator).last));
-        if (isImageExtension(name)) {
-          images.add(f);
+        toCopy.add(f);
+        kinds.add(isImageExtension(name));
+        names.add(name);
+      }
+
+      final saved = await copyPickedFiles(toCopy);
+      for (int i = 0; i < saved.length; i++) {
+        final savedPath = saved[i];
+        final isImage = kinds[i];
+        final savedName = p.basename(savedPath);
+        if (isImage) {
+          images.add(savedPath);
         } else {
-          documents.add(f);
+          final mime = inferMimeByExtension(savedName);
+          docs.add(
+            DocumentAttachment(
+              path: savedPath,
+              fileName: savedName,
+              mime: mime,
+            ),
+          );
         }
       }
-      _enqueuePickedImages(images);
-
-      final saved = await _copyPickedFilesKeepingSlots(documents);
-      for (final savedPath in saved) {
-        if (savedPath == null) continue;
-        final savedName = p.basename(savedPath);
-        final mime = inferMimeByExtension(savedName);
-        docs.add(
-          DocumentAttachment(path: savedPath, fileName: savedName, mime: mime),
-        );
-      }
+      if (images.isNotEmpty) mediaController.addImages(images);
       if (docs.isNotEmpty) mediaController.addFiles(docs);
     } catch (_) {}
   }

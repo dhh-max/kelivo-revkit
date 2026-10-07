@@ -251,9 +251,7 @@ class _DesktopProvidersBodyState extends State<_DesktopProvidersBody> {
                       onPressed: () => Navigator.of(ctx).pop(true),
                       child: Text(
                         l10n.providerDetailPageDeleteButton,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                        ),
+                        style: TextStyle(color: Colors.red),
                       ),
                     ),
                   ],
@@ -296,7 +294,6 @@ class _DesktopProvidersBodyState extends State<_DesktopProvidersBody> {
       (name: 'Tensdaq', key: 'Tensdaq'),
       (name: 'DeepSeek', key: 'DeepSeek'),
       (name: 'AIhubmix', key: 'AIhubmix'),
-      (name: '随想AI中转站', key: '随想AI中转站'),
       (name: l10n.providersPageAliyunName, key: 'Aliyun'),
       (name: l10n.providersPageZhipuName, key: 'Zhipu AI'),
       (name: 'Claude', key: 'Claude'),
@@ -767,7 +764,10 @@ class _DesktopProvidersSearchField extends StatelessWidget {
     return TextField(
       controller: controller,
       onChanged: onChanged,
-      style: TextStyle(color: cs.onSurface, fontSize: 14),
+      style: TextStyle(
+        color: isDark ? Colors.white : Colors.black87,
+        fontSize: 14,
+      ),
       cursorColor: cs.primary,
       decoration: InputDecoration(
         hintText: hintText,
@@ -805,7 +805,9 @@ class _DesktopProvidersSearchField extends StatelessWidget {
           minHeight: 34,
         ),
         filled: true,
-        fillColor: cs.onSurface.withValues(alpha: isDark ? 0.12 : 0.08),
+        fillColor: isDark
+            ? Colors.white.withValues(alpha: 0.12)
+            : const Color(0xFFEBEBEB),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide.none,
@@ -850,7 +852,9 @@ class _DesktopProviderGroupHeaderRowState
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = _hover
-        ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.04))
+        ? (isDark
+              ? Colors.white.withValues(alpha: 0.06)
+              : Colors.black.withValues(alpha: 0.04))
         : Colors.transparent;
 
     return MouseRegion(
@@ -1365,69 +1369,6 @@ class _DesktopProviderDetailPaneState
                 const SizedBox(height: 12),
               ],
 
-              if (widget.providerKey.toLowerCase() == '随想ai中转站') ...[
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
-                  ),
-                  decoration: BoxDecoration(
-                    color: cs.primary.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: cs.primary.withValues(alpha: 0.35),
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '可靠高效的 API 中继服务，提供 Claude、Codex、Gemini 等中继服务。注重隐私·无数据倒卖·无模型掺水，充值额度 1:1，按量付费。多线路冗余、跨区域容灾、自动故障切换，长链路 SSE 不中断。',
-                        style: TextStyle(
-                          color: cs.onSurface.withValues(alpha: 0.8),
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text.rich(
-                        TextSpan(
-                          text: '官网：',
-                          style: TextStyle(
-                            color: cs.onSurface.withValues(alpha: 0.8),
-                          ),
-                          children: [
-                            TextSpan(
-                              text: 'https://sui-xiang.com',
-                              style: TextStyle(
-                                color: cs.primary,
-                                fontWeight: AppFontWeights.emphasis,
-                              ),
-                              recognizer: TapGestureRecognizer()
-                                ..onTap = () async {
-                                  final uri = Uri.parse(
-                                    'https://sui-xiang.com',
-                                  );
-                                  try {
-                                    final ok = await launchUrl(
-                                      uri,
-                                      mode: LaunchMode.externalApplication,
-                                    );
-                                    if (!ok) {
-                                      await launchUrl(uri);
-                                    }
-                                  } catch (_) {
-                                    await launchUrl(uri);
-                                  }
-                                },
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-              ],
-
               // API Key (hidden when Google Vertex)
               if (!(kind == ProviderKind.google && (cfg.vertexAI == true))) ...[
                 Row(
@@ -1512,8 +1453,8 @@ class _DesktopProviderDetailPaneState
                               color: _eyeHover
                                   ? (Theme.of(context).brightness ==
                                             Brightness.dark
-                                        ? cs.onSurface.withValues(alpha: 0.06)
-                                        : cs.onSurface.withValues(alpha: 0.04))
+                                        ? Colors.white.withValues(alpha: 0.06)
+                                        : Colors.black.withValues(alpha: 0.04))
                                   : Colors.transparent,
                               borderRadius: BorderRadius.circular(8),
                             ),
@@ -2215,11 +2156,12 @@ class _DesktopProviderDetailPaneState
   }
 
   InputDecoration _inputDecoration(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final cs = Theme.of(context).colorScheme;
     return InputDecoration(
       isDense: true,
       filled: true,
-      fillColor: context.appColors.surfaceFill,
+      fillColor: isDark ? Colors.white10 : const Color(0xFFF7F7F9),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
         borderSide: BorderSide(
@@ -2295,11 +2237,12 @@ class _DesktopProviderDetailPaneState
   }
 
   InputDecoration _proxyInputDecoration(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final cs = Theme.of(context).colorScheme;
     return InputDecoration(
       isDense: true,
       filled: true,
-      fillColor: context.appColors.surfaceFill,
+      fillColor: isDark ? Colors.white10 : const Color(0xFFF7F7F9),
       hintStyle: TextStyle(
         fontSize: 14,
         color: cs.onSurface.withValues(alpha: 0.5),
@@ -2681,7 +2624,10 @@ class _DesktopProviderDetailPaneState
                                       options: groupOptions,
                                       maxLabelWidth: 150,
                                       triggerFillColor:
-                                          ctx.appColors.surfaceFill,
+                                          Theme.of(ctx).brightness ==
+                                              Brightness.dark
+                                          ? Colors.white10
+                                          : const Color(0xFFF7F7F9),
                                       onSelected: (v) async {
                                         if (v ==
                                             SettingsProvider
@@ -2707,7 +2653,7 @@ class _DesktopProviderDetailPaneState
                                           TextEditingController();
                                       final ok = await showDialog<bool>(
                                         context: ctx,
-                                        barrierColor: cs.scrim.withValues(
+                                        barrierColor: Colors.black.withValues(
                                           alpha: 0.12,
                                         ),
                                         builder: (dctx) => AlertDialog(
@@ -2760,7 +2706,7 @@ class _DesktopProviderDetailPaneState
                                       showDialog<void>(
                                         context: ctx,
                                         barrierDismissible: true,
-                                        barrierColor: cs.scrim.withValues(
+                                        barrierColor: Colors.black.withValues(
                                           alpha: 0.12,
                                         ),
                                         builder: (_) =>
@@ -3203,7 +3149,10 @@ class _DesktopProviderDetailPaneState
                                             ),
                                           ],
                                           triggerFillColor:
-                                              ctx.appColors.surfaceFill,
+                                              Theme.of(ctx).brightness ==
+                                                  Brightness.dark
+                                              ? Colors.white10
+                                              : const Color(0xFFF7F7F9),
                                           onSelected: (value) async {
                                             final old = spWatch
                                                 .getProviderConfig(
@@ -3265,7 +3214,10 @@ class _DesktopProviderDetailPaneState
                                         value: proxyTypeNow,
                                         options: proxyTypeOptions,
                                         triggerFillColor:
-                                            ctx.appColors.surfaceFill,
+                                            Theme.of(ctx).brightness ==
+                                                Brightness.dark
+                                            ? Colors.white10
+                                            : const Color(0xFFF7F7F9),
                                         onSelected: (value) async {
                                           final old = spWatch.getProviderConfig(
                                             widget.providerKey,
@@ -3494,34 +3446,6 @@ class _DesktopProviderDetailPaneState
                               duration: const Duration(milliseconds: 180),
                               sizeCurve: Curves.easeOutCubic,
                             ),
-                            const SizedBox(height: 16),
-                            ProviderCustomRequestEditor(
-                              key: ValueKey(
-                                'desktop-provider-custom-request-${widget.providerKey}',
-                              ),
-                              headers: cfgNow.customHeaders,
-                              body: cfgNow.customBody,
-                              onHeadersChanged: (rows) async {
-                                final old = spWatch.getProviderConfig(
-                                  widget.providerKey,
-                                  defaultName: widget.displayName,
-                                );
-                                await spWatch.setProviderConfig(
-                                  widget.providerKey,
-                                  old.copyWith(customHeaders: rows),
-                                );
-                              },
-                              onBodyChanged: (rows) async {
-                                final old = spWatch.getProviderConfig(
-                                  widget.providerKey,
-                                  defaultName: widget.displayName,
-                                );
-                                await spWatch.setProviderConfig(
-                                  widget.providerKey,
-                                  old.copyWith(customBody: rows),
-                                );
-                              },
-                            ),
                           ],
                         ),
                       ),
@@ -3564,7 +3488,9 @@ class _DesktopProviderDetailPaneState
                 decoration: InputDecoration(
                   hintText: l10n.sideDrawerImageUrlDialogHint,
                   filled: true,
-                  fillColor: ctx2.appColors.surfaceFill,
+                  fillColor: Theme.of(ctx2).brightness == Brightness.dark
+                      ? Colors.white10
+                      : const Color(0xFFF2F3F5),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                     borderSide: const BorderSide(color: Colors.transparent),
@@ -3628,7 +3554,7 @@ class _DesktopProviderDetailPaneState
     String value = '';
     final ok = await showDialog<bool>(
       context: context,
-      barrierColor: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.16),
+      barrierColor: Colors.black.withValues(alpha: 0.16),
       builder: (ctx) {
         final cs = Theme.of(ctx).colorScheme;
         bool valid(String s) => s.trim().isNotEmpty;
@@ -3788,9 +3714,9 @@ class _DesktopProviderDetailPaneState
                             aspectRatio: 1,
                             child: Container(
                               decoration: BoxDecoration(
-                                color: cs.primary.withValues(
-                                  alpha: isDark ? 0.18 : 0.1,
-                                ),
+                                color: isDark
+                                    ? Colors.white10
+                                    : cs.primary.withValues(alpha: 0.1),
                                 shape: BoxShape.circle,
                                 border: selected
                                     ? Border.all(color: cs.primary, width: 2)
@@ -3805,8 +3731,8 @@ class _DesktopProviderDetailPaneState
                                         opt.asset,
                                         fit: BoxFit.contain,
                                         colorFilter: needsMono
-                                            ? ColorFilter.mode(
-                                                cs.onSurface,
+                                            ? const ColorFilter.mode(
+                                                Colors.white,
                                                 BlendMode.srcIn,
                                               )
                                             : null,
@@ -3814,7 +3740,7 @@ class _DesktopProviderDetailPaneState
                                     : Image.asset(
                                         opt.asset,
                                         fit: BoxFit.contain,
-                                        color: needsMono ? cs.onSurface : null,
+                                        color: needsMono ? Colors.white : null,
                                         colorBlendMode: needsMono
                                             ? BlendMode.srcIn
                                             : null,
@@ -4623,7 +4549,7 @@ class _DesktopProviderDetailPaneState
             break;
           case _TestState.success:
             message = l10n.providerDetailPageTestSuccessMessage;
-            color = context.appColors.success;
+            color = Colors.green;
             break;
           case _TestState.error:
             message = errorMessage.isNotEmpty ? errorMessage : 'Error';
@@ -4667,7 +4593,9 @@ class _DesktopProviderDetailPaneState
                             vertical: 10,
                           ),
                           decoration: BoxDecoration(
-                            color: ctx.appColors.surfaceFill,
+                            color: Theme.of(ctx).brightness == Brightness.dark
+                                ? Colors.white10
+                                : const Color(0xFFF7F7F9),
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
                               color: cs.outlineVariant.withValues(alpha: 0.12),
@@ -5169,6 +5097,7 @@ class _ProviderTypeDropdownState extends State<_ProviderTypeDropdown> {
     _entry = OverlayEntry(
       builder: (ctx) {
         final cs = Theme.of(ctx).colorScheme;
+        final isDark = Theme.of(ctx).brightness == Brightness.dark;
         final content = Material(
           color: Colors.transparent,
           child: Container(
@@ -5178,8 +5107,8 @@ class _ProviderTypeDropdownState extends State<_ProviderTypeDropdown> {
                     ctx,
                     listen: false,
                   ).usePureBackground)
-                  ? cs.surface
-                  : (Theme.of(context).colorScheme.surfaceContainerHigh),
+                  ? (isDark ? Colors.black : Colors.white)
+                  : (isDark ? const Color(0xFF1C1C1E) : Colors.white),
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
                 color: cs.outlineVariant.withValues(alpha: 0.12),
@@ -5187,7 +5116,7 @@ class _ProviderTypeDropdownState extends State<_ProviderTypeDropdown> {
               ),
               boxShadow: [
                 BoxShadow(
-                  color: cs.shadow.withValues(alpha: 0.05),
+                  color: Colors.black.withValues(alpha: 0.05),
                   blurRadius: 12,
                   offset: const Offset(0, 6),
                 ),
@@ -5305,6 +5234,7 @@ class _StrategyDropdownState extends State<_StrategyDropdown> {
     _entry = OverlayEntry(
       builder: (ctx) {
         final cs = Theme.of(ctx).colorScheme;
+        final isDark = Theme.of(ctx).brightness == Brightness.dark;
         return Stack(
           children: [
             Positioned.fill(
@@ -5331,8 +5261,8 @@ class _StrategyDropdownState extends State<_StrategyDropdown> {
                           ctx,
                           listen: false,
                         ).usePureBackground)
-                        ? cs.surface
-                        : (Theme.of(context).colorScheme.surfaceContainerHigh),
+                        ? (isDark ? Colors.black : Colors.white)
+                        : (isDark ? const Color(0xFF1C1C1E) : Colors.white),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
                       color: cs.outlineVariant.withValues(alpha: 0.12),
@@ -5340,7 +5270,7 @@ class _StrategyDropdownState extends State<_StrategyDropdown> {
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: cs.shadow.withValues(alpha: 0.05),
+                        color: Colors.black.withValues(alpha: 0.05),
                         blurRadius: 12,
                         offset: const Offset(0, 6),
                       ),
@@ -5418,7 +5348,10 @@ class _GreyCapsule extends StatelessWidget {
   final String label;
   @override
   Widget build(BuildContext context) {
-    final bg = context.appColors.surfaceFill;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark
+        ? Colors.white.withValues(alpha: 0.06)
+        : const Color(0xFFF2F3F5);
     final fg = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.85);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -5461,7 +5394,9 @@ class _IconBtnState extends State<_IconBtn> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = _hover
-        ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
+        ? (isDark
+              ? Colors.white.withValues(alpha: 0.06)
+              : Colors.black.withValues(alpha: 0.05))
         : Colors.transparent;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -5511,7 +5446,9 @@ class _IconTextBtnState extends State<_IconTextBtn> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = _hover
-        ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
+        ? (isDark
+              ? Colors.white.withValues(alpha: 0.06)
+              : Colors.black.withValues(alpha: 0.05))
         : Colors.transparent;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -5566,7 +5503,7 @@ class _DesktopProviderGroupsDialogState
     final controller = TextEditingController(text: initialText);
     final ok = await showDialog<bool>(
       context: context,
-      barrierColor: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.12),
+      barrierColor: Colors.black.withValues(alpha: 0.12),
       builder: (ctx) => AlertDialog(
         title: Text(title),
         content: TextField(
@@ -5633,7 +5570,7 @@ class _DesktopProviderGroupsDialogState
     final l10n = AppLocalizations.of(context)!;
     final ok = await showDialog<bool>(
       context: context,
-      barrierColor: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.12),
+      barrierColor: Colors.black.withValues(alpha: 0.12),
       builder: (ctx) => AlertDialog(
         title: Text(l10n.providerGroupsDeleteConfirmTitle),
         content: Text(l10n.providerGroupsDeleteConfirmContent),
@@ -5646,7 +5583,7 @@ class _DesktopProviderGroupsDialogState
             onPressed: () => Navigator.of(ctx).pop(true),
             child: Text(
               l10n.providerGroupsDeleteConfirmOk,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
+              style: TextStyle(color: Colors.red),
             ),
           ),
         ],
@@ -5827,7 +5764,7 @@ class _DesktopProviderGroupCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = context.appColors.surfaceFill;
+    final bg = isDark ? Colors.white10 : const Color(0xFFF7F7F9);
     final borderColor = cs.outlineVariant.withValues(
       alpha: isDark ? 0.12 : 0.10,
     );
@@ -5915,7 +5852,9 @@ class _DesktopDragHandleState extends State<_DesktopDragHandle> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = _hover
-        ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
+        ? (isDark
+              ? Colors.white.withValues(alpha: 0.06)
+              : Colors.black.withValues(alpha: 0.05))
         : Colors.transparent;
     return MouseRegion(
       cursor: SystemMouseCursors.grab,
@@ -6089,8 +6028,7 @@ class _DesktopProviderShareDialogState
                   child: Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color:
-                          Colors.white, // color-gate: ignore (QR scannability)
+                      color: Colors.white,
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
                         color: cs.outlineVariant.withValues(alpha: 0.2),
@@ -6113,7 +6051,9 @@ class _DesktopProviderShareDialogState
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: cs.onSurface.withValues(alpha: isDark ? 0.04 : 0.03),
+                  color: isDark
+                      ? Colors.white.withValues(alpha: 0.04)
+                      : Colors.black.withValues(alpha: 0.03),
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(
                     color: cs.outlineVariant.withValues(alpha: 0.25),
@@ -6193,7 +6133,7 @@ class _DialogActionButtonState extends State<_DialogActionButton> {
     final enabled = widget.onTap != null;
     final baseBg = widget.filled ? cs.primary : Colors.transparent;
     final hoverOverlay = widget.filled
-        ? cs.onPrimary.withValues(alpha: isDark ? 0.08 : 0.10)
+        ? Colors.white.withValues(alpha: isDark ? 0.08 : 0.10)
         : cs.primary.withValues(alpha: isDark ? 0.12 : 0.10);
     final bg = Color.alphaBlend(
       (_hover ? hoverOverlay : Colors.transparent),
@@ -6280,9 +6220,6 @@ class _BrandCircle extends StatelessWidget {
         width: size * 0.62,
         height: size * 0.62,
         fit: BoxFit.contain,
-        colorFilter: isDark && BrandAssets.assetNeedsDarkInvert(asset)
-            ? ColorFilter.mode(cs.onSurface, BlendMode.srcIn)
-            : null,
       );
     } else {
       inner = Image.asset(
@@ -6296,7 +6233,7 @@ class _BrandCircle extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: cs.primary.withValues(alpha: isDark ? 0.18 : 0.10),
+        color: isDark ? Colors.white10 : cs.primary.withValues(alpha: 0.10),
         shape: BoxShape.circle,
       ),
       alignment: Alignment.center,
@@ -6334,10 +6271,10 @@ class _ProviderListRowState extends State<_ProviderListRow> {
   bool _hover = false;
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final hoverBg = _hover && !widget.selected
-        ? cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.04)
+        ? Theme.of(context).brightness == Brightness.dark
+              ? Colors.white.withValues(alpha: 0.06)
+              : Colors.black.withValues(alpha: 0.04)
         : Colors.transparent;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -6408,11 +6345,8 @@ class _ProviderListRowState extends State<_ProviderListRow> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
-                  color:
-                      (widget.enabled
-                              ? context.appColors.success
-                              : context.appColors.warning)
-                          .withValues(alpha: 0.12),
+                  color: (widget.enabled ? Colors.green : Colors.orange)
+                      .withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(999),
                   // No border for left list status
                 ),
@@ -6424,9 +6358,7 @@ class _ProviderListRowState extends State<_ProviderListRow> {
                         )!.providersPageDisabledStatus,
                   style: TextStyle(
                     fontSize: 11,
-                    color: widget.enabled
-                        ? context.appColors.success
-                        : context.appColors.warning,
+                    color: widget.enabled ? Colors.green : Colors.orange,
                     fontWeight: AppFontWeights.emphasis,
                   ),
                 ),
@@ -6459,8 +6391,12 @@ class _AddFullWidthButtonState extends State<_AddFullWidthButton> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final baseBg = cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.04);
-    final hoverBg = cs.onSurface.withValues(alpha: isDark ? 0.10 : 0.06);
+    final baseBg = isDark
+        ? Colors.white.withValues(alpha: 0.06)
+        : Colors.black.withValues(alpha: 0.04);
+    final hoverBg = isDark
+        ? Colors.white.withValues(alpha: 0.10)
+        : Colors.black.withValues(alpha: 0.06);
     final bg = _hover ? hoverBg : baseBg;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -6517,7 +6453,9 @@ class _DesktopIosSectionCard extends StatelessWidget {
     final cs = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
     final Color base = cs.surface;
-    final Color bg = Color.lerp(base, cs.onSurface, isDark ? 0.06 : 0.04)!;
+    final Color bg = isDark
+        ? Color.lerp(base, Colors.white, 0.06)!
+        : const Color(0xFFF7F7F9);
     return Container(
       decoration: BoxDecoration(
         color: bg,
@@ -6566,7 +6504,7 @@ class _DesktopKeyRow extends StatelessWidget {
     Color statusColor(ApiKeyStatus st) {
       switch (st) {
         case ApiKeyStatus.active:
-          return context.appColors.success;
+          return Colors.green;
         case ApiKeyStatus.disabled:
           return cs.onSurface.withValues(alpha: 0.6);
         case ApiKeyStatus.error:
@@ -6731,8 +6669,8 @@ class _ModelGroupAccordionState extends State<_ModelGroupAccordion> {
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   decoration: BoxDecoration(
                     color: Theme.of(context).brightness == Brightness.dark
-                        ? cs.onSurface.withValues(alpha: 0.03)
-                        : cs.onSurface.withValues(alpha: 0.02),
+                        ? Colors.white.withValues(alpha: 0.03)
+                        : Colors.black.withValues(alpha: 0.02),
                     borderRadius: const BorderRadius.only(
                       topLeft: Radius.circular(12),
                       topRight: Radius.circular(12),
@@ -6933,9 +6871,7 @@ class _ModelRow extends StatelessWidget {
                         ? lucide.Lucide.CheckCircle
                         : lucide.Lucide.XCircle,
                     size: 16,
-                    color: detectionResult!
-                        ? context.appColors.success
-                        : cs.error,
+                    color: detectionResult! ? Colors.green : cs.error,
                   ),
                 ),
               ),
@@ -7008,9 +6944,9 @@ class _CardPressState extends State<_CardPress> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final overlay = _pressed
-        ? (Theme.of(
-            context,
-          ).colorScheme.onSurface.withValues(alpha: isDark ? 0.06 : 0.04))
+        ? (isDark
+              ? Colors.white.withValues(alpha: 0.06)
+              : Colors.black.withValues(alpha: 0.04))
         : Colors.transparent;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,

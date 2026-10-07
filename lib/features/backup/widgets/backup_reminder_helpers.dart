@@ -9,7 +9,6 @@ import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/ios_tactile.dart';
 import '../../../shared/widgets/ios_tile_button.dart';
 import '../../../theme/app_font_weights.dart';
-import 'package:Kelivo/theme/app_semantic_colors.dart';
 
 String backupReminderFrequencyLabel(AppLocalizations l10n, int days) {
   return switch (days) {
@@ -190,7 +189,7 @@ class _BackupReminderTimeWheelPanelState
     final selectedTime = backupReminderTimeLabel(context, _selectedMinutes);
     final panelColor = widget.isDesktop
         ? cs.surface
-        : cs.surfaceContainerHigh;
+        : (isDark ? const Color(0xFF1F2023) : const Color(0xFFF8F9FA));
 
     final panel = Material(
       color: Colors.transparent,
@@ -460,9 +459,9 @@ class _BackupReminderTimeWheelPanelState
               onTap: widget.onCancel,
               haptics: false,
               borderRadius: BorderRadius.circular(13),
-              baseColor: cs.onSurface.withValues(
-                alpha: isDark ? 0.08 : 0.09,
-              ),
+              baseColor: isDark
+                  ? Colors.white.withValues(alpha: 0.08)
+                  : const Color(0xFFE7E9EC),
               padding: const EdgeInsets.symmetric(vertical: 11),
               child: Center(
                 child: Text(
@@ -482,9 +481,9 @@ class _BackupReminderTimeWheelPanelState
               onTap: _save,
               haptics: false,
               borderRadius: BorderRadius.circular(13),
-              baseColor: cs.onSurface.withValues(
-                alpha: isDark ? 0.16 : 0.14,
-              ),
+              baseColor: isDark
+                  ? Colors.white.withValues(alpha: 0.16)
+                  : const Color(0xFFDADDE2),
               padding: const EdgeInsets.symmetric(vertical: 11),
               child: Center(
                 child: Text(
@@ -569,7 +568,9 @@ class _BackupReminderCustomDaysDialogState
               decoration: InputDecoration(
                 labelText: l10n.backupReminderCustomDaysLabel,
                 filled: true,
-                fillColor: context.appColors.surfaceFill,
+                fillColor: Theme.of(context).brightness == Brightness.dark
+                    ? Colors.white10
+                    : const Color(0xFFF2F3F5),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide(

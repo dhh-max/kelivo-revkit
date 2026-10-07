@@ -138,6 +138,98 @@ class ChatMessage extends HiveObject {
     return next;
   }
 
+  /// Content-only rewrite that keeps each [TextPart] slot.
+  ///
+  /// Earlier text parts keep their original lengths as split points; the last
+  /// [TextPart] receives the remainder so interleaved tool / image / reasoning
+  /// cards stay in place.
+  static List<MessagePart> partsWithRedistributedText(
+    List<MessagePart> original,
+    String newContent,
+  ) {
+    final lengths = [
+      for (final part in original)
+        if (part is TextPart) part.text.length,
+    ];
+    if (lengths.length <= 1) {
+      return partsWithReplacedText(original, newContent);
+    }
+    final next = <MessagePart>[];
+    var offset = 0;
+    var textIndex = 0;
+    for (final part in original) {
+      if (part is! TextPart) {
+        next.add(part);
+        continue;
+      }
+      final remaining = newContent.length - offset;
+      final isLast = textIndex == lengths.length - 1;
+      final take = isLast
+          ? remaining
+          : (lengths[textIndex] < remaining ? lengths[textIndex] : remaining);
+      final end = offset + (take < 0 ? 0 : take);
+      next.add(
+        TextPart(
+          offset >= newContent.length ? '' : newContent.substring(offset, end),
+        ),
+      );
+      offset = end;
+      textIndex++;
+    }
+    return next;
+  }
+
+  /// Rewrite each [TextPart] in place. Non-text parts keep their ordinal.
+  static List<MessagePart> partsWithRewrittenText(
+    List<MessagePart> original,
+    String Function(String text) rewrite,
+  ) {
+    var changed = false;
+    final next = <MessagePart>[];
+    for (final part in original) {
+      if (part is! TextPart) {
+        next.add(part);
+        continue;
+      }
+      final rewritten = rewrite(part.text);
+      if (rewritten != part.text) changed = true;
+      next.add(rewritten == part.text ? part : TextPart(rewritten));
+    }
+    return changed ? next : original;
+  }
+
+  /// Replace reasoning with a single scalar value.
+  ///
+  /// The first [ReasoningPart] is rewritten (or prepended when none exists);
+  /// any later reasoning parts are removed so a later join equals [reasoningText].
+  /// An empty string removes every [ReasoningPart].
+  static List<MessagePart> partsWithReplacedReasoning(
+    List<MessagePart> original,
+    String reasoningText,
+  ) {
+    if (reasoningText.isEmpty) {
+      return [
+        for (final part in original)
+          if (part is! ReasoningPart) part,
+      ];
+    }
+    if (!original.any((part) => part is ReasoningPart)) {
+      return [ReasoningPart(reasoningText), ...original];
+    }
+    var replaced = false;
+    final next = <MessagePart>[];
+    for (final part in original) {
+      if (part is! ReasoningPart) {
+        next.add(part);
+        continue;
+      }
+      if (replaced) continue;
+      next.add(ReasoningPart(reasoningText));
+      replaced = true;
+    }
+    return next;
+  }
+
   ChatMessage copyWith({
     String? id,
     String? role,
@@ -165,9 +257,7 @@ class ChatMessage extends HiveObject {
     if (parts != null) {
       nextParts = parts;
     } else if (content != null) {
-      // Expand-step compat: rewrite derived text into a single TextPart while
-      // preserving non-TextPart attachments and their ordinal.
-      nextParts = partsWithReplacedText(this.parts, content);
+      nextParts = partsWithRedistributedText(this.parts, content);
     } else {
       nextParts = this.parts;
     }
@@ -204,10 +294,7 @@ class ChatMessage extends HiveObject {
       'content': content,
       'parts': [
         for (final part in parts)
-          {
-            'kind': part.kind,
-            'payload': part.encodePayload(),
-          },
+          {'kind': part.kind, 'payload': part.encodePayload()},
       ],
       'timestamp': timestamp.toIso8601String(),
       'modelId': modelId,

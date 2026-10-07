@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 
-import '../database/chat_database_repository.dart';
 import '../models/memory_entry.dart';
 import '../models/user_profile_field.dart';
 import '../services/memory/memory_repository.dart';
@@ -11,10 +10,9 @@ import '../services/memory/memory_repository.dart';
 /// read-only store for §14.5. Mixing the two via `context.read` would silently
 /// wire the wrong system.
 class MemoryProviderV2 extends ChangeNotifier {
-  MemoryProviderV2({required this.repository, required this.chatRepository});
+  MemoryProviderV2({required this.repository});
 
   final MemoryRepository repository;
-  final ChatDatabaseRepository chatRepository;
 
   List<MemoryEntry> _entries = const <MemoryEntry>[];
   List<UserProfileField> _profileFields = const <UserProfileField>[];
@@ -84,16 +82,15 @@ class MemoryProviderV2 extends ChangeNotifier {
     _loadAll = loadAll;
     try {
       final entries = loadAll
-          ? await chatRepository.queryAllMemories(includeArchived: true)
-          : await chatRepository.queryVisibleMemories(
+          ? await repository.readAll()
+          : await repository.queryVisibleMemories(
               assistantId: assistantId,
               includeArchived: true,
             );
-      final profile = await chatRepository.readProfileFields();
-      final orphans = await chatRepository.countOrphanAssistantMemories();
+      final profile = await repository.readProfileFields();
       _entries = entries;
       _profileFields = profile;
-      _orphanCount = orphans;
+      _orphanCount = 0;
       notifyListeners();
     } catch (e) {
       debugPrint('MemoryProviderV2.refresh failed: $e');
@@ -127,20 +124,39 @@ class MemoryProviderV2 extends ChangeNotifier {
     int limit = 200,
   }) {
     if (acrossAll) {
-      return chatRepository.searchAllMemories(
+      // SharedPreferences blob has no cross-assistant typed columns: fall back
+      // to reading everything and filtering in memory.
+      return _searchAcrossAll(
         tokens: tokens,
         type: type,
         includeArchived: includeArchived,
         limit: limit,
       );
     }
-    return chatRepository.searchMemories(
+    return repository.searchMemories(
       assistantId: assistantId,
       tokens: tokens,
       type: type,
       matchAll: true,
       limit: limit,
     );
+  }
+
+  Future<List<MemoryEntry>> _searchAcrossAll({
+    required List<String> tokens,
+    MemoryType? type,
+    bool includeArchived = false,
+    int limit = 200,
+  }) async {
+    final all = await repository.readAll();
+    var out = all.where((e) {
+      if (!includeArchived && e.status != MemoryStatus.active) return false;
+      if (type != null && e.type != type) return false;
+      final content = e.content.toLowerCase();
+      return tokens.every((t) => content.contains(t.toLowerCase()));
+    }).toList();
+    if (out.length > limit) out = out.sublist(0, limit);
+    return out;
   }
 
   Future<MemoryEntry> create({
@@ -213,9 +229,9 @@ class MemoryProviderV2 extends ChangeNotifier {
   }
 
   Future<int> deleteOrphanAssistantMemories() async {
-    final count = await repository.deleteOrphanAssistantMemories();
+    // SharedPreferences-backed store keeps orphans; treat as no-op.
     await _refreshAfterWrite();
-    return count;
+    return 0;
   }
 
   Future<void> putProfileField(

@@ -13,7 +13,6 @@ import '../../core/providers/instruction_injection_group_provider.dart';
 import '../../core/providers/instruction_injection_provider.dart';
 import '../../shared/widgets/snackbar.dart';
 import '../../theme/app_font_weights.dart';
-import 'package:Kelivo/theme/app_semantic_colors.dart';
 
 class DesktopInstructionInjectionPane extends StatefulWidget {
   const DesktopInstructionInjectionPane({super.key});
@@ -345,7 +344,9 @@ class _InstructionInjectionCardState extends State<_InstructionInjectionCard> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final baseBg = context.appColors.surfaceCard;
+    final baseBg = isDark
+        ? Colors.white10
+        : Colors.white.withValues(alpha: 0.96);
     final borderColor = _hover
         ? cs.primary.withValues(alpha: isDark ? 0.5 : 0.7)
         : cs.outlineVariant.withValues(alpha: isDark ? 0.12 : 0.08);
@@ -552,7 +553,9 @@ class _SmallIconBtnState extends State<_SmallIconBtn> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = _hover
-        ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
+        ? (isDark
+              ? Colors.white.withValues(alpha: 0.06)
+              : Colors.black.withValues(alpha: 0.05))
         : Colors.transparent;
     final btn = MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -607,7 +610,9 @@ class _DeskIosButtonState extends State<_DeskIosButton> {
     final bg = widget.filled
         ? (_hover ? cs.primary.withValues(alpha: 0.92) : cs.primary)
         : (_hover
-              ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
+              ? (isDark
+                    ? Colors.white.withValues(alpha: 0.06)
+                    : Colors.black.withValues(alpha: 0.05))
               : Colors.transparent);
     final borderColor = widget.filled
         ? Colors.transparent
@@ -653,11 +658,12 @@ class _DeskIosButtonState extends State<_DeskIosButton> {
 }
 
 InputDecoration _deskInputDecoration(BuildContext context) {
+  final isDark = Theme.of(context).brightness == Brightness.dark;
   final cs = Theme.of(context).colorScheme;
   return InputDecoration(
     isDense: false,
     filled: true,
-    fillColor: context.appColors.surfaceFill,
+    fillColor: isDark ? Colors.white10 : const Color(0xFFF7F7F9),
     border: OutlineInputBorder(
       borderRadius: BorderRadius.circular(12),
       borderSide: BorderSide(
@@ -705,7 +711,7 @@ class _GroupHeaderState extends State<_GroupHeader> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final hoverBg = cs.onSurface.withValues(
+    final hoverBg = (isDark ? Colors.white : Colors.black).withValues(
       alpha: isDark ? 0.08 : 0.05,
     );
 

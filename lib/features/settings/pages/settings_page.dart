@@ -6,6 +6,7 @@ import '../../../core/providers/settings_provider.dart';
 import '../../model/pages/default_model_page.dart';
 import '../../provider/pages/providers_page.dart';
 import 'display_settings_page.dart';
+import '../../local_models/pages/local_models_page.dart';
 import '../../mcp/pages/mcp_page.dart';
 import '../../assistant/pages/assistant_settings_page.dart';
 import 'about_page.dart';
@@ -18,6 +19,7 @@ import '../../custom_prompt/pages/custom_prompts_page.dart';
 import '../../device_path/pages/device_path_browser_page.dart';
 import '../../instruction_injection/pages/instruction_injection_page.dart';
 import '../../world_book/pages/world_book_page.dart';
+import 'memory_settings_page.dart';
 import 'network_proxy_page.dart';
 import 'storage_space_page.dart';
 import '../../stats/pages/stats_page.dart';
@@ -217,6 +219,17 @@ class SettingsPage extends StatelessWidget {
               _iosDivider(context),
               _iosNavRow(
                 context,
+                icon: Lucide.Server,
+                label: '本地模型',
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const LocalModelsPage()),
+                  );
+                },
+              ),
+              _iosDivider(context),
+              _iosNavRow(
+                context,
                 icon: Lucide.Earth,
                 label: l10n.settingsPageSearch,
                 onTap: () {
@@ -257,6 +270,19 @@ class SettingsPage extends StatelessWidget {
                 onTap: () {
                   Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const WorldBookPage()),
+                  );
+                },
+              ),
+              _iosDivider(context),
+              _iosNavRow(
+                context,
+                icon: Lucide.Brain,
+                label: l10n.settingsPageMemory,
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const MemorySettingsPage(),
+                    ),
                   );
                 },
               ),

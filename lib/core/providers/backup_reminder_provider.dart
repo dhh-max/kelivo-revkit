@@ -1,11 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-
-import '../database/business_preferences.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class BackupReminderProvider extends ChangeNotifier {
-  BackupReminderProvider({required this.preferences, bool autoLoad = true}) {
+  BackupReminderProvider({bool autoLoad = true}) {
     if (autoLoad) {
       unawaited(load());
     }
@@ -19,7 +18,6 @@ class BackupReminderProvider extends ChangeNotifier {
   static const String _enabledAtKey = 'backup_reminder_enabled_at_v1';
   static const String _lastBackupAtKey = 'backup_reminder_last_backup_at_v1';
 
-  final BusinessPreferences preferences;
   bool _loaded = false;
   bool _enabled = false;
   int _intervalDays = 7;
@@ -48,16 +46,14 @@ class BackupReminderProvider extends ChangeNotifier {
   }
 
   Future<void> load({bool startTimer = true}) async {
-    await preferences.load();
-    _enabled = preferences.getBool(_enabledKey) ?? false;
-    _intervalDays = _normalizeIntervalDays(
-      preferences.getInt(_intervalDaysKey) ?? 7,
-    );
+    final prefs = await SharedPreferences.getInstance();
+    _enabled = prefs.getBool(_enabledKey) ?? false;
+    _intervalDays = _normalizeIntervalDays(prefs.getInt(_intervalDaysKey) ?? 7);
     _reminderMinutesOfDay = _normalizeMinutesOfDay(
-      preferences.getInt(_minutesOfDayKey),
+      prefs.getInt(_minutesOfDayKey),
     );
-    _enabledAt = _parseDate(preferences.getString(_enabledAtKey));
-    _lastBackupAt = _parseDate(preferences.getString(_lastBackupAtKey));
+    _enabledAt = _parseDate(prefs.getString(_enabledAtKey));
+    _lastBackupAt = _parseDate(prefs.getString(_lastBackupAtKey));
     _loaded = true;
     evaluateDue(DateTime.now(), notify: false);
     if (startTimer) _startTimer();
@@ -144,15 +140,16 @@ class BackupReminderProvider extends ChangeNotifier {
   }
 
   Future<void> _persist() async {
-    await preferences.setBool(_enabledKey, _enabled);
-    await preferences.setInt(_intervalDaysKey, _intervalDays);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_enabledKey, _enabled);
+    await prefs.setInt(_intervalDaysKey, _intervalDays);
     if (_reminderMinutesOfDay == null) {
-      await preferences.remove(_minutesOfDayKey);
+      await prefs.remove(_minutesOfDayKey);
     } else {
-      await preferences.setInt(_minutesOfDayKey, _reminderMinutesOfDay!);
+      await prefs.setInt(_minutesOfDayKey, _reminderMinutesOfDay!);
     }
-    await _setDate(_enabledAtKey, _enabledAt);
-    await _setDate(_lastBackupAtKey, _lastBackupAt);
+    await _setDate(prefs, _enabledAtKey, _enabledAt);
+    await _setDate(prefs, _lastBackupAtKey, _lastBackupAt);
   }
 
   void _startTimer() {
@@ -208,11 +205,15 @@ class BackupReminderProvider extends ChangeNotifier {
     return DateTime.tryParse(value);
   }
 
-  Future<void> _setDate(String key, DateTime? value) async {
+  static Future<void> _setDate(
+    SharedPreferences prefs,
+    String key,
+    DateTime? value,
+  ) async {
     if (value == null) {
-      await preferences.remove(key);
+      await prefs.remove(key);
     } else {
-      await preferences.setString(key, value.toIso8601String());
+      await prefs.setString(key, value.toIso8601String());
     }
   }
 }

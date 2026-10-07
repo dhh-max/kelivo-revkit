@@ -3,7 +3,6 @@ import 'package:flutter/gestures.dart';
 import 'package:provider/provider.dart';
 import '../../core/providers/settings_provider.dart';
 import '../../core/services/haptics.dart';
-import 'package:Kelivo/theme/app_semantic_colors.dart';
 
 /// iOS-style icon button: no ripple, color tween on press, no scale.
 class IosIconButton extends StatefulWidget {
@@ -67,9 +66,9 @@ class _IosIconButtonState extends State<IosIconButton> {
     final bool isDark = theme.brightness == Brightness.dark;
     final Color pressTarget =
         widget.pressedColor ??
-        (Color.lerp(base, theme.colorScheme.onSurface, 0.35) ?? base);
+        (Color.lerp(base, isDark ? Colors.black : Colors.white, 0.35) ?? base);
     final Color hoverTarget =
-        Color.lerp(base, theme.colorScheme.onSurface, 0.20) ?? base;
+        Color.lerp(base, isDark ? Colors.black : Colors.white, 0.20) ?? base;
     final Color target = _pressed
         ? pressTarget
         : (_hovered ? hoverTarget : base);
@@ -94,9 +93,13 @@ class _IosIconButtonState extends State<IosIconButton> {
 
     // Subtle hover background for desktop/web
     final Color bgTarget = _pressed
-        ? (Theme.of(context).colorScheme.onSurface.withValues(alpha: isDark ? 0.12 : 0.08))
+        ? (isDark
+              ? Colors.white.withValues(alpha: 0.12)
+              : Colors.black.withValues(alpha: 0.08))
         : (_hovered
-              ? (Theme.of(context).colorScheme.onSurface.withValues(alpha: isDark ? 0.08 : 0.06))
+              ? (isDark
+                    ? Colors.white.withValues(alpha: 0.08)
+                    : Colors.black.withValues(alpha: 0.06))
               : Colors.transparent);
 
     final content = Semantics(
@@ -202,14 +205,15 @@ class _IosCardPressState extends State<IosCardPress> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final cs = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
     final Color base =
-        widget.baseColor ?? (context.appColors.surfaceCard);
+        widget.baseColor ?? (isDark ? Colors.white10 : cs.surface);
     final double k = widget.pressedBlendStrength ?? (isDark ? 0.14 : 0.12);
     final Color pressTarget =
-        Color.lerp(base, theme.colorScheme.onSurface, k) ?? base;
+        Color.lerp(base, isDark ? Colors.white : Colors.black, k) ?? base;
     final Color hoverTarget =
-        Color.lerp(base, theme.colorScheme.onSurface, k * 0.7) ?? base;
+        Color.lerp(base, isDark ? Colors.white : Colors.black, k * 0.7) ?? base;
     final Color target = _pressed
         ? pressTarget
         : (_hovered ? hoverTarget : base);

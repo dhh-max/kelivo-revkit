@@ -22,7 +22,8 @@ android {
         applicationId = "com.psyche.kelivo"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        // llama_flutter_android 需要 minSdk 26
+        minSdk = maxOf(26, flutter.minSdkVersion)
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -67,5 +68,5 @@ flutter {
 dependencies {
     // Required for core library desugaring (used by flutter_local_notifications)
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
-    implementation("androidx.browser:browser:1.9.0")
+    implementation("androidx.browser:browser:1.8.0")
 }

@@ -50,20 +50,16 @@ class PromptTransformer {
 
   // Very simple mustache-like replacement for message template variables
   // Supported: {{ role }}, {{ message }}, {{ time }}, {{ date }}
-  //
-  // [now] defaults to DateTime.now() for backwards compatibility. The memory
-  // path passes the message's own timestamp (§8.3 / §9.4).
   static String applyMessageTemplate(
     String template, {
     required String role,
     required String message,
-    DateTime? now,
+    required DateTime now,
   }) {
-    final effectiveNow = now ?? DateTime.now();
     final date =
-        '${effectiveNow.year.toString().padLeft(4, '0')}-${effectiveNow.month.toString().padLeft(2, '0')}-${effectiveNow.day.toString().padLeft(2, '0')}';
+        '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
     final time =
-        '${effectiveNow.hour.toString().padLeft(2, '0')}:${effectiveNow.minute.toString().padLeft(2, '0')}';
+        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
     final vars = <String, String>{
       'role': role,
       'message': message,

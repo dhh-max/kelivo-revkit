@@ -155,7 +155,7 @@ class _CustomBottomSheetState extends State<CustomBottomSheet>
                   behavior: HitTestBehavior.opaque,
                   onTap: _dismiss,
                   child: ColoredBox(
-                    color: cs.scrim.withValues(alpha: 0.12 * sheetProgress),
+                    color: Colors.black.withValues(alpha: 0.12 * sheetProgress),
                   ),
                 ),
               ),

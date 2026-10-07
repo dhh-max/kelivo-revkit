@@ -62,14 +62,13 @@ class QuickPhraseMenu extends StatelessWidget {
                   width: menuWidth,
                   constraints: BoxConstraints(maxHeight: maxMenuHeight),
                   decoration: BoxDecoration(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .surfaceContainerHigh
-                        .withValues(alpha: 0.66),
+                    color: isDark
+                        ? const Color(0xFF1C1C1E).withValues(alpha: 0.66)
+                        : Colors.white.withValues(alpha: 0.66),
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
                       color: isDark
-                          ? cs.onSurface.withValues(alpha: 0.08)
+                          ? Colors.white.withValues(alpha: 0.08)
                           : cs.outlineVariant.withValues(alpha: 0.2),
                       width: 1,
                     ),
@@ -190,6 +189,7 @@ Future<QuickPhrase?> showQuickPhraseMenu({
   return await showDialog<QuickPhrase>(
     context: context,
     barrierColor: Colors.transparent,
+    // barrierColor: Colors.black.withOpacity(0.08),
     barrierDismissible: true,
     builder: (ctx) {
       return GestureDetector(

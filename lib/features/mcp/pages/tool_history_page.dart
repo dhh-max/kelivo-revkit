@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -371,7 +372,7 @@ class _ToolCallTile extends StatelessWidget {
 
   String _prettyJson(Map<String, dynamic> map) {
     try {
-      const encoder = JsonEncoder.withIndent('  ');
+      final encoder = JsonEncoder.withIndent('  ');
       return encoder.convert(map);
     } catch (_) {
       return map.toString();

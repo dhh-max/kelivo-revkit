@@ -1,4 +1,5 @@
-import '../../../core/database/chat_database_repository.dart';
+import '../../../core/models/chat_message.dart';
+import '../../../core/models/conversation.dart';
 import '../../../core/services/chat/chat_service.dart';
 
 class GlobalSessionSearchResult {
@@ -38,11 +39,11 @@ class GlobalSessionSearchService {
     caseSensitive: false,
   );
 
-  static Future<List<GlobalSessionSearchResult>> search({
+  static List<GlobalSessionSearchResult> search({
     required ChatService chatService,
     required String query,
     int limit = 200,
-  }) async {
+  }) {
     final normalized = query.trim();
     if (normalized.isEmpty) return const <GlobalSessionSearchResult>[];
 
@@ -50,21 +51,15 @@ class GlobalSessionSearchService {
     if (tokens.isEmpty) return const <GlobalSessionSearchResult>[];
 
     final out = <GlobalSessionSearchResult>[];
-    final candidates = await chatService.searchConversationMatches(
-      tokens: tokens,
-      limit: limit,
-    );
-    final grouped = <String, List<ConversationSearchMatch>>{};
-    for (final candidate in candidates) {
-      grouped.putIfAbsent(candidate.conversationId, () => []).add(candidate);
-    }
+    final conversations = chatService.getAllConversations();
 
-    for (final matches in grouped.values) {
-      final result = _matchConversationFromSqliteCandidates(
-        matches: matches,
+    for (final c in conversations) {
+      final match = _matchConversation(
+        chatService: chatService,
+        conversation: c,
         tokens: tokens,
       );
-      if (result != null) out.add(result);
+      if (match != null) out.add(match);
     }
 
     out.sort((a, b) {
@@ -77,28 +72,29 @@ class GlobalSessionSearchService {
     return out.sublist(0, limit);
   }
 
-  static GlobalSessionSearchResult? _matchConversationFromSqliteCandidates({
-    required List<ConversationSearchMatch> matches,
+  static GlobalSessionSearchResult? _matchConversation({
+    required ChatService chatService,
+    required Conversation conversation,
     required List<String> tokens,
   }) {
-    if (matches.isEmpty) return null;
-    final first = matches.first;
-    final title = first.conversationTitle.trim();
+    final title = conversation.title.trim();
     final lowerTitle = title.toLowerCase();
 
+    final collapsed = _collapseMessages(
+      chatService.getMessages(conversation.id),
+      conversation.versionSelections,
+    );
+    if (collapsed.isEmpty && title.isEmpty) return null;
+
     final contentItems = <_ContentRef>[];
-    for (final m in matches) {
-      if (!_isVisibleVersion(m)) continue;
+    for (final m in collapsed) {
       // Only search visible conversation body: user + assistant messages.
       // Exclude tool/system-like messages and hidden reasoning/thought blocks.
-      if (m.messageRole != 'user' && m.messageRole != 'assistant') continue;
-      final body = _searchableBody(m.messageContent ?? '');
+      if (m.role != 'user' && m.role != 'assistant') continue;
+      final body = _searchableBody(m.content);
       if (body.isEmpty) continue;
-      final messageId = m.messageId;
-      if (messageId == null || messageId.isEmpty) continue;
-      contentItems.add(_ContentRef(messageId: messageId, text: body));
+      contentItems.add(_ContentRef(messageId: m.id, text: body));
     }
-    if (contentItems.isEmpty && title.isEmpty) return null;
 
     final contentLower = contentItems
         .map((e) => e.text.toLowerCase())
@@ -113,9 +109,7 @@ class GlobalSessionSearchService {
     final contentMatches = _countMatches(contentLower, tokens);
     final hasTitleMatch = titleMatches > 0;
 
-    final fallbackMessageId = contentItems.isNotEmpty
-        ? contentItems.first.messageId
-        : '';
+    final fallbackMessageId = collapsed.isNotEmpty ? collapsed.first.id : '';
     final matchedMessageId =
         (firstMatchedIndex >= 0 && firstMatchedIndex < contentItems.length)
         ? contentItems[firstMatchedIndex].messageId
@@ -157,9 +151,9 @@ class GlobalSessionSearchService {
     final score = (titleMatches * 30) + (contentMatches * 10);
 
     return GlobalSessionSearchResult(
-      conversationId: first.conversationId,
+      conversationId: conversation.id,
       conversationTitle: displayTitle,
-      updatedAt: first.updatedAt,
+      updatedAt: conversation.updatedAt,
       firstMatchedMessageId: targetMessageId,
       snippet: snippet,
       score: score,
@@ -167,15 +161,35 @@ class GlobalSessionSearchService {
     );
   }
 
-  static bool _isVisibleVersion(ConversationSearchMatch match) {
-    final messageId = match.messageId;
-    if (messageId == null) return false;
-    final groupId = match.groupId ?? messageId;
-    final selected = match.versionSelections[groupId];
-    final version = match.version ?? 0;
-    if (selected != null) return selected == version;
-    final maxVersion = match.maxVersion;
-    return maxVersion == null || version == maxVersion;
+  static List<ChatMessage> _collapseMessages(
+    List<ChatMessage> messages,
+    Map<String, int> versionSelections,
+  ) {
+    final byGroup = <String, List<ChatMessage>>{};
+    final order = <String>[];
+    for (final m in messages) {
+      final gid = m.groupId ?? m.id;
+      final list = byGroup.putIfAbsent(gid, () {
+        order.add(gid);
+        return <ChatMessage>[];
+      });
+      list.add(m);
+    }
+    for (final list in byGroup.values) {
+      list.sort((a, b) => a.version.compareTo(b.version));
+    }
+
+    final out = <ChatMessage>[];
+    for (final gid in order) {
+      final versions = byGroup[gid] ?? const <ChatMessage>[];
+      if (versions.isEmpty) continue;
+      final sel = versionSelections[gid];
+      final idx = (sel != null && sel >= 0 && sel < versions.length)
+          ? sel
+          : (versions.length - 1);
+      out.add(versions[idx]);
+    }
+    return out;
   }
 
   static List<String> _tokensOf(String query) {

@@ -5286,21 +5286,21 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get searchProviderStepFunDescription =>
-      'StepFun web search via POST /v1/search.';
+      'StepFun\'s official search API for Chinese internet content';
 
   @override
   String get searchServiceNameFirecrawl => 'Firecrawl';
 
   @override
   String get searchProviderFirecrawlDescription =>
-      'Firecrawl Search API v2. Requires a Bearer API key. Scrape is not supported here.';
+      'Firecrawl web search with multi-source, category, and geolocation filtering';
 
   @override
   String get searchServiceNameTinyFish => 'TinyFish';
 
   @override
   String get searchProviderTinyFishDescription =>
-      'TinyFish Search API with region/language filters. Requires an API key. Fetch/Scrape is not supported here.';
+      'TinyFish search service with domain/geo/language targeting';
 
   @override
   String get searchServicesDialogCountryOptional => 'Country/region (optional)';
@@ -7366,4 +7366,75 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get memoryTraceShowLess => 'Collapse';
+
+  @override
+  String get chatMessageWidgetEditMemory => 'Edit Memory';
+
+  @override
+  String get chatMessageWidgetDeleteMemory => 'Delete Memory';
+
+  @override
+  String get assistantEditPageSkillsTab => 'Skills';
+
+  @override
+  String get assistantEditSkillsEmptyMessage =>
+      'No skills installed yet. Import a skill file first.';
+
+  @override
+  String get assistantEditManageSkillsButton => 'Manage Skills';
+
+  @override
+  String get skillsTitle => 'Skills';
+
+  @override
+  String get skillsImportTooltip => 'Import Skills';
+
+  @override
+  String get skillsAddTooltip => 'Add Skill';
+
+  @override
+  String get skillsEmptyMessage =>
+      'Import Markdown, JSON, YAML, PDF, DOCX, or ZIP skills.';
+
+  @override
+  String get skillsImportButton => 'Import Skill';
+
+  @override
+  String get skillsDeleteAction => 'Delete';
+
+  @override
+  String skillsImportFailed(String error) {
+    return 'Skills import failed: $error';
+  }
+
+  @override
+  String get skillsNoValidImported => 'No valid skill files imported.';
+
+  @override
+  String skillsImportedCount(int count) {
+    return 'Imported $count skill(s).';
+  }
+
+  @override
+  String skillsTriggersLine(String keywords) {
+    return 'Triggers: $keywords';
+  }
+
+  @override
+  String get skillsSaveButton => 'Save';
+
+  @override
+  String get skillsNameLabel => 'Name';
+
+  @override
+  String get skillsDescriptionLabel => 'Description';
+
+  @override
+  String get skillsTriggerKeywordsLabel => 'Trigger keywords';
+
+  @override
+  String get skillsTriggerKeywordsHint => 'code review, dcf, rewrite';
+
+  @override
+  String get skillsContentHint => 'Paste skill instructions here.';
 }

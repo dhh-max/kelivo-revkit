@@ -2,11 +2,20 @@ import 'dart:math';
 
 enum MemoryScope { global, assistant }
 
-enum MemoryType { identity, workflow, voice, instruction }
+enum MemoryType { identity, workflow, voice, instruction, apkPatch, apkNote }
 
 enum MemoryStatus { active, archived }
 
 enum MemorySource { manual, tool, extracted, distilled }
+/// Smart Add execution mode per-item or batched LLM judgement.
+enum MemorySmartAddMode { batched, perItem }
+/// Write-scope policy for memory tools.
+enum MemoryWriteScope {
+  alwaysGlobal,
+  alwaysAssistant,
+  toolDefaultGlobal,
+  toolDefaultAssistant,
+}
 
 class MemoryEntry {
   final String id;
@@ -21,6 +30,10 @@ class MemoryEntry {
   final DateTime createdAt;
   final DateTime updatedAt;
 
+  /// 结构化扩展数据（APK 经验指纹 / 笔记 locator 等）。经 toPayload 序列化进
+  /// payload JSON，由 drift 镜像表的 payload 列原样承载，无需独立列。
+  final Map<String, dynamic>? extraJson;
+
   const MemoryEntry({
     required this.id,
     required this.scope,
@@ -33,6 +46,7 @@ class MemoryEntry {
     this.migrationIds = const <String>[],
     required this.createdAt,
     required this.updatedAt,
+    this.extraJson,
   });
 
   MemoryEntry copyWith({
@@ -47,6 +61,8 @@ class MemoryEntry {
     List<String>? migrationIds,
     DateTime? createdAt,
     DateTime? updatedAt,
+    Map<String, dynamic>? extraJson,
+    bool clearExtraJson = false,
     bool clearAssistantId = false,
   }) => MemoryEntry(
     id: id ?? this.id,
@@ -60,6 +76,7 @@ class MemoryEntry {
     migrationIds: migrationIds ?? this.migrationIds,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
+    extraJson: clearExtraJson ? null : (extraJson ?? this.extraJson),
   );
 
   Map<String, dynamic> toPayload() => {
@@ -72,6 +89,7 @@ class MemoryEntry {
     'source': sourceToString(source),
     'relatedIds': relatedIds,
     if (migrationIds.isNotEmpty) 'migrationIds': migrationIds,
+    if (extraJson != null) 'extraJson': extraJson,
     'createdAt': createdAt.microsecondsSinceEpoch,
     'updatedAt': updatedAt.microsecondsSinceEpoch,
   };
@@ -96,6 +114,9 @@ class MemoryEntry {
       updatedAt: DateTime.fromMicrosecondsSinceEpoch(
         (json['updatedAt'] as num).toInt(),
       ),
+      extraJson: json['extraJson'] is Map
+          ? Map<String, dynamic>.from(json['extraJson'] as Map)
+          : null,
     );
   }
 
@@ -145,6 +166,10 @@ class MemoryEntry {
         return 'voice';
       case MemoryType.instruction:
         return 'instruction';
+      case MemoryType.apkPatch:
+        return 'apk_patch';
+      case MemoryType.apkNote:
+        return 'apk_note';
     }
   }
 
@@ -158,6 +183,10 @@ class MemoryEntry {
         return MemoryType.voice;
       case 'instruction':
         return MemoryType.instruction;
+      case 'apk_patch':
+        return MemoryType.apkPatch;
+      case 'apk_note':
+        return MemoryType.apkNote;
       default:
         throw FormatException('Unknown MemoryType: $value');
     }
@@ -209,5 +238,14 @@ class MemoryEntry {
       default:
         throw FormatException('Unknown MemorySource: $value');
     }
+  }
+}
+
+/// 记忆对指定助手的可见性（global 对所有助手可见；assistant 域仅属主可见）。
+/// 复用：memory_tools 与 memory_provider_v2 曾各自实现一份 _isVisible。
+extension MemoryVisibility on MemoryEntry {
+  bool isVisibleFor(String? assistantId) {
+    if (scope == MemoryScope.global) return true;
+    return assistantId != null && assistantId == this.assistantId;
   }
 }

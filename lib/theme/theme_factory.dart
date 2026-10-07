@@ -2,7 +2,6 @@ import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:Kelivo/theme/app_font_weights.dart';
-import 'package:Kelivo/theme/app_semantic_colors.dart';
 import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, TargetPlatform;
 
@@ -37,29 +36,6 @@ List<String> getPlatformFontFallback() {
 
 // Internal helper for theme building
 List<String> _getPlatformFontFallback() => getPlatformFontFallback();
-
-/// Derive neutral `surfaceContainer*` roles from the scheme's surface.
-///
-/// Palettes in this app only define the classic ColorScheme roles, leaving the
-/// M3 surface containers at their static (purple-tinted) defaults, which clash
-/// with non-purple palettes. Deriving them here keeps dialogs, menus, cards
-/// and other Material surfaces consistent with the active palette.
-ColorScheme _withDerivedSurfaceContainers(ColorScheme s) {
-  final dark = s.brightness == Brightness.dark;
-  const white = Color(0xFFFFFFFF);
-  const black = Color(0xFF000000);
-  Color over(Color c, double a) =>
-      Color.alphaBlend(c.withValues(alpha: a), s.surface);
-  return s.copyWith(
-    surfaceContainerLowest: dark ? over(black, 0.28) : over(white, 0.72),
-    surfaceContainerLow: dark ? over(white, 0.03) : over(white, 0.55),
-    surfaceContainer: dark ? over(white, 0.045) : over(white, 0.35),
-    // Light "high" containers must stay ≈ white: chat bubbles, cards, menus
-    // and dialogs historically used plain Colors.white in light mode.
-    surfaceContainerHigh: dark ? over(white, 0.06) : over(white, 0.85),
-    surfaceContainerHighest: dark ? over(white, 0.09) : over(s.onSurface, 0.05),
-  );
-}
 
 TextTheme _withFontFallback(TextTheme base, List<String> fallback) {
   TextStyle? f(TextStyle? s) => s?.copyWith(fontFamilyFallback: fallback);
@@ -148,7 +124,7 @@ TextTheme _withFontFallback(TextTheme base, List<String> fallback) {
 
 ThemeData buildLightTheme(ColorScheme? dynamicScheme) {
   final fontFallback = _getPlatformFontFallback();
-  final scheme = _withDerivedSurfaceContainers(
+  final scheme =
       (dynamicScheme?.harmonized()) ??
       const ColorScheme(
         brightness: Brightness.light,
@@ -182,43 +158,115 @@ ThemeData buildLightTheme(ColorScheme? dynamicScheme) {
         onInverseSurface: Color(0xFFF1F0F7),
         inversePrimary: Color(0xFFB6C4FF),
         surfaceTint: Color(0xFF4D5C92),
-      ),
-    );
+      );
   // _logColorScheme('Light ${dynamicScheme != null ? 'Dynamic' : 'Static'}', scheme);
 
   final theme = ThemeData(
     useMaterial3: true,
     colorScheme: scheme,
     scaffoldBackgroundColor: scheme.surface,
-    extensions: <ThemeExtension<dynamic>>[AppSemanticColors.light(scheme)],
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
-      backgroundColor: scheme.inverseSurface,
+      backgroundColor: scheme.inverseSurface.withValues(alpha: 0.96),
       contentTextStyle: TextStyle(
         color: scheme.onInverseSurface,
         fontSize: 14,
         fontWeight: AppFontWeights.medium,
         fontFamilyFallback: fontFallback,
       ),
-      elevation: 0,
+      elevation: 4,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       actionTextColor: scheme.primary,
       disabledActionTextColor: scheme.onInverseSurface.withValues(alpha: 0.5),
     ),
+    cardTheme: CardThemeData(
+      color: scheme.surface.withValues(alpha: 0.96),
+      surfaceTintColor: scheme.surfaceTint,
+      elevation: 0.5,
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.12)),
+      ),
+    ),
+    dialogTheme: DialogThemeData(
+      backgroundColor: scheme.surface.withValues(alpha: 0.96),
+      surfaceTintColor: scheme.surfaceTint,
+      elevation: 8,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.12)),
+      ),
+    ),
+    bottomSheetTheme: BottomSheetThemeData(
+      backgroundColor: scheme.surface.withValues(alpha: 0.96),
+      surfaceTintColor: scheme.surfaceTint,
+      elevation: 12,
+      modalBackgroundColor: scheme.surface.withValues(alpha: 0.96),
+      modalElevation: 12,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+    ),
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        elevation: 1,
+        shadowColor: scheme.shadow.withValues(alpha: 0.15),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        textStyle: TextStyle(
+          fontSize: 14,
+          fontWeight: AppFontWeights.semibold,
+          fontFamilyFallback: fontFallback,
+        ),
+      ),
+    ),
+    textButtonTheme: TextButtonThemeData(
+      style: TextButton.styleFrom(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        textStyle: TextStyle(
+          fontSize: 14,
+          fontWeight: AppFontWeights.medium,
+          fontFamilyFallback: fontFallback,
+        ),
+      ),
+    ),
+    floatingActionButtonTheme: FloatingActionButtonThemeData(
+      elevation: 4,
+      hoverElevation: 6,
+      highlightElevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+    ),
+    pageTransitionsTheme: PageTransitionsTheme(
+      builders: {
+        TargetPlatform.android: FadeUpwardsPageTransitionsBuilder(),
+        TargetPlatform.iOS: FadeUpwardsPageTransitionsBuilder(),
+        TargetPlatform.windows: FadeUpwardsPageTransitionsBuilder(),
+        TargetPlatform.macOS: FadeUpwardsPageTransitionsBuilder(),
+        TargetPlatform.linux: FadeUpwardsPageTransitionsBuilder(),
+      },
+    ),
     appBarTheme: AppBarTheme(
-      backgroundColor: scheme.surface,
-      surfaceTintColor: scheme.surface,
+      backgroundColor: scheme.surface.withValues(alpha: 0.96),
+      surfaceTintColor: scheme.surfaceTint,
       elevation: 0,
-      scrolledUnderElevation: 0,
+      scrolledUnderElevation: 1,
       centerTitle: false,
-      foregroundColor: scheme.onSurface,
+      foregroundColor: Colors.black,
       titleTextStyle: TextStyle(
-        color: scheme.onSurface,
+        color: Colors.black,
         fontSize: 18,
         fontWeight: AppFontWeights.semibold,
       ).copyWith(fontFamilyFallback: fontFallback),
-      iconTheme: IconThemeData(color: scheme.onSurface),
-      actionsIconTheme: IconThemeData(color: scheme.onSurface),
+      iconTheme: const IconThemeData(color: Colors.black),
+      actionsIconTheme: const IconThemeData(color: Colors.black),
       systemOverlayStyle: const SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
         statusBarIconBrightness: Brightness.dark,
@@ -249,14 +297,12 @@ ThemeData buildLightThemeForScheme(
       onInverseSurface: const Color(0xFFFFFFFF),
     );
   }
-  scheme = _withDerivedSurfaceContainers(scheme);
   // Align logging behavior with buildLightTheme so diagnostics are consistent.
   // _logColorScheme('Light ${dynamicScheme != null ? 'Dynamic' : 'Static'}', scheme);
   final theme = ThemeData(
     useMaterial3: true,
     colorScheme: scheme,
     scaffoldBackgroundColor: scheme.surface,
-    extensions: <ThemeExtension<dynamic>>[AppSemanticColors.light(scheme)],
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
       backgroundColor: scheme.inverseSurface,
@@ -278,14 +324,14 @@ ThemeData buildLightThemeForScheme(
       elevation: 0,
       scrolledUnderElevation: 0,
       centerTitle: false,
-      foregroundColor: scheme.onSurface,
+      foregroundColor: Colors.black,
       titleTextStyle: TextStyle(
-        color: scheme.onSurface,
+        color: Colors.black,
         fontSize: 18,
         fontWeight: AppFontWeights.semibold,
       ).copyWith(fontFamilyFallback: fontFallback),
-      iconTheme: IconThemeData(color: scheme.onSurface),
-      actionsIconTheme: IconThemeData(color: scheme.onSurface),
+      iconTheme: const IconThemeData(color: Colors.black),
+      actionsIconTheme: const IconThemeData(color: Colors.black),
       systemOverlayStyle: SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
         statusBarIconBrightness: Brightness.dark,
@@ -302,7 +348,7 @@ ThemeData buildLightThemeForScheme(
 
 ThemeData buildDarkTheme(ColorScheme? dynamicScheme) {
   final fontFallback = _getPlatformFontFallback();
-  final scheme = _withDerivedSurfaceContainers(
+  final scheme =
       (dynamicScheme?.harmonized()) ??
       const ColorScheme(
         brightness: Brightness.dark,
@@ -336,43 +382,115 @@ ThemeData buildDarkTheme(ColorScheme? dynamicScheme) {
         onInverseSurface: Color(0xFF2F3036),
         inversePrimary: Color(0xFF4D5C92),
         surfaceTint: Color(0xFFB6C4FF),
-      ),
-    );
+      );
   // _logColorScheme('Dark ${dynamicScheme != null ? 'Dynamic' : 'Static'}', scheme);
 
   final theme = ThemeData(
     useMaterial3: true,
     colorScheme: scheme,
     scaffoldBackgroundColor: scheme.surface,
-    extensions: <ThemeExtension<dynamic>>[AppSemanticColors.dark(scheme)],
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
-      backgroundColor: scheme.inverseSurface,
+      backgroundColor: scheme.inverseSurface.withValues(alpha: 0.96),
       contentTextStyle: TextStyle(
         color: scheme.onInverseSurface,
         fontSize: 14,
         fontWeight: AppFontWeights.medium,
         fontFamilyFallback: fontFallback,
       ),
-      elevation: 0,
+      elevation: 4,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       actionTextColor: scheme.primary,
       disabledActionTextColor: scheme.onInverseSurface.withValues(alpha: 0.6),
     ),
+    cardTheme: CardThemeData(
+      color: scheme.surface.withValues(alpha: 0.96),
+      surfaceTintColor: scheme.surfaceTint,
+      elevation: 0.5,
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.12)),
+      ),
+    ),
+    dialogTheme: DialogThemeData(
+      backgroundColor: scheme.surface.withValues(alpha: 0.96),
+      surfaceTintColor: scheme.surfaceTint,
+      elevation: 8,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.12)),
+      ),
+    ),
+    bottomSheetTheme: BottomSheetThemeData(
+      backgroundColor: scheme.surface.withValues(alpha: 0.96),
+      surfaceTintColor: scheme.surfaceTint,
+      elevation: 12,
+      modalBackgroundColor: scheme.surface.withValues(alpha: 0.96),
+      modalElevation: 12,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+    ),
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        elevation: 1,
+        shadowColor: scheme.shadow.withValues(alpha: 0.2),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        textStyle: TextStyle(
+          fontSize: 14,
+          fontWeight: AppFontWeights.semibold,
+          fontFamilyFallback: fontFallback,
+        ),
+      ),
+    ),
+    textButtonTheme: TextButtonThemeData(
+      style: TextButton.styleFrom(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        textStyle: TextStyle(
+          fontSize: 14,
+          fontWeight: AppFontWeights.medium,
+          fontFamilyFallback: fontFallback,
+        ),
+      ),
+    ),
+    floatingActionButtonTheme: FloatingActionButtonThemeData(
+      elevation: 4,
+      hoverElevation: 6,
+      highlightElevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+    ),
+    pageTransitionsTheme: PageTransitionsTheme(
+      builders: {
+        TargetPlatform.android: FadeUpwardsPageTransitionsBuilder(),
+        TargetPlatform.iOS: FadeUpwardsPageTransitionsBuilder(),
+        TargetPlatform.windows: FadeUpwardsPageTransitionsBuilder(),
+        TargetPlatform.macOS: FadeUpwardsPageTransitionsBuilder(),
+        TargetPlatform.linux: FadeUpwardsPageTransitionsBuilder(),
+      },
+    ),
     appBarTheme: AppBarTheme(
-      backgroundColor: scheme.surface,
-      surfaceTintColor: scheme.surface,
+      backgroundColor: scheme.surface.withValues(alpha: 0.96),
+      surfaceTintColor: scheme.surfaceTint,
       elevation: 0,
-      scrolledUnderElevation: 0,
+      scrolledUnderElevation: 1,
       centerTitle: false,
-      foregroundColor: scheme.onSurface,
+      foregroundColor: Colors.white,
       titleTextStyle: TextStyle(
-        color: scheme.onSurface,
+        color: Colors.white,
         fontSize: 18,
         fontWeight: AppFontWeights.semibold,
       ).copyWith(fontFamilyFallback: fontFallback),
-      iconTheme: IconThemeData(color: scheme.onSurface),
-      actionsIconTheme: IconThemeData(color: scheme.onSurface),
+      iconTheme: const IconThemeData(color: Colors.white),
+      actionsIconTheme: const IconThemeData(color: Colors.white),
       systemOverlayStyle: const SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
         statusBarIconBrightness: Brightness.light,
@@ -402,14 +520,12 @@ ThemeData buildDarkThemeForScheme(
       onInverseSurface: const Color(0xFF000000),
     );
   }
-  scheme = _withDerivedSurfaceContainers(scheme);
   // Align logging behavior with buildDarkTheme so diagnostics are consistent.
   // _logColorScheme('Dark ${dynamicScheme != null ? 'Dynamic' : 'Static'}', scheme);
   final theme = ThemeData(
     useMaterial3: true,
     colorScheme: scheme,
     scaffoldBackgroundColor: scheme.surface,
-    extensions: <ThemeExtension<dynamic>>[AppSemanticColors.dark(scheme)],
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
       backgroundColor: scheme.inverseSurface,
@@ -431,14 +547,14 @@ ThemeData buildDarkThemeForScheme(
       elevation: 0,
       scrolledUnderElevation: 0,
       centerTitle: false,
-      foregroundColor: scheme.onSurface,
+      foregroundColor: Colors.white,
       titleTextStyle: TextStyle(
-        color: scheme.onSurface,
+        color: Colors.white,
         fontSize: 18,
         fontWeight: AppFontWeights.semibold,
       ).copyWith(fontFamilyFallback: fontFallback),
-      iconTheme: IconThemeData(color: scheme.onSurface),
-      actionsIconTheme: IconThemeData(color: scheme.onSurface),
+      iconTheme: const IconThemeData(color: Colors.white),
+      actionsIconTheme: const IconThemeData(color: Colors.white),
       systemOverlayStyle: SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
         statusBarIconBrightness: Brightness.light,

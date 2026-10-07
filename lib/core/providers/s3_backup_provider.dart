@@ -4,12 +4,11 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
-import '../database/business_preferences.dart';
-import '../database/business_repository.dart';
 import '../models/backup.dart';
 import '../services/backup/data_sync.dart';
 import '../services/backup/s3_client.dart';
-import '../services/backup/temporary_restore_file.dart';
+import '../database/business_repository.dart';
+import '../database/business_preferences.dart';
 import '../services/chat/chat_service.dart';
 
 class S3BackupProvider extends ChangeNotifier {
@@ -22,22 +21,20 @@ class S3BackupProvider extends ChangeNotifier {
 
   S3BackupProvider({
     required ChatService chatService,
-    required BusinessRepository businessRepository,
-    required BusinessPreferences businessPreferences,
+    BusinessRepository? businessRepository,
+    BusinessPreferences? businessPreferences,
     S3Config? initialConfig,
   }) : _dataSync = DataSync(
          chatService: chatService,
-         businessRepository: businessRepository,
-         businessPreferences: businessPreferences,
+         businessRepository: businessRepository!,
+         businessPreferences: businessPreferences!,
        ),
-       _client = const S3BackupClient(),
-       _cfg = initialConfig ?? const S3Config();
+      _client = const S3BackupClient(),
+      _cfg = initialConfig ?? const S3Config();
 
   S3Config get config => _cfg;
   bool get busy => _busy;
   String? get message => _message;
-  int get skippedConversations =>
-      _dataSync.lastMergeReport?.skippedConversations ?? 0;
 
   void updateConfig(S3Config cfg) {
     _cfg = cfg;
@@ -134,7 +131,7 @@ class S3BackupProvider extends ChangeNotifier {
     try {
       final key = _keyFromItem(item);
       final tmp = await _ensureTempDir();
-      file = await createTemporaryRestoreFile(tmp);
+      file = File(p.join(tmp.path, item.displayName));
       // Download directly to file to avoid holding entire object in memory.
       await _client.downloadToFile(_cfg, key: key, destination: file);
       await _dataSync.restoreFromLocalFile(
@@ -145,7 +142,6 @@ class S3BackupProvider extends ChangeNotifier {
       _message = 'Restored';
     } catch (e) {
       _message = e.toString();
-      rethrow;
     } finally {
       try {
         if (file != null && await file.exists()) {

@@ -57,13 +57,13 @@ class NetworkProxyConfig {
 }
 
 class DioHttpClient extends http.BaseClient {
-  DioHttpClient({this._proxy, CancelToken? cancelToken, Duration? timeout})
+  DioHttpClient({this._proxy, CancelToken? cancelToken})
     : _cancelToken = cancelToken ?? CancelToken(),
       _dio = Dio(
         BaseOptions(
-          connectTimeout: timeout,
-          sendTimeout: timeout,
-          receiveTimeout: timeout,
+          connectTimeout: null,
+          sendTimeout: null,
+          receiveTimeout: null,
           validateStatus: (_) => true,
         ),
       ) {

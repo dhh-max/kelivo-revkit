@@ -6,7 +6,6 @@ import 'package:provider/provider.dart';
 
 import '../../icons/lucide_adapter.dart' as lucide;
 import '../../l10n/app_localizations.dart';
-import '../../core/database/business_repository.dart';
 import '../../core/models/backup.dart';
 import '../../core/providers/backup_provider.dart';
 import '../../core/providers/backup_reminder_provider.dart';
@@ -15,16 +14,13 @@ import '../../core/providers/settings_provider.dart';
 import '../../core/services/chat/chat_service.dart';
 import '../../core/services/backup/cherry_importer.dart';
 import '../../core/services/backup/chatbox_importer.dart';
-import '../../shared/widgets/ios_switch.dart';
-import '../../shared/widgets/restart_app_action.dart';
-import '../../shared/widgets/snackbar.dart';
-import '../../features/backup/backup_restore_error_message.dart';
-import '../../features/backup/backup_restart_dialog.dart';
-import '../../features/backup/widgets/backup_reminder_helpers.dart';
 import '../../utils/platform_utils.dart';
+import '../../shared/widgets/ios_switch.dart';
+import '../../shared/widgets/snackbar.dart';
+import '../../features/backup/widgets/backup_reminder_helpers.dart';
 import '../widgets/desktop_select_dropdown.dart';
 import '../../theme/app_font_weights.dart';
-import 'package:Kelivo/theme/app_semantic_colors.dart';
+import '../../core/database/business_repository.dart';
 
 class DesktopBackupPane extends StatefulWidget {
   const DesktopBackupPane({super.key});
@@ -210,7 +206,6 @@ class _DesktopBackupPaneState extends State<DesktopBackupPane> {
     Future<void> Function(RestoreMode) action,
   ) async {
     final rootCtx = Navigator.of(context, rootNavigator: true).context;
-    final backupProvider = context.read<BackupProvider>();
     final mode = await showDialog<RestoreMode>(
       context: context,
       builder: (ctx) => _RestoreModeDialog(),
@@ -222,15 +217,32 @@ class _DesktopBackupPaneState extends State<DesktopBackupPane> {
       if (!rootCtx.mounted) return;
       showAppSnackBar(
         rootCtx,
-        message: backupRestoreErrorMessage(AppLocalizations.of(rootCtx)!, e),
+        message: e.toString(),
         type: NotificationType.error,
       );
       return;
     }
     if (!rootCtx.mounted) return;
-    await showBackupRestartRequiredDialog(
-      rootCtx,
-      skippedConversations: backupProvider.skippedConversations,
+    final l10n = AppLocalizations.of(rootCtx)!;
+    // Inform restart requirement
+    await showDialog(
+      context: rootCtx,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Theme.of(ctx).colorScheme.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(l10n.backupPageRestartRequired),
+        content: Text(l10n.backupPageRestartContent),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              PlatformUtils.restartApp();
+            },
+            child: Text(l10n.backupPageOK),
+          ),
+        ],
+      ),
     );
   }
 
@@ -509,8 +521,6 @@ class _DesktopBackupPaneState extends State<DesktopBackupPane> {
                                           throw Exception(msg);
                                         }
                                       },
-                                      skippedConversations: () =>
-                                          backupProvider.skippedConversations,
                                       deleteAndReload:
                                           backupProvider.deleteAndReload,
                                     );
@@ -777,8 +787,6 @@ class _DesktopBackupPaneState extends State<DesktopBackupPane> {
                                           throw Exception(msg);
                                         }
                                       },
-                                      skippedConversations: () =>
-                                          s3BackupProvider.skippedConversations,
                                       deleteAndReload:
                                           s3BackupProvider.deleteAndReload,
                                     );
@@ -877,16 +885,7 @@ class _DesktopBackupPaneState extends State<DesktopBackupPane> {
                             .read<BackupReminderProvider>()
                             .recordBackupCompleted();
                       }
-                    } catch (e) {
-                      // A full disk or unwritable target must not look like
-                      // a successful export.
-                      if (!context.mounted) return;
-                      showAppSnackBar(
-                        context,
-                        message: e.toString(),
-                        type: NotificationType.error,
-                      );
-                    }
+                    } catch (_) {}
                   }
                 },
               ),
@@ -931,18 +930,17 @@ class _DesktopBackupPaneState extends State<DesktopBackupPane> {
                   );
                   if (mode == null) return;
                   if (!context.mounted) return;
+                  final settings = context.read<SettingsProvider>();
                   final chat = context.read<ChatService>();
                   try {
                     await CherryImporter.importFromCherryStudio(
                       file: f,
                       mode: mode,
-                      businessRepository: context.read<BusinessRepository>(),
                       chatService: chat,
                     );
                     if (!rootCtx.mounted) return;
                     await showDialog(
                       context: rootCtx,
-                      barrierDismissible: false,
                       builder: (dctx) => AlertDialog(
                         backgroundColor: cs.surface,
                         shape: RoundedRectangleBorder(
@@ -953,38 +951,9 @@ class _DesktopBackupPaneState extends State<DesktopBackupPane> {
                         actions: [
                           TextButton(
                             onPressed: () async {
-                              if (await requestAppRestart(
-                                    rootCtx,
-                                    PlatformUtils.restartApp,
-                                  ) &&
-                                  rootCtx.mounted) {
-                                Navigator.of(rootCtx).pop();
-                              }
+                              Navigator.of(rootCtx).pop();
+                              PlatformUtils.restartApp();
                             },
-                            child: Text(l10n.backupPageOK),
-                          ),
-                        ],
-                      ),
-                    );
-                  } on CherryUnsupportedBackupVersionException catch (e) {
-                    if (!rootCtx.mounted) return;
-                    await showDialog(
-                      context: rootCtx,
-                      barrierDismissible: false,
-                      builder: (dctx) => AlertDialog(
-                        backgroundColor: cs.surface,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        title: Text(l10n.backupPageImportFromCherryStudio),
-                        content: Text(
-                          l10n.backupPageCherryStudioUnsupportedBackupVersion(
-                            '${e.version}',
-                          ),
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.of(dctx).pop(),
                             child: Text(l10n.backupPageOK),
                           ),
                         ],
@@ -994,7 +963,6 @@ class _DesktopBackupPaneState extends State<DesktopBackupPane> {
                     if (!rootCtx.mounted) return;
                     await showDialog(
                       context: rootCtx,
-                      barrierDismissible: false,
                       builder: (dctx) => AlertDialog(
                         backgroundColor: cs.surface,
                         shape: RoundedRectangleBorder(
@@ -1037,12 +1005,12 @@ class _DesktopBackupPaneState extends State<DesktopBackupPane> {
                   );
                   if (mode == null) return;
                   if (!context.mounted) return;
+                  final settings = context.read<SettingsProvider>();
                   final chat = context.read<ChatService>();
                   try {
                     final res = await ChatboxImporter.importFromChatbox(
                       file: f,
                       mode: mode,
-                      businessRepository: context.read<BusinessRepository>(),
                       chatService: chat,
                     );
                     if (!rootCtx.mounted) return;
@@ -1065,13 +1033,8 @@ class _DesktopBackupPaneState extends State<DesktopBackupPane> {
                         actions: [
                           TextButton(
                             onPressed: () async {
-                              if (await requestAppRestart(
-                                    rootCtx,
-                                    PlatformUtils.restartApp,
-                                  ) &&
-                                  rootCtx.mounted) {
-                                Navigator.of(rootCtx).pop();
-                              }
+                              Navigator.of(rootCtx).pop();
+                              PlatformUtils.restartApp();
                             },
                             child: Text(l10n.backupPageOK),
                           ),
@@ -1293,7 +1256,9 @@ class _RemoteItemCardState extends State<_RemoteItemCard> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final baseBg = context.appColors.surfaceCard;
+    final baseBg = isDark
+        ? Colors.white10
+        : Colors.white.withValues(alpha: 0.96);
     final borderColor = _hover
         ? cs.primary.withValues(alpha: isDark ? 0.35 : 0.45)
         : cs.outlineVariant.withValues(alpha: isDark ? 0.12 : 0.08);
@@ -1380,7 +1345,6 @@ class _RemoteBackupsDialog extends StatefulWidget {
     required this.title,
     required this.listRemote,
     required this.restoreFromItem,
-    required this.skippedConversations,
     required this.deleteAndReload,
   });
 
@@ -1388,7 +1352,6 @@ class _RemoteBackupsDialog extends StatefulWidget {
   final Future<List<BackupFileItem>> Function() listRemote;
   final Future<void> Function(BackupFileItem item, RestoreMode mode)
   restoreFromItem;
-  final int Function() skippedConversations;
   final Future<List<BackupFileItem>> Function(BackupFileItem item)
   deleteAndReload;
 
@@ -1462,7 +1425,7 @@ class _RemoteBackupsDialogState extends State<_RemoteBackupsDialog> {
       if (!rootCtx.mounted) return;
       showAppSnackBar(
         rootCtx,
-        message: backupRestoreErrorMessage(AppLocalizations.of(rootCtx)!, e),
+        message: e.toString(),
         type: NotificationType.error,
       );
       return;
@@ -1470,9 +1433,26 @@ class _RemoteBackupsDialogState extends State<_RemoteBackupsDialog> {
       if (mounted) setState(() => _loading = false);
     }
     if (!rootCtx.mounted) return;
-    await showBackupRestartRequiredDialog(
-      rootCtx,
-      skippedConversations: widget.skippedConversations(),
+    final l10n = AppLocalizations.of(rootCtx)!;
+    final cs = Theme.of(rootCtx).colorScheme;
+    await showDialog(
+      context: rootCtx,
+      barrierDismissible: false,
+      builder: (dctx) => AlertDialog(
+        backgroundColor: cs.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(l10n.backupPageRestartRequired),
+        content: Text(l10n.backupPageRestartContent),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              Navigator.of(dctx).pop();
+              PlatformUtils.restartApp();
+            },
+            child: Text(l10n.backupPageOK),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1628,7 +1608,6 @@ void _showRemoteBackupsDialog(
   required Future<List<BackupFileItem>> Function() listRemote,
   required Future<void> Function(BackupFileItem item, RestoreMode mode)
   restoreFromItem,
-  required int Function() skippedConversations,
   required Future<List<BackupFileItem>> Function(BackupFileItem item)
   deleteAndReload,
 }) {
@@ -1638,7 +1617,6 @@ void _showRemoteBackupsDialog(
       title: title,
       listRemote: listRemote,
       restoreFromItem: restoreFromItem,
-      skippedConversations: skippedConversations,
       deleteAndReload: deleteAndReload,
     ),
   );
@@ -1762,7 +1740,9 @@ class _RestoreModeTileState extends State<_RestoreModeTile> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = _hover
-        ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.04))
+        ? (isDark
+              ? Colors.white.withValues(alpha: 0.06)
+              : Colors.black.withValues(alpha: 0.04))
         : Colors.transparent;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -1826,7 +1806,9 @@ class _SmallIconBtnState extends State<_SmallIconBtn> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = _hover
-        ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
+        ? (isDark
+              ? Colors.white.withValues(alpha: 0.06)
+              : Colors.black.withValues(alpha: 0.05))
         : Colors.transparent;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -1872,12 +1854,14 @@ class _DeskIosButtonState extends State<_DeskIosButton> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textColor = widget.filled
-        ? cs.onPrimary
+        ? Colors.white
         : cs.onSurface.withValues(alpha: 0.9);
     final bg = widget.filled
         ? (_hover ? cs.primary.withValues(alpha: 0.92) : cs.primary)
         : (_hover
-              ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
+              ? (isDark
+                    ? Colors.white.withValues(alpha: 0.06)
+                    : Colors.black.withValues(alpha: 0.05))
               : Colors.transparent);
     final borderColor = widget.filled
         ? Colors.transparent
@@ -1927,7 +1911,9 @@ Widget _sectionCard({required List<Widget> children}) {
     builder: (context) {
       final cs = Theme.of(context).colorScheme;
       final isDark = Theme.of(context).brightness == Brightness.dark;
-      final baseBg = context.appColors.surfaceCard;
+      final baseBg = isDark
+          ? Colors.white10
+          : Colors.white.withValues(alpha: 0.96);
       return Container(
         decoration: BoxDecoration(
           color: baseBg,
@@ -1949,11 +1935,12 @@ Widget _sectionCard({required List<Widget> children}) {
 
 InputDecoration _deskInputDecoration(BuildContext context) {
   // Match provider dialog style (compact), but slightly shorter height and 14px font hint
+  final isDark = Theme.of(context).brightness == Brightness.dark;
   final cs = Theme.of(context).colorScheme;
   return InputDecoration(
     isDense: true,
     filled: true,
-    fillColor: context.appColors.surfaceFill,
+    fillColor: isDark ? Colors.white10 : const Color(0xFFF7F7F9),
     hintStyle: TextStyle(
       fontSize: 14,
       color: cs.onSurface.withValues(alpha: 0.5),

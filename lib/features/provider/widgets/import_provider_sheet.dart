@@ -11,7 +11,6 @@ import '../../../shared/widgets/snackbar.dart';
 import '../../../core/services/haptics.dart';
 import '../../../shared/widgets/ios_tile_button.dart';
 import 'package:Kelivo/theme/app_font_weights.dart';
-import 'package:Kelivo/theme/app_semantic_colors.dart';
 
 class _ImportResult {
   final String key;
@@ -519,7 +518,9 @@ Future<void> showImportProviderSheet(BuildContext context) async {
                             hintText: l10n.importProviderSheetDescription,
                             filled: true,
                             fillColor:
-                                ctx.appColors.surfaceCard,
+                                Theme.of(ctx).brightness == Brightness.dark
+                                ? Colors.white10
+                                : Colors.white,
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
                               borderSide: BorderSide(

@@ -9754,7 +9754,7 @@ abstract class AppLocalizations {
   /// No description provided for @searchProviderStepFunDescription.
   ///
   /// In en, this message translates to:
-  /// **'StepFun web search via POST /v1/search.'**
+  /// **'StepFun\'s official search API for Chinese internet content'**
   String get searchProviderStepFunDescription;
 
   /// No description provided for @searchServiceNameFirecrawl.
@@ -9766,7 +9766,7 @@ abstract class AppLocalizations {
   /// No description provided for @searchProviderFirecrawlDescription.
   ///
   /// In en, this message translates to:
-  /// **'Firecrawl Search API v2. Requires a Bearer API key. Scrape is not supported here.'**
+  /// **'Firecrawl web search with multi-source, category, and geolocation filtering'**
   String get searchProviderFirecrawlDescription;
 
   /// No description provided for @searchServiceNameTinyFish.
@@ -9778,7 +9778,7 @@ abstract class AppLocalizations {
   /// No description provided for @searchProviderTinyFishDescription.
   ///
   /// In en, this message translates to:
-  /// **'TinyFish Search API with region/language filters. Requires an API key. Fetch/Scrape is not supported here.'**
+  /// **'TinyFish search service with domain/geo/language targeting'**
   String get searchProviderTinyFishDescription;
 
   /// No description provided for @searchServicesDialogCountryOptional.
@@ -13470,6 +13470,132 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Collapse'**
   String get memoryTraceShowLess;
+
+  /// No description provided for @chatMessageWidgetEditMemory.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit Memory'**
+  String get chatMessageWidgetEditMemory;
+
+  /// No description provided for @chatMessageWidgetDeleteMemory.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete Memory'**
+  String get chatMessageWidgetDeleteMemory;
+
+  /// No description provided for @assistantEditPageSkillsTab.
+  ///
+  /// In en, this message translates to:
+  /// **'Skills'**
+  String get assistantEditPageSkillsTab;
+
+  /// No description provided for @assistantEditSkillsEmptyMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'No skills installed yet. Import a skill file first.'**
+  String get assistantEditSkillsEmptyMessage;
+
+  /// No description provided for @assistantEditManageSkillsButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Manage Skills'**
+  String get assistantEditManageSkillsButton;
+
+  /// No description provided for @skillsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Skills'**
+  String get skillsTitle;
+
+  /// No description provided for @skillsImportTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Import Skills'**
+  String get skillsImportTooltip;
+
+  /// No description provided for @skillsAddTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Add Skill'**
+  String get skillsAddTooltip;
+
+  /// No description provided for @skillsEmptyMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Import Markdown, JSON, YAML, PDF, DOCX, or ZIP skills.'**
+  String get skillsEmptyMessage;
+
+  /// No description provided for @skillsImportButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Import Skill'**
+  String get skillsImportButton;
+
+  /// No description provided for @skillsDeleteAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get skillsDeleteAction;
+
+  /// No description provided for @skillsImportFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Skills import failed: {error}'**
+  String skillsImportFailed(String error);
+
+  /// No description provided for @skillsNoValidImported.
+  ///
+  /// In en, this message translates to:
+  /// **'No valid skill files imported.'**
+  String get skillsNoValidImported;
+
+  /// No description provided for @skillsImportedCount.
+  ///
+  /// In en, this message translates to:
+  /// **'Imported {count} skill(s).'**
+  String skillsImportedCount(int count);
+
+  /// No description provided for @skillsTriggersLine.
+  ///
+  /// In en, this message translates to:
+  /// **'Triggers: {keywords}'**
+  String skillsTriggersLine(String keywords);
+
+  /// No description provided for @skillsSaveButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Save'**
+  String get skillsSaveButton;
+
+  /// No description provided for @skillsNameLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Name'**
+  String get skillsNameLabel;
+
+  /// No description provided for @skillsDescriptionLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Description'**
+  String get skillsDescriptionLabel;
+
+  /// No description provided for @skillsTriggerKeywordsLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Trigger keywords'**
+  String get skillsTriggerKeywordsLabel;
+
+  /// No description provided for @skillsTriggerKeywordsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'code review, dcf, rewrite'**
+  String get skillsTriggerKeywordsHint;
+
+  /// No description provided for @skillsContentHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Paste skill instructions here.'**
+  String get skillsContentHint;
 }
 
 class _AppLocalizationsDelegate

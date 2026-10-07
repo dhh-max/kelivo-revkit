@@ -59,6 +59,12 @@
   "storageSpaceCategoryImages": "Images",
   "storageSpaceCategoryFiles": "Files",
   "storageSpaceCategoryChatData": "Chat Records",
+  "storageSpaceCategoryLegacyChatData": "Chat Records (Old)",
+  "storageSpaceCategoryRestoreTraces": "Restore Traces",
+  "storageSpaceRestoreTracesHint": "Previous data snapshots kept after completed restores. Clearing them does not affect the current app data.",
+  "storageSpaceClearRestoreTracesButton": "Clear Restore Traces",
+  "storageSpaceClearRestoreTracesConfirmMessage": "Clear completed restore snapshots? Your current database, settings, and files will not be affected.",
+  "storageSpaceSubCompletedRestoreRuns": "Completed restore snapshots",
   "storageSpaceCategoryAssistantData": "Assistants",
   "storageSpaceCategoryCache": "Cache",
   "storageSpaceCategoryLogs": "Logs",
@@ -72,11 +78,15 @@
     }
   },
   "storageSpaceSafeToClearHint": "Safe to clear. This will not affect your chat history.",
+  "storageSpaceLegacyChatDataHint": "These are retained Hive files from before the SQLite migration. Clearing them does not delete your current chat records.",
   "storageSpaceNotSafeToClearHint": "May affect your chat history. Delete with care.",
   "storageSpaceBreakdownTitle": "Breakdown",
   "storageSpaceSubChatMessages": "Messages",
   "storageSpaceSubChatConversations": "Conversations",
   "storageSpaceSubChatToolEvents": "Tool events",
+  "storageSpaceSubChatDatabase": "Chat database",
+  "storageSpaceSubChatWriteAheadLog": "Write-ahead log",
+  "storageSpaceSubChatSharedMemory": "Shared memory index",
   "storageSpaceSubAssistantAvatars": "Avatars",
   "storageSpaceSubAssistantImages": "Images",
   "storageSpaceSubCacheAvatars": "Avatar cache",
@@ -114,6 +124,8 @@
   "storageSpaceClearAvatarCacheButton": "Clear Avatar Cache",
   "storageSpaceClearCacheButton": "Clear Cache",
   "storageSpaceClearLogsButton": "Clear Logs",
+  "storageSpaceClearLegacyChatDataButton": "Clear Old Chat Records",
+  "storageSpaceClearLegacyChatDataConfirmMessage": "Clear the retained old chat files? Your current SQLite chat records will remain available.",
   "storageSpaceViewLogsButton": "View Logs",
   "storageSpaceDeleteConfirmTitle": "Confirm deletion",
   "storageSpaceDeleteUploadsConfirmMessage": "Delete {count} items? Attachments in chat history may become unavailable.",
@@ -151,6 +163,15 @@
       }
     }
   },
+  "storageSpaceSourceLabel": "Source",
+  "storageSpaceSourceAll": "All",
+  "storageSpaceSourceUserUpload": "User uploads",
+  "storageSpaceSourceAssistant": "Assistant",
+  "storageSpaceSortLabel": "Sort",
+  "storageSpaceSortNewest": "Newest",
+  "storageSpaceSortOldest": "Oldest",
+  "storageSpaceSortLargest": "Largest",
+  "storageSpaceSortSmallest": "Smallest",
   "settingsPageAboutSection": "About",
   "settingsPageAbout": "About",
   "settingsPageStatistics": "Statistics",
@@ -239,25 +260,10 @@
   "assistantProviderDefaultAssistantName": "Default Assistant",
   "assistantProviderSampleAssistantName": "Sample Assistant",
   "assistantProviderNewAssistantName": "New Assistant",
-  "assistantProviderSampleAssistantSystemPrompt": "You are {model_name}, an AI assistant who gladly provides accurate and helpful assistance. The current time is {cur_datetime}, the device language is {locale}, timezone is {timezone}, the user is using {device_info}, version {system_version}. If the user does not explicitly specify otherwise, please use the user's device language when replying.",
+  "assistantProviderSampleAssistantSystemPrompt": "You are {model_name}, a helpful AI assistant. Answer accurately and concisely; say when you are unsure. Prefer clear structure (short paragraphs or lists) when it helps. Reply in the user's language by default.",
   "@assistantProviderSampleAssistantSystemPrompt": {
     "placeholders": {
       "model_name": {
-        "type": "String"
-      },
-      "cur_datetime": {
-        "type": "String"
-      },
-      "locale": {
-        "type": "String"
-      },
-      "timezone": {
-        "type": "String"
-      },
-      "device_info": {
-        "type": "String"
-      },
-      "system_version": {
         "type": "String"
       }
     }
@@ -543,6 +549,30 @@
   "assistantEditVariableRole": "Role",
   "assistantEditVariableMessage": "Message",
   "assistantEditPreviewTitle": "Preview",
+  "assistantEditPromptTimeVarWarning": "Using time variables in the system prompt makes the beginning of every request different, so prompt caching cannot hit and both cost and time-to-first-token go up. If the model needs to know the current time, use the \"Append current time\" switch below.",
+  "assistantEditPromptAppendTimeTitle": "Append current time",
+  "assistantEditPromptAppendTimeSubtitle": "Append the send time to the end of each user message. Time stays at the end of the request, so prompt caching is unaffected.",
+  "assistantEditPromptAppendTimeInfoTitle": "Appended time format",
+  "assistantEditPromptAppendTimeInfoBody": "When enabled, a blank line and then the following tag are appended at the end of each user message:\n\n{example}\n\nThe timestamp is that message’s own send time, so it stays stable when you retry.",
+  "@assistantEditPromptAppendTimeInfoBody": {
+    "placeholders": {
+      "example": {
+        "type": "String"
+      }
+    }
+  },
+  "assistantEditPromptAppendTimeInfoClose": "Got it",
+  "assistantEditPromptTimeVarDialogTitle": "System prompt contains time variables",
+  "assistantEditPromptTimeVarDialogBody": "Your system prompt uses {variables}. The system prompt is re-rendered on every request, so time variables make the beginning of every request different and prompt caching cannot hit. Consider removing these variables and using \"Append current time\" instead — it puts the time at the end of the request and does not affect the prefix.",
+  "@assistantEditPromptTimeVarDialogBody": {
+    "placeholders": {
+      "variables": {
+        "type": "String"
+      }
+    }
+  },
+  "assistantEditPromptTimeVarDialogRemove": "Go remove",
+  "assistantEditPromptTimeVarDialogKeep": "Enable anyway",
   "codeBlockPreviewButton": "Preview",
   "codeBlockSaveAsButton": "Save as file",
   "codeBlockCollapseButton": "Collapse",
@@ -629,15 +659,64 @@
   "backupPageTestDone": "Test done",
   "backupPageTestConnection": "Test",
   "backupPageRestartRequired": "Restart Required",
-  "backupPageRestartContent": "Restore completed. Please restart the app.",
+  "backupPageRestartContent": "Import successful. Restart Kelivo to apply it safely.",
+  "backupPageRestartContentWithSkipped": "Import completed, but {count} conversations with invalid message ordering were skipped. Restart Kelivo to apply the imported data safely.",
+  "@backupPageRestartContentWithSkipped": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "restartAppFailedMessage": "Kelivo could not restart automatically. Fully close it, then open it again.",
+  "backupRestoreRolledBackTitle": "Restore was rolled back",
+  "backupRestoreRolledBackContent": "The restore could not be completed. Kelivo verified and kept your previous data.",
+  "backupRestoreFailureTitle": "Restore requires attention",
+  "backupRestoreFailureContent": "Kelivo could not verify a complete old or new data set, so chat data was not opened. Close Kelivo and try again. If this repeats, keep the diagnostic code for support.",
+  "backupRestoreBusinessLeaseUnavailableTitle": "Kelivo is already running",
+  "backupRestoreBusinessLeaseUnavailableContent": "Kelivo's data is still in use by another app process. Close any other Kelivo window, then restart. Your chat data has not been opened by this process.",
+  "backupRestoreFailureRestartButton": "Restart Kelivo",
+  "backupRestoreFailureCopyButton": "Copy diagnostic code",
+  "backupRestoreFailureCopied": "Diagnostic code copied",
+  "backupRestoreFailureDiagnostic": "Diagnostic code: {code}",
+  "@backupRestoreFailureDiagnostic": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "startupRecoveryMoreOptions": "More recovery options",
+  "startupRecoveryRepairButton": "Repair and restart",
+  "startupRecoveryExportButton": "Export a copy of my data",
+  "startupRecoveryResetButton": "Reset data",
+  "startupRecoveryBusy": "Working…",
+  "startupRecoveryExportSucceeded": "A copy of your data was saved.",
+  "startupRecoveryExportFailed": "Could not export a copy of your data.",
+  "startupRecoveryRepairFailed": "Repair could not fix this. Export a copy of your data, then reset.",
+  "startupRecoveryResetFailed": "Reset failed. Fully close Kelivo, then open it again.",
+  "startupRecoveryResetDialogTitle": "Reset all data?",
+  "startupRecoveryResetDialogContent": "This permanently deletes Kelivo's database on this device and starts fresh. If you might need this data, export a copy first. This cannot be undone.",
+  "startupRecoveryResetDialogConfirm": "Reset and restart",
+  "startupRecoveryResetDialogCancel": "Cancel",
+  "startupDatabaseUpdateRequiredTitle": "Update Kelivo to continue",
+  "startupDatabaseUpdateRequiredContent": "The chat database on this device was created by a newer version of Kelivo and cannot be opened by this version. Your data has not been changed. Install the latest version of Kelivo, then open it again.",
+  "backupPageRestoreFailedMessage": "Restore failed: {error}",
+  "@backupPageRestoreFailedMessage": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
   "backupPageOK": "OK",
   "backupPageCancel": "Cancel",
   "backupPageSelectImportMode": "Select Import Mode",
-  "backupPageSelectImportModeDescription": "Choose how to import the backup data:",
+  "backupPageSelectImportModeDescription": "Choose a restore mode. The chat and file switches determine which components are included.",
   "backupPageOverwriteMode": "Complete Overwrite",
-  "backupPageOverwriteModeDescription": "Clear all local data and restore from backup",
-  "backupPageMergeMode": "Smart Merge",
-  "backupPageMergeModeDescription": "Add only non-existing data (intelligent deduplication)",
+  "backupPageOverwriteModeDescription": "Replace the selected components; keep unselected components and unrelated local settings",
+  "backupPageMergeMode": "Merge",
+  "backupPageMergeModeDescription": "Keep local data and add backup data. Identical conversations are skipped and conflicting conversations receive new IDs.",
   "backupPageRestore": "Restore",
   "backupPageBackupUploaded": "Backup uploaded",
   "backupPageBackup": "Backup",
@@ -674,6 +753,14 @@
   "backupPageBackupNow": "Backup Now",
   "backupPageLocalBackup": "Local Backup",
   "backupPageImportFromCherryStudio": "Import from Cherry Studio",
+  "backupPageCherryStudioUnsupportedBackupVersion": "This backup uses Cherry Studio format version {version}, which Kelivo cannot import yet. Export from Cherry Studio v1 instead, or wait for a Kelivo update that supports Cherry Studio v2 backups.",
+  "@backupPageCherryStudioUnsupportedBackupVersion": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
   "backupPageImportFromChatbox": "Import from Chatbox",
   "backupReminderSectionTitle": "Backup Reminder",
   "backupReminderEnableTitle": "Remind me to back up",
@@ -836,6 +923,7 @@
     }
   },
   "chatMessageWidgetOpenLinkError": "Failed to open link",
+  "chatMessageWidgetAttachmentUnavailable": "Attachment unavailable",
   "chatMessageWidgetCitationsTitle": "Citations ({count})",
   "@chatMessageWidgetCitationsTitle": {
     "placeholders": {
@@ -857,9 +945,6 @@
   "chatMessageWidgetTranslateTooltip": "Translate",
   "chatMessageWidgetBuiltinSearchHideNote": "Hide builtin search tool cards",
   "chatMessageWidgetDeepThinking": "Deep Thinking",
-  "chatMessageWidgetCreateMemory": "Create Memory",
-  "chatMessageWidgetEditMemory": "Edit Memory",
-  "chatMessageWidgetDeleteMemory": "Delete Memory",
   "chatMessageWidgetWebSearch": "Web Search: {query}",
   "@chatMessageWidgetWebSearch": {
     "placeholders": {
@@ -880,6 +965,14 @@
       }
     }
   },
+  "chatMessageWidgetMemoryRead": "Read Memory",
+  "chatMessageWidgetMemoryUpdate": "Update Memory",
+  "chatMessageWidgetMemorySearchProfile": "Search Memory",
+  "chatMessageWidgetMemoryEdit": "Edit Memory",
+  "chatMessageWidgetMemoryDelete": "Delete Memory",
+  "chatMessageWidgetUpdateUserProfile": "Update User Profile",
+  "chatMessageWidgetChatSearch": "Search Past Chats",
+  "chatMessageWidgetCreateMemory": "Create Memory",
   "chatMessageWidgetToolCall": "Tool Call: {name}",
   "@chatMessageWidgetToolCall": {
     "placeholders": {
@@ -1094,6 +1187,12 @@
   "chatInputBarReasoningStrengthTooltip": "Reasoning Strength",
   "chatInputBarMcpServersTooltip": "MCP Servers",
   "chatInputBarMoreTooltip": "Add",
+  "chatInputBarVoiceInputTooltip": "Voice input",
+  "chatInputBarVoiceCancelTooltip": "Discard recording",
+  "chatInputBarVoiceStopTooltip": "Stop and transcribe to input",
+  "chatInputBarVoiceSendTooltip": "Transcribe and send",
+  "chatInputBarVoiceTranscribing": "Recognizing…",
+  "chatInputBarImageProcessing": "Processing image",
   "chatInputBarImageMode": "Image mode",
   "chatInputBarDisableImageModeTooltip": "Turn off image mode",
   "chatInputBarQueuedPending": "Queued to send",
@@ -1111,7 +1210,11 @@
   "mcpPageStatusConnected": "Connected",
   "mcpPageStatusConnecting": "Connecting…",
   "mcpPageStatusDisconnected": "Disconnected",
+  "mcpPageStatusAuthorizationRequired": "Authorization required",
+  "mcpPageStatusAuthorizing": "Authorizing…",
   "mcpPageStatusDisabled": "Disabled",
+  "mcpPageOAuthRequired": "OAuth sign-in is required",
+  "mcpPageOAuthSignIn": "Sign in with OAuth",
   "mcpPageToolsCount": "Tools: {enabled}/{total}",
   "@mcpPageToolsCount": {
     "placeholders": {
@@ -1199,6 +1302,17 @@
   "defaultModelPageTranslateModelTitle": "Translation Model",
   "defaultModelPageTranslateModelSubtitle": "Used for translating message content; prefer fast & accurate models",
   "defaultModelPageOcrModelTitle": "OCR Model",
+  "backgroundTaskFailed": "{task} failed: {error}",
+  "@backgroundTaskFailed": {
+    "placeholders": {
+      "task": {
+        "type": "String"
+      },
+      "error": {
+        "type": "String"
+      }
+    }
+  },
   "defaultModelPageOcrModelSubtitle": "Used for extracting text and descriptions from images",
   "defaultModelPageOcrModelRequiresImageInput": "Select a model tagged with image input for OCR",
   "defaultModelPagePromptLabel": "Prompt",
@@ -1346,6 +1460,8 @@
   "providerDetailPageProviderDeletedSnackbar": "Provider deleted",
   "providerDetailPageConfigTab": "Config",
   "providerDetailPageModelsTab": "Models",
+  "providerDetailPageCustomRequestTitle": "Custom Request",
+  "providerDetailPageCustomRequestDescription": "Applies to every model from this provider. Model settings override these values; these values override assistant settings.",
   "providerDetailPageNetworkTab": "Network",
   "providerDetailPageEnabledTitle": "Enabled",
   "providerDetailPageManageSectionTitle": "Manage",
@@ -1559,6 +1675,103 @@
   "searchServicesEditDialogUsernameOptional": "Username (optional)",
   "searchServicesEditDialogPasswordOptional": "Password (optional)",
   "searchServicesEditDialogRegionOptional": "Region (optional, default: us-en)",
+  "searchServiceEditorProviderTypeTitle": "Search provider",
+  "searchServiceEditorConfigurationTitle": "Configuration",
+  "searchServiceEditorNoConfiguration": "This provider does not require additional configuration.",
+  "searchServiceEditorMultiKeyTitle": "Multi-key rotation",
+  "searchServiceEditorMultiKeyNone": "Not configured",
+  "searchApiKeysPageDescription": "Keys rotate in the order listed; the first is the primary key. Usage is not queried to avoid provider rate limiting.",
+  "searchApiKeysPagePrimaryBadge": "Primary",
+  "searchApiKeysPageBatchHint": "Paste one or more keys — one per line or comma-separated",
+  "searchApiKeysPageBatchResult": "Added {added}, skipped {skipped} duplicate(s)",
+  "@searchApiKeysPageBatchResult": {
+    "placeholders": {
+      "added": {
+        "type": "String"
+      },
+      "skipped": {
+        "type": "String"
+      }
+    }
+  },
+  "searchApiKeysPageAdd": "Add",
+  "searchApiKeysPageEmpty": "No keys configured yet.",
+  "searchServiceEditorMultiKeyCount": "{count} keys",
+  "@searchServiceEditorMultiKeyCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "searchServiceEditorUsageTitle": "Account usage",
+  "searchServiceEditorUsageNotQueried": "Usage has not been queried yet.",
+  "searchServiceEditorUsageQuery": "Check usage",
+  "searchServiceEditorUsageQuerying": "Checking…",
+  "searchServiceEditorUsageRemaining": "{remaining} credits remaining",
+  "@searchServiceEditorUsageRemaining": {
+    "placeholders": {
+      "remaining": {
+        "type": "String"
+      }
+    }
+  },
+  "searchServiceEditorUsageBalance": "Balance: {balance}",
+  "@searchServiceEditorUsageBalance": {
+    "placeholders": {
+      "balance": {
+        "type": "String"
+      }
+    }
+  },
+  "searchServiceEditorUsageUsed": "{used} of {limit} credits used",
+  "@searchServiceEditorUsageUsed": {
+    "placeholders": {
+      "used": {
+        "type": "String"
+      },
+      "limit": {
+        "type": "String"
+      }
+    }
+  },
+  "searchServiceEditorUsageFailed": "Could not query usage: {message}",
+  "@searchServiceEditorUsageFailed": {
+    "placeholders": {
+      "message": {
+        "type": "String"
+      }
+    }
+  },
+  "searchServiceEditorTestTitle": "Test search",
+  "searchServiceEditorTestQueryHint": "Enter a query",
+  "searchServiceEditorTestRun": "Run test search",
+  "searchServiceEditorTestRunning": "Searching…",
+  "searchServiceEditorTestNoResults": "The provider returned no results.",
+  "searchServiceEditorTestFailed": "Search failed: {message}",
+  "@searchServiceEditorTestFailed": {
+    "placeholders": {
+      "message": {
+        "type": "String"
+      }
+    }
+  },
+  "searchServiceEditorResultOpenTooltip": "Open result",
+  "searchServiceEditorDeleteTooltip": "Delete search service",
+  "searchServiceEditorDeleteTitle": "Delete search service?",
+  "searchServiceEditorDeleteMessage": "Delete {provider}? This cannot be undone.",
+  "@searchServiceEditorDeleteMessage": {
+    "placeholders": {
+      "provider": {
+        "type": "String"
+      }
+    }
+  },
+  "searchServiceEditorDeleteConfirm": "Delete",
+  "searchServiceEditorDiscardTitle": "Discard changes?",
+  "searchServiceEditorDiscardMessage": "Your unsaved search service settings will be lost.",
+  "searchServiceEditorKeepEditing": "Keep editing",
+  "searchServiceEditorDiscard": "Discard",
   "searchSettingsSheetTitle": "Search Settings",
   "searchSettingsSheetBuiltinSearchTitle": "Built-in Search",
   "searchSettingsSheetBuiltinSearchDescription": "Enable model's built-in search",
@@ -1715,10 +1928,97 @@
   "themeSettingsPageUsePureBackgroundTitle": "Pure Background",
   "themeSettingsPageUsePureBackgroundSubtitle": "Bubbles and accents follow theme.",
   "themeSettingsPageColorPalettesSection": "Color Palettes",
+  "themeSettingsPageCustomPaletteName": "Custom",
+  "themeSettingsPageCustomColorReset": "Reset",
+  "themeSettingsPageCustomThemesSection": "Custom Themes",
+  "customThemeNewTheme": "New Theme",
+  "customThemeEditTheme": "Edit Theme",
+  "customThemeImportTheme": "Import Theme",
+  "customThemeNameLabel": "Theme name",
+  "customThemePrimaryColor": "Primary",
+  "customThemeSecondaryColor": "Secondary",
+  "customThemeTertiaryColor": "Tertiary",
+  "customThemeColorAuto": "Auto",
+  "customThemeSave": "Save",
+  "customThemeCancel": "Cancel",
+  "customThemeDelete": "Delete",
+  "customThemeDeleteConfirm": "Delete this theme?",
+  "customThemeCopied": "Theme JSON copied to clipboard",
+  "customThemeCopyAction": "Copy",
+  "customThemeImportHint": "Paste the theme JSON here",
+  "customThemeImportInvalid": "Invalid theme JSON",
+  "customThemeHexLabel": "Hex",
   "ttsServicesPageBackButton": "Back",
-  "ttsServicesPageTitle": "Text-to-Speech",
+  "ttsServicesPageTitle": "Voice Services",
+  "ttsServicesSectionTitle": "Text-to-Speech",
   "ttsServicesPageSettingsTooltip": "TTS settings",
   "ttsServicesPageAddTooltip": "Add",
+  "asrServicesSectionTitle": "Speech Recognition",
+  "asrServicesSectionDescription": "Turn speech into text with an on-device, system, or cloud service.",
+  "asrServicesAddTooltip": "Add speech recognition service",
+  "asrServicesEmptyTitle": "No speech recognition service",
+  "asrServicesEmptySubtitle": "Add one to show the microphone in the chat input.",
+  "asrServicesOnDeviceGroup": "On-device",
+  "asrServicesCloudGroup": "Cloud",
+  "asrServicesSystemTitle": "System",
+  "asrServicesSystemSubtitle": "Uses the device's built-in recognizer",
+  "asrServicesLocalTitle": "Offline Model",
+  "asrServicesLocalSubtitle": "Runs offline on this device after download",
+  "asrServicesOpenAiTitle": "OpenAI Realtime",
+  "asrServicesOpenAiSubtitle": "Low-latency streaming transcription",
+  "asrServicesDashScopeTitle": "DashScope",
+  "asrServicesDashScopeSubtitle": "Qwen real-time transcription",
+  "asrServicesVolcengineTitle": "Volcengine",
+  "asrServicesVolcengineSubtitle": "Doubao streaming transcription",
+  "asrServicesMimoTitle": "MiMo",
+  "asrServicesMimoSubtitle": "Segmented cloud transcription",
+  "asrServicesStepTitle": "Step",
+  "asrServicesStepSubtitle": "Step Audio segmented transcription",
+  "asrServicesAddTitle": "Add Speech Recognition",
+  "asrServicesEditTitle": "Edit Speech Recognition",
+  "asrServicesSelectedLabel": "Selected",
+  "asrServicesUnavailableLabel": "Unavailable",
+  "asrServicesEditAction": "Edit",
+  "asrServicesDeleteAction": "Delete",
+  "asrServicesCancelAction": "Cancel",
+  "asrServicesAddAction": "Add",
+  "asrServicesSaveAction": "Save",
+  "asrServicesNameLabel": "Name",
+  "asrServicesApiKeyLabel": "API Key",
+  "asrServicesEndpointLabel": "Endpoint",
+  "asrServicesModelLabel": "Model",
+  "asrServicesResourceIdLabel": "Resource ID",
+  "asrServicesLanguageLabel": "Language",
+  "asrServicesAutomaticLabel": "Automatic",
+  "asrServicesApiKeyRequired": "Enter an API key to use this service.",
+  "asrServicesChooseModelTitle": "Model",
+  "asrServicesModelDownloadAction": "Download",
+  "asrServicesModelUseAction": "Use model",
+  "asrServicesModelDeleteAction": "Remove download",
+  "asrServicesModelDownloadedLabel": "Downloaded",
+  "asrServicesModelDownloadingLabel": "Downloading…",
+  "asrServicesModelNotDownloadedLabel": "Not downloaded",
+  "asrServicesDownloadFailed": "Model download failed: {error}",
+  "@asrServicesDownloadFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "asrServicesSystemChecking": "Checking…",
+  "asrServicesSystemAvailable": "Available",
+  "asrServicesSystemCheckFailed": "System speech recognition is unavailable on this device.",
+  "asrServicesMicrophonePermissionDenied": "Microphone permission was not granted.",
+  "asrServicesNoSpeechDetected": "No speech was detected.",
+  "asrServicesRecognitionFailed": "Speech recognition failed: {error}",
+  "@asrServicesRecognitionFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
   "ttsServicesPageAddNotImplemented": "Add TTS service not implemented",
   "ttsServicesPageSystemTtsTitle": "System TTS",
   "ttsServicesPageSystemTtsAvailableSubtitle": "Use system built-in TTS",
@@ -1762,7 +2062,41 @@
   "ttsServicesFieldSpeedLabel": "Speed",
   "ttsServicesFieldLanguageTypeLabel": "Language type",
   "ttsServicesFieldLanguageLabel": "Language",
+  "ttsServicesFieldWorkspaceIdLabel": "Workspace ID",
+  "ttsServicesFieldRegionLabel": "Region",
+  "ttsServicesFieldFormatLabel": "Audio format",
+  "ttsServicesFieldOutputFormatLabel": "Output format",
+  "ttsServicesFieldSampleRateLabel": "Sample rate",
+  "ttsServicesFieldVolumeLabel": "Volume",
+  "ttsServicesFieldPitchLabel": "Pitch",
+  "ttsServicesFieldLanguageBoostLabel": "Language boost",
+  "ttsServicesFieldBitrateLabel": "Bitrate",
+  "ttsServicesFieldChannelLabel": "Channels",
+  "ttsServicesFieldSubtitlesLabel": "Generate subtitles",
+  "ttsServicesFieldPronunciationDictionaryLabel": "Pronunciation dictionary (one entry per line)",
+  "ttsServicesFieldInstructionLabel": "Style / voice description",
+  "ttsServicesFieldStreamingLabel": "Streaming",
+  "ttsServicesFieldOptimizeTextPreviewLabel": "Optimize text preview",
+  "ttsServicesFieldReferenceAudioLabel": "Reference audio (WAV/MP3 data URI)",
+  "ttsServicesFieldChooseReferenceAudioButton": "Choose reference audio",
+  "ttsServicesFieldTemperatureLabel": "Temperature",
+  "ttsServicesFieldTopPLabel": "Top P",
+  "ttsServicesFieldLatencyLabel": "Latency",
+  "ttsServicesEmotionAutoLabel": "Auto match",
   "ttsServicesValidationApiKeyRequired": "API Key is required",
+  "ttsServicesValidationReferenceIdRequired": "Voice/reference ID is required",
+  "ttsServicesValidationInstructionRequired": "A voice description is required",
+  "ttsServicesValidationSampleRate": "{format} requires {rates} Hz.",
+  "@ttsServicesValidationSampleRate": {
+    "placeholders": {
+      "format": {
+        "type": "String"
+      },
+      "rates": {
+        "type": "String"
+      }
+    }
+  },
   "ttsServicesViewDetailsButton": "View details",
   "ttsServicesDialogErrorTitle": "Error Details",
   "ttsServicesCloseButton": "Close",
@@ -1770,6 +2104,8 @@
   "ttsSettingsPlaybackSection": "Playback",
   "ttsSettingsAutoPlayTitle": "Auto-play Assistant Replies",
   "ttsSettingsAutoPlayDescription": "Start TTS automatically after an assistant reply finishes.",
+  "ttsSettingsCacheReplayTitle": "Reuse Audio for Replay",
+  "ttsSettingsCacheReplayDescription": "Replay generated network audio without requesting the TTS service again.",
   "ttsSettingsTextSelectionSection": "Text Selection",
   "ttsSettingsTextSelectionFallbackDescription": "If no matching text is found, the full reply is played.",
   "ttsSettingsTextSelectionFullTextTitle": "Full text",
@@ -1792,6 +2128,18 @@
   "ttsFloatingCloseTooltip": "Close player",
   "ttsFloatingExpandTooltip": "Expand playback controls",
   "ttsFloatingCollapseTooltip": "Collapse playback controls",
+  "ttsFloatingSaveTooltip": "Save audio",
+  "ttsSaveDialogTitle": "Save TTS audio",
+  "ttsSaveSuccess": "Audio saved successfully.",
+  "ttsSaveNothing": "No audio is available to save.",
+  "ttsSaveFailed": "Failed to save audio: {message}",
+  "@ttsSaveFailed": {
+    "placeholders": {
+      "message": {
+        "type": "String"
+      }
+    }
+  },
   "imageViewerPageShareFailedOpenFile": "Unable to share, tried to open file: {message}",
   "@imageViewerPageShareFailedOpenFile": {
     "placeholders": {
@@ -1886,6 +2234,12 @@
   "searchProviderQueritDescription": "Querit Search API for LLM applications. Returns real-time web results with site, time, country, and language filters.",
   "searchServiceNameGrok": "Grok",
   "searchProviderGrokDescription": "Grok search via xAI Responses API. Uses web and X search tools and returns cited sources.",
+  "searchServiceNameStepFun": "StepFun",
+  "searchProviderStepFunDescription": "StepFun web search via POST /v1/search.",
+  "searchServiceNameFirecrawl": "Firecrawl",
+  "searchProviderFirecrawlDescription": "Firecrawl Search API v2. Requires a Bearer API key. Scrape is not supported here.",
+  "searchServiceNameTinyFish": "TinyFish",
+  "searchProviderTinyFishDescription": "TinyFish Search API with region/language filters. Requires an API key. Fetch/Scrape is not supported here.",
   "searchServicesDialogCountryOptional": "Country/region (optional)",
   "searchServicesDialogLanguageOptional": "Language (optional)",
   "searchServicesDialogTimeFilterOptional": "Time filter (optional)",
@@ -1963,11 +2317,9 @@
   "assistantEditLocalToolAskUserSubtitle": "Let the assistant ask short questions and continue after you answer.",
   "assistantEditLocalToolCalculateTitle": "Calculator",
   "assistantEditLocalToolCalculateSubtitle": "Evaluate mathematical expressions, supports + - * / power sqrt sin cos etc.",
-  "assistantEditMemorySwitchTitle": "Memory",
   "assistantEditMemorySwitchDescription": "Allow the assistant to create and use memories across chats.",
   "assistantEditRecentChatsSwitchTitle": "Recent Chats Reference",
   "assistantEditRecentChatsSwitchDescription": "Include recent conversation titles to help with context.",
-  "assistantEditManageMemoryTitle": "Manage Memories",
   "assistantEditAddMemoryButton": "Add Memory",
   "assistantEditMemoryEmpty": "No memories yet",
   "assistantEditMemoryDialogTitle": "Memory",
@@ -2166,630 +2518,6 @@
   "fileUploadDuplicateUseExisting": "Use existing",
   "fileUploadDuplicateUploadNew": "Upload new",
   "settingsPageWorldBook": "World Book",
-  "worldBookTitle": "World Book",
-  "worldBookAdd": "Add World Book",
-  "worldBookEmptyMessage": "No world books yet",
-  "worldBookUnnamed": "Unnamed World Book",
-  "worldBookDisabledTag": "Disabled",
-  "worldBookAlwaysOnTag": "Always On",
-  "worldBookAddEntry": "Add Entry",
-  "worldBookExport": "Share / Export",
-  "worldBookConfig": "Configure",
-  "worldBookDeleteTitle": "Delete World Book",
-  "worldBookDeleteMessage": "Delete “{name}”? This cannot be undone.",
-  "@worldBookDeleteMessage": {
-    "placeholders": {
-      "name": {
-        "type": "String"
-      }
-    }
-  },
-  "worldBookCancel": "Cancel",
-  "worldBookDelete": "Delete",
-  "worldBookExportFailed": "Export failed: {error}",
-  "@worldBookExportFailed": {
-    "placeholders": {
-      "error": {
-        "type": "String"
-      }
-    }
-  },
-  "worldBookNoEntriesHint": "No entries",
-  "worldBookUnnamedEntry": "Unnamed Entry",
-  "worldBookKeywordsLine": "Keywords: {keywords}",
-  "@worldBookKeywordsLine": {
-    "placeholders": {
-      "keywords": {
-        "type": "String"
-      }
-    }
-  },
-  "worldBookEditEntry": "Edit Entry",
-  "worldBookDeleteEntry": "Delete Entry",
-  "worldBookNameLabel": "Name",
-  "worldBookDescriptionLabel": "Description",
-  "worldBookEnabledLabel": "Enabled",
-  "worldBookSave": "Save",
-  "worldBookEntryNameLabel": "Entry name",
-  "worldBookEntryEnabledLabel": "Entry enabled",
-  "worldBookEntryPriorityLabel": "Priority",
-  "worldBookEntryKeywordsLabel": "Keywords",
-  "worldBookEntryKeywordsHint": "Type a keyword and tap + to add.",
-  "worldBookEntryKeywordInputHint": "Type a keyword",
-  "worldBookEntryKeywordAddTooltip": "Add keyword",
-  "worldBookEntryUseRegexLabel": "Use regex",
-  "worldBookEntryCaseSensitiveLabel": "Case sensitive",
-  "worldBookEntryAlwaysOnLabel": "Always active",
-  "worldBookEntryAlwaysOnHint": "Always inject without keyword matching",
-  "worldBookEntryScanDepthLabel": "Scan depth",
-  "worldBookEntryContentLabel": "Content",
-  "worldBookEntryInjectionPositionLabel": "Injection position",
-  "worldBookEntryInjectionRoleLabel": "Injection role",
-  "worldBookEntryInjectDepthLabel": "Injection depth",
-  "worldBookInjectionPositionBeforeSystemPrompt": "Before system prompt",
-  "worldBookInjectionPositionAfterSystemPrompt": "After system prompt",
-  "worldBookInjectionPositionTopOfChat": "Top of chat",
-  "worldBookInjectionPositionBottomOfChat": "Bottom of chat",
-  "worldBookInjectionPositionAtDepth": "At depth",
-  "worldBookInjectionRoleUser": "User",
-  "worldBookInjectionRoleAssistant": "Assistant",
-  "mcpToolNeedsApproval": "Require approval",
-  "toolApprovalPending": "Waiting for approval",
-  "toolApprovalApprove": "Approve",
-  "toolApprovalDeny": "Deny",
-  "toolApprovalDenyTitle": "Deny tool call",
-  "toolApprovalDenyHint": "Reason (optional)",
-  "toolApprovalDeniedMessage": "Tool call \"{toolName}\" was denied by user. Reason: {reason}",
-  "askUserCardSubmit": "Submit answer",
-  "askUserCardCustomHint": "Type your answer",
-  "askUserCardSomethingElse": "Something else",
-  "askUserCardSkip": "Skip",
-  "askUserCardSkipped": "Skipped",
-  "askUserCardAnswered": "Answered",
-  "askUserCardInactive": "This question is no longer active. Regenerate or continue the conversation.",
-  "askUserCardCancelled": "Question cancelled",
-  "askUserCardQuestionCount": "{count, plural, =1{Ask 1 question} other{Ask {count} questions}}",
-  "@askUserCardQuestionCount": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "tokenDetailPromptTokens": "{count} tokens",
-  "@tokenDetailPromptTokens": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "tokenDetailPromptTokensWithCache": "{count} tokens ({cached} cached)",
-  "@tokenDetailPromptTokensWithCache": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      },
-      "cached": {
-        "type": "int"
-      }
-    }
-  },
-  "tokenDetailCompletionTokens": "{count} tokens",
-  "@tokenDetailCompletionTokens": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "tokenDetailSpeed": "{value} tok/s",
-  "@tokenDetailSpeed": {
-    "placeholders": {
-      "value": {
-        "type": "String"
-      }
-    }
-  },
-  "tokenDetailDuration": "{value}s",
-  "@tokenDetailDuration": {
-    "placeholders": {
-      "value": {
-        "type": "String"
-      }
-    }
-  },
-  "tokenDetailTotalTokens": "{count} tokens",
-  "@tokenDetailTotalTokens": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "debugPageTitle": "Debug",
-  "debugPageConversationToolsTitle": "Conversation tools",
-  "debugPageCreateOversizedConversationButton": "Create oversized conversation (30 MB)",
-  "debugPageCreateManyMessagesConversationButton": "Create 1024-message conversation",
-  "debugPageCreateDailyMixedMarkdownConversationButton": "Create 3000 daily mixed Markdown messages",
-  "debugPageCreateLongReasoningConversationButton": "Create long reasoning conversation (128 messages)",
-  "debugPageCreatingButton": "Creating...",
-  "debugPageCreatingOversizedConversation": "Creating a 30 MB oversized conversation...",
-  "debugPageCreatingManyMessagesConversation": "Creating a 1024-message conversation...",
-  "debugPageCreatingDailyMixedMarkdownConversation": "Creating a 3000-message daily mixed Markdown conversation...",
-  "debugPageCreatingLongReasoningConversation": "Creating a long reasoning debug conversation...",
-  "debugPageNoCurrentAssistant": "No current assistant. Create or select an assistant first.",
-  "debugPageConversationCreated": "Created debug conversation with {count} messages.",
-  "@debugPageConversationCreated": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "debugPageCreateConversationFailed": "Failed to create debug conversation: {error}",
-  "@debugPageCreateConversationFailed": {
-    "placeholders": {
-      "error": {
-        "type": "String"
-      }
-    }
-  },
-  "debugPageOversizedConversationTitle": "Oversized conversation test ({sizeMB} MB)",
-  "@debugPageOversizedConversationTitle": {
-    "placeholders": {
-      "sizeMB": {
-        "type": "int"
-      }
-    }
-  },
-  "debugPageManyMessagesConversationTitle": "{count}-message conversation test",
-  "@debugPageManyMessagesConversationTitle": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "debugPageDailyMixedMarkdownConversationTitle": "{count}-message daily mixed Markdown test",
-  "@debugPageDailyMixedMarkdownConversationTitle": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "debugPageLongReasoningConversationTitle": "{count}-message long reasoning test",
-  "@debugPageLongReasoningConversationTitle": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "debugPageOversizedConversationSeedText": "This is long debug text for reproducing slow rendering in oversized conversations. It includes repeated Markdown-like text, punctuation, CJK content, and plain words so chat rendering, storage, and scrolling can be profiled.",
-  "debugPageManyMessagesSeedText": "{role} message #{index}: quick random debug sample for testing list rendering, scrolling stability, message grouping, and conversation history performance.",
-  "@debugPageManyMessagesSeedText": {
-    "placeholders": {
-      "role": {
-        "type": "String"
-      },
-      "index": {
-        "type": "int"
-      }
-    }
-  },
-  "assistantEditPageSkillsTab": "Skills",
-  "assistantEditSkillsEmptyMessage": "No skills installed yet. Import a skill file first.",
-  "assistantEditManageSkillsButton": "Manage Skills",
-  "skillsTitle": "Skills",
-  "skillsImportTooltip": "Import Skills",
-  "skillsAddTooltip": "Add Skill",
-  "skillsEmptyMessage": "Import Markdown, JSON, YAML, PDF, DOCX, or ZIP skills.",
-  "skillsImportButton": "Import Skill",
-  "skillsDeleteAction": "Delete",
-  "skillsImportFailed": "Skills import failed: {error}",
-  "@skillsImportFailed": {
-    "placeholders": {
-      "error": {
-        "type": "String"
-      }
-    }
-  },
-  "skillsNoValidImported": "No valid skill files imported.",
-  "skillsImportedCount": "Imported {count} skill(s).",
-  "@skillsImportedCount": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "skillsTriggersLine": "Triggers: {keywords}",
-  "@skillsTriggersLine": {
-    "placeholders": {
-      "keywords": {
-        "type": "String"
-      }
-    }
-  },
-  "skillsSaveButton": "Save",
-  "skillsNameLabel": "Name",
-  "skillsDescriptionLabel": "Description",
-  "skillsTriggerKeywordsLabel": "Trigger keywords",
-  "skillsTriggerKeywordsHint": "code review, dcf, rewrite",
-  "skillsContentHint": "Paste skill instructions here.",
-  "storageSpaceCategoryLegacyChatData": "Chat Records (Old)",
-  "storageSpaceCategoryRestoreTraces": "Restore Traces",
-  "storageSpaceRestoreTracesHint": "Previous data snapshots kept after completed restores. Clearing them does not affect the current app data.",
-  "storageSpaceClearRestoreTracesButton": "Clear Restore Traces",
-  "storageSpaceClearRestoreTracesConfirmMessage": "Clear completed restore snapshots? Your current database, settings, and files will not be affected.",
-  "storageSpaceSubCompletedRestoreRuns": "Completed restore snapshots",
-  "storageSpaceLegacyChatDataHint": "These are retained Hive files from before the SQLite migration. Clearing them does not delete your current chat records.",
-  "storageSpaceSubChatDatabase": "Chat database",
-  "storageSpaceSubChatWriteAheadLog": "Write-ahead log",
-  "storageSpaceSubChatSharedMemory": "Shared memory index",
-  "storageSpaceClearLegacyChatDataButton": "Clear Old Chat Records",
-  "storageSpaceClearLegacyChatDataConfirmMessage": "Clear the retained old chat files? Your current SQLite chat records will remain available.",
-  "storageSpaceSourceLabel": "Source",
-  "storageSpaceSourceAll": "All",
-  "storageSpaceSourceUserUpload": "User uploads",
-  "storageSpaceSourceAssistant": "Assistant",
-  "storageSpaceSortLabel": "Sort",
-  "storageSpaceSortNewest": "Newest",
-  "storageSpaceSortOldest": "Oldest",
-  "storageSpaceSortLargest": "Largest",
-  "storageSpaceSortSmallest": "Smallest",
-  "assistantEditPromptTimeVarWarning": "Using time variables in the system prompt makes the beginning of every request different, so prompt caching cannot hit and both cost and time-to-first-token go up. If the model needs to know the current time, use the \"Append current time\" switch below.",
-  "assistantEditPromptAppendTimeTitle": "Append current time",
-  "assistantEditPromptAppendTimeSubtitle": "Append the send time to the end of each user message. Time stays at the end of the request, so prompt caching is unaffected.",
-  "assistantEditPromptAppendTimeInfoTitle": "Appended time format",
-  "assistantEditPromptAppendTimeInfoBody": "When enabled, a blank line and then the following tag are appended at the end of each user message:\n\n{example}\n\nThe timestamp is that message’s own send time, so it stays stable when you retry.",
-  "@assistantEditPromptAppendTimeInfoBody": {
-    "placeholders": {
-      "example": {
-        "type": "String"
-      }
-    }
-  },
-  "assistantEditPromptAppendTimeInfoClose": "Got it",
-  "assistantEditPromptTimeVarDialogTitle": "System prompt contains time variables",
-  "assistantEditPromptTimeVarDialogBody": "Your system prompt uses {variables}. The system prompt is re-rendered on every request, so time variables make the beginning of every request different and prompt caching cannot hit. Consider removing these variables and using \"Append current time\" instead — it puts the time at the end of the request and does not affect the prefix.",
-  "@assistantEditPromptTimeVarDialogBody": {
-    "placeholders": {
-      "variables": {
-        "type": "String"
-      }
-    }
-  },
-  "assistantEditPromptTimeVarDialogRemove": "Go remove",
-  "assistantEditPromptTimeVarDialogKeep": "Enable anyway",
-  "backupPageRestartContentWithSkipped": "Import completed, but {count} conversations with invalid message ordering were skipped. Restart Kelivo to apply the imported data safely.",
-  "@backupPageRestartContentWithSkipped": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "restartAppFailedMessage": "Kelivo could not restart automatically. Fully close it, then open it again.",
-  "backupRestoreRolledBackTitle": "Restore was rolled back",
-  "backupRestoreRolledBackContent": "The restore could not be completed. Kelivo verified and kept your previous data.",
-  "backupRestoreFailureTitle": "Restore requires attention",
-  "backupRestoreFailureContent": "Kelivo could not verify a complete old or new data set, so chat data was not opened. Close Kelivo and try again. If this repeats, keep the diagnostic code for support.",
-  "backupRestoreBusinessLeaseUnavailableTitle": "Kelivo is already running",
-  "backupRestoreBusinessLeaseUnavailableContent": "Kelivo's data is still in use by another app process. Close any other Kelivo window, then restart. Your chat data has not been opened by this process.",
-  "backupRestoreFailureRestartButton": "Restart Kelivo",
-  "backupRestoreFailureCopyButton": "Copy diagnostic code",
-  "backupRestoreFailureCopied": "Diagnostic code copied",
-  "backupRestoreFailureDiagnostic": "Diagnostic code: {code}",
-  "@backupRestoreFailureDiagnostic": {
-    "placeholders": {
-      "code": {
-        "type": "String"
-      }
-    }
-  },
-  "startupRecoveryMoreOptions": "More recovery options",
-  "startupRecoveryRepairButton": "Repair and restart",
-  "startupRecoveryExportButton": "Export a copy of my data",
-  "startupRecoveryResetButton": "Reset data",
-  "startupRecoveryBusy": "Working…",
-  "startupRecoveryExportSucceeded": "A copy of your data was saved.",
-  "startupRecoveryExportFailed": "Could not export a copy of your data.",
-  "startupRecoveryRepairFailed": "Repair could not fix this. Export a copy of your data, then reset.",
-  "startupRecoveryResetFailed": "Reset failed. Fully close Kelivo, then open it again.",
-  "startupRecoveryResetDialogTitle": "Reset all data?",
-  "startupRecoveryResetDialogContent": "This permanently deletes Kelivo's database on this device and starts fresh. If you might need this data, export a copy first. This cannot be undone.",
-  "startupRecoveryResetDialogConfirm": "Reset and restart",
-  "startupRecoveryResetDialogCancel": "Cancel",
-  "startupDatabaseUpdateRequiredTitle": "Update Kelivo to continue",
-  "startupDatabaseUpdateRequiredContent": "The chat database on this device was created by a newer version of Kelivo and cannot be opened by this version. Your data has not been changed. Install the latest version of Kelivo, then open it again.",
-  "backupPageRestoreFailedMessage": "Restore failed: {error}",
-  "@backupPageRestoreFailedMessage": {
-    "placeholders": {
-      "error": {
-        "type": "String"
-      }
-    }
-  },
-  "backupPageCherryStudioUnsupportedBackupVersion": "This backup uses Cherry Studio format version {version}, which Kelivo cannot import yet. Export from Cherry Studio v1 instead, or wait for a Kelivo update that supports Cherry Studio v2 backups.",
-  "@backupPageCherryStudioUnsupportedBackupVersion": {
-    "placeholders": {
-      "version": {
-        "type": "String"
-      }
-    }
-  },
-  "chatMessageWidgetAttachmentUnavailable": "Attachment unavailable",
-  "chatMessageWidgetMemoryRead": "Read Memory",
-  "chatMessageWidgetMemoryUpdate": "Update Memory",
-  "chatMessageWidgetMemorySearchProfile": "Search Memory",
-  "chatMessageWidgetMemoryEdit": "Edit Memory",
-  "chatMessageWidgetMemoryDelete": "Delete Memory",
-  "chatMessageWidgetUpdateUserProfile": "Update User Profile",
-  "chatMessageWidgetChatSearch": "Search Past Chats",
-  "chatInputBarVoiceInputTooltip": "Voice input",
-  "chatInputBarVoiceCancelTooltip": "Discard recording",
-  "chatInputBarVoiceStopTooltip": "Stop and transcribe to input",
-  "chatInputBarVoiceSendTooltip": "Transcribe and send",
-  "chatInputBarVoiceTranscribing": "Recognizing…",
-  "chatInputBarImageProcessing": "Processing image",
-  "mcpPageStatusAuthorizationRequired": "Authorization required",
-  "mcpPageStatusAuthorizing": "Authorizing…",
-  "mcpPageOAuthRequired": "OAuth sign-in is required",
-  "mcpPageOAuthSignIn": "Sign in with OAuth",
-  "backgroundTaskFailed": "{task} failed: {error}",
-  "@backgroundTaskFailed": {
-    "placeholders": {
-      "task": {
-        "type": "String"
-      },
-      "error": {
-        "type": "String"
-      }
-    }
-  },
-  "providerDetailPageCustomRequestTitle": "Custom Request",
-  "providerDetailPageCustomRequestDescription": "Applies to every model from this provider. Model settings override these values; these values override assistant settings.",
-  "searchServiceEditorProviderTypeTitle": "Search provider",
-  "searchServiceEditorConfigurationTitle": "Configuration",
-  "searchServiceEditorNoConfiguration": "This provider does not require additional configuration.",
-  "searchServiceEditorMultiKeyTitle": "Multi-key rotation",
-  "searchServiceEditorMultiKeyNone": "Not configured",
-  "searchApiKeysPageDescription": "Keys rotate in the order listed; the first is the primary key. Usage is not queried to avoid provider rate limiting.",
-  "searchApiKeysPagePrimaryBadge": "Primary",
-  "searchApiKeysPageBatchHint": "Paste one or more keys — one per line or comma-separated",
-  "searchApiKeysPageBatchResult": "Added {added}, skipped {skipped} duplicate(s)",
-  "@searchApiKeysPageBatchResult": {
-    "placeholders": {
-      "added": {
-        "type": "String"
-      },
-      "skipped": {
-        "type": "String"
-      }
-    }
-  },
-  "searchApiKeysPageAdd": "Add",
-  "searchApiKeysPageEmpty": "No keys configured yet.",
-  "searchServiceEditorMultiKeyCount": "{count} keys",
-  "@searchServiceEditorMultiKeyCount": {
-    "placeholders": {
-      "count": {
-        "type": "String"
-      }
-    }
-  },
-  "searchServiceEditorUsageTitle": "Account usage",
-  "searchServiceEditorUsageNotQueried": "Usage has not been queried yet.",
-  "searchServiceEditorUsageQuery": "Check usage",
-  "searchServiceEditorUsageQuerying": "Checking…",
-  "searchServiceEditorUsageRemaining": "{remaining} credits remaining",
-  "@searchServiceEditorUsageRemaining": {
-    "placeholders": {
-      "remaining": {
-        "type": "String"
-      }
-    }
-  },
-  "searchServiceEditorUsageBalance": "Balance: {balance}",
-  "@searchServiceEditorUsageBalance": {
-    "placeholders": {
-      "balance": {
-        "type": "String"
-      }
-    }
-  },
-  "searchServiceEditorUsageUsed": "{used} of {limit} credits used",
-  "@searchServiceEditorUsageUsed": {
-    "placeholders": {
-      "used": {
-        "type": "String"
-      },
-      "limit": {
-        "type": "String"
-      }
-    }
-  },
-  "searchServiceEditorUsageFailed": "Could not query usage: {message}",
-  "@searchServiceEditorUsageFailed": {
-    "placeholders": {
-      "message": {
-        "type": "String"
-      }
-    }
-  },
-  "searchServiceEditorTestTitle": "Test search",
-  "searchServiceEditorTestQueryHint": "Enter a query",
-  "searchServiceEditorTestRun": "Run test search",
-  "searchServiceEditorTestRunning": "Searching…",
-  "searchServiceEditorTestNoResults": "The provider returned no results.",
-  "searchServiceEditorTestFailed": "Search failed: {message}",
-  "@searchServiceEditorTestFailed": {
-    "placeholders": {
-      "message": {
-        "type": "String"
-      }
-    }
-  },
-  "searchServiceEditorResultOpenTooltip": "Open result",
-  "searchServiceEditorDeleteTooltip": "Delete search service",
-  "searchServiceEditorDeleteTitle": "Delete search service?",
-  "searchServiceEditorDeleteMessage": "Delete {provider}? This cannot be undone.",
-  "@searchServiceEditorDeleteMessage": {
-    "placeholders": {
-      "provider": {
-        "type": "String"
-      }
-    }
-  },
-  "searchServiceEditorDeleteConfirm": "Delete",
-  "searchServiceEditorDiscardTitle": "Discard changes?",
-  "searchServiceEditorDiscardMessage": "Your unsaved search service settings will be lost.",
-  "searchServiceEditorKeepEditing": "Keep editing",
-  "searchServiceEditorDiscard": "Discard",
-  "themeSettingsPageCustomPaletteName": "Custom",
-  "themeSettingsPageCustomColorReset": "Reset",
-  "themeSettingsPageCustomThemesSection": "Custom Themes",
-  "customThemeNewTheme": "New Theme",
-  "customThemeEditTheme": "Edit Theme",
-  "customThemeImportTheme": "Import Theme",
-  "customThemeNameLabel": "Theme name",
-  "customThemePrimaryColor": "Primary",
-  "customThemeSecondaryColor": "Secondary",
-  "customThemeTertiaryColor": "Tertiary",
-  "customThemeColorAuto": "Auto",
-  "customThemeSave": "Save",
-  "customThemeCancel": "Cancel",
-  "customThemeDelete": "Delete",
-  "customThemeDeleteConfirm": "Delete this theme?",
-  "customThemeCopied": "Theme JSON copied to clipboard",
-  "customThemeCopyAction": "Copy",
-  "customThemeImportHint": "Paste the theme JSON here",
-  "customThemeImportInvalid": "Invalid theme JSON",
-  "customThemeHexLabel": "Hex",
-  "ttsServicesSectionTitle": "Text-to-Speech",
-  "asrServicesSectionTitle": "Speech Recognition",
-  "asrServicesSectionDescription": "Turn speech into text with an on-device, system, or cloud service.",
-  "asrServicesAddTooltip": "Add speech recognition service",
-  "asrServicesEmptyTitle": "No speech recognition service",
-  "asrServicesEmptySubtitle": "Add one to show the microphone in the chat input.",
-  "asrServicesOnDeviceGroup": "On-device",
-  "asrServicesCloudGroup": "Cloud",
-  "asrServicesSystemTitle": "System",
-  "asrServicesSystemSubtitle": "Uses the device's built-in recognizer",
-  "asrServicesLocalTitle": "Offline Model",
-  "asrServicesLocalSubtitle": "Runs offline on this device after download",
-  "asrServicesOpenAiTitle": "OpenAI Realtime",
-  "asrServicesOpenAiSubtitle": "Low-latency streaming transcription",
-  "asrServicesDashScopeTitle": "DashScope",
-  "asrServicesDashScopeSubtitle": "Qwen real-time transcription",
-  "asrServicesVolcengineTitle": "Volcengine",
-  "asrServicesVolcengineSubtitle": "Doubao streaming transcription",
-  "asrServicesMimoTitle": "MiMo",
-  "asrServicesMimoSubtitle": "Segmented cloud transcription",
-  "asrServicesStepTitle": "Step",
-  "asrServicesStepSubtitle": "Step Audio segmented transcription",
-  "asrServicesAddTitle": "Add Speech Recognition",
-  "asrServicesEditTitle": "Edit Speech Recognition",
-  "asrServicesSelectedLabel": "Selected",
-  "asrServicesUnavailableLabel": "Unavailable",
-  "asrServicesEditAction": "Edit",
-  "asrServicesDeleteAction": "Delete",
-  "asrServicesCancelAction": "Cancel",
-  "asrServicesAddAction": "Add",
-  "asrServicesSaveAction": "Save",
-  "asrServicesNameLabel": "Name",
-  "asrServicesApiKeyLabel": "API Key",
-  "asrServicesEndpointLabel": "Endpoint",
-  "asrServicesModelLabel": "Model",
-  "asrServicesResourceIdLabel": "Resource ID",
-  "asrServicesLanguageLabel": "Language",
-  "asrServicesAutomaticLabel": "Automatic",
-  "asrServicesApiKeyRequired": "Enter an API key to use this service.",
-  "asrServicesChooseModelTitle": "Model",
-  "asrServicesModelDownloadAction": "Download",
-  "asrServicesModelUseAction": "Use model",
-  "asrServicesModelDeleteAction": "Remove download",
-  "asrServicesModelDownloadedLabel": "Downloaded",
-  "asrServicesModelDownloadingLabel": "Downloading…",
-  "asrServicesModelNotDownloadedLabel": "Not downloaded",
-  "asrServicesDownloadFailed": "Model download failed: {error}",
-  "@asrServicesDownloadFailed": {
-    "placeholders": {
-      "error": {
-        "type": "String"
-      }
-    }
-  },
-  "asrServicesSystemChecking": "Checking…",
-  "asrServicesSystemAvailable": "Available",
-  "asrServicesSystemCheckFailed": "System speech recognition is unavailable on this device.",
-  "asrServicesMicrophonePermissionDenied": "Microphone permission was not granted.",
-  "asrServicesNoSpeechDetected": "No speech was detected.",
-  "asrServicesRecognitionFailed": "Speech recognition failed: {error}",
-  "@asrServicesRecognitionFailed": {
-    "placeholders": {
-      "error": {
-        "type": "String"
-      }
-    }
-  },
-  "ttsServicesFieldWorkspaceIdLabel": "Workspace ID",
-  "ttsServicesFieldRegionLabel": "Region",
-  "ttsServicesFieldFormatLabel": "Audio format",
-  "ttsServicesFieldOutputFormatLabel": "Output format",
-  "ttsServicesFieldSampleRateLabel": "Sample rate",
-  "ttsServicesFieldVolumeLabel": "Volume",
-  "ttsServicesFieldPitchLabel": "Pitch",
-  "ttsServicesFieldLanguageBoostLabel": "Language boost",
-  "ttsServicesFieldBitrateLabel": "Bitrate",
-  "ttsServicesFieldChannelLabel": "Channels",
-  "ttsServicesFieldSubtitlesLabel": "Generate subtitles",
-  "ttsServicesFieldPronunciationDictionaryLabel": "Pronunciation dictionary (one entry per line)",
-  "ttsServicesFieldInstructionLabel": "Style / voice description",
-  "ttsServicesFieldStreamingLabel": "Streaming",
-  "ttsServicesFieldOptimizeTextPreviewLabel": "Optimize text preview",
-  "ttsServicesFieldReferenceAudioLabel": "Reference audio (WAV/MP3 data URI)",
-  "ttsServicesFieldChooseReferenceAudioButton": "Choose reference audio",
-  "ttsServicesFieldTemperatureLabel": "Temperature",
-  "ttsServicesFieldTopPLabel": "Top P",
-  "ttsServicesFieldLatencyLabel": "Latency",
-  "ttsServicesEmotionAutoLabel": "Auto match",
-  "ttsServicesValidationReferenceIdRequired": "Voice/reference ID is required",
-  "ttsServicesValidationInstructionRequired": "A voice description is required",
-  "ttsServicesValidationSampleRate": "{format} requires {rates} Hz.",
-  "@ttsServicesValidationSampleRate": {
-    "placeholders": {
-      "format": {
-        "type": "String"
-      },
-      "rates": {
-        "type": "String"
-      }
-    }
-  },
-  "ttsSettingsCacheReplayTitle": "Reuse Audio for Replay",
-  "ttsSettingsCacheReplayDescription": "Replay generated network audio without requesting the TTS service again.",
-  "ttsFloatingSaveTooltip": "Save audio",
-  "ttsSaveDialogTitle": "Save TTS audio",
-  "ttsSaveSuccess": "Audio saved successfully.",
-  "ttsSaveNothing": "No audio is available to save.",
-  "ttsSaveFailed": "Failed to save audio: {message}",
-  "@ttsSaveFailed": {
-    "placeholders": {
-      "message": {
-        "type": "String"
-      }
-    }
-  },
-  "searchServiceNameStepFun": "StepFun",
-  "searchProviderStepFunDescription": "StepFun web search via POST /v1/search.",
-  "searchServiceNameFirecrawl": "Firecrawl",
-  "searchProviderFirecrawlDescription": "Firecrawl Search API v2. Requires a Bearer API key. Scrape is not supported here.",
-  "searchServiceNameTinyFish": "TinyFish",
-  "searchProviderTinyFishDescription": "TinyFish Search API with region/language filters. Requires an API key. Fetch/Scrape is not supported here.",
   "settingsPageMemory": "Memory",
   "memorySettingsPageTitle": "Memory",
   "memorySettingsModelSection": "Memory model",
@@ -3061,12 +2789,14 @@
   "memoryUiSearchClear": "Clear search",
   "memoryUiAssistantLegacyTitle": "Legacy memories (read-only)",
   "memoryUiAssistantLegacySubtitle": "Old memories of this assistant from previous versions",
+  "assistantEditMemorySwitchTitle": "Use long-term memory",
   "assistantEditAutoOrganizeTitle": "Auto-organize memory",
   "assistantEditAutoOrganizeSubtitle": "Run the memory pipeline after chats",
   "assistantEditAllowPastRecallTitle": "Allow recalling past chats",
   "assistantEditAllowPastRecallSubtitle": "Enable chat search across past conversations",
   "assistantEditGenerateSummaryTitle": "Generate conversation summaries",
   "assistantEditGenerateSummarySubtitle": "Summaries are only used by chat search",
+  "assistantEditManageMemoryTitle": "Memories visible to this assistant",
   "assistantEditWriteScopeTitle": "Memory write scope",
   "assistantEditWriteScopeSubtitle": "Where new memories are stored by default",
   "assistantEditWriteScopeAlwaysGlobal": "Always global",
@@ -3093,6 +2823,219 @@
   "assistantEditOrganizeFrequencyCustomLabel": "Turns",
   "assistantEditOrganizeFrequencyCustomHint": "1–20",
   "assistantEditOrganizeFrequencyCustomInvalid": "Enter a number between 1 and 20",
+  "worldBookTitle": "World Book",
+  "worldBookAdd": "Add World Book",
+  "worldBookEmptyMessage": "No world books yet",
+  "worldBookUnnamed": "Unnamed World Book",
+  "worldBookDisabledTag": "Disabled",
+  "worldBookAlwaysOnTag": "Always On",
+  "worldBookAddEntry": "Add Entry",
+  "worldBookExport": "Share / Export",
+  "worldBookConfig": "Configure",
+  "worldBookDeleteTitle": "Delete World Book",
+  "worldBookDeleteMessage": "Delete “{name}”? This cannot be undone.",
+  "@worldBookDeleteMessage": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "worldBookCancel": "Cancel",
+  "worldBookDelete": "Delete",
+  "worldBookExportFailed": "Export failed: {error}",
+  "@worldBookExportFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "worldBookNoEntriesHint": "No entries",
+  "worldBookUnnamedEntry": "Unnamed Entry",
+  "worldBookKeywordsLine": "Keywords: {keywords}",
+  "@worldBookKeywordsLine": {
+    "placeholders": {
+      "keywords": {
+        "type": "String"
+      }
+    }
+  },
+  "worldBookEditEntry": "Edit Entry",
+  "worldBookDeleteEntry": "Delete Entry",
+  "worldBookNameLabel": "Name",
+  "worldBookDescriptionLabel": "Description",
+  "worldBookEnabledLabel": "Enabled",
+  "worldBookSave": "Save",
+  "worldBookEntryNameLabel": "Entry name",
+  "worldBookEntryEnabledLabel": "Entry enabled",
+  "worldBookEntryPriorityLabel": "Priority",
+  "worldBookEntryKeywordsLabel": "Keywords",
+  "worldBookEntryKeywordsHint": "Type a keyword and tap + to add.",
+  "worldBookEntryKeywordInputHint": "Type a keyword",
+  "worldBookEntryKeywordAddTooltip": "Add keyword",
+  "worldBookEntryUseRegexLabel": "Use regex",
+  "worldBookEntryCaseSensitiveLabel": "Case sensitive",
+  "worldBookEntryAlwaysOnLabel": "Always active",
+  "worldBookEntryAlwaysOnHint": "Always inject without keyword matching",
+  "worldBookEntryScanDepthLabel": "Scan depth",
+  "worldBookEntryContentLabel": "Content",
+  "worldBookEntryInjectionPositionLabel": "Injection position",
+  "worldBookEntryInjectionRoleLabel": "Injection role",
+  "worldBookEntryInjectDepthLabel": "Injection depth",
+  "worldBookInjectionPositionBeforeSystemPrompt": "Before system prompt",
+  "worldBookInjectionPositionAfterSystemPrompt": "After system prompt",
+  "worldBookInjectionPositionTopOfChat": "Top of chat",
+  "worldBookInjectionPositionBottomOfChat": "Bottom of chat",
+  "worldBookInjectionPositionAtDepth": "At depth",
+  "worldBookInjectionRoleUser": "User",
+  "worldBookInjectionRoleAssistant": "Assistant",
+  "mcpToolNeedsApproval": "Require approval",
+  "toolApprovalPending": "Waiting for approval",
+  "toolApprovalApprove": "Approve",
+  "toolApprovalDeny": "Deny",
+  "toolApprovalDenyTitle": "Deny tool call",
+  "toolApprovalDenyHint": "Reason (optional)",
+  "toolApprovalDeniedMessage": "Tool call \"{toolName}\" was denied by user. Reason: {reason}",
+  "askUserCardSubmit": "Submit answer",
+  "askUserCardCustomHint": "Type your answer",
+  "askUserCardSomethingElse": "Something else",
+  "askUserCardSkip": "Skip",
+  "askUserCardSkipped": "Skipped",
+  "askUserCardAnswered": "Answered",
+  "askUserCardInactive": "This question is no longer active. Regenerate or continue the conversation.",
+  "askUserCardCancelled": "Question cancelled",
+  "askUserCardQuestionCount": "{count, plural, =1{Ask 1 question} other{Ask {count} questions}}",
+  "@askUserCardQuestionCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "tokenDetailPromptTokens": "{count} tokens",
+  "@tokenDetailPromptTokens": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "tokenDetailPromptTokensWithCache": "{count} tokens ({cached} cached)",
+  "@tokenDetailPromptTokensWithCache": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "cached": {
+        "type": "int"
+      }
+    }
+  },
+  "tokenDetailCompletionTokens": "{count} tokens",
+  "@tokenDetailCompletionTokens": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "tokenDetailSpeed": "{value} tok/s",
+  "@tokenDetailSpeed": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "tokenDetailDuration": "{value}s",
+  "@tokenDetailDuration": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "tokenDetailTotalTokens": "{count} tokens",
+  "@tokenDetailTotalTokens": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "debugPageTitle": "Debug",
+  "debugPageConversationToolsTitle": "Conversation tools",
+  "debugPageCreateOversizedConversationButton": "Create oversized conversation (30 MB)",
+  "debugPageCreateManyMessagesConversationButton": "Create 1024-message conversation",
+  "debugPageCreateDailyMixedMarkdownConversationButton": "Create 3000 daily mixed Markdown messages",
+  "debugPageCreateLongReasoningConversationButton": "Create long reasoning conversation (128 messages)",
+  "debugPageCreatingButton": "Creating...",
+  "debugPageCreatingOversizedConversation": "Creating a 30 MB oversized conversation...",
+  "debugPageCreatingManyMessagesConversation": "Creating a 1024-message conversation...",
+  "debugPageCreatingDailyMixedMarkdownConversation": "Creating a 3000-message daily mixed Markdown conversation...",
+  "debugPageCreatingLongReasoningConversation": "Creating a long reasoning debug conversation...",
+  "debugPageNoCurrentAssistant": "No current assistant. Create or select an assistant first.",
+  "debugPageConversationCreated": "Created debug conversation with {count} messages.",
+  "@debugPageConversationCreated": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "debugPageCreateConversationFailed": "Failed to create debug conversation: {error}",
+  "@debugPageCreateConversationFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "debugPageOversizedConversationTitle": "Oversized conversation test ({sizeMB} MB)",
+  "@debugPageOversizedConversationTitle": {
+    "placeholders": {
+      "sizeMB": {
+        "type": "int"
+      }
+    }
+  },
+  "debugPageManyMessagesConversationTitle": "{count}-message conversation test",
+  "@debugPageManyMessagesConversationTitle": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "debugPageDailyMixedMarkdownConversationTitle": "{count}-message daily mixed Markdown test",
+  "@debugPageDailyMixedMarkdownConversationTitle": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "debugPageLongReasoningConversationTitle": "{count}-message long reasoning test",
+  "@debugPageLongReasoningConversationTitle": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "debugPageOversizedConversationSeedText": "This is long debug text for reproducing slow rendering in oversized conversations. It includes repeated Markdown-like text, punctuation, CJK content, and plain words so chat rendering, storage, and scrolling can be profiled.",
+  "debugPageManyMessagesSeedText": "{role} message #{index}: quick random debug sample for testing list rendering, scrolling stability, message grouping, and conversation history performance.",
+  "@debugPageManyMessagesSeedText": {
+    "placeholders": {
+      "role": {
+        "type": "String"
+      },
+      "index": {
+        "type": "int"
+      }
+    }
+  },
   "migrationIntroTitle": "Upgrade Chat Storage",
   "migrationIntroSubtitle": "Kelivo is moving chat history to a faster SQLite database. The upgrade runs before the app opens so your data stays consistent.",
   "migrationBackupNote": "Before migration starts, Kelivo exports a ZIP backup with settings, chat history, and local files.",
@@ -3286,5 +3229,50 @@
     }
   },
   "memoryTraceShowMore": "Show full text",
-  "memoryTraceShowLess": "Collapse"
-}
+  "memoryTraceShowLess": "Collapse",
+  "chatMessageWidgetEditMemory": "Edit Memory",
+  "chatMessageWidgetDeleteMemory": "Delete Memory",
+  "assistantEditPageSkillsTab": "Skills",
+  "assistantEditSkillsEmptyMessage": "No skills installed yet. Import a skill file first.",
+  "assistantEditManageSkillsButton": "Manage Skills",
+  "skillsTitle": "Skills",
+  "skillsImportTooltip": "Import Skills",
+  "skillsAddTooltip": "Add Skill",
+  "skillsEmptyMessage": "Import Markdown, JSON, YAML, PDF, DOCX, or ZIP skills.",
+  "skillsImportButton": "Import Skill",
+  "skillsDeleteAction": "Delete",
+  "skillsImportFailed": "Skills import failed: {error}",
+  "skillsNoValidImported": "No valid skill files imported.",
+  "skillsImportedCount": "Imported {count} skill(s).",
+  "skillsTriggersLine": "Triggers: {keywords}",
+  "skillsSaveButton": "Save",
+  "skillsNameLabel": "Name",
+  "skillsDescriptionLabel": "Description",
+  "skillsTriggerKeywordsLabel": "Trigger keywords",
+  "skillsTriggerKeywordsHint": "code review, dcf, rewrite",
+  "skillsContentHint": "Paste skill instructions here.",
+  "@skillsImportFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "@skillsImportedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+   "@skillsTriggersLine": {
+     "placeholders": {
+       "keywords": {
+         "type": "String"
+       }
+     }
+   },
+   "searchProviderStepFunDescription": "StepFun's official search API for Chinese internet content",
+   "searchProviderFirecrawlDescription": "Firecrawl web search with multi-source, category, and geolocation filtering",
+   "searchProviderTinyFishDescription": "TinyFish search service with domain/geo/language targeting"
+ }

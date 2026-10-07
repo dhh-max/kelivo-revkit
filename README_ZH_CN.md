@@ -11,13 +11,15 @@
 | 定位 | 移动端 AI 自主配置 + 通用增强 | 完整继承 Plus，并聚焦 Android 安全与逆向工程 |
 | 内置 MCP | fetch / files / images / github / so / reverse（基础） | 全部继承，新增 `@kelivo/dex`（DEX 字节码解析）、`@kelivo/context`（对话上下文管理） |
 | APK 逆向 | 基础静态分析与快速排查 | `@kelivo/reverse` 深度扩展至 20 个工具：新增 manifest 深度解析、SO/DEX 聚合分析、JNI 桥定位、跨目标字符串检索、加壳检测、过签、重打包与 DEX 注入等 |
-| 预置助手 | 通用助手 | 新增“逆向分析师 / Reverse Analyst”，默认绑定 `@kelivo/reverse` |
+| 预置助手 | 通用助手 | 新增"逆向分析师 / Reverse Analyst"，默认绑定 `@kelivo/reverse` |
+| RelayGo 网关 | 基础代理 | 完全继承 + **请求去重**（2 秒窗口、body-hash 键）、**指数退避 + 抖动**（覆盖所有 4xx/5xx/超时错误）、**清理定时器**（防止去重表无限增长） |
 | 神经权能网关 | 有 | 完全继承 |
 | Skills 技能系统 | 有 | 完全继承 |
 | GitHub 写入工具 | 有 | 完全继承 |
 | 本地混合搜索 | 有 | 完全继承 |
 | 移动端导入 | 有 | 完全继承 |
 | 工具体验 | 中文化 + 分组 | 完全继承 |
+| 文档 | 基础 README | **3 份技术参考**：主体应用（19 章）、RelayGo 网关（19 章）、致谢名单（11 章 / 532 行） |
 
 ## 核心功能
 
@@ -53,9 +55,10 @@
 - `@kelivo/images`：图片理解、图片任务辅助能力。
 - `@kelivo/github`：GitHub 仓库、文件、Issue、PR、Release、Actions、Secrets、Variables 等能力。
 |- `@kelivo/so`：纯 Dart 实现的 ELF/.so 逆向分析工具集（共 26 个工具），无需额外原生依赖。
-- `@kelivo/dex`：纯 Dart 实现的 DEX/ODEX 字节码解析工具集（共 10 个工具），无需额外原生依赖。
+- `@kelivo/dex`：纯 Dart 实现的 DEX/ODEX 字节码解析与静态分析工具集（共 39 个工具），无需额外原生依赖。
 - `@kelivo/context`：对话上下文管理工具集（共 6 个工具），支持上下文统计、摘要、搜索、导出与边界管理。
 - `@kelivo/reverse`：面向 APK 的静态分析、修改与快速排查工具（共 20 个工具，含过签、重打包与 DEX 注入能力）。
+- `@kelivo/memory`：按助手隔离的结构化记忆持久化工具集，支持记忆列表、增改删查、清空与统计。
 - 内置 MCP 运行在 App 内部，不需要用户额外启动 Node/Python 服务。
 
 ### SO/ELF 逆向分析工具
@@ -80,20 +83,23 @@
 
 ### DEX 字节码解析工具
 
-`@kelivo/dex` 提供纯 Dart 实现的 DEX/ODEX 字节码级解析能力：
+`@kelivo/dex` 提供纯 Dart 实现的 DEX/ODEX 字节码级解析与静态分析能力：
 
 | 类别 | 工具 |
 | --- | --- |
 | 头部 | `dex_parse_header` |
-| 字符串 | `dex_list_strings` |
-| 类型 | `dex_list_types` |
-| 类 | `dex_list_classes` |
-| 方法 | `dex_list_methods` |
-| 字段 | `dex_list_fields` |
-| 注解 | `dex_list_annotations`（类级注解提取，反混淆线索） |
-| 反汇编 | `dex_disassemble_method`（单方法 Dalvik 字节码反汇编） |
-| 交叉引用 | `dex_xref_method`（方法级调用图——查找所有调用者） |
-| 字符串搜索 | `dex_search_strings`（正则/子串搜索 DEX 字符串池） |
+| 字符串 | `dex_list_strings`、`dex_string_pool`、`dex_search_strings`（正则/子串搜索字符串池） |
+| 类型 | `dex_list_types`、`dex_type_ref` |
+| 类 | `dex_list_classes`、`dex_inner_class`、`dex_inherit_tree`、`dex_debug_info` |
+| 方法 | `dex_list_methods`、`dex_method_signatures`、`dex_disassemble_method`（单方法 Dalvik 字节码反汇编） |
+| 字段 | `dex_list_fields`、`dex_field_stats` |
+| 注解 | `dex_list_annotations`、`dex_annotation_stats`（注解提取与统计，反混淆线索） |
+| 交叉引用 | `dex_xref_method`（方法级调用图——查找所有调用者）、`dex_call_graph` |
+| 控制流 | `dex_ctrl_flow`、`dex_exception_flow`、`dex_access_flow` |
+| 复杂度 | `dex_complexity`（方法级圈复杂度/体积）、`dex_reg_pressure`、`dex_insn_stats`、`dex_insn_density`、`dex_class_density` |
+| 安全扫描 | `dex_crypto_scan`、`dex_const_scan`、`dex_serialization_scan`、`dex_reflection_scan`、`dex_obfuscation_scan`、`dex_lib_analysis`、`dex_native_analysis`、`dex_resource_ref`、`dex_access_pattern` |
+| 协议分析 | `dex_proto_analysis`、`dex_proto_matrix` |
+| 权限审计 | `dex_perm_audit` |
 
 ### 对话上下文管理工具
 
@@ -107,6 +113,20 @@
 | 导出 | `context_export` |
 | 边界 | `context_set_boundary` |
 | 消息 | `context_get_messages` |
+
+### 记忆工具
+
+`@kelivo/memory` 提供按助手隔离的结构化记忆持久化能力：
+
+| 类别 | 工具 |
+| --- | --- |
+| 列表 | `memory_list` |
+| 新增 | `memory_add` |
+| 更新 | `memory_update` |
+| 删除 | `memory_delete` |
+| 搜索 | `memory_search` |
+| 清空 | `memory_clear` |
+| 统计 | `memory_stats` |
 
 ### APK 逆向分析工具
 
@@ -336,17 +356,22 @@ flutter build apk --release --target-platform android-arm64
 
 ## 文档
 
+### 主体项目文档
+
 - [二改功能说明](docs/KELIVO_PLUS_CHANGES_ZH.md)
 - [Android 安装与共存说明](docs/ANDROID_INSTALLATION_ZH.md)
 - [Release 说明](docs/RELEASE_NOTES_1.1.17_PLUS.md)
 - [搜索升级记录](docs/KELIVO_SEARCH_UPGRADE_NOTES.md)
 - [APK 分析防崩溃与性能优化方案](docs/APK_ANALYSIS_ANTI_CRASH_ZH.md)
+- [主体应用技术参考（19 章）](docs/KELIVO_APP_REFERENCE_ZH.md)
 
-## 致谢
+### RelayGo 网关文档
 
-- 原项目：[Chevey339/kelivo](https://github.com/Chevey339/kelivo)
-- UI 灵感来源：[RikkaHub](https://github.com/re-ovo/rikkahub)
-- 感谢原作者和社区贡献者提供的基础工程。
+- [RelayGo 网关技术参考（19 章）](docs/RELAYGO_GATEWAY_REFERENCE_ZH.md)
+
+### 致谢
+
+- [完整致谢名单（11 章 / 532 行）](docs/CREDITS_ZH.md)
 
 ## License
 

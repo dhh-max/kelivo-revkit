@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import '../../../../l10n/app_localizations.dart';
 import '../search_service.dart';
 
@@ -50,11 +51,9 @@ class SearXNGSearchService extends SearchService<SearXNGOptions> {
         headers['Authorization'] = 'Basic $auth';
       }
 
-      final response = await withHttpClient(
-        (client) => client
-            .get(Uri.parse(url), headers: headers)
-            .timeout(Duration(milliseconds: commonOptions.timeout)),
-      );
+      final response = await http
+          .get(Uri.parse(url), headers: headers)
+          .timeout(Duration(milliseconds: commonOptions.timeout));
 
       if (response.statusCode != 200) {
         throw Exception('Request failed with status ${response.statusCode}');

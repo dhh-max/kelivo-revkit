@@ -13,7 +13,6 @@ import '../../../shared/widgets/ios_tactile.dart';
 import '../../../shared/widgets/snackbar.dart';
 import '../../../core/services/haptics.dart';
 import '../../../theme/app_font_weights.dart';
-import 'package:Kelivo/theme/app_semantic_colors.dart';
 
 class AssistantRegexTab extends StatefulWidget {
   const AssistantRegexTab({super.key, required this.assistantId});
@@ -132,7 +131,9 @@ class _AssistantRegexTabState extends State<AssistantRegexTab> {
                 child: IosCardPress(
                   onTap: () => _addOrEdit(),
                   borderRadius: BorderRadius.circular(12),
-                  baseColor: cs.primary.withValues(alpha: isDark ? 0.18 : 0.12),
+                  baseColor: isDark
+                      ? Colors.white10
+                      : cs.primary.withValues(alpha: 0.12),
                   pressedBlendStrength: 0.18,
                   padding: const EdgeInsets.symmetric(
                     horizontal: 14,
@@ -339,7 +340,9 @@ class _AssistantRegexDesktopPaneState extends State<AssistantRegexDesktopPane> {
                 IosCardPress(
                   onTap: () => _addOrEdit(),
                   borderRadius: BorderRadius.circular(12),
-                  baseColor: cs.primary.withValues(alpha: isDark ? 0.18 : 0.12),
+                  baseColor: isDark
+                      ? Colors.white10
+                      : cs.primary.withValues(alpha: 0.12),
                   padding: const EdgeInsets.symmetric(
                     horizontal: 14,
                     vertical: 10,
@@ -446,7 +449,7 @@ class _RegexRuleCardState extends State<_RegexRuleCard> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final l10n = AppLocalizations.of(context)!;
-    final bg = context.appColors.surfaceCard;
+    final bg = isDark ? Colors.white10 : Colors.white.withValues(alpha: 0.96);
     final borderBase = cs.outlineVariant.withValues(
       alpha: isDark ? 0.08 : 0.06,
     );
@@ -563,7 +566,7 @@ class _RegexRuleCardState extends State<_RegexRuleCard> {
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: BoxDecoration(
               color: isDark
-                  ? cs.onSurface.withValues(alpha: 0.06)
+                  ? Colors.white.withValues(alpha: 0.06)
                   : cs.primary.withValues(alpha: 0.10),
               borderRadius: BorderRadius.circular(24),
               border: Border.all(color: cs.primary.withValues(alpha: 0.35)),
@@ -603,8 +606,12 @@ class _GlassCircleButtonState extends State<_GlassCircleButton> {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
-    final glassBase = cs.surface.withValues(alpha: 0.06);
-    final overlay = cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05);
+    final glassBase = isDark
+        ? Colors.black.withValues(alpha: 0.06)
+        : Colors.white.withValues(alpha: 0.06);
+    final overlay = isDark
+        ? Colors.white.withValues(alpha: 0.06)
+        : Colors.black.withValues(alpha: 0.05);
     final tileColor = _pressed
         ? Color.alphaBlend(overlay, glassBase)
         : glassBase;
@@ -1182,6 +1189,7 @@ class _RegexTextField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return TextField(
       controller: controller,
       autofocus: autofocus,
@@ -1194,7 +1202,7 @@ class _RegexTextField extends StatelessWidget {
       decoration: InputDecoration(
         labelText: label,
         filled: true,
-        fillColor: context.appColors.surfaceFill,
+        fillColor: isDark ? Colors.white10 : const Color(0xFFF2F3F5),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide(
@@ -1236,7 +1244,7 @@ class _ScopeChoiceCardState extends State<_ScopeChoiceCard> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final base = widget.selected
         ? cs.primary.withValues(alpha: 0.16)
-        : (context.appColors.surfaceFill);
+        : (isDark ? Colors.white10 : const Color(0xFFF2F3F5));
     final borderBase = widget.selected
         ? cs.primary.withValues(alpha: 0.55)
         : cs.outlineVariant.withValues(alpha: isDark ? 0.14 : 0.12);

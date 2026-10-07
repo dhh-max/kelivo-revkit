@@ -3,10 +3,11 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
-import '../database/business_preferences.dart';
-import '../database/business_repository.dart';
 import '../models/backup.dart';
+import '../database/business_repository.dart';
+import '../database/business_preferences.dart';
 import '../services/chat/chat_service.dart';
+import '../services/backup/backup_cancel_token.dart';
 import '../services/backup/data_sync.dart';
 
 class BackupProvider extends ChangeNotifier {
@@ -14,28 +15,30 @@ class BackupProvider extends ChangeNotifier {
   WebDavConfig _cfg;
   bool _busy = false;
   String? _message;
-
+  BackupCancelToken? _activeCancelToken;
   BackupProvider({
     required ChatService chatService,
-    required BusinessRepository businessRepository,
-    required BusinessPreferences businessPreferences,
+    BusinessRepository? businessRepository,
+    BusinessPreferences? businessPreferences,
     WebDavConfig? initialConfig,
   }) : _dataSync = DataSync(
          chatService: chatService,
-         businessRepository: businessRepository,
+         businessRepository: businessRepository!,
          businessPreferences: businessPreferences,
        ),
        _cfg = initialConfig ?? const WebDavConfig();
-
   WebDavConfig get config => _cfg;
   bool get busy => _busy;
   String? get message => _message;
-  int get skippedConversations =>
-      _dataSync.lastMergeReport?.skippedConversations ?? 0;
-
+  /// Whether a backup/restore is currently cancellable.
+  bool get canCancel => _activeCancelToken != null && !_activeCancelToken!.isCancelled;
   void updateConfig(WebDavConfig cfg) {
     _cfg = cfg;
     notifyListeners();
+  }
+  /// Request cancellation of the active backup/restore operation.
+  void cancelActiveOperation() {
+    _activeCancelToken?.cancel();
   }
 
   Future<void> test() async {
@@ -56,6 +59,7 @@ class BackupProvider extends ChangeNotifier {
   Future<bool> backup() async {
     _busy = true;
     _message = null;
+    _activeCancelToken = BackupCancelToken();
     notifyListeners();
     try {
       await _dataSync.backupToWebDav(_cfg);
@@ -66,6 +70,7 @@ class BackupProvider extends ChangeNotifier {
       return false;
     } finally {
       _busy = false;
+      _activeCancelToken = null;
       notifyListeners();
     }
   }
@@ -76,15 +81,16 @@ class BackupProvider extends ChangeNotifier {
   }) async {
     _busy = true;
     _message = null;
+    _activeCancelToken = BackupCancelToken();
     notifyListeners();
     try {
       await _dataSync.restoreFromWebDav(_cfg, item, mode: mode);
       _message = 'Restored';
     } catch (e) {
       _message = e.toString();
-      rethrow;
     } finally {
       _busy = false;
+      _activeCancelToken = null;
       notifyListeners();
     }
   }

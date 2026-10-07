@@ -137,9 +137,6 @@ class _TranslatePageState extends State<TranslatePage> {
         messages: [
           {'role': 'user', 'content': p},
         ],
-        thinkingBudget: settings.translateGenerationThinkingBudgetFor(
-          context.read<AssistantProvider>().currentAssistant?.thinkingBudget,
-        ),
       );
       _sub = stream.listen(
         (chunk) {
@@ -306,27 +303,14 @@ class _TranslatePageState extends State<TranslatePage> {
               ),
             ),
           ),
-          // Model brand icon
+          // Model brand icon (keep original colors)
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: IosIconButton(
               padding: const EdgeInsets.all(8),
               builder: (color) {
                 if (asset != null && asset.toLowerCase().endsWith('.svg')) {
-                  final isDark =
-                      Theme.of(context).brightness == Brightness.dark;
-                  return SvgPicture.asset(
-                    asset,
-                    width: 22,
-                    height: 22,
-                    colorFilter:
-                        isDark && BrandAssets.assetNeedsDarkInvert(asset)
-                        ? ColorFilter.mode(
-                            Theme.of(context).colorScheme.onSurface,
-                            BlendMode.srcIn,
-                          )
-                        : null,
-                  );
+                  return SvgPicture.asset(asset, width: 22, height: 22);
                 }
                 if (asset != null) {
                   return Image.asset(asset, width: 22, height: 22);
@@ -460,7 +444,7 @@ class _TranslatePageState extends State<TranslatePage> {
                                   width: 18,
                                   height: 18,
                                   colorFilter: ColorFilter.mode(
-                                    cs.onPrimary,
+                                    isDark ? Colors.black : Colors.white,
                                     BlendMode.srcIn,
                                   ),
                                 ),
@@ -468,7 +452,7 @@ class _TranslatePageState extends State<TranslatePage> {
                                 Text(
                                   l10n.chatMessageWidgetStopTooltip,
                                   style: TextStyle(
-                                    color: cs.onPrimary,
+                                    color: isDark ? Colors.black : Colors.white,
                                     fontWeight: AppFontWeights.emphasis,
                                   ),
                                 ),
@@ -481,13 +465,13 @@ class _TranslatePageState extends State<TranslatePage> {
                                 Icon(
                                   lucide.Lucide.Languages,
                                   size: 18,
-                                  color: cs.onPrimary,
+                                  color: isDark ? Colors.black : Colors.white,
                                 ),
                                 const SizedBox(width: 8),
                                 Text(
                                   l10n.chatMessageWidgetTranslateTooltip,
                                   style: TextStyle(
-                                    color: cs.onPrimary,
+                                    color: isDark ? Colors.black : Colors.white,
                                     fontWeight: AppFontWeights.emphasis,
                                   ),
                                 ),

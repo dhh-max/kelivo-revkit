@@ -7,7 +7,6 @@ import '../../icons/lucide_adapter.dart' as lucide;
 import '../../l10n/app_localizations.dart';
 import '../../shared/widgets/snackbar.dart';
 import '../../theme/app_font_weights.dart';
-import 'package:Kelivo/theme/app_semantic_colors.dart';
 
 Future<void> showDesktopMcpTimeoutDialog(BuildContext context) async {
   final cs = Theme.of(context).colorScheme;
@@ -105,7 +104,7 @@ class _DesktopMcpTimeoutDialogState extends State<_DesktopMcpTimeoutDialog> {
               decoration: InputDecoration(
                 suffixText: 's',
                 filled: true,
-                fillColor: context.appColors.surfaceCard,
+                fillColor: isDark ? Colors.white10 : Colors.white,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide(
@@ -140,7 +139,9 @@ class _DesktopMcpTimeoutDialogState extends State<_DesktopMcpTimeoutDialog> {
                   onTap: () => Navigator.of(context).maybePop(),
                   background: Colors.transparent,
                   foreground: cs.onSurface,
-                  hoverBackground: cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05),
+                  hoverBackground: isDark
+                      ? Colors.white.withValues(alpha: 0.06)
+                      : Colors.black.withValues(alpha: 0.05),
                 ),
                 const SizedBox(width: 8),
                 _ActionBtn(
@@ -175,7 +176,9 @@ class _SmallIconBtnState extends State<_SmallIconBtn> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = _hover
-        ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
+        ? (isDark
+              ? Colors.white.withValues(alpha: 0.06)
+              : Colors.black.withValues(alpha: 0.05))
         : Colors.transparent;
     final btn = Container(
       width: 28,
@@ -216,7 +219,9 @@ class _TextBtnState extends State<_TextBtn> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = _hover
-        ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
+        ? (isDark
+              ? Colors.white.withValues(alpha: 0.06)
+              : Colors.black.withValues(alpha: 0.05))
         : Colors.transparent;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),

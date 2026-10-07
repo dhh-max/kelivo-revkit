@@ -5,7 +5,6 @@ import 'package:provider/provider.dart';
 
 import '../../../core/models/assistant.dart';
 import '../../../core/providers/assistant_provider.dart';
-import '../controllers/chat_actions.dart';
 import '../../../core/providers/tag_provider.dart';
 import '../../../desktop/desktop_context_menu.dart';
 import '../../../icons/lucide_adapter.dart';
@@ -287,8 +286,6 @@ class AssistantEntryActions {
     );
 
     if (!context.mounted || confirmed != true) return;
-    await ChatActions.cancelActiveGenerationsForAssistant(assistant.id);
-    if (!context.mounted) return;
     final ok = await assistantProvider.deleteAssistant(assistant.id);
     if (!context.mounted) return;
 

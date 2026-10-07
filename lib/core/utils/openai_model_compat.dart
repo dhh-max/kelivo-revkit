@@ -76,12 +76,22 @@ const OpenAIReasoningSupport _grok45Support = OpenAIReasoningSupport(
   supportedEfforts: <String>['low', 'medium', 'high'],
   offFallback: 'low',
 );
-const OpenAIReasoningSupport _museSpark11Support = OpenAIReasoningSupport(
+const OpenAIReasoningSupport _museSparkSupport = OpenAIReasoningSupport(
   supportedEfforts: <String>[],
   effortParameterSupported: false,
 );
 const OpenAIReasoningSupport _deepSeekSupport = OpenAIReasoningSupport(
   supportedEfforts: <String>['low', 'medium', 'high', 'xhigh'],
+);
+const OpenAIReasoningSupport _mimoSupport = OpenAIReasoningSupport(
+  supportedEfforts: <String>['none', 'low', 'medium', 'high'],
+);
+const OpenAIReasoningSupport _agnesSupport = OpenAIReasoningSupport(
+  supportedEfforts: <String>[],
+  effortParameterSupported: false,
+);
+const OpenAIReasoningSupport _hy3Support = OpenAIReasoningSupport(
+  supportedEfforts: <String>['low', 'high'],
 );
 
 String resolveApiModelIdOverride(
@@ -125,7 +135,7 @@ String openAINormalizeReasoningEffort(String effort, String modelId) {
 
   final support = openAIReasoningSupport(modelId);
   if (support?.effortParameterSupported == false) return 'auto';
-  if (normalizedEffort == 'off') {
+  if (normalizedEffort == 'off' || normalizedEffort == 'none') {
     if (support?.supportsNone == true) return 'none';
     return support?.offFallback ?? 'off';
   }
@@ -208,14 +218,26 @@ bool openAIAllowsSamplingParams(String modelId, {required String effort}) {
 OpenAIReasoningSupport? openAIReasoningSupport(String modelId) {
   final normalized = modelId.trim().toLowerCase();
   if (normalized.contains('deepseek')) return _deepSeekSupport;
+  if (_matchesModel(normalized, r'(^|[/_:@])mimo-v2(?:$|[-.])')) {
+    return _mimoSupport;
+  }
+  if (_matchesModel(
+    normalized,
+    r'(^|[/_:@])agnes-(?:2\.0-flash|2\.5-(?:flash|pro(?:-alpha)?))$',
+  )) {
+    return _agnesSupport;
+  }
+  if (_matchesModel(normalized, r'(^|[/_:@])hy3(?:-preview|-\d{6})?$')) {
+    return _hy3Support;
+  }
   if (_matchesModel(normalized, r'(^|[/_:@])kimi-k3(?:$|[-.])')) {
     return _kimiK3Support;
   }
   if (_matchesModel(normalized, r'(^|[/_:@])grok-4\.5(?:$|[-.])')) {
     return _grok45Support;
   }
-  if (_matchesModel(normalized, r'(^|[/_:@])muse-spark-1\.1(?:$|[-.])')) {
-    return _museSpark11Support;
+  if (_matchesModel(normalized, r'(^|[/_:@])muse-spark-1\.[12](?:$|[-.])')) {
+    return _museSparkSupport;
   }
   if (!isOpenAIGpt5FamilyModel(normalized)) return null;
 
@@ -300,4 +322,11 @@ String _pickSupportedEffort(
 
 bool _matchesModel(String modelId, String pattern) {
   return RegExp(pattern, caseSensitive: false).hasMatch(modelId);
+}
+
+
+/// Returns true if the model ID matches LongCat Omni models.
+bool isLongCatOmniModelId(String modelId) {
+  final normalized = modelId.trim().toLowerCase();
+  return normalized.contains('longcat') && normalized.contains('omni');
 }
