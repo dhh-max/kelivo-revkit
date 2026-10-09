@@ -17,7 +17,6 @@ class ApkProgressService extends ChangeNotifier {
 
   StreamSubscription<Object?>? _subscription;
   StreamSubscription<Object?>? _soSubscription;
-  bool _listening = false;
 
   int _percent = 0;
   String _stage = '';
@@ -40,9 +39,18 @@ class ApkProgressService extends ChangeNotifier {
   bool get hasSoProgress => _soPercent > 0;
 
   /// 订阅进度通道（幂等）。在 Android 通道注册后调用；其它平台订阅无害。
+  ///
+  /// 幂等判据是**每路各自的订阅句柄**，不是单一的 _listening 开关：
+  /// 旧实现里 onError 空 catch + cancelOnError: true 会把流取消掉，而
+  /// _subscription 仍非空、_listening 仍为 true，于是这一路进度此后永久静默
+  /// （原生侧再怎么发都没人听）。现在出错即清句柄，下次调用可重订。
   void ensureListening() {
-    if (_listening) return;
-    _listening = true;
+    _listenProgress();
+    _listenSoProgress();
+  }
+
+  void _listenProgress() {
+    if (_subscription != null) return;
     _subscription = _channel.receiveBroadcastStream().listen(
       (event) {
         try {
@@ -58,11 +66,16 @@ class ApkProgressService extends ChangeNotifier {
         } catch (_) {}
       },
       onError: (_) {
-        // 通道未注册/已关闭：忽略；下次分析事件仍会发出。
+        // 通道未注册/已关闭：清掉句柄，让下次 ensureListening 能重订。
+        _subscription = null;
       },
       cancelOnError: true,
     );
-    // SO 引擎进度（so_analyze 长任务：open/analyze_apk/emulate/blutter）
+  }
+
+  /// SO 引擎进度（so_analyze 长任务：open/analyze_apk/emulate/blutter）
+  void _listenSoProgress() {
+    if (_soSubscription != null) return;
     _soSubscription = _soChannel.receiveBroadcastStream().listen(
       (event) {
         try {
@@ -77,7 +90,9 @@ class ApkProgressService extends ChangeNotifier {
           }
         } catch (_) {}
       },
-      onError: (_) {},
+      onError: (_) {
+        _soSubscription = null;
+      },
       cancelOnError: true,
     );
   }
@@ -110,7 +125,6 @@ class ApkProgressService extends ChangeNotifier {
     _subscription = null;
     _soSubscription?.cancel();
     _soSubscription = null;
-    _listening = false;
     super.dispose();
   }
 }

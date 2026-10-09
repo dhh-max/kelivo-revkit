@@ -2,14 +2,11 @@ import 'dart:async';
 import 'dart:collection';
 
 import '../services/apk_analysis_service.dart';
-import '../services/apk_structural_service.dart';
 import '../services/apk_toolchain_service.dart';
 import '../services/apk_workspace_binding_service.dart';
 import '../services/apk_workspace_service.dart';
 import 'analyzer_api.dart';
-import 'analyzer_index.dart';
-
-// ============================================================================
+import 'analyzer_index.dart';// ============================================================================
 // AnalyzerGateway 实现（Phase 0）
 //
 // Agent 通过 4 个高阶 API 访问分析引擎；底层工具对内执行。
@@ -76,12 +73,46 @@ class DefaultAnalyzerGateway implements AnalyzerGateway {
   static DefaultAnalyzerGateway get instance =>
       AnalyzerGatewayRegistry.forKey('app') as DefaultAnalyzerGateway;
 
+  /// 当前分析目标的缓存键哈希（apkId 的 sha256 摘要，长度 >=16）。
+  /// apkId 形如 `sha256:<64hex>`；直接取 hash 段即可稳定跨调用复用。
+  String get _analysisCacheKeyHash {
+    final id = index.apkId;
+    if (id.startsWith('sha256:')) {
+      final hex = id.substring('sha256:'.length);
+      if (hex.length >= 16) return hex;
+    }
+    // 非 sha256 身份（如 apk:<path>）：用对象 hash 兜底，
+    // 至少保证同一会话同一目标命中同一缓存槽。
+    return id.hashCode.toRadixString(16).padLeft(16, '0');
+  }
+
+  /// 最近一次主数据源（analyzeModule fields）的诊断标签。
+  /// 仅用于在回退信封里如实交代"为什么走到了内存索引"。
+  String _lastPrimarySourceNote = 'not_attempted';
+
+  /// 主数据源返回的候选名样本（最多 20 个）。
+  /// 用于向调用方如实交代"模块扫到了哪些字段"，判断无匹配是词表问题
+  /// 还是关键词真不存在（R8 混淆后字段名常为 a/b/c）。
+  List<String> _lastPrimaryCandidateNames = const <String>[];
+
+  /// analyzer 是否尚未绑定任何 APK（空结果可能因未绑定，需在响应里提示，
+  /// 避免模型把 unbound 的空结果当"目标不存在"）。
+  bool get _unbound => index.apkId == 'unbound';
+
   AnalyzerResult? _contextMismatch(String query, String? requestedApkId) {
     final requested = requestedApkId?.trim();
     if (requested == null || requested.isEmpty || index.apkId == 'unbound') {
       return null;
     }
-    if (requested == index.apkId) return null;
+    if (_sameApkId(requested, index.apkId)) return null;
+    // apkId 是 sha256 形态时**无法从路径反推摘要**：再拿"当前已打开的目标路径"
+    // 比一次，让 path / 裸文件名两种写法同样可用（真机实测：只比 apkId 时
+    // 这两种写法会被判 mismatch，而它们的意图明确就是"当前这个包"）。
+    // 比较仍是全路径/basename 严格判等——指向别的包照样拒绝。
+    if (_lastOpenedApkPath.isNotEmpty &&
+        _sameApkId(requested, _lastOpenedApkPath)) {
+      return null;
+    }
     return AnalyzerResult(
       query: query,
       summary:
@@ -99,6 +130,36 @@ class DefaultAnalyzerGateway implements AnalyzerGateway {
       },
     );
   }
+
+  /// 同一目标的不同写法必须判为同一个 apkId。
+  ///
+  /// `analyzer_open` 回显的 apkId 有两种形态：有报告指纹时 `sha256:<64hex>`，
+  /// 否则 `apk:<path>`；调用方则常把「回显值原样回传」「带前缀的路径」「裸文件名」
+  /// 混着用（实测：open 回显 `apk:日记_1.0.0.apk`，照着回传即被判 mismatch，
+  /// 看起来像"这个工具要另一种 id"——同一 id 出现三种行为）。
+  ///
+  /// 这里先剥 `sha256:`/`apk:` 前缀与路径分隔符再比；只有当一方是裸文件名
+  /// （不含 `/`）且另一方的 basename 相同时才退化到按名字判等——两个不同目录的
+  /// 同名包仍会被全路径比较挡住，不会把 A 的证据算到 B 上。
+  static bool _sameApkId(String a, String b) {
+    if (a == b) return true;
+    String norm(String raw) {
+      var s = raw.trim().replaceAll('\\', '/');
+      if (s.startsWith('sha256:')) s = s.substring('sha256:'.length);
+      if (s.startsWith('apk:')) s = s.substring('apk:'.length);
+      return s;
+    }
+
+    final na = norm(a);
+    final nb = norm(b);
+    if (na == nb) return true;
+    final ba = na.contains('/') ? na.substring(na.lastIndexOf('/') + 1) : na;
+    final bb = nb.contains('/') ? nb.substring(nb.lastIndexOf('/') + 1) : nb;
+    return ba == bb && (!na.contains('/') || !nb.contains('/'));
+  }
+
+  /// 供契约测试直接验证"同一目标的不同写法"矩阵（与 [classifySignatureSmaliForTest] 同款缝）。
+  static bool sameApkIdForTest(String a, String b) => _sameApkId(a, b);
 
   Future<String?> _analysisPath() async {
     if (_lastOpenedApkPath.isNotEmpty) return _lastOpenedApkPath;
@@ -224,48 +285,53 @@ class DefaultAnalyzerGateway implements AnalyzerGateway {
     );
   }
 
-  /// 走底层 dex_search（class_by_string）按需扫；通道不可用返回 null。
+  /// 走底层 dex_search 按需扫；通道不可用返回 null。
+  ///
+  /// 单次 `action=auto` 调用取代旧的 5 步串行阶梯（auto → method_by_name →
+  /// class_by_name → method_by_string → class_by_string）。旧实现每一步都是
+  /// 一次独立 MethodChannel 往返，最坏 5 次；而 2026-09-15 的 DexKit 修复已让
+  /// auto 自身覆盖全部五个维度（method 侧 class_name/method_name/used_strings/
+  /// used_fields/invoked_methods/used_numbers/opcode_sequence + class 侧
+  /// class_name/super_class/interface/annotation/used_strings），阶梯里的四个
+  /// 兜底 action 全是 auto 的子集——保留它们只会在 auto 空命中时白跑 4 次
+  /// 通道往返，且每次都重开 DexKit、重扫相同 dex。
   Future<AnalyzerResult?> _globalSearchNative(String query, int topK) async {
     final path = await _analysisPath();
     if (path == null || path.isEmpty) return null;
     try {
-      ApkStructuralResult? result;
-      List<dynamic>? results;
-      var action = '';
-      for (final candidateAction in const <String>[
-        'auto',
-        'method_by_name',
-        'class_by_name',
-        'method_by_string',
-        'class_by_string',
-      ]) {
-        final attempt = await ApkToolchainService.dexSearch(
-          path: path,
-          keyword: query,
-          action: candidateAction,
-          matchType: 'Contains',
-          ignoreCase: true,
-          limit: topK,
-        );
-        if (!attempt.ok || attempt.data == null) continue;
-        final attemptResults = attempt.data!['results'];
-        if (attemptResults is List && attemptResults.isNotEmpty) {
-          result = attempt;
-          results = attemptResults;
-          action = candidateAction;
-          break;
-        }
-      }
-      if (result == null || results == null) {
+      final attempt = await ApkToolchainService.dexSearch(
+        path: path,
+        keyword: query,
+        action: 'auto',
+        matchType: 'Contains',
+        ignoreCase: true,
+        limit: topK,
+      );
+      if (!attempt.ok || attempt.data == null) return null;
+      final data = attempt.data!;
+      // auto 把类命中放在独立的 classes 通道，method 命中在 results；
+      // 两条都要收，否则纯类名查询会被误判为 0 命中。
+      final methodResults = data['results'];
+      final classResults = data['classes'];
+      final results = <dynamic>[
+        if (methodResults is List) ...methodResults,
+        if (classResults is List) ...classResults,
+      ];
+      final action = 'auto';
+      if (results.isEmpty) {
         return AnalyzerResult(
           query: 'global_search($query)',
-          summary: 'DEX 类名、方法名与字符串均未命中',
+          summary: _unbound
+              ? 'DEX 类名、方法名与字符串均未命中。⚠️ 当前 analyzer 未绑定任何 '
+                  'APK（unbound）——空结果可能因未绑定而非目标不存在。先 '
+                  'analyzer_open(apkPath=...) 或 analyze_apk_workspace 再查。'
+              : 'DEX 类名、方法名与字符串均未命中',
           score: 0,
           confidence: ConfidenceLevel.high,
           evidenceLevel: EvidenceLevel.l0,
           sufficiency: Sufficiency.complete,
-          stopReason: 'no_hit',
-          recommendedAction: 'FIND_CLASS',
+          stopReason: _unbound ? 'no_hit_unbound' : 'no_hit',
+          recommendedAction: _unbound ? 'OPEN_WORKSPACE' : 'FIND_CLASS',
         );
       }
       final candidates = <AnalyzerCandidate>[];
@@ -275,7 +341,7 @@ class DefaultAnalyzerGateway implements AnalyzerGateway {
         final cls = raw['class']?.toString() ?? '';
         if (cls.isEmpty) continue;
         final method = raw['method']?.toString() ?? '';
-        final locator = action.startsWith('method_') && method.isNotEmpty
+        final locator = method.isNotEmpty
             ? 'dex_method:$cls->$method'
             : 'dex_class:$cls';
         candidates.add(
@@ -286,15 +352,17 @@ class DefaultAnalyzerGateway implements AnalyzerGateway {
           ),
         );
         evidence.add(<String, dynamic>{
-          'type': action.startsWith('method_') ? 'method_match' : 'class_match',
+          'type': method.isNotEmpty ? 'method_match' : 'class_match',
           'locator': locator,
           'simple_name': raw['simpleName']?.toString() ?? '',
         });
       }
-      final total = result.data!['total'] ?? results.length;
+      final total = (data['total'] as num?)?.toInt() ??
+          (methodResults is List ? methodResults.length : results.length);
+      final classTotal = (data['classTotal'] as num?)?.toInt() ?? 0;
       return AnalyzerResult(
         query: 'global_search($query)',
-        summary: 'dex_search($action) 命中 $total 项',
+        summary: 'dex_search(auto) 命中 $total 个方法 / $classTotal 个类',
         score: candidates.isEmpty ? 0 : 0.6,
         confidence: ConfidenceLevel.high,
         evidenceLevel: EvidenceLevel.l0,
@@ -309,7 +377,11 @@ class DefaultAnalyzerGateway implements AnalyzerGateway {
           for (final c in candidates.take(3)) 'class_outline("${c.locator}")',
         ],
         recommendedAction: candidates.isEmpty ? 'FIND_CLASS' : 'CLASS_OUTLINE',
-        detail: <String, dynamic>{'total': total, 'results': results},
+        detail: <String, dynamic>{
+          'total': total,
+          'classTotal': classTotal,
+          'results': results,
+        },
       );
     } catch (_) {
       return null;
@@ -355,7 +427,11 @@ class DefaultAnalyzerGateway implements AnalyzerGateway {
     final writer = writerRefs.isEmpty ? null : writerRefs.first;
     final conclusion = refs.isEmpty
         ? _fieldRefSource == 'native_xref'
-              ? '字段 $fieldLocator 的实时扫描未发现读写引用'
+              ? _unbound
+                    ? '字段 $fieldLocator 未发现读写引用。⚠️ 当前 analyzer 未绑定'
+                        ' APK（unbound）——空结果可能因未绑定，先 analyzer_open 或 '
+                        'analyze_apk_workspace 再确认'
+                    : '字段 $fieldLocator 的实时扫描未发现读写引用'
               : '字段 $fieldLocator 暂无可验证读写引用（扫描不可用）'
         : writer != null
         ? '$fieldLocator 的权威写入方是 ${writer.methodLocator}'
@@ -369,11 +445,14 @@ class DefaultAnalyzerGateway implements AnalyzerGateway {
       evidenceLevel: refs.isEmpty
           ? EvidenceLevel.l1
           : (writes > 0 ? EvidenceLevel.l3 : EvidenceLevel.l2),
-      sufficiency: refs.isEmpty && _fieldRefSource != 'native_xref'
+      // R5 修复：空结果一律 INSUFFICIENT——此前 native_xref 通道扫出 0 引用时
+      // 仍标记 COMPLETE，配合 score=0.0 会让下游 agent 把"没找到"读成"已查清"。
+      // native_xref 只保证"扫描通道可用"，不保证"找到了东西"。
+      sufficiency: refs.isEmpty
           ? Sufficiency.insufficient
           : Sufficiency.complete,
       stopReason: refs.isEmpty
-          ? 'no_refs'
+          ? (_unbound ? 'no_refs_unbound' : 'no_refs')
           : (writes > 0 ? 'writer_confirmed' : 'read_only'),
       primaryCandidates: [
         for (final r in ranked.take(20))
@@ -477,7 +556,11 @@ class DefaultAnalyzerGateway implements AnalyzerGateway {
     if (fieldTarget.startsWith('dex_field:')) {
       fieldTarget = fieldTarget.substring('dex_field:'.length);
     }
-    final cacheKey = '${path ?? _lastOpenedApkPath}|$fieldTarget';
+    final cacheKey =
+        // B-1 修复：缓存键并入索引模式镜像（ApkToolchainService 静态，
+        // 切 A/B 方案时同步），旧模式缓存自动不命中，测量不失真。
+        '${ApkToolchainService.fieldRefsModeKey}|'
+        '${path ?? _lastOpenedApkPath}|$fieldTarget';
     final cached = _fieldRefCache[cacheKey];
     if (cached != null) {
       _fieldRefSource = 'lru_cache';
@@ -554,11 +637,22 @@ class DefaultAnalyzerGateway implements AnalyzerGateway {
     // 底层内置通用领域词表（isVip/vipExpire/userType 等），跨 dex 聚合，
     // 不硬编码任何 APK 特定类名。
     if (path != null && path.isNotEmpty) {
+      // cacheKeySha256 必传：ApkAnalysisService.analyzeModule 在
+      // cacheKeySha256 为空时**完全不走缓存**（cacheKey=null），
+      // 意味每次 analyze_business_state 都重跑一遍两阶段全 dex 扫描
+      // ——240MB 包的 fields 模块是秒级到十秒级的开销。
+      // 用当前分析目标的 apkId 摘要作为缓存键，跨调用复用同一份 fields 结果。
       final result = await ApkAnalysisService.analyzeModule(
         path: path,
         module: 'fields',
+        cacheKeySha256: _analysisCacheKeyHash,
         useCache: true,
       );
+      // 诊断：主数据源为何未产出命中。此前该分支静默落到内存索引回退，
+      // 调用方只看到 index_unavailable，无法区分"模块分析失败"与"确实无匹配"。
+      _lastPrimarySourceNote = result['ok'] == true
+          ? 'analyze_module_fields_ok'
+          : 'analyze_module_fields_failed:${result['error'] ?? result['message'] ?? 'unknown'}';
       if (result['ok'] == true) {
         final readCandidates = result['fieldReadCandidates'];
         final fieldCandidates = result['fieldCandidates'];
@@ -576,39 +670,82 @@ class DefaultAnalyzerGateway implements AnalyzerGateway {
               if (r is Map) Map<String, dynamic>.from(r),
         ];
 
-        // 过滤：字段名含 filter（field 值形如 Lcom/x/Y;->isVip:I 或 Lcom/x/Y;->isVip）
+        // 过滤：字段名与 keyword 做**分段匹配**，不做裸 substring。
+        // 缺陷修复（isProxy 假阳性）：原 `name.contains(filter)` 让 `isProxy`、
+        // `isProtected`、`isProduct`、`isPromise` 全部命中关键词 `ispro`——
+        // 短词表的裸子串匹配会把网络层字段抬成业务状态字段（真机实测
+        // Lanet/channel/statist/SessionStatistic;->isProxy:I 被以 0.95 +
+        // authoritative_writer_confirmed 呈现）。
+        // 改为：先把字段名按分隔符拆段（`_`/`$`/数字/驼峰边界），
+        // 只有当 filter 恰好等于某一段、或等于整名、或是多段拼接时才判命中。
         final matched = <Map<String, dynamic>>[];
+        // 记录每个候选的匹配强度：exact=整名/整段全等；partial=仅部分包含；
+        // 空串 filter 视为 wildcard。
+        // 键用 **去重签名**（field 优先，退化为 name），与 seenFields 一致，
+        // 避免同名不同签名的候选互相覆盖强度。
+        final matchStrength = <String, String>{};
+        // 去重（fieldReadCandidates + fieldCandidates 可能重复）：
+        // candidates 可达数千条，必须用 Set 判重（原 any() 线性扫是 O(n²)）。
+        final seenFields = <String>{};
         for (final raw in allCandidates) {
           final field = raw['field']?.toString() ?? '';
           final name =
               raw['name']?.toString() ??
               (field.contains('->') ? field.split('->').last : field);
-          if (filter.isNotEmpty &&
-              !field.toLowerCase().contains(filter) &&
-              !name.toLowerCase().contains(filter)) {
-            continue;
+          String strength;
+          if (filter.isEmpty) {
+            strength = 'wildcard';
+          } else {
+            final s = _businessKeywordMatchStrength(name, filter);
+            if (s == null) continue;
+            strength = s;
           }
-          // 去重（fieldReadCandidates + fieldCandidates 可能重复）
-          final sig = raw['field']?.toString() ?? raw['name']?.toString() ?? '';
-          if (matched.any(
-            (m) =>
-                (m['field']?.toString() ?? m['name']?.toString() ?? '') == sig,
-          )) {
-            continue;
-          }
+          final sig = field.isNotEmpty ? field : (raw['name']?.toString() ?? '');
+          if (!seenFields.add(sig)) continue;
+          matchStrength[sig] = strength;
           matched.add(raw);
         }
 
         // 关键修复：matched 为空 = 该关键词真无匹配字段，不 fallback 到全部，
         // 否则会命中无关字段（如 joiningDeadlineMs）。
+        // 同时记录诊断：主数据源可用但候选数/命中数各是多少，
+        // 便于调用方区分"字段模块没数据"与"关键词不在候选里"。
+        _lastPrimarySourceNote = matched.isEmpty
+            ? 'analyze_module_fields_ok:candidates=${allCandidates.length},'
+                  'readCandidates=${readCandidates is List ? readCandidates.length : 0},'
+                  'fieldCandidates=${fieldCandidates is List ? fieldCandidates.length : 0},'
+                  'matched=0'
+            : 'analyze_module_fields_ok:candidates=${allCandidates.length},matched=${matched.length}';
+        // 词表召回诊断：模块若只返回极少候选，说明 APK 字段名与词表对不上
+        // （R8 混淆后字段名会变成 a/b/c），此时"无匹配"是词表问题而非工具缺陷。
+        _lastPrimaryCandidateNames = <String>[
+          for (final c in allCandidates.take(20))
+            c['name']?.toString() ?? c['field']?.toString() ?? '?',
+        ];
         if (matched.isNotEmpty) {
-          // VIP 状态优先布尔/整数用户字段；同类候选再按消费点数量排序。
-          matched.sort(
-            (a, b) => _businessFieldScore(
+          // 匹配强度优先级：exact > partial > wildcard。强度是硬约束——
+          // 只要存在 exact 候选，partial 候选就不再参与排序与选优，
+          // 避免"名字沾边"的网络字段压过真正的业务字段。
+          int strengthRank(String s) => switch (s) {
+            'exact' => 0,
+            'partial' => 1,
+            _ => 2,
+          };
+          matched.sort((a, b) {
+            final ar = strengthRank(_candidateStrength(a, matchStrength));
+            final br = strengthRank(_candidateStrength(b, matchStrength));
+            if (ar != br) return ar.compareTo(br);
+            // VIP 状态优先布尔/整数用户字段；同类候选再按消费点数量排序。
+            return _businessFieldScore(
               b,
               domain: domain,
-            ).compareTo(_businessFieldScore(a, domain: domain)),
+            ).compareTo(_businessFieldScore(a, domain: domain));
+          });
+          final topStrength = strengthRank(
+            _candidateStrength(matched.first, matchStrength),
           );
+          // 只有 partial/wildcard 命中时降置信：工具无法证明这就是业务字段。
+          final fuzzyOnly = topStrength > 0;
 
           // 取第一个字段，解析其消费点。
           final top = matched.first;
@@ -645,8 +782,15 @@ class DefaultAnalyzerGateway implements AnalyzerGateway {
                       '权威写入方 ${writer.methodLocator}'
                 : '$domain 状态字段 dex_field:$field：${readers.length} 读 0 写'
                       '（字段由反射/反序列化填充，无 iput 写入点，需逐读取点修改）',
-            score: refs.isEmpty ? 0.3 : 0.9,
-            confidence: ConfidenceLevel.high,
+            // 缺陷修复：fuzzyOnly（无 exact 命中）时降分降置信——
+            // 名字沾边不等于业务字段，0.9 + HIGH 会诱导下游直接把网络层
+            // 字段当会员状态去 patch。
+            score: refs.isEmpty
+                ? (fuzzyOnly ? 0.1 : 0.3)
+                : (fuzzyOnly ? 0.45 : 0.9),
+            confidence: fuzzyOnly && refs.isNotEmpty
+                ? ConfidenceLevel.medium
+                : ConfidenceLevel.high,
             evidenceLevel: refs.length >= 2
                 ? EvidenceLevel.l4
                 : (refs.isNotEmpty ? EvidenceLevel.l3 : EvidenceLevel.l1),
@@ -660,13 +804,16 @@ class DefaultAnalyzerGateway implements AnalyzerGateway {
               if (writer != null)
                 AnalyzerCandidate(
                   locator: writer.methodLocator,
-                  score: 0.95,
-                  reason: 'authoritative writer (WRITE_FIELD)',
+                  // 权威写入方只有在 exact 命中时才配 0.95。
+                  score: fuzzyOnly ? 0.45 : 0.95,
+                  reason: fuzzyOnly
+                      ? 'authoritative writer (WRITE_FIELD) — 字段名与目标关键词仅弱匹配，需人工确认是否业务字段'
+                      : 'authoritative writer (WRITE_FIELD)',
                 ),
               for (final r in readers.take(5))
                 AnalyzerCandidate(
                   locator: r.methodLocator,
-                  score: 0.5,
+                  score: fuzzyOnly ? 0.2 : 0.5,
                   reason: 'READ_FIELD @${r.opcode}',
                 ),
             ],
@@ -675,15 +822,25 @@ class DefaultAnalyzerGateway implements AnalyzerGateway {
               'evidence': evidence,
               'patch_targets': patchTargets,
               'source': 'analyze_module_fields',
+              'match_strength': fuzzyOnly ? 'partial' : 'exact',
+              'matched_name': top['name']?.toString() ?? field,
             },
-            uncertainties: writers.length > 1
-                ? <dynamic>[
-                    <String, dynamic>{
-                      'reason': '字段有 ${writers.length} 个写入方',
-                      'impact': '需 trace_backward 确认权威路径',
-                    },
-                  ]
-                : const <dynamic>[],
+            uncertainties: <dynamic>[
+              if (fuzzyOnly)
+                <String, dynamic>{
+                  'reason':
+                      '字段名 "${top['name'] ?? field}" 与目标关键词 "$targetKeyword" '
+                      '仅弱匹配（无精确分段命中）',
+                  'impact':
+                      '该字段可能是同名无关字段（如网络层 isProxy 之于关键词 isPro），'
+                      'patch 前必须 smali_read 确认它确为业务状态字段',
+                },
+              if (writers.length > 1)
+                <String, dynamic>{
+                  'reason': '字段有 ${writers.length} 个写入方',
+                  'impact': '需 trace_backward 确认权威路径',
+                },
+            ],
             nextBestActions: patchTargets.take(3).toList(),
             nextActions: <AnalyzerNextAction>[
               for (final m in patchTargets.take(5))
@@ -701,6 +858,8 @@ class DefaultAnalyzerGateway implements AnalyzerGateway {
               'readers': readers.length,
               'patch_targets': patchTargets,
               'candidate_count': matched.length,
+              'match_strength': fuzzyOnly ? 'partial' : 'exact',
+              'matched_name': top['name']?.toString() ?? field,
             },
           );
           _cacheBusinessState(cacheKey, answer);
@@ -710,19 +869,22 @@ class DefaultAnalyzerGateway implements AnalyzerGateway {
     }
 
     // 回退：内存索引（无工作区/单元测试）。
+    // 醒目约束：这条路径**不是**权威来源——内存索引可能未构建/不完整。
+    // 因此不得再输出 `authoritative_writer_confirmed` + 0.95（旧实现在
+    // 真机 vipLevel 查询上就落到这里，返回 INSUFFICIENT/writer_not_found，
+    // 让调用方无法区分"APK 里真没有"与"索引没建起来"）。
+    final memoryIndexReady = index.fieldBySignature.isNotEmpty;
+    final filter = (fieldName.isNotEmpty ? fieldName : targetKeyword)
+        .toLowerCase();
     final hits = <IndexEntry>[];
     for (final e in index.fieldBySignature.values) {
-      if (e.name.toLowerCase().contains(
-        (fieldName.isNotEmpty ? fieldName : targetKeyword).toLowerCase(),
-      )) {
+      if (_businessKeywordMatchStrength(e.name, filter) != null) {
         hits.add(e);
       }
     }
     if (hits.isEmpty) {
       for (final e in index.methodBySignature.values) {
-        if (e.name.toLowerCase().contains(
-          (fieldName.isNotEmpty ? fieldName : targetKeyword).toLowerCase(),
-        )) {
+        if (_businessKeywordMatchStrength(e.name, filter) != null) {
           hits.add(e);
           if (hits.length >= 10) break;
         }
@@ -736,36 +898,96 @@ class DefaultAnalyzerGateway implements AnalyzerGateway {
     final writer = writers.isEmpty ? null : writers.first;
     final readers = refs.where((r) => r.relation == 'READ_FIELD').toList();
 
+    // D5（2026-09-19 真机 QA）：主数据源失败/索引为空时，响应不能读成
+    // "APK 里不存在该字段"。过去 summary 只写"未定位 $domain 字段 X（数据源：
+    // 内存索引）"，配 stop_reason=index_unavailable，模型很容易据此下"没有 VIP
+    // 逻辑"的结论——那是一次**未评估**，不是一次否证。
+    final primaryFailed = _lastPrimarySourceNote.startsWith('analyze_module_fields_failed');
+    final notEvaluated = writer == null && (primaryFailed || !memoryIndexReady);
+    // R8 混淆判据：候选名样本里全是 1~2 字符的短名 → 按词表/关键词匹配天然
+    // 召回不到（真机 QA：pc1/a/b/c 这种包，fieldName 词表匹配恒空）。
+    final obfuscatedCandidates = _lastPrimaryCandidateNames.isNotEmpty &&
+        _lastPrimaryCandidateNames.every((n) {
+          final leaf = n.contains('->') ? n.split('->').last : n;
+          final name = leaf.split(':').first;
+          return name.length <= 2;
+        });
+
     return AnalyzerResult(
       query: 'analyze_business_state($targetKeyword, $domain)',
       summary: writer == null
-          ? '未定位 $domain 字段 $targetKeyword'
-          : '$domain 状态字段 ${field?.canonicalLocator}：权威写入方 ${writer.methodLocator}',
-      score: writer == null ? 0 : 0.9,
-      confidence: ConfidenceLevel.high,
+          ? (notEvaluated
+                ? '$domain 状态字段 $targetKeyword：**未评估**'
+                      '（主数据源 ${primaryFailed ? _lastPrimarySourceNote : "不可用"}'
+                      '${memoryIndexReady ? "" : "，内存索引为空"}）。'
+                      '这不是"字段不存在"的证据——请按 nextActions 换手段定位'
+                      '（qid 直查 / 字符串交叉确认）。'
+                      '${obfuscatedCandidates ? " 候选名疑似 R8 混淆（如 ${_lastPrimaryCandidateNames.take(3).join("、")}），按名匹配天然无效。" : ""}'
+                : '未定位 $domain 字段 $targetKeyword'
+                      '（数据源：内存索引${memoryIndexReady ? '' : '，索引为空'}）')
+          : '$domain 状态字段 ${field?.canonicalLocator}：写入方 ${writer.methodLocator}'
+                '（数据源：内存索引，未经工作区扫描确认）',
+      // 内存索引命中不是权威证据：0.75 上限，且明确降置信。
+      score: writer == null ? 0 : 0.75,
+      confidence: ConfidenceLevel.medium,
       evidenceLevel: writer == null
           ? EvidenceLevel.l1
-          : (refs.length >= 2 ? EvidenceLevel.l4 : EvidenceLevel.l3),
+          : (refs.length >= 2 ? EvidenceLevel.l3 : EvidenceLevel.l2),
       sufficiency: writer == null
           ? Sufficiency.insufficient
           : Sufficiency.complete,
       stopReason: writer == null
-          ? 'writer_not_found'
-          : 'authoritative_writer_confirmed',
+          ? (memoryIndexReady ? 'writer_not_found' : 'index_unavailable')
+          : 'writer_candidate_unverified',
       primaryCandidates: [
         if (writer != null)
           AnalyzerCandidate(
             locator: writer.methodLocator,
-            score: 0.95,
-            reason: 'authoritative writer (WRITE_FIELD)',
+            score: 0.75,
+            reason: 'writer candidate (WRITE_FIELD) — 来自内存索引，'
+                '未经工作区扫描确认，需 smali_read 复核',
           ),
       ],
       evidenceGraph: <String, dynamic>{
         'field': field?.canonicalLocator,
         'source': 'memory_index',
+        'authoritative': false,
+        // D5：机器可读的"未评估"标记与原因，避免调用方只看 stopReason 就下结论。
+        'notEvaluated': notEvaluated,
+        if (notEvaluated) 'unavailableReason': _lastPrimarySourceNote,
+        if (obfuscatedCandidates) 'candidateNamesLookObfuscated': true,
       },
+      uncertainties: <dynamic>[
+        if (writer == null && !memoryIndexReady)
+          <String, dynamic>{
+            'reason': _unbound
+                ? 'analyzer 未绑定任何 APK，且字段模块未产出可用候选'
+                : '按需分析模式下不预建字段索引，且字段模块未产出可匹配候选',
+            'impact': '本次空结果**不能**推断 APK 中不存在该字段；'
+                '先按 primary_source 判断是模块失败还是词表未召回，'
+                '再决定改用 dex_search / string_scan 交叉确认',
+          },
+        if (notEvaluated && memoryIndexReady)
+          <String, dynamic>{
+            'reason': '主数据源失败（$_lastPrimarySourceNote），本次属**未评估**'
+                '${obfuscatedCandidates ? "；且候选名疑似 R8 混淆，按名匹配天然无效" : ""}',
+            'impact': '不得据此判断字段/业务逻辑不存在。'
+                '改用 run_task_command(FIELD_STATE_LOCATE, className+field 或全量 qid)'
+                ' 或 string_scan 交叉确认',
+          },
+        if (writer != null)
+          <String, dynamic>{
+            'reason': '写入方来自内存索引，非工作区实时扫描',
+            'impact': '权威性未确认，patch 前须 smali_read 复核',
+          },
+      ],
       nextBestActions: <String>[
         if (writer != null) 'smali_read("${writer.methodLocator}")',
+        if (writer == null) 'dex_search(keyword="$targetKeyword", action="auto")',
+        if (writer == null) 'string_scan(query="$targetKeyword")',
+        if (notEvaluated)
+          'run_task_command(command="FIELD_STATE_LOCATE", className="<类名>", field="<字段名>")'
+              ' — 按 qid 直查，不依赖字段名词表',
       ],
       nextActions: <AnalyzerNextAction>[
         if (writer != null)
@@ -778,7 +1000,27 @@ class DefaultAnalyzerGateway implements AnalyzerGateway {
                 '',
               ),
             },
-            description: '读权威写入方 smali',
+            description: '读候选写入方 smali',
+          ),
+        if (writer == null)
+          AnalyzerNextAction(
+            tool: 'dex_search',
+            purpose: 'cross_check',
+            arguments: <String, dynamic>{
+              'keyword': targetKeyword,
+              'action': 'auto',
+              'matchType': 'Contains',
+              'ignoreCase': true,
+            },
+            description: '字段模块未召回该关键词时，改用 dex_search 交叉确认'
+                '（R8 混淆后字段名可能已被重命名，字段模块词表匹配不到）',
+          ),
+        if (writer == null)
+          AnalyzerNextAction(
+            tool: 'string_scan',
+            purpose: 'cross_check',
+            arguments: <String, dynamic>{'query': targetKeyword},
+            description: '确认该关键词是否以字符串形式存在于 APK 条目中',
           ),
       ],
       recommendedAction: writer == null ? 'LOCATE_SYMBOL' : 'INSPECT_ENTITIES',
@@ -787,8 +1029,116 @@ class DefaultAnalyzerGateway implements AnalyzerGateway {
         'writers': [for (final w in writers) w.toJson()],
         'readers': readers.length,
         'source': 'memory_index',
+        'authoritative': false,
+        'memory_index_ready': memoryIndexReady,
+        'primary_source': _lastPrimarySourceNote,
+        'primary_candidate_names': _lastPrimaryCandidateNames,
+        'fallback_reason': _lastPrimarySourceNote.startsWith(
+          'analyze_module_fields_failed',
+        )
+            ? '主数据源 analyzeModule(fields) 失败或无数据，已回退内存索引'
+            : '主数据源未命中该关键词，已回退内存索引',
       },
     );
+  }
+
+  /// 从候选 map 反查其匹配强度（键与去重签名一致：field 优先，退化 name）。
+  static String _candidateStrength(
+    Map<String, dynamic> candidate,
+    Map<String, String> matchStrength,
+  ) {
+    final field = candidate['field']?.toString() ?? '';
+    if (field.isNotEmpty) {
+      final byField = matchStrength[field];
+      if (byField != null) return byField;
+    }
+    final byName = matchStrength[candidate['name']?.toString() ?? ''];
+    return byName ?? 'wildcard';
+  }
+
+  /// 业务字段名 vs 关键词的**分段匹配**强度。
+  ///
+  /// 返回 `null` = 不命中；`'exact'` = 整名相等或分隔后的某一段全等
+  /// （如 filter `vip` 命中 `isVip` / `vipLevel` 的 `vip` 段）；
+  /// `'partial'` = 存在段级部分包含但无段全等。
+  ///
+  /// 关键约束：**禁止裸 substring**。`ispro` 是 `isproxy` / `isprotected` /
+  /// `isproduct` / `isPromise` 的子串，裸匹配会把网络层/无关字段抬进候选。
+  ///
+  /// 测试用只读入口。
+  static String? debugBusinessKeywordMatchStrength(String name, String filter) =>
+      _businessKeywordMatchStrength(name, filter);
+
+  static String? _businessKeywordMatchStrength(String name, String filter) {
+    final f = filter.toLowerCase();
+    if (f.isEmpty) return 'wildcard';
+    final segments = _businessNameSegments(name);
+    if (segments.isEmpty) return null;
+    // 整名全等（忽略大小写）。
+    if (segments.join() == f) return 'exact';
+    // 单段全等：`isVip` → ['is','vip']，filter `vip` 命中。
+    if (segments.contains(f)) return 'exact';
+    // 连续多段拼接全等：`vipLevel` → ['vip','level'] 拼成 `viplevel`。
+    for (var start = 0; start < segments.length; start++) {
+      final sb = StringBuffer();
+      for (var end = start; end < segments.length; end++) {
+        sb.write(segments[end]);
+        final joined = sb.toString();
+        if (joined == f) return 'exact';
+        if (joined.length >= f.length) break;
+        if (!f.startsWith(joined)) break;
+      }
+    }
+    // 段级部分包含（`level` in `levels`）——弱命中，单独归类。
+    if (segments.any((s) => s.contains(f) || f.contains(s))) return 'partial';
+    // 拼接后包含但无段边界对齐（`ispro` in `isproxy`）——同样归 partial，
+    // 由调用方按强度降置信，而不是当精确命中用。
+    if (segments.join().contains(f)) return 'partial';
+    return null;
+  }
+
+  /// 驼峰/下划线/美元符/数字边界拆段（全部小写输出）。
+  ///
+  /// `isProxy` → ['is','proxy']；`vipLevel` → ['vip','level']；
+  /// `user_info` → ['user','info']；`isVip2` → ['is','vip','2']。
+  ///
+  /// 注意：必须在**转小写之前**识别驼峰边界，否则大小写信息丢失、
+  /// 整名退化成单段（这是上一版实现把 `isVip` 判成 partial 的原因）。
+  static List<String> _businessNameSegments(String name) {
+    final out = <String>[];
+    final sb = StringBuffer();
+    // 跟踪当前段末字符类别，避免反复 StringBuffer.toString()（O(n²)）。
+    var lastWasLower = false;
+    var lastWasDigit = false;
+    void flush() {
+      if (sb.isNotEmpty) {
+        out.add(sb.toString());
+        sb.clear();
+      }
+      lastWasLower = false;
+      lastWasDigit = false;
+    }
+
+    for (var i = 0; i < name.length; i++) {
+      final ch = name[i];
+      final code = ch.codeUnitAt(0);
+      final isLower = code >= 0x61 && code <= 0x7a; // a-z
+      final isUpper = code >= 0x41 && code <= 0x5a; // A-Z
+      final isDigit = code >= 0x30 && code <= 0x39; // 0-9
+      if (!isLower && !isUpper && !isDigit) {
+        flush();
+        continue;
+      }
+      // 驼峰边界：小写后接大写 → 新段（isProxy → is|Proxy）。
+      if (isUpper && lastWasLower) flush();
+      // 数字起始新段（vip2 → vip|2）。
+      if (isDigit && sb.isNotEmpty && !lastWasDigit) flush();
+      sb.write(isUpper ? ch.toLowerCase() : ch);
+      lastWasLower = isLower;
+      lastWasDigit = isDigit;
+    }
+    flush();
+    return out;
   }
 
   int _businessFieldScore(

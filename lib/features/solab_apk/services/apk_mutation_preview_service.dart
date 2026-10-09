@@ -7,6 +7,12 @@ class ApkMutationPreviewService {
   ApkMutationPreviewService._();
 
   static const _key = 'apk_mod_mutation_previews_v1';
+
+  /// 最近被写操作作废的 token（供 consume 失败时区分"从未 dryRun"与
+  /// "已因后续写操作作废"）。**不是墓碑**：只留最近 [\_recentMax] 条、随
+  /// [\_lifetime] 过期，且不参与任何校验判定——纯粹用于把错误信息说准。
+  static const _recentKey = 'apk_mod_mutation_previews_recent_v1';
+  static const _recentMax = 32;
   static const _lifetime = Duration(minutes: 30);
 
   static Future<String> issue({
@@ -72,24 +78,99 @@ class ApkMutationPreviewService {
       }
       return false;
     });
-    if (removed.isNotEmpty) await _write(previews);
+    if (removed.isNotEmpty) {
+      await _write(previews);
+      await _rememberInvalidated(removed, operation: operation, path: path);
+    }
     return removed;
   }
 
   /// 任一写操作成功后，原产物已不再是后续修改链的当前输入；清理该产物上
   /// 所有操作的预览，避免不同工具从同一旧 APK 分叉并覆盖前一步修改。
+  ///
+  /// D8（2026-09-19 真机 QA）：这个语义是**对的**——预览针对的是旧产物字节，
+  /// 写完之后"同一参数 + 新输入"已经是另一个操作，放行等于静默改变语义。
+  /// 但被作废的一方此前只能拿到"凭证不存在（从未 dryRun 或已被消费）"，
+  /// 与真实原因（写操作改了目标）不符，看起来像"preview 完全不能用"。
+  /// 故记一条**只说原因、不参与校验**的短期记录，让错误信息能如实解释并给出
+  /// "以 nextInputPath 重新 dryRun"的指引。
   static Future<List<String>> invalidateArtifact(String path) async {
     final previews = await _read();
     final removed = <String>[];
+    var operation = '';
     previews.removeWhere((token, preview) {
       if (preview is Map && preview['path'] == path) {
         removed.add(token);
+        operation = preview['operation']?.toString() ?? operation;
         return true;
       }
       return false;
     });
-    if (removed.isNotEmpty) await _write(previews);
+    if (removed.isNotEmpty) {
+      await _write(previews);
+      await _rememberInvalidated(removed, operation: operation, path: path);
+    }
     return removed;
+  }
+
+  static Future<void> _rememberInvalidated(
+    List<String> tokens, {
+    required String operation,
+    required String path,
+  }) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_recentKey);
+      final recent = <String, dynamic>{};
+      if (raw != null && raw.isNotEmpty) {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) recent.addAll(decoded.cast<String, dynamic>());
+      }
+      final at = DateTime.now().millisecondsSinceEpoch;
+      for (final token in tokens) {
+        recent[token] = {
+          'operation': operation,
+          'path': path,
+          'invalidatedAt': at,
+          'expiresAt': at + _lifetime.inMilliseconds,
+        };
+      }
+      // 只留最近的若干条 + 未过期的：这是给错误信息用的提示，不是状态。
+      final alive = <String, dynamic>{};
+      for (final entry in recent.entries) {
+        final value = entry.value;
+        final expiresAt = value is Map ? (value['expiresAt'] as num?)?.toInt() : null;
+        if (expiresAt == null || expiresAt < at) continue;
+        alive[entry.key] = value;
+      }
+      final trimmed = alive.entries.toList()
+        ..sort((a, b) {
+          final av = (a.value as Map)['invalidatedAt'] as num? ?? 0;
+          final bv = (b.value as Map)['invalidatedAt'] as num? ?? 0;
+          return bv.compareTo(av);
+        });
+      final keep = <String, dynamic>{
+        for (final e in trimmed.take(_recentMax)) e.key: e.value,
+      };
+      await prefs.setString(_recentKey, jsonEncode(keep));
+    } catch (_) {
+      // 记录失败不影响作废本身（作废已落盘）。
+    }
+  }
+
+  /// 该 token 是否因后续写操作被作废（用于把 consume 的错误说准）。
+  static Future<Map<String, dynamic>?> invalidatedReason(String token) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_recentKey);
+      if (raw == null || raw.isEmpty) return null;
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return null;
+      final entry = decoded[token];
+      return entry is Map ? entry.cast<String, dynamic>() : null;
+    } catch (_) {
+      return null;
+    }
   }
 
   /// 详细版 consume：返回失败原因（invalid/expired/mismatch）与原过期时间，
@@ -117,6 +198,23 @@ class ApkMutationPreviewService {
     final previews = await _read();
     final preview = previews[token];
     if (preview is! Map) {
+      // D8：区分「从未 dryRun」与「已因后续写操作作废」——后者是正常链路行为
+      // （预览针对旧产物字节），错误信息必须说准，并给出重做路径。
+      final invalidated = await invalidatedReason(token);
+      if (invalidated != null) {
+        final path = invalidated['path']?.toString() ?? '';
+        final operation = invalidated['operation']?.toString() ?? '';
+        return {
+          'ok': false,
+          'reason': 'invalidated',
+          'invalidatedPath': path,
+          'invalidatedByOperation': operation,
+          'message':
+              '预览确认凭证已因针对同一产物（$path）的写操作（$operation）而作废：'
+              '旧预览对应的是改动前的字节。请以该写操作的 nextInputPath 为输入重新 dryRun，'
+              '再 applyAfterPreview=true。',
+        };
+      }
       return {
         'ok': false,
         'reason': 'invalid',

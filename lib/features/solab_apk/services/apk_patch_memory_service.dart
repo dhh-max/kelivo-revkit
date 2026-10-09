@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -22,6 +23,8 @@ class ApkPatchMemory {
     this.operation = '',
     this.pitfall = '',
     this.targets = const <String>[],
+    this.artifacts = const <Map<String, dynamic>>[],
+    this.status = MemoryStatus.active,
   });
 
   final String id;
@@ -42,6 +45,16 @@ class ApkPatchMemory {
   /// 按图索骥，不再只有一句抽象方案。同指纹合并时取并集去重。
   final List<String> targets;
 
+  /// 验证过的产物文件档案（跨会话按内容指纹识别成品/基线）：
+  /// [{sha256, path, size, fileName, kind, recordedAt}]。同指纹合并时按
+  /// sha256 去重取并集——agent 拿到一个来历不明的 APK 时可反查
+  /// 「这是不是某个已验证项目的成品/源包」。
+  final List<Map<String, dynamic>> artifacts;
+
+  /// 记忆状态（active/archived）：新版本验证成功后旧版本条目自动置
+  /// archived 供复查；默认查询只回 active。
+  final MemoryStatus status;
+
   ApkPatchMemory copyWith({
     String? id,
     Map<String, dynamic>? fingerprint,
@@ -52,6 +65,8 @@ class ApkPatchMemory {
     String? operation,
     String? pitfall,
     List<String>? targets,
+    List<Map<String, dynamic>>? artifacts,
+    MemoryStatus? status,
   }) => ApkPatchMemory(
     id: id ?? this.id,
     fingerprint: fingerprint ?? this.fingerprint,
@@ -62,6 +77,8 @@ class ApkPatchMemory {
     operation: operation ?? this.operation,
     pitfall: pitfall ?? this.pitfall,
     targets: targets ?? this.targets,
+    artifacts: artifacts ?? this.artifacts,
+    status: status ?? this.status,
   );
 }
 
@@ -344,6 +361,11 @@ class ApkPatchMemoryService {
         for (final t in (extra['targets'] as List? ?? const []))
           if (t.toString().trim().isNotEmpty) t.toString().trim(),
       ],
+      artifacts: [
+        for (final a in (extra['artifacts'] as List? ?? const []))
+          if (a is Map) Map<String, dynamic>.from(a),
+      ],
+      status: e.status,
     );
   }
 
@@ -356,6 +378,9 @@ class ApkPatchMemoryService {
       type: MemoryType.apkPatch,
       content: m.solution,
       source: MemorySource.tool,
+      // status 必须随行：漏带会把 archived 条目写成 active（roundtrip
+      // 丢状态，add(archived) 路径实测触发；默认 active 不受影响）。
+      status: m.status,
       extraJson: {
         'title': m.title,
         'fingerprint': m.fingerprint,
@@ -364,6 +389,7 @@ class ApkPatchMemoryService {
         'operation': m.operation,
         if (m.pitfall.isNotEmpty) 'pitfall': m.pitfall,
         if (m.targets.isNotEmpty) 'targets': m.targets,
+        if (m.artifacts.isNotEmpty) 'artifacts': m.artifacts,
         'timestamp': m.timestamp,
       },
       createdAt: ts,
@@ -382,11 +408,16 @@ class ApkPatchMemoryService {
   }
 
   /// 读取全部 APK 经验（按时间倒序）。
-  static Future<List<ApkPatchMemory>> load(MemoryRepository repo) async {
+  static Future<List<ApkPatchMemory>> load(
+    MemoryRepository repo, {
+    bool includeArchived = false,
+  }) async {
     final all = await repo.readByType(MemoryType.apkPatch);
     final result = <ApkPatchMemory>[
       for (final e in all)
-        if (e.type == MemoryType.apkPatch) _fromEntry(e),
+        if (e.type == MemoryType.apkPatch &&
+            (includeArchived || e.status != MemoryStatus.archived))
+          _fromEntry(e),
     ];
     result.sort((a, b) => b.timestamp.compareTo(a.timestamp));
     return result;
@@ -485,6 +516,10 @@ class ApkPatchMemoryService {
   /// 收敛写入验证结果：同指纹收敛为同一条（优先命中已验证条目，
   /// 其次任意同指纹条目——save 已收敛单条后两者通常同一条），
   /// 没有才新建。方案/易错点/改点合并且保留，验证结论以最新反馈为准。
+  /// [artifacts] 为本次验证产物的文件档案（sha256 跨会话反查成品用）。
+  /// [versionName] 为本次验证时 APP 的版本：同 APP 出现**新版本**的验证
+  /// 成功时，旧版本条目自动置 archived（保留原方案供复查），新版本条目
+  /// active——一个 APP 同时只有一条 active 经验。
   static Future<void> upsertVerification({
     required MemoryRepository repo,
     required Map<String, dynamic> fingerprint,
@@ -494,6 +529,8 @@ class ApkPatchMemoryService {
     required String operation,
     String pitfall = '',
     List<String> targets = const <String>[],
+    List<Map<String, dynamic>> artifacts = const <Map<String, dynamic>>[],
+    String versionName = '',
   }) {
     return repo.runExclusive(() async {
       final apk = await repo.readByType(MemoryType.apkPatch);
@@ -523,6 +560,7 @@ class ApkPatchMemoryService {
         if (idx != -1) {
           var old = entries[idx];
           final duplicateIndexes = <int>[];
+          var mergedArtifacts = List<Map<String, dynamic>>.of(old.artifacts);
           for (var i = 0; i < entries.length; i++) {
             if (i == idx) continue;
             if (_sameApp(entries[i].fingerprint, fingerprint) ||
@@ -531,14 +569,79 @@ class ApkPatchMemoryService {
               old = old.copyWith(
                 solution: mergeSolution(old.solution, entries[i].solution),
                 pitfall: mergePitfall(old.pitfall, entries[i].pitfall),
-                targets: <String>[...old.targets, ...entries[i].targets].toList(),
+                targets: {...old.targets, ...entries[i].targets}.toList(),
               );
+              mergedArtifacts = mergeArtifacts(mergedArtifacts, entries[i].artifacts);
             }
           }
+          // 版本代际：同 APP 已有 active 验证条目且版本不同 → 旧条目归档，
+          // 本次写入成为新的 active 经验（旧方案保留在 archived 里供复查）。
+          final oldVersion =
+              (old.fingerprint['versionName'] ?? '').toString().trim();
+          final newVersion = versionName.trim();
+          final isNewVersionForVerifiedApp =
+              old.outcome.startsWith('verified_') &&
+              oldVersion.isNotEmpty &&
+              newVersion.isNotEmpty &&
+              oldVersion != newVersion;
+          if (isNewVersionForVerifiedApp) {
+            final archivedOld = _toEntry(
+              old.copyWith(outcome: 'archived_${old.outcome}'),
+              now: apk[idx].createdAt,
+            ).copyWith(status: MemoryStatus.archived);
+            await repo.upsertOne(archivedOld);
+            // 旧条目归档后不再参与本轮合并：新开条目
+            final entry = _toEntry(
+              ApkPatchMemory(
+                id: MemoryEntry.newId(),
+                fingerprint: fingerprint,
+                title: title,
+                solution: solution,
+                timestamp: now,
+                outcome: outcome,
+                operation: operation,
+                pitfall: pitfall,
+                targets: targets,
+                artifacts: artifacts,
+              ),
+            ).copyWith(
+              extraJson: {
+                ...?_toEntry(
+                  ApkPatchMemory(
+                    id: MemoryEntry.newId(),
+                    fingerprint: fingerprint,
+                    title: title,
+                    solution: solution,
+                    timestamp: now,
+                    outcome: outcome,
+                    operation: operation,
+                    pitfall: pitfall,
+                    targets: targets,
+                    artifacts: artifacts,
+                  ),
+                ).extraJson,
+                'versionName': newVersion,
+              },
+            );
+            await repo.upsertOne(entry);
+            for (final duplicateIndex in duplicateIndexes) {
+              await repo.deleteOne(apk[duplicateIndex].id);
+            }
+            return;
+          }
+          // 标题：验证结果落地后必须反映**当前**结论。旧实现是
+          // `old.title.isNotEmpty ? old.title : title` —— 合并时永远沿用旧标题，
+          // 于是「待验证 APK 修改」这条草稿标题会一直挂着，而 outcome 已经变成
+          // verified_success（复验方看到的就是这个自相矛盾）。仅当旧标题更具体
+          // （不是待验证草稿）且新标题是默认值时，才保留旧标题。
+          final oldTitleLooksPending = old.title.startsWith('待验证');
           final merged = ApkPatchMemory(
             id: old.id,
-            fingerprint: fingerprint,
-            title: old.title.isNotEmpty ? old.title : title,
+            fingerprint: {
+              ...fingerprint,
+              if (newVersion.isNotEmpty) 'versionName': newVersion,
+            },
+            title: oldTitleLooksPending || old.title.isEmpty ? title : old.title,
             solution: mergeSolution(old.solution, solution),
             timestamp: now,
             outcome: outcome,
@@ -548,9 +651,21 @@ class ApkPatchMemoryService {
               ...old.targets,
               ...targets,
             ].map((e) => e.trim()).where((e) => e.isNotEmpty).toSet().toList(),
+            artifacts: mergeArtifacts(mergedArtifacts, artifacts),
           );
           final updated = _toEntry(merged, now: apk[idx].createdAt);
-          await repo.upsertOne(updated);
+          if (newVersion.isNotEmpty) {
+            await repo.upsertOne(
+              updated.copyWith(
+                extraJson: {
+                  ...?updated.extraJson,
+                  'versionName': newVersion,
+                },
+              ),
+            );
+          } else {
+            await repo.upsertOne(updated);
+          }
           for (final duplicateIndex in duplicateIndexes) {
             await repo.deleteOne(apk[duplicateIndex].id);
           }
@@ -560,7 +675,11 @@ class ApkPatchMemoryService {
       final entry = _toEntry(
         ApkPatchMemory(
           id: MemoryEntry.newId(),
-          fingerprint: fingerprint,
+          fingerprint: {
+            ...fingerprint,
+            if (versionName.trim().isNotEmpty)
+              'versionName': versionName.trim(),
+          },
           title: title,
           solution: solution,
           timestamp: now,
@@ -568,10 +687,48 @@ class ApkPatchMemoryService {
           operation: operation,
           pitfall: pitfall,
           targets: targets,
+          artifacts: artifacts,
         ),
       );
       await repo.upsertOne(entry);
     });
+  }
+
+  /// 产物档案合并：按 sha256 去重取并集，新记录的字段刷新旧路径。
+  static List<Map<String, dynamic>> mergeArtifacts(
+    Iterable<Map<String, dynamic>> existing,
+    Iterable<Map<String, dynamic>> incoming,
+  ) {
+    final bySha = <String, Map<String, dynamic>>{
+      for (final a in existing)
+        if ((a['sha256'] ?? '').toString().trim().isNotEmpty)
+          a['sha256'].toString().trim(): a,
+    };
+    for (final a in incoming) {
+      final sha = (a['sha256'] ?? '').toString().trim();
+      if (sha.isEmpty) continue;
+      final old = bySha[sha];
+      bySha[sha] = old == null ? Map<String, dynamic>.from(a) : {...old, ...a};
+    }
+    return bySha.values.toList();
+  }
+
+  /// 按产物文件内容指纹反查经验记录：agent 拿到一个来历不明的 APK 时，
+  /// 用它的 sha256 判断「这是不是某个已验证项目的成品/源包」。
+  static Future<List<ApkPatchMemory>> findByArtifactSha256(
+    MemoryRepository repo,
+    String sha256,
+  ) async {
+    final normalized = sha256.trim().toLowerCase();
+    if (normalized.isEmpty) return const <ApkPatchMemory>[];
+    final all = await load(repo);
+    return [
+      for (final m in all)
+        if (m.artifacts.any(
+          (a) => (a['sha256'] ?? '').toString().trim().toLowerCase() == normalized,
+        ))
+          m,
+    ];
   }
 
   static Future<void> remove(MemoryRepository repo, String id) {
@@ -621,15 +778,95 @@ class ApkPatchMemoryService {
           if (memory.pitfall.isNotEmpty) 'pitfall': memory.pitfall,
           if (memory.targets.isNotEmpty) 'targets': memory.targets,
           'score': score,
+          ...artifactPresenceOf(memory),
         },
     ];
   }
 
+  /// 产物在场性（用户报告 #4）：记忆说"验证通过"，但它记的成品文件可能**已经不在
+  /// 工作目录里**（被清理/换机/换目录）。旧行为只回 `verified_success`，调用方会以为
+  /// 自己有一条可用基线——出现"已验证记录在场、已验证产物不在场"的不一致态。
+  ///
+  /// 这里按 `artifacts[].path` 逐个 stat，如实回报：
+  ///   - 全部在场 → `artifactPresence: {present: n, missing: 0}`
+  ///   - 有缺失 → 额外给 `artifactMissing: true` + `artifactMissingPaths` + 处置指引
+  /// 只读 stat，不改记忆（记忆里该不该标 missing 是另一件事：文件可能只是被移走，
+  /// 标脏会污染后续反查）。
+  static Map<String, dynamic> artifactPresenceOf(ApkPatchMemory memory) {
+    final recorded = memory.artifacts
+        .map((a) => (a['path'] ?? '').toString().trim())
+        .where((p) => p.isNotEmpty)
+        .toList();
+    if (recorded.isEmpty) {
+      return const <String, dynamic>{'artifactPresence': 'not_recorded'};
+    }
+    final present = <String>[];
+    final missing = <String>[];
+    for (final path in recorded) {
+      // File.existsSync 是同步 stat：一次工具调用最多几条记忆、每条几个产物，
+      // 开销可忽略，不值得为它引入异步。
+      if (File(path).existsSync()) {
+        present.add(path);
+      } else {
+        missing.add(path);
+      }
+    }
+    return <String, dynamic>{
+      'artifactPresence': missing.isEmpty ? 'present' : 'missing',
+      'artifactPresentCount': present.length,
+      'artifactMissingCount': missing.length,
+      if (missing.isNotEmpty) 'artifactMissingPaths': missing,
+      if (missing.isNotEmpty)
+        'artifactMissingNote':
+            '这条经验记的成品文件已不在工作目录（$missing）。**不要把它当成可用基线**：'
+            '当前工作区里没有对应产物，引用它之前先确认目标文件是否存在，'
+            '需要重放时按同 APP 的 rootSource 重新走一遍补丁流程（记忆里的方案与改点仍然有效）。',
+    };
+  }
+
   /// 供 AI 读取：当前报告指纹匹配的经验，JSON 编码。
+  ///
+  /// 匹配优先（用户要求）：默认只返回与当前 APP 匹配的 active 经验；
+  /// 匹配为空时降级返回同 APP 的 archived 旧版本经验（标注供复查）；
+  /// [listAll]=true 时返回全部 active 经验的简表（id/title/版本/结论），
+  /// 供 agent 主动浏览全部记忆而不只看匹配项。
   static Future<String> readForAi(
     MemoryRepository repo,
-    Map<String, dynamic> fingerprint,
-  ) async {
+    Map<String, dynamic> fingerprint, {
+    bool listAll = false,
+  }) async {
+    if (listAll) {
+      final all = await load(repo);
+      return jsonEncode({
+        'listAll': true,
+        'count': all.length,
+        'memories': [
+          for (final m in all)
+            {
+              'id': m.id,
+              'title': m.title,
+              'appId': appKey(m.fingerprint),
+              'versionName':
+                  (m.fingerprint['versionName'] ?? '').toString(),
+              'outcome': m.outcome,
+            },
+        ],
+        // D10（2026-09-21 复验）：这两条语义必须说清楚，否则读起来是"自相矛盾"——
+        // ① `versionName` 是**验证当时分析报告（源包）**的版本，不是成品自身读出的
+        //    版本，报告过期/换包时会与成品不符，字段为空表示当时报告没给；
+        // ② `title` 是**首次登记时**写的草稿标题，后续验证只更新 `outcome`——
+        //    两者不一致时以 `outcome` 为准（标题保持历史原文，便于与当时对话对上）。
+        'fieldSemantics': <String, String>{
+          'versionName':
+              '验证当时分析报告（源包）的版本，非成品自读版本；空 = 当时报告未提供。',
+          'title': '首次登记时的草稿标题；验证结论看 outcome，不看标题措辞。',
+          'outcome': '本条经验的当前结论（verified_success / verified_failure 等）。',
+        },
+        'hint':
+            '全部经验的简表。要看某条的完整方案/改点，按对应 APP 分析后用默认匹配模式读取；'
+            '不要盲目展开全部全文。',
+      });
+    }
     if (isDegenerateFingerprint(fingerprint)) {
       return jsonEncode({
         'fingerprint': fingerprint,
@@ -641,14 +878,285 @@ class ApkPatchMemoryService {
       });
     }
     final matched = await match(repo, fingerprint, exactAppOnly: true);
+    if (matched.isNotEmpty) {
+      return jsonEncode({
+        'fingerprint': fingerprint,
+        'matchedMemories': matched,
+        'hint': '这里只返回当前 APP 已确认的单条经验；其他 APP 或其他会话的待验证产物笔记不会返回。优先参考 outcome=verified_success；verified_failure 仅用于避坑，unverified_legacy 不能直接采信。'
+                '条目含 pitfall 字段时为易错点警示（怎么改才对），向用户展示时须与 solution 并列单独成行醒目呈现，不要淹没在方案长文本里。',
+      });
+    }
+    // 匹配为空 → 降级：同 APP 的 archived 旧版本经验（供新版本复查）
+    final app = appKey(fingerprint);
+    if (app.isNotEmpty) {
+      final archived = (await load(repo, includeArchived: true))
+          .where(
+            (m) =>
+                m.status == MemoryStatus.archived && appKey(m.fingerprint) == app,
+          )
+          .toList();
+      if (archived.isNotEmpty) {
+        return jsonEncode({
+          'fingerprint': fingerprint,
+          'matchedMemories': [
+            for (final m in archived)
+              {
+                'id': m.id,
+                'title': m.title,
+                'solution': m.solution,
+                'outcome': m.outcome,
+                'operation': m.operation,
+                if (m.pitfall.isNotEmpty) 'pitfall': m.pitfall,
+                if (m.targets.isNotEmpty) 'targets': m.targets,
+                'legacyForReference': true,
+                'versionName': (m.fingerprint['versionName'] ?? '').toString(),
+              },
+          ],
+          'hint':
+              '当前 APP 无 active 经验，以上为旧版本已归档经验（legacyForReference=true）：'
+              '作为假设起点先验证旧逻辑是否延续，确认后用 record_apk_patch_verification 更新为新版本方案。',
+        });
+      }
+    }
+    // 跨 APP 方法论降级命中（2026-09-21 真机复盘 P1）：
+    // 本机早有一条「Flutter AOT 会员解锁」的 verified_success 经验，指纹同为
+    // engine=flutter / 无壳 / vipBucket=some，只因 appId 不同就被丢弃，
+    // matchedMemories 回空 → agent 从零重推，约多走 20 次工具调用。
+    //
+    // 为什么不是放宽 matchedMemories：appId 是用户定案硬边界（distill 里写明
+    // 「一个软件一条经验，跨 APP 永不合并」），且 solution 全文跨包复用本来就
+    // 不是证据。所以单开一个字段：只给"方法级"摘要（标题/操作/结论），
+    // 明确标注非本包证据。
+    final methodology = await matchMethodology(repo, fingerprint);
+    if (methodology.isNotEmpty) {
+      return jsonEncode({
+        'fingerprint': fingerprint,
+        'matchedMemories': const <Map<String, dynamic>>[],
+        'crossAppMethodology': methodology,
+        'hint': '当前 APP 无已验证经验。crossAppMethodology 是**其他 APP** 的同类（同引擎/同会员形态）'
+                '经验摘要——它只说明"这类包通常怎么做"，**不是本包证据**，具体 VA/字段/偏移一律不可复用，'
+                '必须在本包重新定位。用它的标题当检索线索（例如里面的类名/函数名形态）去 search/pool，'
+                '不要照搬补丁。',
+      });
+    }
     return jsonEncode({
       'fingerprint': fingerprint,
-      'matchedMemories': matched,
-      'hint': matched.isEmpty
-          ? '当前 APP 无已验证经验。安装验证后用 record_apk_patch_verification 记录结果。'
-          : '这里只返回当前 APP 已确认的单条经验；其他 APP 或其他会话的待验证产物笔记不会返回。优先参考 outcome=verified_success；verified_failure 仅用于避坑，unverified_legacy 不能直接采信。'
-                '条目含 pitfall 字段时为易错点警示（怎么改才对），向用户展示时须与 solution 并列单独成行醒目呈现，不要淹没在方案长文本里。',
+      'matchedMemories': const <Map<String, dynamic>>[],
+      'hint': '当前 APP 无已验证经验。安装验证后用 record_apk_patch_verification 记录结果。',
     });
+  }
+
+  /// 跨 APP 方法论摘要：同 engine + 同 flutterProfile(mode/abi/vipBucket) 的其他
+  /// APP 经验，按结论优先、分数次之排序，最多 3 条。
+  ///
+  /// 与 [peekSimilarExperiences] 同样只给"谁有经验"级别的摘要（标题/操作/结论），
+  /// 不给 solution 全文——跨包方案全文既不是证据也容易误导照搬。区别是它还要
+  /// 求"同任务形态"（vipBucket 一致），避免把纯广告包的经验当成会员包的方法论。
+  static Future<List<Map<String, dynamic>>> matchMethodology(
+    MemoryRepository repo,
+    Map<String, dynamic> fingerprint,
+  ) async {
+    if (isDegenerateFingerprint(fingerprint)) {
+      return const <Map<String, dynamic>>[];
+    }
+    final queryApp = appKey(fingerprint);
+    final engine = (fingerprint['engine'] ?? '').toString();
+    final queryProfile = fingerprint['flutterProfile'];
+    // 只在有明确任务形态时降级命中：engine 必须有，且 Flutter 包必须有
+    // flutterProfile（mode/abi/vipBucket）。缺形态的指纹命中等于凭"都是 Flutter"
+    // 乱猜，正是旧版把两个包并成一坨的原因。
+    if (engine.isEmpty) return const <Map<String, dynamic>>[];
+    if (engine == 'flutter' && queryProfile is! Map) {
+      return const <Map<String, dynamic>>[];
+    }
+    final queryBucket =
+        queryProfile is Map ? (queryProfile['vipBucket'] ?? '').toString() : '';
+    final queryMode =
+        queryProfile is Map ? (queryProfile['mode'] ?? '').toString() : '';
+    final bestByApp = <String, (ApkPatchMemory, double)>{};
+    for (final memory in await load(repo)) {
+      if (_isDegenerateMemory(memory.fingerprint)) continue;
+      final appId = appKey(memory.fingerprint);
+      if (appId.isEmpty || appId == queryApp) continue;
+      if ((memory.fingerprint['engine'] ?? '').toString() != engine) continue;
+      final profile = memory.fingerprint['flutterProfile'];
+      if (engine == 'flutter') {
+        if (profile is! Map) continue;
+        if ((profile['vipBucket'] ?? '').toString() != queryBucket) continue;
+        if (queryMode.isNotEmpty &&
+            (profile['mode'] ?? '').toString() != queryMode) {
+          continue;
+        }
+      }
+      final score = matchScore(memory.fingerprint, fingerprint);
+      final current = bestByApp[appId];
+      if (current == null ||
+          _outcomeRank(memory.outcome) < _outcomeRank(current.$1.outcome) ||
+          (memory.outcome == current.$1.outcome && score > current.$2)) {
+        bestByApp[appId] = (memory, score);
+      }
+    }
+    final ranked = bestByApp.values.toList()
+      ..sort((a, b) {
+        final byOutcome =
+            _outcomeRank(a.$1.outcome).compareTo(_outcomeRank(b.$1.outcome));
+        if (byOutcome != 0) return byOutcome;
+        return b.$2.compareTo(a.$2);
+      });
+    return [
+      for (final (memory, score) in ranked.take(3))
+        {
+          'appId': appKey(memory.fingerprint),
+          'title': memory.title,
+          'operation': memory.operation,
+          'outcome': memory.outcome,
+          'matchScore': score,
+          'evidenceScope': 'other_app_methodology_only',
+        },
+    ];
+  }
+
+  /// resume-state 自动浮现（2026-09-05）：只回答「有没有、是什么」，不携带
+  /// 方案全文——全文仍须经 get_apk_patch_memory 按需读取。
+  ///
+  /// 背景：apk_patch/apk_note/apk_failure 三类不在通用记忆注入白名单
+  /// （memory_block_builder 只注 identity/workflow/voice/instruction），
+  /// 库里有经验时 Agent 上下文零信号，提示词精简后更无引导——
+  /// 「明明有经验，AI 不看，看的是别的记忆」实测事故。本方法由
+  /// main() 装进 ApkWorkspaceBindingService.verifiedExperiencePeek，
+  /// taskResumeState 命中时注入 verifiedExperience 键：程序负责让它被
+  /// 看见，LLM 只负责判断要不要用。无命中回 null（零成本不加键）。
+  static Future<Map<String, dynamic>?> peekVerifiedExperience(
+    MemoryRepository repo,
+    Map<String, dynamic> fingerprint,
+  ) async {
+    if (isDegenerateFingerprint(fingerprint)) return null;
+    final matched = await match(repo, fingerprint, exactAppOnly: true);
+    if (matched.isNotEmpty) {
+      final best = matched.first;
+      return <String, dynamic>{
+        'availability': 'active',
+        'title': best['title'] ?? '',
+        'appId': appKey(fingerprint),
+        'outcome': best['outcome'] ?? '',
+        'matchScore': best['score'],
+        'targetsCount': (best['targets'] as List?)?.length ?? 0,
+        'hint': '当前 APP 存在已验证经验：完整方案/易错点/改点清单用 '
+            'get_apk_patch_memory 读取后再动手，不要凭标题复写。',
+      };
+    }
+    final app = appKey(fingerprint);
+    if (app.isEmpty) return null;
+    final archived = (await load(repo, includeArchived: true))
+        .where(
+          (m) =>
+              m.status == MemoryStatus.archived && appKey(m.fingerprint) == app,
+        )
+        .toList();
+    if (archived.isNotEmpty) {
+      return <String, dynamic>{
+        'availability': 'archived',
+        'title': archived.first.title,
+        'appId': app,
+        'versionName':
+            (archived.first.fingerprint['versionName'] ?? '').toString(),
+        'outcome': archived.first.outcome,
+        'hint': '无 active 经验，但存在旧版本归档经验：先核实旧逻辑是否延续，'
+            '确认后用 get_apk_patch_memory 读取详情并更新。',
+      };
+    }
+    // 精确/归档皆无 → 跨 APP 同类经验浮现（C1）
+    final similar = await peekSimilarExperiences(repo, fingerprint);
+    if (similar.isEmpty) return null;
+    return <String, dynamic>{
+      'availability': 'similar',
+      'appId': app,
+      'similar': similar,
+      'hint': '本 APP 无已验证经验，但存在 ${similar.length} 条同类经验'
+          '（类型指纹命中，思路大概率可迁移）：用 get_apk_patch_memory'
+          '(listAll:true) 浏览后按 appId 读取对应详情，方案须先验证再采信。',
+    };
+  }
+
+  // ---- peek 结果记忆化（P1/P2，2026-09-05）----
+  // taskResumeState 每条消息被调用 2~3 次，每次都完整走
+  // 规则匹配 → 指纹 → peek（多次 SQLite 读）。peek 结果只取决于
+  // （指纹, 经验集合），故按 fingerprintKey|count|maxTimestamp 记忆化：
+  // 经验增删/验证（timestamp 前进）自动失效，无变化直接复用。
+  static ({String key, Map<String, dynamic>? result})? _peekCache;
+
+  /// 测试专用：清空 peek 缓存（静态状态跨测试泄漏防护）。
+  static void resetPeekCacheForTest() => _peekCache = null;
+
+  static Future<List<ApkPatchMemory>> _loadAllForRev(
+    MemoryRepository repo,
+  ) => load(repo, includeArchived: true);
+
+  /// main() 钩子的实际入口：报告已在钩子层读好，指纹在此计算并复用缓存。
+  static Future<Map<String, dynamic>?> peekVerifiedExperienceCached(
+    MemoryRepository repo, {
+    required Map<String, dynamic> report,
+    required Set<String> vendors,
+  }) async {
+    final fingerprint = fingerprintFromReport(report, vendors: vendors);
+    if (isDegenerateFingerprint(fingerprint)) return null;
+    final memories = await _loadAllForRev(repo);
+    var maxTs = 0;
+    for (final m in memories) {
+      if (m.timestamp > maxTs) maxTs = m.timestamp;
+    }
+    final key =
+        '${fingerprintKey(fingerprint)}|${memories.length}|$maxTs';
+    final cached = _peekCache;
+    if (cached != null && cached.key == key) return cached.result;
+    final result = await peekVerifiedExperience(repo, fingerprint);
+    _peekCache = (key: key, result: result);
+    return result;
+  }
+
+  /// 本 APP 无精确/归档经验时，浮现**跨 APP 同类**经验（C1，2026-09-05）：
+  /// 类型指纹体系的核心红利——「同类 90% 代码相似」，vendors/shell/engine
+  /// 任一维度命中 ≥0.6 的其他 APP 经验对新 APP 首任务同样有参考价值。
+  /// 按 appId 去重（同 APP 多条取最高分）、verified_success 优先、≤3 条，
+  /// 只给「谁有经验」不给方案全文。
+  static Future<List<Map<String, dynamic>>> peekSimilarExperiences(
+    MemoryRepository repo,
+    Map<String, dynamic> fingerprint,
+  ) async {
+    if (isDegenerateFingerprint(fingerprint)) {
+      return const <Map<String, dynamic>>[];
+    }
+    final queryApp = appKey(fingerprint);
+    final bestByApp = <String, (ApkPatchMemory, double)>{};
+    for (final memory in await load(repo)) {
+      if (_isDegenerateMemory(memory.fingerprint)) continue;
+      final appId = appKey(memory.fingerprint);
+      if (appId.isEmpty || appId == queryApp) continue;
+      final score = matchScore(memory.fingerprint, fingerprint);
+      if (score < 0.6) continue;
+      final current = bestByApp[appId];
+      if (current == null ||
+          _outcomeRank(memory.outcome) < _outcomeRank(current.$1.outcome) ||
+          (memory.outcome == current.$1.outcome && score > current.$2)) {
+        bestByApp[appId] = (memory, score);
+      }
+    }
+    final ranked = bestByApp.values.toList()
+      ..sort((a, b) {
+        final byOutcome =
+            _outcomeRank(a.$1.outcome).compareTo(_outcomeRank(b.$1.outcome));
+        if (byOutcome != 0) return byOutcome;
+        return b.$2.compareTo(a.$2);
+      });
+    return [
+      for (final (memory, score) in ranked.take(3))
+        {
+          'appId': appKey(memory.fingerprint),
+          'title': memory.title,
+          'outcome': memory.outcome,
+          'matchScore': score,
+        },
+    ];
   }
 
   /// 旧版 SharedPreferences 迁移：把 [raw]（旧 blob JSON）转成 MemoryEntry 草案。

@@ -20,8 +20,14 @@ class ApkAnalysisService {
   static const _cachePrefix = 'solab_apk_module_cache';
   static const _maxCacheFiles = 30;
   static const _maxCacheBytes = 300 * 1024 * 1024; // 300 MiB
+  // 单个缓存条目的读取上限：异常膨胀/损坏的文件不整读进堆（超过即当 miss）。
+  static const _maxCacheEntryBytes = 8 * 1024 * 1024; // 8 MiB
+  // 半写临时文件（`.tmp-<微秒>`）的保留上限，避免进程被杀后残留堆积。
+  static const _staleTempAge = Duration(hours: 1);
   static const analysisVersion =
-      17; // 与原生 report 的 analysisVersion 对齐；引擎能力变更时 bump，旧缓存自动失效
+      19; // R1：阶段 0 引擎输出变更（C1 outline CFG 真值 / C2 xref 截断标记 /
+          // C3 smali 寄存器跳转 / C4 callerClue / C6 lambda 边 / C16 unsupported
+          // 标注）后 bump——旧缓存报告（含修复前假数据）不再被判"新鲜"
 
   static const supportedModules = [
     'basics',
@@ -179,6 +185,11 @@ class ApkAnalysisService {
     final file = await _cacheFile(cacheKey);
     if (file == null || !await file.exists()) return null;
     try {
+      // 超阈值不再整读进堆（损坏/异常膨胀的缓存当 miss 并清掉）。
+      if (await file.length() > _maxCacheEntryBytes) {
+        await _deleteCacheFile(file);
+        return null;
+      }
       final decoded = jsonDecode(await file.readAsString());
       if (decoded is Map && decoded['analysisVersion'] == analysisVersion) {
         // 命中即刷新 LRU 时间戳。
@@ -187,8 +198,17 @@ class ApkAnalysisService {
         } catch (_) {}
         return Map<String, dynamic>.from(decoded);
       }
-    } catch (_) {}
+    } catch (_) {
+      // 截断/半写文件无法解析：删除，避免每次分析都重复踩同一颗雷。
+      await _deleteCacheFile(file);
+    }
     return null;
+  }
+
+  static Future<void> _deleteCacheFile(File file) async {
+    try {
+      await file.delete();
+    } catch (_) {}
   }
 
   static Future<void> _writeCache(
@@ -197,7 +217,18 @@ class ApkAnalysisService {
   ) async {
     final file = await _cacheFile(cacheKey);
     if (file == null) return;
-    await file.writeAsString(jsonEncode(data));
+    // 先写同目录临时文件再 rename：进程被杀或磁盘写满时不会留下半份 JSON
+    // 冒充有效缓存（版本戳救不回无法解析的文件，且读到截断内容会静默 miss）。
+    final tmp = File(
+      '${file.path}.tmp-${DateTime.now().microsecondsSinceEpoch}',
+    );
+    try {
+      await tmp.writeAsString(jsonEncode(data), flush: true);
+      await tmp.rename(file.path);
+    } catch (_) {
+      await _deleteCacheFile(tmp);
+      rethrow;
+    }
     await _evictIfNeeded();
   }
 
@@ -206,9 +237,22 @@ class ApkAnalysisService {
       final dir = await _cacheDirectory();
       if (dir == null) return;
       final files = <File>[];
+      final now = DateTime.now();
       await for (final entity in dir.list()) {
-        if (entity is File && entity.path.endsWith('.json')) {
+        if (entity is! File) continue;
+        final name = entity.path;
+        if (name.endsWith('.json')) {
           files.add(entity);
+          continue;
+        }
+        // 硬中断留下的半写临时文件：过期即清，避免永不被 LRU 统计到。
+        if (name.contains('.json.tmp-')) {
+          try {
+            if (now.difference(entity.statSync().modified) >
+                _staleTempAge) {
+              await entity.delete();
+            }
+          } catch (_) {}
         }
       }
       if (files.length <= _maxCacheFiles) {

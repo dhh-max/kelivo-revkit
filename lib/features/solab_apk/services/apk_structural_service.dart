@@ -121,6 +121,8 @@ class ApkStructuralService {
     bool removeEmulatorDetection = false,
     bool removeRootDetection = false,
     bool removeDebugDetection = false,
+    bool removeScreenCaptureDetection = false,
+    bool removeFlagSecure = false,
     List<String> timeMethods = const [],
     List<String> nullMethods = const [],
     bool shortenSplashCountdown = false,
@@ -130,6 +132,7 @@ class ApkStructuralService {
     bool stripDebugInfo = false,
     String? outputDir,
     bool dryRun = false,
+    bool allowOversize = false,
   }) {
     return _invoke('patchDexMethods', {
       'path': path,
@@ -142,6 +145,8 @@ class ApkStructuralService {
       if (removeEmulatorDetection) 'removeEmulatorDetection': true,
       if (removeRootDetection) 'removeRootDetection': true,
       if (removeDebugDetection) 'removeDebugDetection': true,
+      if (removeScreenCaptureDetection) 'removeScreenCaptureDetection': true,
+      if (removeFlagSecure) 'removeFlagSecure': true,
       if (timeMethods.isNotEmpty) 'timeMethods': timeMethods,
       if (nullMethods.isNotEmpty) 'nullMethods': nullMethods,
       if (shortenSplashCountdown) 'shortenSplashCountdown': true,
@@ -151,6 +156,35 @@ class ApkStructuralService {
         'originalApkPath': originalApkPath,
       if (stripDebugInfo) 'stripDebugInfo': true,
       if (outputDir != null && outputDir.isNotEmpty) 'outputDir': outputDir,
+      // INPUT_TOO_LARGE 后的显式放行位（Kotlin checkInputBudget 消费）。
+      if (allowOversize) 'allowOversize': true,
+      'dryRun': dryRun,
+    });
+  }
+
+  /// C6：dex 字符串池补丁——把 const-string 精确替换（URL/文案/水印），
+  /// 秒级完成，无需全量重建。返回 {ok, matchedStrings, totalMatched,
+  /// outputPath?, changed}。
+  ///
+  /// [replacements] 形如 {'旧串': '新串'} 或 [{'from':..,'to':..}]，两形态均收。
+  static Future<ApkStructuralResult> patchDexStrings({
+    required String path,
+    Map<String, String> replacements = const {},
+    String? outputDir,
+    bool dryRun = false,
+    bool allowOversize = false,
+  }) {
+    final pairs = <Map<String, String>>[
+      for (final e in replacements.entries)
+        if (e.key.isNotEmpty && e.key != e.value)
+          {'from': e.key, 'to': e.value},
+    ];
+    return _invoke('patchDexStrings', {
+      'path': path,
+      'replacements': pairs,
+      if (outputDir != null && outputDir.isNotEmpty) 'outputDir': outputDir,
+      // INPUT_TOO_LARGE 后的显式放行位（Kotlin checkInputBudget 消费）。
+      if (allowOversize) 'allowOversize': true,
       'dryRun': dryRun,
     });
   }
@@ -166,6 +200,9 @@ class ApkStructuralService {
     List<String> removeComponents = const [],
     List<String> removePermissions = const [],
     List<String> removeMetaData = const [],
+    // C7：application 元素布尔属性设置 {attrName: bool}（如 {'debuggable': false}）。
+    // 属性不存在时如实跳过（skippedFlags），不新增属性。
+    Map<String, bool> applicationFlags = const {},
     bool auto = false,
     String? outputDir,
     bool dryRun = false,
@@ -175,6 +212,7 @@ class ApkStructuralService {
       if (removeComponents.isNotEmpty) 'removeComponents': removeComponents,
       if (removePermissions.isNotEmpty) 'removePermissions': removePermissions,
       if (removeMetaData.isNotEmpty) 'removeMetaData': removeMetaData,
+      if (applicationFlags.isNotEmpty) 'applicationFlags': applicationFlags,
       if (auto) 'auto': true,
       if (outputDir != null && outputDir.isNotEmpty) 'outputDir': outputDir,
       'dryRun': dryRun,

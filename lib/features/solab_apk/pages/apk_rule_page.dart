@@ -1,7 +1,8 @@
-import 'package:Kelivo/core/database/app_database.dart';
-import 'package:Kelivo/icons/lucide_adapter.dart';
-import 'package:Kelivo/theme/app_font_weights.dart';
-import 'package:Kelivo/theme/app_semantic_colors.dart';
+import 'package:solab/core/database/app_database.dart';
+import '../../../shared/widgets/snackbar.dart';
+import 'package:solab/icons/lucide_adapter.dart';
+import 'package:solab/theme/app_font_weights.dart';
+import 'package:solab/theme/app_semantic_colors.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -16,6 +17,24 @@ import '../services/apk_rule_service.dart';
 /// 结构：概览（统计 + 订阅 + 厂商开关）+ 每类规则一个滑动 Tab。
 /// 规则列表默认收起——只有切到对应分类 Tab 才展示该类规则；
 /// 整行可点切换启用（触感 + 按压反馈），长按删除。
+/// 订阅/删除等操作错误的用户可读文案。
+///
+/// 原本是订阅页的私有静态方法；删除规则也要给失败原因，故提为文件级函数
+/// （2026-09-29，顺带避免两处各写一份）。
+String _friendlyError(Object error) {
+  final text = error.toString();
+  if (text.contains('subscription_url_invalid')) {
+    return '订阅地址无效（需 http/https 链接）';
+  }
+  if (text.contains('rules_json_shape')) {
+    return '订阅源格式不正确（需 ad_patterns.json 结构）';
+  }
+  if (text.contains('rules_json_empty')) return '订阅源为空或没有可识别的规则';
+  if (text.contains('HttpException')) return '网络请求失败：$text';
+  if (text.contains('TimeoutException')) return '请求超时，请稍后重试';
+  return text;
+}
+
 class ApkRulePage extends StatefulWidget {
   const ApkRulePage({super.key});
 
@@ -67,14 +86,10 @@ class _ApkRulePageState extends State<ApkRulePage> {
         risk: form.risk,
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('规则已新增并同步到规则库')));
+      showAppSnackBar(context, message: '规则已新增并同步到规则库', type: NotificationType.success);
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('新增失败：$error')));
+      showAppSnackBar(context, message: '新增失败：$error', type: NotificationType.error);
     }
   }
 
@@ -116,14 +131,10 @@ class _ApkRulePageState extends State<ApkRulePage> {
     try {
       final added = await service.importJson(pasted);
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('导入完成：新增 $added 条，已存在的条目自动跳过')));
+      showAppSnackBar(context, message: '导入完成：新增 $added 条，已存在的条目自动跳过', type: NotificationType.success);
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('导入失败：$error')));
+      showAppSnackBar(context, message: '导入失败：$error', type: NotificationType.error);
     }
   }
 
@@ -216,7 +227,22 @@ class _ApkRulePageState extends State<ApkRulePage> {
       ),
     );
     if (confirmed != true || !mounted) return;
-    await service.deleteRule(rule.id);
+    try {
+      await service.deleteRule(rule.id);
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        message: '已删除规则「${rule.name}」',
+        type: NotificationType.success,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        message: '删除失败：${_friendlyError(error)}',
+        type: NotificationType.error,
+      );
+    }
   }
 }
 
@@ -348,35 +374,15 @@ class ApkRuleSubscriptionPage extends StatefulWidget {
 class _ApkRuleSubscriptionPageState extends State<ApkRuleSubscriptionPage> {
   String? _syncingId;
 
-  static String _friendlyError(Object error) {
-    final text = error.toString();
-    if (text.contains('subscription_url_invalid')) {
-      return '订阅地址无效（需 http/https 链接）';
-    }
-    if (text.contains('rules_json_shape')) {
-      return '订阅源格式不正确（需 ad_patterns.json 结构）';
-    }
-    if (text.contains('rules_json_empty')) return '订阅源为空或没有可识别的规则';
-    if (text.contains('HttpException')) return '网络请求失败：$text';
-    if (text.contains('TimeoutException')) return '请求超时，请稍后重试';
-    return text;
-  }
-
   Future<void> _sync(RuleSubscriptionRow row) async {
     setState(() => _syncingId = row.id);
     try {
       final added = await widget.service.refreshSubscription(row.id);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(added > 0 ? '订阅已同步：新增 $added 条规则' : '订阅已同步：规则库已是最新的'),
-        ),
-      );
+      showAppSnackBar(context, message: added > 0 ? '订阅已同步：新增 $added 条规则' : '订阅已同步：规则库已是最新的', type: NotificationType.success);
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('同步失败：${_friendlyError(error)}')));
+      showAppSnackBar(context, message: '同步失败：${_friendlyError(error)}', type: NotificationType.error);
     } finally {
       if (mounted) setState(() => _syncingId = null);
     }
@@ -440,9 +446,7 @@ class _ApkRuleSubscriptionPageState extends State<ApkRuleSubscriptionPage> {
       if (mounted) await _sync(row);
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('添加失败：${_friendlyError(error)}')));
+      showAppSnackBar(context, message: '添加失败：${_friendlyError(error)}', type: NotificationType.error);
     } finally {
       nameController.dispose();
       urlController.dispose();
@@ -869,10 +873,28 @@ class _CategoryTab extends StatelessWidget {
             ],
           ),
         ),
+        if (categoryRules.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 2),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '点击切换启用 · 长按删除',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  color: cs.onSurface.withValues(alpha: 0.5),
+                ),
+              ),
+            ),
+          ),
         Expanded(
-          child: Builder(
-            builder: (context) {
-              final query = searchController.text.trim().toLowerCase();
+          // 结果必须随输入即时刷新：这里监听搜索框 controller。
+          // 此前用 Builder 只在构建时读一次 text，输入后列表不会重建，
+          // 表现为"搜索框能打字但列表一条不变"（2026-09-29 修复）。
+          child: ValueListenableBuilder<TextEditingValue>(
+            valueListenable: searchController,
+            builder: (context, searchValue, _) {
+              final query = searchValue.text.trim().toLowerCase();
               final filtered = rules
                   .where(
                     (rule) =>
@@ -1049,6 +1071,8 @@ class _AddRuleSheetState extends State<_AddRuleSheet> {
   final _patternController = TextEditingController();
   String _category = 'sdk_packages';
   String _risk = 'low';
+  /// 匹配内容为空的字段级提示（点保存毫无反应最容易被当成"按钮坏了"）。
+  String? _patternError;
 
   @override
   void dispose() {
@@ -1059,7 +1083,10 @@ class _AddRuleSheetState extends State<_AddRuleSheet> {
 
   void _submit() {
     final pattern = _patternController.text.trim();
-    if (pattern.isEmpty) return;
+    if (pattern.isEmpty) {
+      setState(() => _patternError = '请填写匹配内容');
+      return;
+    }
     Navigator.of(context).pop(
       _RuleFormResult(
         category: _category,
@@ -1150,7 +1177,14 @@ class _AddRuleSheetState extends State<_AddRuleSheet> {
                           const SizedBox(height: 12),
                           TextField(
                             controller: _patternController,
-                            decoration: _field('匹配内容（如 com.example.ad.Sdk）'),
+                            // 用户开始输入即清掉提示。
+                            onChanged: (_) {
+                              if (_patternError != null) {
+                                setState(() => _patternError = null);
+                              }
+                            },
+                            decoration: _field('匹配内容（如 com.example.ad.Sdk）')
+                                .copyWith(errorText: _patternError),
                           ),
                           const SizedBox(height: 12),
                           TextField(

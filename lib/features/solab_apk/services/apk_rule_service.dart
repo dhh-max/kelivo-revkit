@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:Kelivo/core/database/app_database.dart';
-import 'package:Kelivo/core/database/chat_database_repository.dart';
+import 'package:solab/core/database/app_database.dart';
+import 'package:solab/core/database/chat_database_repository.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -553,6 +553,16 @@ class ApkRuleService {
   /// （topon↔anythink 同源：anythink 是 topon 的旧名；两者都再聚合穿山甲/百度/快手/优量汇）。
   static const aggregatorVendors = <String>{'topon', 'cas'};
 
+  /// 信号段黑名单（F-38，2026-10-04）：这些段在任意厂商包里都常见
+  /// （androidx.core、com.qq.e.comm、com.google.*、yandex.mobile.ads…），
+  /// 单独出现在组件名/文件名里不构成厂商证据——Manifest/assets 信号
+  /// 只接受 ≥5 字符且不在本表的段。
+  static const genericVendorSegments = <String>{
+    'core', 'comm', 'union', 'mobile', 'google', 'android', 'services',
+    'measurement', 'firebase', 'common', 'utils', 'impl', 'base', 'client',
+    'network', 'ads', 'advert', 'analytics', 'adserv', 'monetize',
+  };
+
   /// 三信号判定，返回命中厂商及其信号清单，按信号数降序。
   /// AI 据此一眼看出「穿山甲+腾讯双广告商」及各自证据来源。
   List<Map<String, dynamic>> vendorSignalsForReport(
@@ -596,22 +606,23 @@ class ApkRuleService {
           break;
         }
       }
-      // DEX 类信号：类命中含厂商包前缀
+      // DEX 类信号：类命中含**完整厂商包前缀**（F-38，2026-10-04）。
+      // 过去取「最后一段 ≥4 字符」做子串——"com.applovin.adview" 的 adview
+      // 会命中 AdMob 的 AdView 等任何同名类，证据词宽到没有判别力。
       for (final pkg in pkgs) {
-        final pkgFragment = pkg.split('.').last.toLowerCase();
-        if (pkgFragment.length >= 4 &&
-            classHits.any((c) => c.contains(pkgFragment))) {
-          signals.add('DEX类: $pkgFragment');
+        if (pkg.length >= 6 && classHits.any((c) => c.contains(pkg))) {
+          signals.add('DEX类: $pkg');
           break;
         }
       }
-      // Manifest 信号：组件名含厂商包名任一段（>=4 字符）——点分/斜杠/相对名
-      // 都兼容；"com.yandex.mobile.ads" 取 yandex/mobile 段，"ads" 等短段跳过
+      // Manifest 信号：组件名含厂商包名任一段——段必须 ≥5 字符且不在
+      // 通用段黑名单（F-38）：core/comm/google/mobile 这类段在
+      // androidx.core、com.qq.e.comm、com.google.*、yandex mobile 里太常见，
+      // 单独出现不构成厂商证据。
       for (final pkg in pkgs) {
-        final fragments = pkg
-            .split('.')
-            .where((s) => s.length >= 4)
-            .map((s) => s.toLowerCase());
+        final fragments = pkg.split('.').where(
+          (s) => s.length >= 5 && !genericVendorSegments.contains(s),
+        );
         final hit = fragments.firstWhere(
           (f) => componentText.contains(f),
           orElse: () => '',
@@ -621,12 +632,17 @@ class ApkRuleService {
           break;
         }
       }
-      // assets 信号：候选文件名含厂商片段
+      // assets 信号：候选文件名含厂商段（同一特异性口径，F-38）
       for (final pkg in pkgs) {
-        final fragment = pkg.split('.').last.toLowerCase();
-        if (fragment.length >= 4 &&
-            assetNames.any((n) => n.contains(fragment))) {
-          signals.add('assets: $fragment');
+        final fragments = pkg.split('.').where(
+          (s) => s.length >= 5 && !genericVendorSegments.contains(s),
+        );
+        final hit = fragments.firstWhere(
+          (f) => assetNames.any((n) => n.contains(f)),
+          orElse: () => '',
+        );
+        if (hit.isNotEmpty) {
+          signals.add('assets: $hit');
           break;
         }
       }
