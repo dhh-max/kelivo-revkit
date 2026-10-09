@@ -186,6 +186,8 @@ flutter:
     - assets/mermaid.min.js
     - assets/html/mark.html
     - assets/relay_logos/
+    # APK 逆向工具包（内置 Operit 侧 3 个工具包 + 角色卡 PNG + 安装说明，2026-10-09 内置）
+    - assets/apk_tools/
   #   - images/a_dot_ham.jpeg
 
   # An image asset can refer to one or more resolution-specific "variants", see
