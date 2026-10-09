@@ -1,9 +1,9 @@
 import 'dart:io';
 
 import 'package:drift/native.dart';
-import 'package:solab/core/database/app_database.dart';
-import 'package:solab/core/database/chat_database_repository.dart';
-import 'package:solab/core/database/database_installation_gate.dart';
+import 'package:Kelivo/core/database/app_database.dart';
+import 'package:Kelivo/core/database/chat_database_repository.dart';
+import 'package:Kelivo/core/database/database_installation_gate.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart' as sqlite;
@@ -33,9 +33,9 @@ void main() {
   test(
     'installation gate rejects every unpublished SQLite schema without mutation',
     () async {
-      // schema 1-8 已发布（旧版本打开时由 drift onUpgrade 迁移）；
-      // 9+ 未发布，必须拒绝且不改动。
-      for (final schemaVersion in <int>[9, 10, 11, 42]) {
+      // schema 1-10 已发布（旧版本打开时经 SchemaMigrations 升级）；
+      // 11+ 未发布，必须拒绝且不改动。
+      for (final schemaVersion in <int>[11, 12, 43]) {
         final directory = await Directory.systemTemp.createTemp(
           'kelivo_reject_schema_${schemaVersion}_',
         );
@@ -132,16 +132,17 @@ void main() {
       raw.userVersion = 3;
       raw.close();
 
-      // 迁移前的只读校验必须放行旧库（schema 3 prompt 表带 FK，
-      // 期望按版本分支，不得 foreign_key_schema）。
-      await ChatDatabaseRepository.migrateInstalledDatabase(file);
+      // 迁移由 migrateInstalledDatabase 完成：旧库先复制一份、经
+      // SchemaMigrations 升级到当前版本、再按当前 schema 校验，原文件即
+      // 升级后的库（upgraded=true）。
+      final outcome = await ChatDatabaseRepository.migrateInstalledDatabase(
+        file,
+      );
+      expect(outcome.upgraded, isTrue);
+      expect(outcome.fromVersion, 3);
+      expect(outcome.toVersion, AppDatabase.currentSchemaVersion);
       final inspected = ChatDatabaseRepository.inspectInstalledDatabase(file);
-      expect(inspected.schemaVersion, 3);
-
-      // 打开触发 drift onUpgrade 3→5。
-      final app = AppDatabase.open(file: file);
-      await app.customSelect('SELECT 1;').getSingle();
-      await app.close();
+      expect(inspected.schemaVersion, AppDatabase.currentSchemaVersion);
 
       final after = sqlite.sqlite3.open(
         file.path,

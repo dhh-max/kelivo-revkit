@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart'
     show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/core/services/asr/system_asr_service.dart';
+import 'package:Kelivo/core/services/asr/system_asr_service.dart';
 
 void main() {
   test('macOS plugin is guarded in IDE builds and enabled in release', () {

@@ -1,7 +1,4 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:Kelivo/theme/app_font_weights.dart';
@@ -11,7 +8,6 @@ import '../../../core/models/assistant.dart';
 import '../../../core/models/memory_entry.dart';
 import '../../../core/providers/assistant_provider.dart';
 import '../../../core/providers/memory_provider_v2.dart';
-import '../../../desktop/desktop_context_menu.dart';
 import '../../../icons/lucide_adapter.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/ios_checkbox.dart';
@@ -33,13 +29,11 @@ String memoryTypeLabel(AppLocalizations l10n, MemoryType type) {
     case MemoryType.instruction:
       return l10n.memoryEntryTypeInstruction;
     case MemoryType.apkPatch:
-      return 'APK Patch';
+      return 'APK 经验';
     case MemoryType.apkNote:
-      return 'APK Note';
-    case MemoryType.apkPatch:
-      return 'APK Patch';
-    case MemoryType.apkNote:
-      return 'APK Note';
+      return 'APK 笔记';
+    case MemoryType.apkFailure:
+      return 'APK 失败';
   }
 }
 
@@ -67,9 +61,11 @@ Color memoryTypeColor(ColorScheme cs, MemoryType type) {
     case MemoryType.instruction:
       return cs.error;
     case MemoryType.apkPatch:
-      return cs.tertiary;
+      return cs.primary;
     case MemoryType.apkNote:
-      return cs.secondary;
+      return cs.tertiary;
+    case MemoryType.apkFailure:
+      return cs.error;
   }
 }
 
@@ -86,6 +82,113 @@ String memoryScopeLabel(
     return l10n.memoryEntryScopeAssistant;
   }
   return l10n.memoryEntryScopeAssistantNamed(assistantName);
+}
+
+/// Compact info icon: tap or long-press shows [message], matching the
+/// legacy-memory toggle on the assistant Memory tab.
+class MemoryTipIcon extends StatefulWidget {
+  const MemoryTipIcon({super.key, required this.message});
+
+  final String message;
+
+  @override
+  State<MemoryTipIcon> createState() => _MemoryTipIconState();
+}
+
+class _MemoryTipIconState extends State<MemoryTipIcon> {
+  final _tooltipKey = GlobalKey<TooltipState>();
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Tooltip(
+      key: _tooltipKey,
+      message: widget.message,
+      triggerMode: TooltipTriggerMode.tap,
+      waitDuration: const Duration(milliseconds: 250),
+      showDuration: const Duration(seconds: 8),
+      preferBelow: true,
+      constraints: const BoxConstraints(maxWidth: 280),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        // Own the tap so a surrounding settings row does not activate.
+        onTap: () => _tooltipKey.currentState?.ensureTooltipVisible(),
+        onLongPress: () => _tooltipKey.currentState?.ensureTooltipVisible(),
+        child: SizedBox(
+          width: 28,
+          height: 28,
+          child: Center(
+            child: Icon(
+              Lucide.BadgeInfo,
+              size: 16,
+              color: cs.onSurface.withValues(alpha: 0.45),
+              semanticLabel: widget.message,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Human-readable label for a pipeline / tool outcome code.
+///
+/// Known codes map to l10n strings. Prefixed codes such as
+/// `gate_request_failed:…` match by prefix. Unknown codes are returned as-is.
+String memoryOutcomeLabel(AppLocalizations l10n, String code) {
+  final key = _memoryOutcomeKey(code);
+  return switch (key) {
+    'temporary_conversation' => l10n.memoryOutcomeTemporaryConversation,
+    'memory_disabled' => l10n.memoryOutcomeMemoryDisabled,
+    'auto_organize_off' => l10n.memoryOutcomeAutoOrganizeOff,
+    'streaming' => l10n.memoryOutcomeStreaming,
+    'below_threshold' => l10n.memoryOutcomeBelowThreshold,
+    'empty_window' => l10n.memoryOutcomeEmptyWindow,
+    'memory_model_unset' => l10n.memoryOutcomeMemoryModelUnset,
+    'memory_model_missing' => l10n.memoryOutcomeMemoryModelMissing,
+    'assistant_missing' => l10n.memoryOutcomeAssistantMissing,
+    'conversation_missing' => l10n.memoryOutcomeConversationMissing,
+    'queue_overflow' => l10n.memoryOutcomeQueueOverflow,
+    'quota_cooldown' => l10n.memoryOutcomeQuotaCooldown,
+    'gate_request_failed' => l10n.memoryOutcomeGateRequestFailed,
+    'gate_parse_failed' => l10n.memoryOutcomeGateParseFailed,
+    'extract_request_failed' => l10n.memoryOutcomeExtractRequestFailed,
+    'extract_parse_failed' => l10n.memoryOutcomeExtractParseFailed,
+    'distill_failed' => l10n.memoryOutcomeDistillFailed,
+    'memory_execution_error' => l10n.memoryOutcomeMemoryExecutionError,
+    'unsupported_tool' => l10n.memoryOutcomeUnsupportedTool,
+    'invalid_memory_type' => l10n.memoryOutcomeInvalidMemoryType,
+    'invalid_memory_content' => l10n.memoryOutcomeInvalidMemoryContent,
+    'invalid_query' => l10n.memoryOutcomeInvalidQuery,
+    'invalid_memory_id' => l10n.memoryOutcomeInvalidMemoryId,
+    'memory_not_found' => l10n.memoryOutcomeMemoryNotFound,
+    'invalid_profile_fields' => l10n.memoryOutcomeInvalidProfileFields,
+    'chat_search_unavailable' => l10n.memoryOutcomeChatSearchUnavailable,
+    _ => code,
+  };
+}
+
+String _memoryOutcomeKey(String code) {
+  final colon = code.indexOf(':');
+  return colon < 0 ? code : code.substring(0, colon);
+}
+
+/// APK 经验的结论徽标（outcome 枚举 → 文案 + 颜色）。
+///
+/// 与 [memoryOutcomeLabel]（记忆管线错误码）不是一套：这里是 APK 补丁经验自己的
+/// verified_success / verified_failure / unverified。
+({String label, Color color}) memoryApkOutcomeBadge(
+  ColorScheme cs,
+  String outcome,
+) {
+  switch (outcome) {
+    case 'verified_success':
+      return (label: '已验证成功', color: cs.primary);
+    case 'verified_failure':
+      return (label: '已验证失败', color: cs.error);
+    default:
+      return (label: '未验证', color: cs.onSurface.withValues(alpha: 0.6));
+  }
 }
 
 Future<bool> confirmHardDeleteMemory(BuildContext context) async {
@@ -162,6 +265,34 @@ Future<bool> confirmOrphanCleanup(
             foregroundColor: Theme.of(ctx).colorScheme.error,
           ),
           child: Text(l10n.memoryOrphanCleanupButton),
+        ),
+      ],
+    ),
+  );
+  return result == true;
+}
+
+Future<bool> confirmOrphanProjectCleanup(
+  BuildContext context, {
+  required int count,
+}) async {
+  final l10n = AppLocalizations.of(context)!;
+  final result = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text(l10n.memoryOrphanConfirmTitle),
+      content: Text(l10n.memoryOrphanProjectConfirmContent(count)),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(false),
+          child: Text(l10n.homePageCancel),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(true),
+          style: TextButton.styleFrom(
+            foregroundColor: Theme.of(ctx).colorScheme.error,
+          ),
+          child: Text(l10n.memoryOrphanProjectDelete),
         ),
       ],
     ),
@@ -570,83 +701,6 @@ class MemorySearchField extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    // Desktop: prefixIcon + symmetric contentPadding (providers search pattern).
-    if (PlatformUtils.isDesktopTarget) {
-      return ValueListenableBuilder<TextEditingValue>(
-        valueListenable: controller,
-        builder: (context, value, _) {
-          final hasText = value.text.isNotEmpty;
-          return TextField(
-            controller: controller,
-            onChanged: onChanged,
-            textAlignVertical: TextAlignVertical.center,
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: AppFontWeights.medium,
-              color: cs.onSurface.withValues(alpha: 0.92),
-            ),
-            cursorColor: cs.primary,
-            decoration: InputDecoration(
-              hintText: hintText,
-              hintStyle: TextStyle(
-                fontSize: 15,
-                fontWeight: AppFontWeights.medium,
-                color: cs.onSurface.withValues(alpha: isDark ? 0.42 : 0.46),
-              ),
-              isDense: true,
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 10,
-              ),
-              prefixIcon: Icon(
-                Lucide.Search,
-                size: 18,
-                color: cs.onSurface.withValues(alpha: 0.55),
-              ),
-              prefixIconConstraints: const BoxConstraints(
-                minWidth: 36,
-                minHeight: 36,
-              ),
-              suffixIcon: hasText
-                  ? IconButton(
-                      onPressed: () {
-                        controller.clear();
-                        onChanged?.call('');
-                      },
-                      icon: Icon(
-                        Lucide.X,
-                        size: 16,
-                        color: cs.onSurface.withValues(alpha: 0.55),
-                      ),
-                      tooltip: l10n.memoryUiSearchClear,
-                      splashColor: Colors.transparent,
-                      highlightColor: Colors.transparent,
-                      hoverColor: Colors.transparent,
-                    )
-                  : null,
-              suffixIconConstraints: const BoxConstraints(
-                minWidth: 36,
-                minHeight: 36,
-              ),
-              filled: true,
-              fillColor: context.appColors.surfaceFill,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
-            ),
-          );
-        },
-      );
-    }
 
     return Container(
       constraints: const BoxConstraints(minHeight: 42),
@@ -712,13 +766,18 @@ class MemorySearchField extends StatelessWidget {
 }
 
 class MemoryPickerOption<T> {
-  const MemoryPickerOption({required this.value, required this.label});
+  const MemoryPickerOption({
+    required this.value,
+    required this.label,
+    this.subtitle,
+  });
 
   final T value;
   final String label;
+  final String? subtitle;
 }
 
-/// Option picker: centered Dialog on desktop, bottom sheet on mobile.
+/// Option picker: modal bottom sheet on mobile.
 Future<T?> showMemoryOptionPicker<T>(
   BuildContext context, {
   required String title,
@@ -734,6 +793,7 @@ Future<T?> showMemoryOptionPicker<T>(
         for (var i = 0; i < options.length; i++) ...[
           _MemoryOptionRow<T>(
             label: options[i].label,
+            subtitle: options[i].subtitle,
             selected: options[i].value == selected,
             onTap: () => Navigator.of(ctx).pop(options[i].value),
           ),
@@ -747,77 +807,6 @@ Future<T?> showMemoryOptionPicker<T>(
             ),
         ],
       ],
-    );
-  }
-
-  if (PlatformUtils.isDesktopTarget) {
-    return showDialog<T>(
-      context: context,
-      barrierDismissible: true,
-      builder: (ctx) {
-        final localCs = Theme.of(ctx).colorScheme;
-        final maxHeight = MediaQuery.sizeOf(ctx).height * 0.7;
-        return Dialog(
-          backgroundColor: cs.surface,
-          insetPadding: const EdgeInsets.symmetric(
-            horizontal: 24,
-            vertical: 24,
-          ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: 420, maxHeight: maxHeight),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                SizedBox(
-                  height: 44,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 13.5,
-                              fontWeight: AppFontWeights.emphasis,
-                            ),
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: MaterialLocalizations.of(
-                            ctx,
-                          ).closeButtonTooltip,
-                          icon: const Icon(Lucide.X, size: 18),
-                          color: localCs.onSurface,
-                          onPressed: () => Navigator.of(ctx).maybePop(),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                Divider(
-                  height: 1,
-                  thickness: 0.5,
-                  color: localCs.outlineVariant.withValues(alpha: 0.12),
-                ),
-                ConstrainedBox(
-                  constraints: BoxConstraints(maxHeight: maxHeight - 56),
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                    child: optionsCard(ctx),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
     );
   }
 
@@ -861,9 +850,7 @@ Future<T?> showMemoryOptionPicker<T>(
                   ),
                 ),
                 const SizedBox(height: 12),
-                Flexible(
-                  child: SingleChildScrollView(child: optionsCard(ctx)),
-                ),
+                Flexible(child: SingleChildScrollView(child: optionsCard(ctx))),
               ],
             ),
           ),
@@ -878,15 +865,18 @@ class _MemoryOptionRow<T> extends StatelessWidget {
     required this.label,
     required this.selected,
     required this.onTap,
+    this.subtitle,
   });
 
   final String label;
+  final String? subtitle;
   final bool selected;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final hasSubtitle = subtitle != null && subtitle!.isNotEmpty;
     return IosCardPress(
       onTap: onTap,
       baseColor: Colors.transparent,
@@ -899,14 +889,37 @@ class _MemoryOptionRow<T> extends StatelessWidget {
         child: Row(
           children: [
             Expanded(
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: AppFontWeights.semibold,
-                  color: cs.onSurface.withValues(alpha: 0.9),
-                ),
-              ),
+              child: hasSubtitle
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          label,
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: AppFontWeights.semibold,
+                            color: cs.onSurface.withValues(alpha: 0.9),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          subtitle!,
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            height: 1.3,
+                            color: cs.onSurface.withValues(alpha: 0.6),
+                          ),
+                        ),
+                      ],
+                    )
+                  : Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: AppFontWeights.semibold,
+                        color: cs.onSurface.withValues(alpha: 0.9),
+                      ),
+                    ),
             ),
             if (selected) Icon(Lucide.Check, size: 18, color: cs.primary),
           ],
@@ -967,14 +980,20 @@ class MemorySheetActions extends StatelessWidget {
 
 /// Opens the add/edit memory editor.
 ///
-/// Desktop: centered [Dialog]. Mobile: modal bottom sheet.
 /// The form owns its [TextEditingController] inside a [State], so the
 /// controller stays alive for the whole exit transition.
 Future<void> showMemoryEntryEditor(
   BuildContext context, {
   MemoryEntry? existing,
   String? defaultAssistantId,
+  MemoryScope defaultScope = MemoryScope.global,
   bool allowAssistantPicker = false,
+  /// 只改正文：隐藏类型/范围选择。APK 经验这类「content 是结构化字段投影」的
+  /// 记忆改类型/范围会让 extraJson 与正文脱节，所以只放开正文。
+  bool lockStructure = false,
+  /// 新建时写入的工作区（项目）标记：null = 按当前环境态项目打标（旧行为）。
+  /// 管理页按某个工作区筛选时传它，避免手动新建的记忆被写到「上一次生成」的工作区。
+  String? projectId,
 }) {
   final l10n = AppLocalizations.of(context)!;
   final cs = Theme.of(context).colorScheme;
@@ -986,7 +1005,10 @@ Future<void> showMemoryEntryEditor(
     title: title,
     existing: existing,
     defaultAssistantId: defaultAssistantId,
+    defaultScope: defaultScope,
     allowAssistantPicker: allowAssistantPicker,
+    lockStructure: lockStructure,
+    projectId: projectId,
     desktop: desktop,
   );
 
@@ -1031,16 +1053,24 @@ class MemoryEntryEditForm extends StatefulWidget {
     required this.title,
     this.existing,
     this.defaultAssistantId,
+    this.defaultScope = MemoryScope.global,
     this.allowAssistantPicker = false,
+    this.projectId,
+    this.lockStructure = false,
     this.desktop = false,
   });
 
   final String title;
   final MemoryEntry? existing;
   final String? defaultAssistantId;
+  final MemoryScope defaultScope;
   final bool allowAssistantPicker;
 
-  /// When true, render a compact dialog body (no sheet drag handle / inset).
+  /// 新建时写入的工作区标记（见 [showMemoryEntryEditor.projectId]）。
+  final String? projectId;
+
+  /// 只改正文（隐藏类型/范围选择），见 [showMemoryEntryEditor.lockStructure]。
+  final bool lockStructure;
   final bool desktop;
 
   @override
@@ -1060,7 +1090,7 @@ class _MemoryEntryEditFormState extends State<MemoryEntryEditForm> {
     final existing = widget.existing;
     _content = TextEditingController(text: existing?.content ?? '');
     _type = existing?.type ?? MemoryType.identity;
-    _scope = existing?.scope ?? MemoryScope.global;
+    _scope = existing?.scope ?? widget.defaultScope;
     _assistantId = existing?.assistantId ?? widget.defaultAssistantId;
   }
 
@@ -1069,8 +1099,6 @@ class _MemoryEntryEditFormState extends State<MemoryEntryEditForm> {
     _content.dispose();
     super.dispose();
   }
-
-  bool get _isCreate => widget.existing == null;
 
   String? _resolvedAssistantId(List<Assistant> assistants) {
     if (_scope != MemoryScope.assistant) return null;
@@ -1088,31 +1116,60 @@ class _MemoryEntryEditFormState extends State<MemoryEntryEditForm> {
     final mp = context.read<MemoryProviderV2>();
     final assistants = context.read<AssistantProvider>().assistants;
     final assistantId = _resolvedAssistantId(assistants);
-    if (_isCreate &&
-        _scope == MemoryScope.assistant &&
+    if (_scope == MemoryScope.assistant &&
         (assistantId == null || assistantId.isEmpty)) {
       return;
     }
     setState(() => _saving = true);
     final existing = widget.existing;
-    if (existing == null) {
-      await mp.create(
-        scope: _scope,
-        assistantId: assistantId,
-        type: _type,
-        content: text,
-        source: MemorySource.manual,
-      );
-    } else {
-      await mp.updateContent(existing.id, text);
+    final nextType = _type;
+    final nextScope = _scope;
+    try {
+      if (existing == null) {
+        await mp.create(
+          scope: nextScope,
+          assistantId: assistantId,
+          type: nextType,
+          content: text,
+          source: MemorySource.manual,
+          projectId: widget.projectId,
+        );
+      } else {
+        final scopeKindChanged = nextScope != existing.scope;
+        final assistantRetargeted =
+            nextScope == MemoryScope.assistant &&
+            existing.assistantId != assistantId;
+        final shouldUpdateScope = scopeKindChanged || assistantRetargeted;
+        if (scopeKindChanged) {
+          if (!context.mounted) return;
+          final confirmed = await confirmScopeSwitch(
+            context,
+            toGlobal: nextScope == MemoryScope.global,
+          );
+          if (!confirmed) return;
+        }
+        // Writes are independent of the sheet/dialog staying open.
+        if (text != existing.content) {
+          await mp.updateContent(existing.id, text);
+        }
+        if (nextType != existing.type) {
+          await mp.updateType(existing.id, nextType);
+        }
+        if (shouldUpdateScope) {
+          await mp.updateScope(
+            existing.id,
+            scope: nextScope,
+            assistantId: assistantId,
+          );
+        }
+      }
+      if (mounted) navigator.maybePop();
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
-    navigator.maybePop();
   }
 
-  List<Widget> _formFields(
-    AppLocalizations l10n,
-    List<Assistant> assistants,
-  ) {
+  List<Widget> _formFields(AppLocalizations l10n, List<Assistant> assistants) {
     return [
       MemorySectionCard(
         children: [
@@ -1131,8 +1188,8 @@ class _MemoryEntryEditFormState extends State<MemoryEntryEditForm> {
           ),
         ],
       ),
-      if (_isCreate) ...[
-        const SizedBox(height: 16),
+      const SizedBox(height: 16),
+      if (!widget.lockStructure) ...[
         MemorySectionLabel(text: l10n.memoryEntryTypeLabel),
         Wrap(
           spacing: 8,
@@ -1164,23 +1221,22 @@ class _MemoryEntryEditFormState extends State<MemoryEntryEditForm> {
             ),
           ],
         ),
-        if (widget.allowAssistantPicker &&
-            _scope == MemoryScope.assistant) ...[
-          const SizedBox(height: 16),
-          MemorySectionLabel(text: l10n.memoryUiAssistantLabel),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final a in assistants)
-                MemorySelectChip(
-                  label: a.name,
-                  selected: _resolvedAssistantId(assistants) == a.id,
-                  onTap: () => setState(() => _assistantId = a.id),
-                ),
-            ],
-          ),
-        ],
+      ],
+      if (widget.allowAssistantPicker && _scope == MemoryScope.assistant) ...[
+        const SizedBox(height: 16),
+        MemorySectionLabel(text: l10n.memoryUiAssistantLabel),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final a in assistants)
+              MemorySelectChip(
+                label: a.name,
+                selected: _resolvedAssistantId(assistants) == a.id,
+                onTap: () => setState(() => _assistantId = a.id),
+              ),
+          ],
+        ),
       ],
     ];
   }
@@ -1204,9 +1260,6 @@ class _MemoryEntryEditFormState extends State<MemoryEntryEditForm> {
     final assistants = context.watch<AssistantProvider>().assistants;
 
     if (widget.desktop) {
-      // Compact, height-hugging dialog body — stays visually centered.
-      // Cap the scroll area explicitly (avoid Flexible + mainAxisSize.min
-      // collapsing to zero height).
       final maxBodyHeight = MediaQuery.sizeOf(context).height * 0.55;
       return Column(
         mainAxisSize: MainAxisSize.min,
@@ -1257,7 +1310,7 @@ class _MemoryEntryEditFormState extends State<MemoryEntryEditForm> {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
             child: _actions(l10n),
           ),
         ],
@@ -1367,6 +1420,8 @@ class MemoryEntryCard extends StatelessWidget {
     super.key,
     required this.entry,
     this.assistantName,
+    this.projectLabel,
+    this.projectTooltip,
     this.useThisAssistantLabel = false,
     this.selectable = false,
     this.selected = false,
@@ -1377,6 +1432,13 @@ class MemoryEntryCard extends StatelessWidget {
 
   final MemoryEntry entry;
   final String? assistantName;
+
+  /// 这条记忆所属工作区（项目）的显示名；null = 全局/逆向经验（不打标）。
+  ///
+  /// 项目隔离落地后，管理页是**全量**列表（能管理所有工作区的记忆），所以必须
+  /// 让用户看得出某条记忆属于哪个工作区、为什么当前工作区看不到它。
+  final String? projectLabel;
+  final String? projectTooltip;
   final bool useThisAssistantLabel;
   final bool selectable;
   final bool selected;
@@ -1386,18 +1448,19 @@ class MemoryEntryCard extends StatelessWidget {
   final String? scopeToggleAssistantId;
   final VoidCallback? onEdit;
 
-  Future<void> _archive(BuildContext context) async {
-    await context.read<MemoryProviderV2>().archive(entry.id);
-  }
-
-  Future<void> _restore(BuildContext context) async {
-    await context.read<MemoryProviderV2>().restore(entry.id);
-  }
-
   Future<void> _hardDelete(BuildContext context) async {
     if (!await confirmHardDeleteMemory(context)) return;
     if (!context.mounted) return;
     await context.read<MemoryProviderV2>().hardDelete(entry.id);
+  }
+
+  Future<void> _toggleArchive(BuildContext context) async {
+    final provider = context.read<MemoryProviderV2>();
+    if (entry.status == MemoryStatus.archived) {
+      await provider.restore(entry.id);
+    } else {
+      await provider.archive(entry.id);
+    }
   }
 
   Future<void> _toggleScope(BuildContext context) async {
@@ -1418,33 +1481,124 @@ class MemoryEntryCard extends StatelessWidget {
     }
   }
 
-  Future<void> _showContextMenu(BuildContext context, Offset global) async {
-    final l10n = AppLocalizations.of(context)!;
-    final items = <DesktopContextMenuItem>[
-      if (entry.status == MemoryStatus.active)
-        DesktopContextMenuItem(
-          icon: Lucide.Bookmark,
-          label: l10n.memoryEntryActionArchive,
-          onTap: () => _archive(context),
-        )
-      else
-        DesktopContextMenuItem(
-          icon: Lucide.RotateCcw,
-          label: l10n.memoryEntryActionRestore,
-          onTap: () => _restore(context),
-        ),
-      DesktopContextMenuItem(
-        icon: Lucide.Trash2,
-        label: l10n.memoryEntryActionDelete,
-        danger: true,
-        onTap: () => _hardDelete(context),
-      ),
-    ];
-    await showDesktopContextMenuAt(
-      context,
-      globalPosition: global,
-      items: items,
+  /// APK 三类记忆的结构化摘要。
+  ///
+  /// 结构化字段本来就存在 `extraJson`（经验：title/outcome/targets/pitfall；
+  /// 失败：failureReason/count/apkKey；笔记：notes[]），但卡片此前只渲染
+  /// `content`——用户 2026-10-04「感觉不好管理」的直接原因。这里把字段按类型
+  /// 摊开，`content` 仍然显示在下方作为正文。
+  Widget? _structuredHeader(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final extra = entry.extraJson ?? const <String, dynamic>{};
+    TextStyle metaStyle() => TextStyle(
+      fontSize: 11.5,
+      height: 1.3,
+      color: cs.onSurface.withValues(alpha: 0.6),
     );
+    switch (entry.type) {
+      case MemoryType.apkPatch:
+        final title = (extra['title'] ?? '').toString().trim();
+        final badge = memoryApkOutcomeBadge(
+          cs,
+          (extra['outcome'] ?? '').toString(),
+        );
+        final targets = <String>[
+          for (final t in (extra['targets'] as List? ?? const []))
+            if (t.toString().trim().isNotEmpty) t.toString().trim(),
+        ];
+        final pitfall = (extra['pitfall'] ?? '').toString().trim();
+        if (title.isEmpty && targets.isEmpty && pitfall.isEmpty) return null;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (title.isNotEmpty)
+              Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: AppFontWeights.semibold,
+                  height: 1.25,
+                ),
+              ),
+            const SizedBox(height: 5),
+            Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                MemoryBadge(label: badge.label, color: badge.color),
+                if (targets.isNotEmpty)
+                  Text('改点 ${targets.length}', style: metaStyle()),
+              ],
+            ),
+            if (pitfall.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 5),
+                child: Text(
+                  '坑：$pitfall',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12,
+                    height: 1.3,
+                    color: cs.error.withValues(alpha: 0.85),
+                  ),
+                ),
+              ),
+          ],
+        );
+      case MemoryType.apkFailure:
+        final reason = (extra['failureReason'] ?? '').toString().trim();
+        final command = (extra['command'] ?? '').toString().trim();
+        final count = (extra['count'] as num?)?.toInt() ?? 1;
+        final apkKey = (extra['apkKey'] ?? '').toString().trim();
+        if (reason.isEmpty && command.isEmpty) return null;
+        return Wrap(
+          spacing: 6,
+          runSpacing: 4,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            if (reason.isNotEmpty) MemoryBadge(label: reason, color: cs.error),
+            if (command.isNotEmpty) Text(command, style: metaStyle()),
+            Text('×$count', style: metaStyle()),
+            if (apkKey.isNotEmpty) Text(apkKey, style: metaStyle()),
+          ],
+        );
+      case MemoryType.apkNote:
+        final notes = extra['notes'] as List? ?? const [];
+        if (notes.isEmpty) return null;
+        final locators = <String>[
+          for (final n in notes)
+            if (n is Map && (n['locator'] ?? '').toString().trim().isNotEmpty)
+              n['locator'].toString().trim(),
+        ];
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${notes.length} 个修改点',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: AppFontWeights.semibold,
+              ),
+            ),
+            if (locators.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  '${locators.take(3).join(' · ')}${locators.length > 3 ? ' …' : ''}',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: metaStyle(),
+                ),
+              ),
+          ],
+        );
+      default:
+        return null;
+    }
   }
 
   @override
@@ -1459,6 +1613,7 @@ class MemoryEntryCard extends StatelessWidget {
     final date = memoryEntryDateFormat.format(entry.updatedAt.toLocal());
     final meta =
         '${l10n.memoryEntryUpdatedAt(date)} · ${memorySourceLabel(l10n, entry.source)}';
+    final header = _structuredHeader(context);
 
     final card = Padding(
       padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
@@ -1510,6 +1665,16 @@ class MemoryEntryCard extends StatelessWidget {
                         ? null
                         : () => _toggleScope(context),
                   ),
+                  if (projectLabel != null) ...[
+                    const SizedBox(width: 6),
+                    Tooltip(
+                      message: projectTooltip ?? projectLabel!,
+                      child: MemoryBadge(
+                        label: projectLabel!,
+                        color: cs.tertiary,
+                      ),
+                    ),
+                  ],
                   const Spacer(),
                   if (onEdit != null)
                     _IconAction(
@@ -1520,6 +1685,17 @@ class MemoryEntryCard extends StatelessWidget {
                     ),
                   const SizedBox(width: 4),
                   _IconAction(
+                    icon: entry.status == MemoryStatus.archived
+                        ? Lucide.RotateCcw
+                        : Lucide.EyeOff,
+                    color: cs.onSurface.withValues(alpha: 0.65),
+                    tooltip: entry.status == MemoryStatus.archived
+                        ? l10n.memoryEntryActionRestore
+                        : l10n.memoryEntryActionArchive,
+                    onTap: () => _toggleArchive(context),
+                  ),
+                  const SizedBox(width: 4),
+                  _IconAction(
                     icon: Lucide.Trash2,
                     color: cs.error,
                     tooltip: l10n.memoryEntryActionDelete,
@@ -1528,6 +1704,7 @@ class MemoryEntryCard extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 8),
+              if (header != null) ...[header, const SizedBox(height: 6)],
               Text(
                 entry.content,
                 maxLines: 5,
@@ -1548,16 +1725,7 @@ class MemoryEntryCard extends StatelessWidget {
       ),
     );
 
-    return GestureDetector(
-      onLongPressStart: (details) {
-        HapticFeedback.mediumImpact();
-        unawaited(_showContextMenu(context, details.globalPosition));
-      },
-      onSecondaryTapDown: (details) {
-        unawaited(_showContextMenu(context, details.globalPosition));
-      },
-      child: card,
-    );
+    return card;
   }
 }
 
@@ -1696,6 +1864,104 @@ class MemoryOrphanBanner extends StatelessWidget {
                     .read<MemoryProviderV2>()
                     .deleteOrphanAssistantMemories();
               },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 孤儿**项目**记忆横幅：工作区已删除，这些记忆谁都看不到（既不会被注入，
+/// 工具也读不到）。
+///
+/// 用户 2026-10-04「工作区删了，这些记忆如何交接」：这里给两个出口——
+/// 「转为全局」（把方法论/流程交给所有工作区）与「删除」。与助手孤儿记忆
+/// （[MemoryOrphanBanner]）同一套交互。
+class MemoryOrphanProjectBanner extends StatelessWidget {
+  const MemoryOrphanProjectBanner({super.key, required this.liveProjectIds});
+
+  /// 现存工作区 id 全集（记忆层不依赖工作区层，所以由页面传进来）。
+  final Set<String> liveProjectIds;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final cs = Theme.of(context).colorScheme;
+    final provider = context.watch<MemoryProviderV2>();
+    final orphans = provider.orphanProjectEntries(liveProjectIds);
+    if (orphans.isEmpty) return const SizedBox.shrink();
+    final projectIds = <String>{
+      for (final entry in orphans)
+        if (entry.projectId != null) entry.projectId!,
+    };
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      child: Container(
+        decoration: BoxDecoration(
+          color: cs.tertiaryContainer.withValues(alpha: 0.35),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Lucide.FolderOpen, size: 18, color: cs.tertiary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    l10n.memoryOrphanProjectBanner(orphans.length),
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      height: 1.3,
+                      color: cs.onSurface.withValues(alpha: 0.8),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                IosTileButton(
+                  label: l10n.memoryOrphanProjectRelease,
+                  icon: Lucide.Globe,
+                  fontSize: 12.5,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
+                  onTap: () async {
+                    for (final id in projectIds) {
+                      await provider.releaseProjectMemories(id);
+                    }
+                  },
+                ),
+                const SizedBox(width: 8),
+                IosTileButton(
+                  label: l10n.memoryOrphanProjectDelete,
+                  icon: Lucide.Trash2,
+                  fontSize: 12.5,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
+                  backgroundColor: cs.error,
+                  onTap: () async {
+                    if (!await confirmOrphanProjectCleanup(
+                      context,
+                      count: orphans.length,
+                    )) {
+                      return;
+                    }
+                    if (!context.mounted) return;
+                    await provider.deleteOrphanProjectMemories(liveProjectIds);
+                  },
+                ),
+              ],
             ),
           ],
         ),

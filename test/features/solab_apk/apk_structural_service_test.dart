@@ -1,7 +1,7 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/features/solab_apk/services/apk_structural_service.dart';
+import 'package:Kelivo/features/solab_apk/services/apk_structural_service.dart';
 
 /// 通道封装测试：mock MethodChannel('solab/workspace') 验证
 /// B5/B6/B7/B8 新封装的参数透传与返回归一化。

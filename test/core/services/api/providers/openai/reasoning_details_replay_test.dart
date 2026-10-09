@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/core/services/api/providers/openai/reasoning_details_replay.dart';
+import 'package:Kelivo/core/services/api/providers/openai/reasoning_details_replay.dart';
 
 void main() {
   group('normalizeReasoningDetailsForReplay', () {
@@ -136,6 +136,31 @@ void main() {
             'text': 'x',
             'format': 'openai-responses-v1',
           },
+        ]),
+        isFalse,
+      );
+    });
+
+    test('reasoningDetailsNeedSignedReplay keys on format or signature', () {
+      expect(
+        reasoningDetailsNeedSignedReplay([
+          {
+            'type': 'reasoning.text',
+            'text': 'x',
+            'format': 'anthropic-claude-v1',
+          },
+        ]),
+        isTrue,
+      );
+      expect(
+        reasoningDetailsNeedSignedReplay([
+          {'type': 'reasoning.text', 'text': 'x', 'signature': 'sig-1'},
+        ]),
+        isTrue,
+      );
+      expect(
+        reasoningDetailsNeedSignedReplay([
+          {'type': 'reasoning.text', 'text': 'x'},
         ]),
         isFalse,
       );

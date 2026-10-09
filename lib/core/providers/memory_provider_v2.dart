@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../database/chat_database_repository.dart';
 import '../models/memory_entry.dart';
 import '../models/user_profile_field.dart';
 import '../services/memory/memory_repository.dart';
@@ -10,9 +11,10 @@ import '../services/memory/memory_repository.dart';
 /// read-only store for §14.5. Mixing the two via `context.read` would silently
 /// wire the wrong system.
 class MemoryProviderV2 extends ChangeNotifier {
-  MemoryProviderV2({required this.repository});
+  MemoryProviderV2({required this.repository, required this.chatRepository});
 
   final MemoryRepository repository;
+  final ChatDatabaseRepository chatRepository;
 
   List<MemoryEntry> _entries = const <MemoryEntry>[];
   List<UserProfileField> _profileFields = const <UserProfileField>[];
@@ -82,15 +84,16 @@ class MemoryProviderV2 extends ChangeNotifier {
     _loadAll = loadAll;
     try {
       final entries = loadAll
-          ? await repository.readAll()
-          : await repository.queryVisibleMemories(
+          ? await chatRepository.queryAllMemories(includeArchived: true)
+          : await chatRepository.queryVisibleMemories(
               assistantId: assistantId,
               includeArchived: true,
             );
-      final profile = await repository.readProfileFields();
+      final profile = await chatRepository.readProfileFields();
+      final orphans = await chatRepository.countOrphanAssistantMemories();
       _entries = entries;
       _profileFields = profile;
-      _orphanCount = 0;
+      _orphanCount = orphans;
       notifyListeners();
     } catch (e) {
       debugPrint('MemoryProviderV2.refresh failed: $e');
@@ -124,39 +127,20 @@ class MemoryProviderV2 extends ChangeNotifier {
     int limit = 200,
   }) {
     if (acrossAll) {
-      // SharedPreferences blob has no cross-assistant typed columns: fall back
-      // to reading everything and filtering in memory.
-      return _searchAcrossAll(
+      return chatRepository.searchAllMemories(
         tokens: tokens,
         type: type,
         includeArchived: includeArchived,
         limit: limit,
       );
     }
-    return repository.searchMemories(
+    return chatRepository.searchMemories(
       assistantId: assistantId,
       tokens: tokens,
       type: type,
       matchAll: true,
       limit: limit,
     );
-  }
-
-  Future<List<MemoryEntry>> _searchAcrossAll({
-    required List<String> tokens,
-    MemoryType? type,
-    bool includeArchived = false,
-    int limit = 200,
-  }) async {
-    final all = await repository.readAll();
-    var out = all.where((e) {
-      if (!includeArchived && e.status != MemoryStatus.active) return false;
-      if (type != null && e.type != type) return false;
-      final content = e.content.toLowerCase();
-      return tokens.every((t) => content.contains(t.toLowerCase()));
-    }).toList();
-    if (out.length > limit) out = out.sublist(0, limit);
-    return out;
   }
 
   Future<MemoryEntry> create({
@@ -166,6 +150,9 @@ class MemoryProviderV2 extends ChangeNotifier {
     required String content,
     required MemorySource source,
     List<String> relatedIds = const [],
+    /// 显式项目（工作区）标记：null = 按当前环境态项目打标（旧行为）。
+    /// UI 手动新建时传用户正在看的工作区，避免写到「上一次生成」的工作区。
+    String? projectId,
   }) async {
     final entry = await repository.create(
       scope: scope,
@@ -174,6 +161,9 @@ class MemoryProviderV2 extends ChangeNotifier {
       content: content,
       source: source,
       relatedIds: relatedIds,
+      extraJson: projectId == null
+          ? null
+          : <String, dynamic>{'projectId': projectId},
     );
     await _refreshAfterWrite();
     return entry;
@@ -181,6 +171,12 @@ class MemoryProviderV2 extends ChangeNotifier {
 
   Future<MemoryEntry?> updateContent(String id, String content) async {
     final entry = await repository.updateContent(id, content);
+    await _refreshAfterWrite();
+    return entry;
+  }
+
+  Future<MemoryEntry?> updateType(String id, MemoryType type) async {
+    final entry = await repository.updateType(id, type);
     await _refreshAfterWrite();
     return entry;
   }
@@ -229,9 +225,47 @@ class MemoryProviderV2 extends ChangeNotifier {
   }
 
   Future<int> deleteOrphanAssistantMemories() async {
-    // SharedPreferences-backed store keeps orphans; treat as no-op.
+    final count = await repository.deleteOrphanAssistantMemories();
     await _refreshAfterWrite();
-    return 0;
+    return count;
+  }
+
+  /// 孤儿项目记忆（工作区已删除）：[liveProjectIds] = 现存工作区 id 全集。
+  ///
+  /// 需要调用方给「现存工作区」而不是反过来查 provider：记忆层不依赖工作区层
+  /// （core/services/memory 不该反向依赖 workspace provider）。
+  List<MemoryEntry> orphanProjectEntries(Set<String> liveProjectIds) =>
+      MemoryRepository.orphanProjectEntries(_entries, liveProjectIds);
+
+  Future<int> deleteOrphanProjectMemories(Set<String> liveProjectIds) async {
+    final count = await repository.deleteOrphanProjectMemories(liveProjectIds);
+    await _refreshAfterWrite();
+    return count;
+  }
+
+  /// 删除某个工作区的全部项目记忆（删工作区时用户选择「一并删除」）。
+  Future<int> deleteProjectMemories(String projectId) async {
+    final all = await repository.readAll();
+    final ids = <String>{
+      for (final entry in all)
+        if (entry.projectId == projectId) entry.id,
+    };
+    final count = await repository.hardDeleteIds(ids);
+    await _refreshAfterWrite();
+    return count;
+  }
+
+  /// 交接：把某个工作区的记忆转为全局（[toProjectId] 为空）或迁移到别的工作区。
+  Future<int> releaseProjectMemories(
+    String projectId, {
+    String? toProjectId,
+  }) async {
+    final count = await repository.releaseProjectMemories(
+      projectId,
+      toProjectId: toProjectId,
+    );
+    await _refreshAfterWrite();
+    return count;
   }
 
   Future<void> putProfileField(
@@ -251,9 +285,6 @@ class MemoryProviderV2 extends ChangeNotifier {
 
   Future<void> _refreshAfterWrite() => reloadCurrentScope();
 
-  static bool _isVisible(MemoryEntry entry, String? assistantId) {
-    if (entry.scope == MemoryScope.global) return true;
-    if (assistantId == null) return false;
-    return entry.assistantId == assistantId;
-  }
+  static bool _isVisible(MemoryEntry entry, String? assistantId) =>
+      entry.isVisibleFor(assistantId);
 }

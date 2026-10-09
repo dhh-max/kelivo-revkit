@@ -3,7 +3,7 @@ import 'dart:isolate';
 
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
-import 'package:sqlite3/common.dart' show AllowedArgumentCount;
+import 'package:sqlite3/common.dart' show AllowedArgumentCount, CommonDatabase;
 
 import '../../utils/app_directories.dart';
 
@@ -60,6 +60,18 @@ class ConversationRows extends Table {
       // ignore: recursive_getters
       .check(lastMemoryExtractedOrder.isBiggerOrEqualValue(-1))
       .withDefault(const Constant(-1))();
+
+  /// 会话级模型覆盖（上游 v2 引入）：这两列让「本会话用哪个模型」可以
+  /// 独立于 assistant 设置；为空表示跟随 assistant / 全局默认。
+  TextColumn get chatModelProvider => text().nullable()();
+  TextColumn get chatModelId => text().nullable()();
+
+  /// 会话级扩展数据（上游 v3 引入）：per-chat 模型、工作区绑定等按需键值，
+  /// 避免每加一种会话级设置就来一次 schema 迁移。
+  ///
+  /// 声明顺序即建表顺序，而校验器（[ChatDatabaseRepository.currentSchemaColumns]）
+  /// 按序比对，故这里的顺序必须与上游一致：模型两列在前、extras 在后。
+  TextColumn get extrasJson => text().withDefault(const Constant('{}'))();
 
   @override
   Set<Column<Object>> get primaryKey => {id};
@@ -129,6 +141,17 @@ class MessageRows extends Table {
       integer()
       // ignore: recursive_getters
       .check(messageOrder.isBiggerOrEqualValue(0))();
+
+  /// 消息最后修改时间（上游 v3 引入）。可空是**设计如此**：null 读作
+  /// "等于 createdAt"，因此加列时无需回填。
+  IntColumn get updatedAt =>
+      integer().map(const MicrosecondDateTimeConverter()).nullable()();
+
+  /// 消息级发送者标识（上游 v3 引入）：群聊/多角色场景区分同一会话内的发言者。
+  TextColumn get senderId => text().nullable()();
+
+  /// 消息级扩展数据（上游 v3 引入），与 `ConversationRows.extrasJson` 同规矩。
+  TextColumn get extrasJson => text().withDefault(const Constant('{}'))();
 
   @override
   Set<Column<Object>> get primaryKey => {id};
@@ -253,6 +276,9 @@ class AssetRows extends Table {
       integer().map(const MicrosecondDateTimeConverter())();
   IntColumn get lastReferencedAt =>
       integer().map(const MicrosecondDateTimeConverter())();
+
+  /// 资源级扩展数据（上游 v3 引入），与 `ConversationRows.extrasJson` 同规矩。
+  TextColumn get extrasJson => text().withDefault(const Constant('{}'))();
 
   @override
   Set<Column<Object>> get primaryKey => {id};
@@ -571,6 +597,7 @@ class MemoryEntryRows extends Table {
       'instruction',
       'apk_patch',
       'apk_note',
+      'apk_failure',
     ]),
   )();
   TextColumn get status => text().check(
@@ -758,6 +785,64 @@ class EngineStatsRows extends Table {
   Set<Column<Object>> get primaryKey => {toolName};
 }
 
+// ---------------------------------------------------------------------------
+// 上游 1.2.6 新增（移植进本 fork 的 schema 链，作为 schema 10 步的落地对象）
+// ---------------------------------------------------------------------------
+
+/// 删除墓碑（上游 v2 引入）：跨设备同步用的"这条已被删除"记录。
+///
+/// 只有 `scope = 'conversation'` 会被写入（在
+/// `ChatDatabaseRepository.deleteConversation` 的事务里，90 天清理）。
+/// 其余 scope 预留给未来的实体类型。批量重置（clearAllData、覆盖式恢复）
+/// 走整表清空而不是写墓碑——「替换本地全部状态」不等于「跨设备删除意图」。
+class TombstoneRows extends Table {
+  TextColumn get scope =>
+      text()
+      // ignore: recursive_getters
+      .check(scope.isNotValue(''))();
+  TextColumn get entityId =>
+      text()
+      // ignore: recursive_getters
+      .check(entityId.isNotValue(''))();
+  IntColumn get deletedAt =>
+      integer().map(const MicrosecondDateTimeConverter())();
+  TextColumn get payload => text().withDefault(const Constant('{}'))();
+
+  @override
+  Set<Column<Object>> get primaryKey => {scope, entityId};
+}
+
+/// 通用实体宿主（上游 v3 引入）：给未来的用户管理实体（主题、插件、工作区、
+/// ssh profile、生成任务…）一个共享表，避免每加一种实体就要一次 schema 迁移。
+///
+/// 结构上是那十几个 per-kind 业务表（`assistant_rows` 等）的泛化：
+/// string id + sort_order + JSON payload + updated_at，外加 `kind` 判别列与
+/// 可选的 `owner_id`（用于归属到另一个实体的场景，对应
+/// `assistant_memory_rows.assistant_id`）。既有 kind 仍留在各自的表里，
+/// 只有 v3 之后新增的 kind 住在这里。
+@TableIndex(
+  name: 'idx_extension_entities_kind_order',
+  columns: {#kind, #sortOrder},
+)
+class ExtensionEntityRows extends Table {
+  TextColumn get kind =>
+      text()
+      // ignore: recursive_getters
+      .check(kind.isNotValue(''))();
+  TextColumn get id => text()();
+  IntColumn get sortOrder =>
+      integer()
+      // ignore: recursive_getters
+      .check(sortOrder.isBiggerOrEqualValue(0))();
+  TextColumn get ownerId => text().nullable()();
+  TextColumn get payload => text()();
+  IntColumn get updatedAt =>
+      integer().map(const MicrosecondDateTimeConverter())();
+
+  @override
+  Set<Column<Object>> get primaryKey => {kind, id};
+}
+
 @DriftDatabase(
   tables: [
     ConversationRows,
@@ -792,6 +877,8 @@ class EngineStatsRows extends Table {
     RuleSubscriptionRows,
     SoWorkspaceRows,
     EngineStatsRows,
+    TombstoneRows,
+    ExtensionEntityRows,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -812,9 +899,26 @@ class AppDatabase extends _$AppDatabase {
   // Schema 7 adds so_workspace_rows (SO analysis workspaces) and
   // engine_stats_rows (SO engine tool stats).
   // Schema 8 adds rule_subscription_rows (SoLab APK rule subscriptions).
+  // Schema 9 widens memory_entry_rows.type CHECK to accept apk_failure
+  // (A2 §6.1 failure memory).
   // Every other non-zero version belongs to an unpublished or future format
   // and is rejected.
-  static const currentSchemaVersion = 8;
+  static const currentSchemaVersion = 10;
+
+  /// Every schema that has ever shipped（上游 SchemaMigrations 框架读取此常量）。
+  ///
+  /// 上游 1.2.6 引入了 [SchemaMigrations] 迁移框架，它按
+  /// [publishedSchemaVersions] 判定「这个库文件是已发布格式可继续使用」，
+  /// 并据 [currentSchemaVersion] 决定是否需要升级。本 fork 的 schema 历史是
+  /// 1..9（1-3 与上游同源，4-9 是 SoLab 自研增量：APK 项目/规则表、
+  /// 失败记忆 type 扩宽等），因此这里列全 1..9——保持与上游同构的框架，
+  /// 同时让已装机用户的 schema 9 库文件被正常接受。
+  ///
+  /// 注：drift_schemas/ 下的分步迁移 JSON 目前只有上游的 v1..v3；
+  /// 若后续需要支持「从 4-8 的旧备份升级」，要用 drift 的 schema 工具
+  /// 重新导出这些版本的 JSON（`dart run drift_dev schema dump`）。
+  /// 现网路径（已装机库直连、schema 9 备份恢复）不依赖它们。
+  static const publishedSchemaVersions = <int>{1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
   // Keep SQLite's established 1000-page cadence explicit. At the usual 4 KiB
   // page size this starts a checkpoint around 4 MiB, but page size remains the
   // source of truth.
@@ -846,6 +950,32 @@ class AppDatabase extends _$AppDatabase {
         return _openExecutor(File('${dir.path}/$databaseFileName'));
       }),
     );
+  }
+
+  /// 供 [SchemaMigrations] 升级库文件用的执行器（上游 1.2.6）。
+  ///
+  /// 与 [AppDatabase.open] 的 setup 语义**不同**：这里只接受「已发布的 schema
+  /// 版本」（备份快照升级路径，格式必须是已知的），而 live 连接允许旧版本以便
+  /// drift 的 onUpgrade 迁移。两者不可互相替代。
+  static QueryExecutor upgradeExecutor(File file) =>
+      NativeDatabase.createInBackground(file, setup: _migrationSetup);
+
+  /// [upgradeExecutor] 的 setup。
+  ///
+  /// 必须保持为**无捕获的静态 tear-off**：`createInBackground` 会把它发送到
+  /// drift 的工作 isolate。
+  ///
+  /// 刻意不设 `journal_mode = WAL`：备份快照以 DELETE 模式到来、也应当以
+  /// DELETE 模式离开，而一次性结构重写用 `synchronous = FULL` 是正确的取舍。
+  static void _migrationSetup(CommonDatabase database) {
+    final installedSchema = database.userVersion;
+    if (installedSchema != 0 &&
+        !AppDatabase.publishedSchemaVersions.contains(installedSchema)) {
+      throw StateError('database_schema_version');
+    }
+    database.execute('PRAGMA foreign_keys = ON;');
+    database.execute('PRAGMA busy_timeout = $busyTimeoutMillis;');
+    database.execute('PRAGMA synchronous = FULL;');
   }
 
   static QueryExecutor _openExecutor(File file) {
@@ -1007,6 +1137,108 @@ FROM probe;
       if (from < 8) {
         // Schema 8：规则订阅源表（rule_subscription_rows）
         await m.createTable($RuleSubscriptionRowsTable(m.database));
+      }
+      if (from < 9) {
+        // Schema 9：memory_entry_rows 的 type CHECK 扩为 7 值（apk_failure，
+        // A2 失败记忆）。列结构不变（仅约束变化），按 Schema 5 同款重建表。
+        final newTable = $MemoryEntryRowsTable(
+          m.database,
+        ).createAlias('memory_entry_rows_new');
+        await m.database.customStatement(
+          'DROP TABLE IF EXISTS memory_entry_rows_new;',
+        );
+        await m.createTable(newTable);
+        await m.database.customStatement(
+          'INSERT INTO memory_entry_rows_new '
+          '(id, sort_order, scope, assistant_id, type, status, content, '
+          'content_normalized, entry_created_at, entry_updated_at, payload, '
+          'updated_at) '
+          'SELECT id, sort_order, scope, assistant_id, type, status, content, '
+          'content_normalized, entry_created_at, entry_updated_at, payload, '
+          'updated_at FROM memory_entry_rows;',
+        );
+        await m.database.customStatement('DROP TABLE memory_entry_rows;');
+        await m.database.customStatement(
+          'ALTER TABLE memory_entry_rows_new RENAME TO memory_entry_rows;',
+        );
+        await m.database.customStatement(
+          'CREATE INDEX IF NOT EXISTS idx_memory_entries_visible '
+          'ON memory_entry_rows (status, type, scope, assistant_id);',
+        );
+        await m.database.customStatement(
+          'CREATE INDEX IF NOT EXISTS idx_memory_entries_recent '
+          'ON memory_entry_rows (status, type, entry_updated_at, id);',
+        );
+        await m.database.customStatement(
+          'CREATE INDEX IF NOT EXISTS idx_memory_entries_dedupe '
+          'ON memory_entry_rows (scope, assistant_id, type, content_normalized);',
+        );
+      }
+      if (from < 10) {
+        // Schema 10：移植上游 1.2.6 的新增（上游把同样的改动放在它的 v2/v3）。
+        //
+        // 本 fork 的编号与上游是两套独立体系（我方 1..9 / 上游 1..3），
+        // 因此上游的 addColumn/createTable 在这里作为**下一步增量**落地，
+        // 对已装机用户是纯增量升级（无数据重写）：
+        // - conversation_rows.chat_model_provider / chat_model_id（会话级模型
+        //   覆盖，可空）；conversation_rows.extras_json / message_rows.extras_json /
+        //   asset_rows.extras_json：会话/消息/资源级扩展键值，默认 '{}'。
+        //   顺序即列序：校验器按序比对，故与 [ConversationRows] 的声明顺序一致。
+        // 幂等：schema 5→10 之间任何一步中途崩溃都会留下 userVersion 落后于
+        // 实际列的新库（测试里就有这种"部分迁移卡死"状态），再跑一次
+        // ALTER TABLE ADD COLUMN 会 duplicate column 直接卡死用户。
+        // 类型/默认值逐条照抄 drift 建表 DDL（见 app_database.g.dart）：
+        // updated_at 是 INTEGER，extras_json 是 NOT NULL DEFAULT '{}'，
+        // 类型走偏会改变列的亲和性（TEXT 亲和会把整数写成文本）。
+        Future<void> addColumnIfMissing(
+          String table,
+          String column,
+          String typeAndDefault,
+        ) async {
+          final existing = await m.database
+              .customSelect('PRAGMA table_info($table);')
+              .get();
+          if (existing.any((row) => row.read<String>('name') == column)) return;
+          await m.database.customStatement(
+            'ALTER TABLE $table ADD COLUMN $column $typeAndDefault;',
+          );
+        }
+
+        // 顺序即列序：校验器按序比对，故与 [ConversationRows] 的声明顺序一致。
+        await addColumnIfMissing(
+          'conversation_rows',
+          'chat_model_provider',
+          'TEXT NULL',
+        );
+        await addColumnIfMissing(
+          'conversation_rows',
+          'chat_model_id',
+          'TEXT NULL',
+        );
+        await addColumnIfMissing(
+          'conversation_rows',
+          'extras_json',
+          "TEXT NOT NULL DEFAULT '{}'",
+        );
+        await addColumnIfMissing('message_rows', 'updated_at', 'INTEGER NULL');
+        await addColumnIfMissing('message_rows', 'sender_id', 'TEXT NULL');
+        await addColumnIfMissing(
+          'message_rows',
+          'extras_json',
+          "TEXT NOT NULL DEFAULT '{}'",
+        );
+        await addColumnIfMissing(
+          'asset_rows',
+          'extras_json',
+          "TEXT NOT NULL DEFAULT '{}'",
+        );
+        await m.createTable($TombstoneRowsTable(m.database));
+        await m.createTable($ExtensionEntityRowsTable(m.database));
+        // addColumn/createTable 不会自动建 @TableIndex 声明的索引。
+        await m.database.customStatement(
+          'CREATE INDEX IF NOT EXISTS idx_extension_entities_kind_order '
+          'ON extension_entity_rows (kind, sort_order);',
+        );
       }
       if (from > to) {
         // A newer database format must not be silently downgraded.

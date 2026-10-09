@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:solab/core/services/api/chat_api_helpers.dart';
+import 'package:Kelivo/core/services/api/chat_api_helpers.dart';
 
 void main() {
   group('cleanSchemaForGemini stringEnumOnly', () {

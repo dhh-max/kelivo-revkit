@@ -3,8 +3,8 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/core/providers/settings_provider.dart';
-import 'package:solab/core/services/api/chat_api_service.dart';
+import 'package:Kelivo/core/providers/settings_provider.dart';
+import 'package:Kelivo/core/services/api/chat_api_service.dart';
 import 'support/collect_generation.dart';
 
 ProviderConfig _config(ProviderKind kind, String baseUrl, String modelId) =>
@@ -137,7 +137,11 @@ void main() {
         expect(receivedBody['assistantOnly'], 3);
         expect(receivedBody['providerOnly'], isTrue);
         expect(receivedBody['modelOnly'], 42);
-        expect(receivedBody['nested'], {'model': true});
+        expect(receivedBody['nested'], {
+          'assistant': true,
+          'provider': true,
+          'model': true,
+        });
       },
     );
   }

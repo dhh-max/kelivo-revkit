@@ -8,10 +8,20 @@ import '../../core/providers/settings_provider.dart';
 import '../../icons/lucide_adapter.dart' as lucide;
 
 class DesktopSelectOption<T> {
-  const DesktopSelectOption({required this.value, required this.label});
+  const DesktopSelectOption({
+    required this.value,
+    required this.label,
+    this.subtitle,
+  });
 
   final T value;
   final String label;
+  final String? subtitle;
+}
+
+bool _optionHasSubtitle<T>(DesktopSelectOption<T> option) {
+  final subtitle = option.subtitle;
+  return subtitle != null && subtitle.isNotEmpty;
 }
 
 class DesktopSelectDropdown<T> extends StatefulWidget {
@@ -27,6 +37,7 @@ class DesktopSelectDropdown<T> extends StatefulWidget {
     this.maxLabelWidth = 240,
     this.triggerFillColor,
     this.menuBackgroundColor,
+    this.embedded = false,
   });
 
   final T value;
@@ -40,6 +51,9 @@ class DesktopSelectDropdown<T> extends StatefulWidget {
   final double maxLabelWidth;
   final Color? triggerFillColor;
   final Color? menuBackgroundColor;
+
+  /// Inline (borderless, transparent) presentation for embedding in rows.
+  final bool embedded;
 
   @override
   State<DesktopSelectDropdown<T>> createState() =>
@@ -85,7 +99,6 @@ class _DesktopSelectDropdownState<T> extends State<DesktopSelectDropdown<T>> {
   }
 
   Color _defaultMenuBackground(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     SettingsProvider? sp;
     try {
       sp = Provider.of<SettingsProvider>(context, listen: false);
@@ -93,8 +106,8 @@ class _DesktopSelectDropdownState<T> extends State<DesktopSelectDropdown<T>> {
       sp = null;
     }
     final usePure = sp?.usePureBackground ?? false;
-    if (usePure) return isDark ? Colors.black : Colors.white;
-    return isDark ? const Color(0xFF1C1C1E) : Colors.white;
+    if (usePure) return Theme.of(context).colorScheme.surface;
+    return Theme.of(context).colorScheme.surfaceContainerHigh;
   }
 
   void _openMenu() {
@@ -103,6 +116,14 @@ class _DesktopSelectDropdownState<T> extends State<DesktopSelectDropdown<T>> {
     if (rb == null) return;
     final triggerSize = rb.size;
     final triggerWidth = triggerSize.width;
+    final hasSubtitles = widget.options.any(_optionHasSubtitle);
+    var overlayWidth = triggerWidth;
+    var overlayDx = 0.0;
+    if (hasSubtitles) {
+      overlayWidth = triggerWidth < 360 ? 360.0 : triggerWidth;
+      if (overlayWidth > 440) overlayWidth = 440.0;
+      overlayDx = triggerWidth - overlayWidth;
+    }
 
     _entry = OverlayEntry(
       builder: (ctx) {
@@ -120,9 +141,9 @@ class _DesktopSelectDropdownState<T> extends State<DesktopSelectDropdown<T>> {
             CompositedTransformFollower(
               link: _link,
               showWhenUnlinked: false,
-              offset: Offset(0, triggerSize.height + 6),
+              offset: Offset(overlayDx, triggerSize.height + 6),
               child: _DesktopSelectOverlay<T>(
-                width: triggerWidth,
+                width: overlayWidth,
                 backgroundColor: bgColor,
                 options: widget.options,
                 selected: widget.value,
@@ -143,16 +164,19 @@ class _DesktopSelectDropdownState<T> extends State<DesktopSelectDropdown<T>> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final label = _labelForValue(widget.value);
 
-    final baseBorder = cs.outlineVariant.withValues(alpha: 0.18);
-    final hoverBorder = cs.primary;
+    final baseBorder = widget.embedded
+        ? Colors.transparent
+        : cs.outlineVariant.withValues(alpha: 0.18);
+    final hoverBorder = widget.embedded ? Colors.transparent : cs.primary;
     final borderColor = _open || _hover ? hoverBorder : baseBorder;
 
     final fillColor =
         widget.triggerFillColor ??
-        (isDark ? const Color(0xFF141414) : Colors.white);
+        (widget.embedded
+            ? Colors.transparent
+            : Theme.of(context).colorScheme.surfaceContainerHigh);
 
     return CompositedTransformTarget(
       link: _link,
@@ -310,7 +334,7 @@ class _DesktopSelectOverlayState<T> extends State<_DesktopSelectOverlay<T>>
               border: Border.all(color: borderColor, width: 0.5),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: isDark ? 0.32 : 0.08),
+                  color: cs.shadow.withValues(alpha: isDark ? 0.32 : 0.08),
                   blurRadius: 16,
                   offset: const Offset(0, 6),
                 ),
@@ -323,6 +347,7 @@ class _DesktopSelectOverlayState<T> extends State<_DesktopSelectOverlay<T>>
                 for (final opt in widget.options)
                   _DesktopSelectOptionTile(
                     label: opt.label,
+                    subtitle: opt.subtitle,
                     selected: widget.selected == opt.value,
                     onTap: () => widget.onSelected(opt.value),
                   ),
@@ -340,9 +365,11 @@ class _DesktopSelectOptionTile extends StatefulWidget {
     required this.label,
     required this.selected,
     required this.onTap,
+    this.subtitle,
   });
 
   final String label;
+  final String? subtitle;
   final bool selected;
   final VoidCallback onTap;
 
@@ -355,6 +382,38 @@ class _DesktopSelectOptionTileState extends State<_DesktopSelectOptionTile> {
   bool _hover = false;
   bool _active = false;
 
+  Widget _labelColumn(ColorScheme cs) {
+    final label = Text(
+      widget.label,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        fontSize: 14,
+        color: cs.onSurface.withValues(alpha: 0.88),
+        fontWeight: widget.selected
+            ? AppFontWeights.semibold
+            : AppFontWeights.regular,
+      ),
+    );
+    final subtitle = widget.subtitle;
+    if (subtitle == null || subtitle.isEmpty) return label;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        label,
+        const SizedBox(height: 2),
+        Text(
+          subtitle,
+          style: TextStyle(
+            fontSize: 12.5,
+            height: 1.3,
+            color: cs.onSurface.withValues(alpha: 0.6),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -362,9 +421,7 @@ class _DesktopSelectOptionTileState extends State<_DesktopSelectOptionTile> {
     final bg = widget.selected
         ? cs.primary.withValues(alpha: 0.12)
         : (_hover
-              ? (isDark
-                    ? Colors.white.withValues(alpha: 0.08)
-                    : Colors.black.withValues(alpha: 0.04))
+              ? (cs.onSurface.withValues(alpha: isDark ? 0.08 : 0.04))
               : Colors.transparent);
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -391,20 +448,7 @@ class _DesktopSelectOptionTileState extends State<_DesktopSelectOptionTile> {
             ),
             child: Row(
               children: [
-                Expanded(
-                  child: Text(
-                    widget.label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: cs.onSurface.withValues(alpha: 0.88),
-                      fontWeight: widget.selected
-                          ? AppFontWeights.semibold
-                          : AppFontWeights.regular,
-                    ),
-                  ),
-                ),
+                Expanded(child: _labelColumn(cs)),
                 const SizedBox(width: 8),
                 Opacity(
                   opacity: widget.selected ? 1 : 0,

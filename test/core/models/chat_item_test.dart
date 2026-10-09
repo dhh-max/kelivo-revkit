@@ -1,4 +1,4 @@
-import 'package:solab/core/models/chat_item.dart';
+import 'package:Kelivo/core/models/chat_item.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

@@ -1,4 +1,4 @@
-import 'package:solab/core/services/logging/log_redactor.dart';
+import 'package:Kelivo/core/services/logging/log_redactor.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -152,12 +152,23 @@ void main() {
       expect(redacted, contains('qrs***cdef(len=16)'));
     });
 
-    test('does not mask bare token, author, or lookalike field names', () {
+    test('masks token/key fields (T1.4), preserves author/content/keywords', () {
+      // T1.4：token/key 字段不再白名单豁免——即使值像普通文本也脱敏
+      // （保守：API key 常落在这些字段名，无法靠值形态区分）。
       const body =
-          '{"token":"Hello from the model","author":"bob","content":"ok",'
+          '{"token":"Hello from the model","key":"plainvalue",'
+          '"author":"bob","content":"ok",'
           '"keywords":"flutter dart tips","monkey":"banana banana banana",'
           '"stop_tokens":["<|endoftext|>","</s>"]}';
-      expect(LogRedactor.redactBody(body), body);
+      final redacted = LogRedactor.redactBody(body);
+      // token/key 值被掩码，不再出现明文。
+      expect(redacted, isNot(contains('Hello from the model')));
+      expect(redacted, isNot(contains('plainvalue')));
+      // 无害字段保留明文。
+      expect(redacted, contains('bob'));
+      expect(redacted, contains('"ok"'));
+      expect(redacted, contains('flutter dart tips'));
+      expect(redacted, contains('banana banana banana'));
     });
 
     test('masks compound auth and key names after word split', () {

@@ -6,8 +6,8 @@ import 'dart:isolate';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
-import 'package:solab/core/services/backup/restore_business_lease.dart';
-import 'package:solab/core/services/backup/restore_durability.dart';
+import 'package:Kelivo/core/services/backup/restore_business_lease.dart';
+import 'package:Kelivo/core/services/backup/restore_durability.dart';
 
 final class _FailingOwnerDurability implements RestoreDurability {
   _FailingOwnerDurability(this.delegate);
@@ -346,6 +346,11 @@ void main() {
         expect(lease.isClosed, isFalse);
         expect(lease.processId, pid);
       },
+      // Windows 上 isolate 遗留文件句柄导致锁目录清理失败（errno 32），
+      // 平台环境限制（与 restore_lease_lock_test 同源）。
+      skip: Platform.isWindows
+          ? 'Windows cannot delete files whose handles an isolate left open.'
+          : false,
     );
 
     test('rejects a duplicate acquire from another isolate', () async {
@@ -510,7 +515,7 @@ final class _FakeOwnerProbe {
 const _helperSource = r'''
 import 'dart:io';
 
-import 'package:solab/core/services/backup/restore_business_lease.dart';
+import 'package:Kelivo/core/services/backup/restore_business_lease.dart';
 
 Future<void> main(List<String> arguments) async {
   final lease = await RestoreBusinessLease.acquire(

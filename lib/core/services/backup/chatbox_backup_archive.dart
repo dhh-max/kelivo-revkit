@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:archive/archive_io.dart';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
+import '../../../shared/utils/sanitize_file_name.dart';
 
 import '../../../utils/sandbox_path_resolver.dart';
 
@@ -1175,8 +1176,7 @@ class ChatboxBackupArchive {
   }
 
   static String _safeToken(String raw, String fallback) {
-    final cleaned = raw.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
-    if (cleaned.isEmpty || cleaned == '.' || cleaned == '..') return fallback;
+    final cleaned = sanitizeFileName(raw, fallback: fallback);
     return cleaned;
   }
 

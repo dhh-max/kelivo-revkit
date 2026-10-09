@@ -1,11 +1,11 @@
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/core/database/app_database.dart';
-import 'package:solab/core/database/business_preferences.dart';
-import 'package:solab/core/database/business_repository.dart';
-import 'package:solab/core/models/agent_skill.dart';
-import 'package:solab/core/providers/agent_skill_provider.dart';
+import 'package:Kelivo/core/database/app_database.dart';
+import 'package:Kelivo/core/database/business_preferences.dart';
+import 'package:Kelivo/core/database/business_repository.dart';
+import 'package:Kelivo/core/models/agent_skill.dart';
+import 'package:Kelivo/core/providers/agent_skill_provider.dart';
 
 void main() {
   late AppDatabase database;

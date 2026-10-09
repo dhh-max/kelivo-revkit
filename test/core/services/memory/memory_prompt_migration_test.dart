@@ -2,11 +2,11 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:solab/core/database/app_database.dart';
-import 'package:solab/core/database/business_preferences.dart';
-import 'package:solab/core/database/business_repository.dart';
-import 'package:solab/core/providers/settings_provider.dart';
-import 'package:solab/core/services/memory/memory_prompts.dart';
+import 'package:Kelivo/core/database/app_database.dart';
+import 'package:Kelivo/core/database/business_preferences.dart';
+import 'package:Kelivo/core/database/business_repository.dart';
+import 'package:Kelivo/core/providers/settings_provider.dart';
+import 'package:Kelivo/core/services/memory/memory_prompts.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

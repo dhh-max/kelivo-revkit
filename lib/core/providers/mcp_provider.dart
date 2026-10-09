@@ -1,12 +1,26 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:mcp_client/mcp_client.dart' as mcp;
+import '../database/business_preferences.dart';
+import '../services/mcp/solab_fetch/solab_fetch_server.dart';
+import '../services/mcp/mcp_oauth_service.dart';
+import '../services/mcp/stdio_command_resolver.dart';
+import '../services/mcp/workspace_stdio_transport.dart';
+import '../services/mcp/workspace_stdio_command.dart';
+import '../services/workspace/workspace_runtime.dart';
+import '../models/environment_state.dart';
+import '../models/workspace.dart';
+import 'environment_provider.dart';
+import 'workspace_provider.dart';
+import 'package:uuid/uuid.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/mcp/in_memory_mcp_server.dart';
 import '../services/mcp/kelivo_fetch/kelivo_fetch_server.dart';
 import '../services/mcp/kelivo_files/kelivo_files_server.dart';
-import '../services/mcp/kelivo_github/github_api_client.dart';
 import '../services/mcp/kelivo_github/kelivo_github_server.dart';
+import '../services/mcp/kelivo_github/github_api_client.dart';
 import '../services/mcp/kelivo_images/kelivo_images_server.dart';
 import '../services/mcp/kelivo_context/kelivo_context_server.dart';
 import '../services/mcp/kelivo_so/kelivo_so_server.dart';
@@ -15,16 +29,11 @@ import '../services/mcp/kelivo_reverse/kelivo_reverse_server.dart';
 import '../services/mcp/kelivo_jadx/kelivo_jadx_server.dart';
 import '../services/mcp/kelivo_memory/kelivo_memory_server.dart';
 import '../services/mcp/kelivo_apk_tools/kelivo_apk_tools_server.dart';
-import '../services/mcp/stdio_command_resolver.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:uuid/uuid.dart';
 
-/// Transport type: SSE, Streamable HTTP, and STDIO (desktop-only).
+/// Transport type: SSE, Streamable HTTP, and STDIO (host desktop or mobile workspace environment).
 enum McpTransportType { sse, http, stdio, inmemory }
 
 /// Connection status for an MCP server.
-enum McpStatus { idle, connecting, connected, error }
-
 enum McpCallLogStatus { running, success, error }
 
 class McpCallLogEntry {
@@ -79,6 +88,80 @@ class McpCallLogEntry {
   );
 }
 
+class McpToolStats {
+  final String toolName;
+  final int totalCalls;
+  final int successCount;
+  final int errorCount;
+  final Duration totalDuration;
+
+  const McpToolStats({
+    required this.toolName,
+    required this.totalCalls,
+    required this.successCount,
+    required this.errorCount,
+    required this.totalDuration,
+  });
+
+  double get successRate => totalCalls > 0 ? successCount / totalCalls : 0.0;
+
+  Duration get avgDuration => totalCalls > 0
+      ? Duration(microseconds: totalDuration.inMicroseconds ~/ totalCalls)
+      : Duration.zero;
+}
+
+enum McpStatus {
+  idle,
+  connecting,
+  connected,
+  needsAuthorization,
+  authorizing,
+  error,
+}
+
+class _Cooldown {
+  final DateTime startedAt;
+  final DateTime until;
+
+  const _Cooldown({required this.startedAt, required this.until});
+}
+
+class _DetachedConnection {
+  const _DetachedConnection({
+    this.activeConnect,
+    this.client,
+    this.initializingTransport,
+  });
+
+  final Future<bool>? activeConnect;
+  final mcp.Client? client;
+  final WorkspaceStdioTransport? initializingTransport;
+}
+
+class _ServerConnection {
+  Workspace? workspace;
+  WorkspaceStdioTransport? initializingTransport;
+  mcp.Client? client;
+  Future<bool>? connectFuture;
+  Future<bool>? authorizationFuture;
+  int generation = 0;
+  McpStatus status = McpStatus.idle;
+  String? error;
+  _Cooldown? cooldown;
+  Future<bool>? refreshFuture;
+  Future<McpOAuthState?>? oauthRefreshFuture;
+  Future<mcp.Client?>? oauthRecoveryFuture;
+  List<String> oauthChallenges = const [];
+  final Set<String> additionalOAuthScopes = <String>{};
+  final Map<String, int> scopeEscalationAttempts = <String, int>{};
+  bool reRegisterDynamicClient = false;
+  bool refreshDirty = false;
+  DateTime? lastBackgroundSessionRecoveryAt;
+  Future<mcp.Client?>? sessionRecoveryFuture;
+}
+
+enum _ToolRefreshOutcome { success, sessionExpired, oauthRecovered, failed }
+
 class McpParamSpec {
   final String name;
   final bool required;
@@ -107,31 +190,6 @@ class McpParamSpec {
   );
 }
 
-/// Statistics for a single tool's execution history.
-class McpToolStats {
-  final String toolName;
-  final int totalCalls;
-  final int successCount;
-  final int errorCount;
-  final Duration totalDuration;
-
-  const McpToolStats({
-    required this.toolName,
-    required this.totalCalls,
-    required this.successCount,
-    required this.errorCount,
-    required this.totalDuration,
-  });
-
-  double get successRate =>
-      totalCalls > 0 ? successCount / totalCalls : 0.0;
-
-  Duration get avgDuration =>
-      totalCalls > 0
-          ? Duration(microseconds: totalDuration.inMicroseconds ~/ totalCalls)
-          : Duration.zero;
-}
-
 class McpToolConfig {
   final bool enabled;
   final String name;
@@ -142,8 +200,6 @@ class McpToolConfig {
 
   /// Whether this tool requires user approval before execution.
   final bool needsApproval;
-  /// Whether this tool is marked as favorite.
-  final bool isFavorite;
 
   McpToolConfig({
     required this.enabled,
@@ -152,7 +208,6 @@ class McpToolConfig {
     this.params = const [],
     this.schema,
     this.needsApproval = false,
-    this.isFavorite = false,
   });
 
   McpToolConfig copyWith({
@@ -162,7 +217,6 @@ class McpToolConfig {
     List<McpParamSpec>? params,
     Map<String, dynamic>? schema,
     bool? needsApproval,
-    bool? isFavorite,
   }) => McpToolConfig(
     enabled: enabled ?? this.enabled,
     name: name ?? this.name,
@@ -170,7 +224,6 @@ class McpToolConfig {
     params: params ?? this.params,
     schema: schema ?? this.schema,
     needsApproval: needsApproval ?? this.needsApproval,
-    isFavorite: isFavorite ?? this.isFavorite,
   );
 
   Map<String, dynamic> toJson() => {
@@ -180,7 +233,6 @@ class McpToolConfig {
     'params': params.map((e) => e.toJson()).toList(),
     if (schema != null) 'schema': schema,
     if (needsApproval) 'needsApproval': true,
-    if (isFavorite) 'isFavorite': true,
   };
 
   factory McpToolConfig.fromJson(Map<String, dynamic> json) => McpToolConfig(
@@ -198,7 +250,6 @@ class McpToolConfig {
         ? (json['schema'] as Map).cast<String, dynamic>()
         : null,
     needsApproval: json['needsApproval'] as bool? ?? false,
-    isFavorite: json['isFavorite'] as bool? ?? false,
   );
 }
 
@@ -211,19 +262,14 @@ class McpServerConfig {
   final String url; // SSE endpoint or HTTP base URL
   final List<McpToolConfig> tools;
   final Map<String, String> headers; // custom HTTP headers
-  // For STDIO (desktop-only)
+  final McpOAuthState? oauth;
+  final McpOAuthClientRegistration? oauthClient;
+  // For STDIO (host desktop or mobile workspace environment)
   final String? command;
   final List<String> args;
   final Map<String, String> env;
   final String? workingDirectory;
-  // --- Enhanced configuration fields ---
-  final String description; // user notes / description
-  final List<String> tags; // grouping tags
-  final bool autoReconnect; // auto-reconnect on disconnect
-  final int maxReconnectAttempts; // max retry count (default 3)
-  final int reconnectIntervalMs; // base reconnect delay in ms (default 600)
-  final int heartbeatIntervalSeconds; // heartbeat ping interval (default 30)
-  final int connectionTimeoutSeconds; // per-server connection timeout (default 30)
+  final String? workspaceId;
 
   McpServerConfig({
     required this.id,
@@ -233,17 +279,13 @@ class McpServerConfig {
     this.url = '',
     this.tools = const [],
     this.headers = const {},
+    this.oauth,
+    this.oauthClient,
     this.command,
     this.args = const [],
     this.env = const {},
     this.workingDirectory,
-    this.description = '',
-    this.tags = const [],
-    this.autoReconnect = true,
-    this.maxReconnectAttempts = 3,
-    this.reconnectIntervalMs = 600,
-    this.heartbeatIntervalSeconds = 30,
-    this.connectionTimeoutSeconds = 30,
+    this.workspaceId,
   });
 
   McpServerConfig copyWith({
@@ -254,18 +296,17 @@ class McpServerConfig {
     String? url,
     List<McpToolConfig>? tools,
     Map<String, String>? headers,
+    McpOAuthState? oauth,
+    McpOAuthClientRegistration? oauthClient,
     String? command,
     List<String>? args,
     Map<String, String>? env,
     String? workingDirectory,
     bool clearWorkingDirectory = false,
-    String? description,
-    List<String>? tags,
-    bool? autoReconnect,
-    int? maxReconnectAttempts,
-    int? reconnectIntervalMs,
-    int? heartbeatIntervalSeconds,
-    int? connectionTimeoutSeconds,
+    String? workspaceId,
+    bool clearWorkspace = false,
+    bool clearOAuth = false,
+    bool clearOAuthClient = false,
   }) => McpServerConfig(
     id: id ?? this.id,
     enabled: enabled ?? this.enabled,
@@ -274,19 +315,15 @@ class McpServerConfig {
     url: url ?? this.url,
     tools: tools ?? this.tools,
     headers: headers ?? this.headers,
+    oauth: clearOAuth ? null : (oauth ?? this.oauth),
+    oauthClient: clearOAuthClient ? null : (oauthClient ?? this.oauthClient),
     command: command ?? this.command,
     args: args ?? this.args,
     env: env ?? this.env,
     workingDirectory: clearWorkingDirectory
         ? null
         : (workingDirectory ?? this.workingDirectory),
-    description: description ?? this.description,
-    tags: tags ?? this.tags,
-    autoReconnect: autoReconnect ?? this.autoReconnect,
-    maxReconnectAttempts: maxReconnectAttempts ?? this.maxReconnectAttempts,
-    reconnectIntervalMs: reconnectIntervalMs ?? this.reconnectIntervalMs,
-    heartbeatIntervalSeconds: heartbeatIntervalSeconds ?? this.heartbeatIntervalSeconds,
-    connectionTimeoutSeconds: connectionTimeoutSeconds ?? this.connectionTimeoutSeconds,
+    workspaceId: clearWorkspace ? null : (workspaceId ?? this.workspaceId),
   );
 
   Map<String, dynamic> toJson() => {
@@ -301,33 +338,22 @@ class McpServerConfig {
     if (transport != McpTransportType.stdio &&
         transport != McpTransportType.inmemory)
       'headers': headers,
+    if (transport != McpTransportType.stdio &&
+        transport != McpTransportType.inmemory &&
+        oauth != null)
+      'oauth': oauth!.toJson(),
+    if (transport != McpTransportType.stdio &&
+        transport != McpTransportType.inmemory &&
+        oauthClient != null)
+      'oauthClient': oauthClient!.toJson(),
     if (transport == McpTransportType.stdio) 'command': command,
     if (transport == McpTransportType.stdio) 'args': args,
     if (transport == McpTransportType.stdio) 'env': env,
     if (transport == McpTransportType.stdio && workingDirectory != null)
       'workingDirectory': workingDirectory,
-    // Enhanced fields
-    if (description.isNotEmpty) 'description': description,
-    if (tags.isNotEmpty) 'tags': tags,
-    if (!autoReconnect) 'autoReconnect': false,
-    if (maxReconnectAttempts != 3) 'maxReconnectAttempts': maxReconnectAttempts,
-    if (reconnectIntervalMs != 600) 'reconnectIntervalMs': reconnectIntervalMs,
-    if (heartbeatIntervalSeconds != 30) 'heartbeatIntervalSeconds': heartbeatIntervalSeconds,
-    if (connectionTimeoutSeconds != 30) 'connectionTimeoutSeconds': connectionTimeoutSeconds,
+    if (transport == McpTransportType.stdio && workspaceId != null)
+      'workspaceId': workspaceId,
   };
-
-  static bool enabledFromJson(Map<String, dynamic> json) {
-    if (json.containsKey('disabled')) {
-      return json['disabled'] != true;
-    }
-    if (json.containsKey('enabled')) {
-      return json['enabled'] as bool? ?? true;
-    }
-    if (json.containsKey('isActive')) {
-      return json['isActive'] as bool? ?? true;
-    }
-    return true;
-  }
 
   factory McpServerConfig.fromJson(Map<String, dynamic> json) {
     final tRaw = (json['transport'] as String?) ?? '';
@@ -345,24 +371,12 @@ class McpServerConfig {
             )
             .toList() ??
         const <McpToolConfig>[];
-    // Parse enhanced fields (common to all transport types)
-    final description = (json['description'] as String?) ?? '';
-    final tagsRaw = json['tags'];
-    final tags = tagsRaw is List
-        ? tagsRaw.map((e) => e.toString()).toList()
-        : const <String>[];
-    final autoReconnect = json['autoReconnect'] as bool? ?? true;
-    final maxReconnectAttempts = json['maxReconnectAttempts'] as int? ?? 3;
-    final reconnectIntervalMs = json['reconnectIntervalMs'] as int? ?? 600;
-    final heartbeatIntervalSeconds = json['heartbeatIntervalSeconds'] as int? ?? 30;
-    final connectionTimeoutSeconds = json['connectionTimeoutSeconds'] as int? ?? 30;
-
     if (t == McpTransportType.stdio) {
       final argsAny = json['args'];
       final envAny = json['env'];
       return McpServerConfig(
         id: json['id'] as String? ?? const Uuid().v4(),
-        enabled: enabledFromJson(json),
+        enabled: json['enabled'] as bool? ?? true,
         name: json['name'] as String? ?? '',
         transport: McpTransportType.stdio,
         tools: tools,
@@ -374,60 +388,56 @@ class McpServerConfig {
             ? envAny.map((k, v) => MapEntry(k.toString(), v.toString()))
             : const <String, String>{},
         workingDirectory: (json['workingDirectory'] as String?)?.trim(),
-        description: description,
-        tags: tags,
-        autoReconnect: autoReconnect,
-        maxReconnectAttempts: maxReconnectAttempts,
-        reconnectIntervalMs: reconnectIntervalMs,
-        heartbeatIntervalSeconds: heartbeatIntervalSeconds,
-        connectionTimeoutSeconds: connectionTimeoutSeconds,
+        workspaceId: (json['workspaceId'] as String?)?.trim(),
       );
     } else if (t == McpTransportType.inmemory) {
       return McpServerConfig(
         id: json['id'] as String? ?? const Uuid().v4(),
-        enabled: enabledFromJson(json),
+        enabled: json['enabled'] as bool? ?? true,
         name: json['name'] as String? ?? '',
         transport: McpTransportType.inmemory,
         tools: tools,
-        description: description,
-        tags: tags,
-        autoReconnect: autoReconnect,
-        maxReconnectAttempts: maxReconnectAttempts,
-        reconnectIntervalMs: reconnectIntervalMs,
-        heartbeatIntervalSeconds: heartbeatIntervalSeconds,
-        connectionTimeoutSeconds: connectionTimeoutSeconds,
       );
     } else {
+      final url = json['url'] as String? ?? '';
+      final oauthClient = McpOAuthClientRegistration.tryFromJson(
+        json['oauthClient'],
+      );
+      final oauth = McpOAuthState.tryFromJson(
+        json['oauth'],
+        registrationSourceFallback: oauthClient?.registrationSource,
+      );
       return McpServerConfig(
         id: json['id'] as String? ?? const Uuid().v4(),
-        enabled: enabledFromJson(json),
+        enabled: json['enabled'] as bool? ?? true,
         name: json['name'] as String? ?? '',
         transport: t,
-        url: json['url'] as String? ?? '',
+        url: url,
         tools: tools,
         headers:
             ((json['headers'] as Map?)?.map(
               (k, v) => MapEntry(k.toString(), v.toString()),
             )) ??
             const {},
-        description: description,
-        tags: tags,
-        autoReconnect: autoReconnect,
-        maxReconnectAttempts: maxReconnectAttempts,
-        reconnectIntervalMs: reconnectIntervalMs,
-        heartbeatIntervalSeconds: heartbeatIntervalSeconds,
-        connectionTimeoutSeconds: connectionTimeoutSeconds,
+        oauth: _oauthMatchesServer(oauth, url) ? oauth : null,
+        oauthClient: oauthClient,
       );
     }
+  }
+
+  static bool _oauthMatchesServer(McpOAuthState? oauth, String serverUrl) {
+    if (oauth == null) return false;
+    final uri = Uri.tryParse(serverUrl);
+    if (uri == null || uri.host.isEmpty || uri.hasFragment) return false;
+    final canonical = McpOAuthService.canonicalResource(uri).toString();
+    final boundServer = oauth.serverUrl;
+    return boundServer != null
+        ? canonical == boundServer
+        : oauth.resource == uri.toString() || oauth.resource == canonical;
   }
 }
 
 class McpProvider extends ChangeNotifier {
-  static const String _prefsKey = 'mcp_servers_v1';
-  static const String _prefsTimeoutKey = 'mcp_request_timeout_ms_v1';
-  static const String _githubTokenPrefsKey = 'mcp_github_token_v1';
-  static const String _imagesApiBaseUrlPrefsKey = 'mcp_images_api_base_url_v1';
-  static const String _imagesApiKeyPrefsKey = 'mcp_images_api_key_v1';
   static const String _builtinFetchId = 'kelivo_fetch';
   static const String _builtinFetchName = '@kelivo/fetch';
   static const String _builtinFilesId = 'kelivo_files';
@@ -450,125 +460,134 @@ class McpProvider extends ChangeNotifier {
   static const String _builtinMemoryName = '@kelivo/memory';
   static const String _builtinApkToolsId = 'kelivo_apk_tools';
   static const String _builtinApkToolsName = '@kelivo/apk-tools';
-  static const Set<String> _builtinFileWriteToolNames = {
-    'kelivo_create_directory',
-    'kelivo_create_text_file',
-    'kelivo_write_text_file',
-    'kelivo_write_file_base64',
-    'kelivo_append_text_file',
-    'kelivo_delete_file',
-    'kelivo_delete_files',
-    'kelivo_move_file',
-    'kelivo_copy_file',
-    'kelivo_zip_files',
-    'kelivo_unzip_file',
-  };
-  static const Set<String> _builtinGithubWriteToolNames = {
-    'github_repository_write',
-    'github_issue_write',
-    'github_pull_request_write',
-    'github_release_write',
-    'github_actions_write',
-    'github_secrets_write',
-    'github_create_branch',
-    'github_create_or_update_file',
-    'github_delete_file',
-    'github_create_issue',
-    'github_update_issue',
-    'github_create_issue_comment',
-    'github_create_pull_request',
-    'github_create_repository',
-    'github_update_repository',
-    'github_delete_repository',
-    'github_fork_repository',
-    'github_update_pull_request',
-    'github_create_pr_review',
-    'github_create_pr_review_comment',
-    'github_merge_pull_request',
-    'github_delete_branch',
-    'github_create_release',
-    'github_update_release',
-    'github_delete_release',
-    'github_dispatch_workflow',
-    'github_rerun_workflow_run',
-    'github_cancel_workflow_run',
-    'github_put_repo_secret',
-    'github_delete_repo_secret',
-    'github_create_or_update_repo_variable',
-    'github_delete_repo_variable',
-  };
-  static const int _maxCallLogEntries = 80;
+  static const String _githubTokenPrefsKey = 'mcp_github_token_v1';
+  static const String _imagesApiBaseUrlPrefsKey = 'mcp_images_api_base_url_v1';
+  static const String _imagesApiKeyPrefsKey = 'mcp_images_api_key_v1';
+  static const String _prefsKey = 'mcp_servers_v1';
+  static const String _prefsTimeoutKey = 'mcp_request_timeout_ms_v1';
+  static const Duration _backgroundSessionRecoveryWindow = Duration(
+    seconds: 30,
+  );
 
-  final Map<String, mcp.Client> _clients = {};
-  final Map<String, McpStatus> _status = {}; // id -> status
-  final Map<String, String> _errors = {}; // id -> last error
+  final BusinessPreferences preferences;
+  late final Future<void> loaded;
+  final McpOAuthService _oauthService;
+  final bool _ownsOAuthService;
+  final Map<String, _ServerConnection> _connections = {};
   List<McpServerConfig> _servers = [];
-  // Cached list of connected servers; invalidated on status changes.
-  List<McpServerConfig> _connectedServersCache = const [];
-  bool _connectedServersDirty = true;
-  // Reconnect bookkeeping to avoid duplicate concurrent retries
-  final Set<String> _reconnecting = <String>{};
-  // Heartbeat timers for live-connection health checks
-  final Map<String, Timer> _heartbeats = <String, Timer>{};
-  final List<McpCallLogEntry> _callLogs = <McpCallLogEntry>[];
+  Future<void> _serverMutationTail = Future<void>.value();
   Duration _requestTimeout = const Duration(seconds: 30);
-  String _githubToken = '';
-  String _imagesApiBaseUrl = KelivoImagesMcpServerEngine.defaultApiBaseUrl;
-  String _imagesApiKey = '';
   bool _disposed = false;
   final McpStdioCommandResolver _stdioCommandResolver =
       McpStdioCommandResolver();
 
-  McpProvider() {
-    _load();
+  final WorkspaceRuntimeProvider? workspaceRuntime;
+  final EnvironmentProvider? environment;
+  final WorkspaceProvider? workspaces;
+  bool _stdioWasAvailable = false;
+
+  bool get supportsStdioWorkspaceBinding =>
+      !kIsWeb && !_isDesktopPlatform() && workspaces != null;
+
+  void _onWorkspacesChanged() {
+    if (_disposed || !supportsStdioWorkspaceBinding) return;
+    for (final server in _servers) {
+      if (server.transport != McpTransportType.stdio ||
+          server.workspaceId == null) {
+        continue;
+      }
+      final state = _connections[server.id];
+      if (state == null) continue;
+      final workspace = workspaces!.byId(server.workspaceId!);
+      final previous = state.workspace;
+      if (workspace?.id == previous?.id &&
+          workspace?.kind == previous?.kind &&
+          workspace?.hostPath == previous?.hostPath) {
+        continue;
+      }
+      state.workspace = workspace;
+      if (server.enabled && supportsStdio) {
+        unawaited(reconnect(server.id));
+      }
+    }
   }
 
-  List<McpServerConfig> get servers => List.unmodifiable(_servers);
-  McpStatus statusFor(String id) => _status[id] ?? McpStatus.idle;
-  String? errorFor(String id) => _errors[id];
-  bool get hasAnyEnabled => _servers.any((s) => s.enabled);
-  bool isConnected(String id) =>
-      _clients.containsKey(id) && statusFor(id) == McpStatus.connected;
-  List<McpServerConfig> get connectedServers {
-    if (_connectedServersDirty) {
-      _connectedServersCache = _servers
-          .where((s) => statusFor(s.id) == McpStatus.connected)
-          .toList(growable: false);
-      _connectedServersDirty = false;
+  bool get supportsStdio =>
+      _isDesktopPlatform() ||
+      (!kIsWeb &&
+          workspaceRuntime?.runtime is WorkspaceStdioRuntime &&
+          workspaceRuntime?.lastStatus?.ready == true &&
+          environment?.state.phase == EnvironmentPhase.ready);
+
+  void _onEnvironmentChanged() {
+    if (_disposed) return;
+    final available = supportsStdio;
+    if (available != _stdioWasAvailable) {
+      _stdioWasAvailable = available;
+      for (final server in _servers.where(
+        (s) => s.transport == McpTransportType.stdio,
+      )) {
+        if (available && server.enabled) {
+          // A previous initialization may still be settling after disconnect.
+          // Wait for it before starting a connection in the new environment.
+          unawaited(reconnect(server.id));
+        } else if (!available) {
+          unawaited(disconnect(server.id));
+        }
+      }
     }
-    return _connectedServersCache;
+    _notify();
   }
+
+  McpProvider({
+    required this.preferences,
+    McpOAuthService? oauthService,
+    this.workspaceRuntime,
+    this.environment,
+    this.workspaces,
+  }) : _oauthService = oauthService ?? McpOAuthService(),
+       _ownsOAuthService = oauthService == null {
+    _stdioWasAvailable = supportsStdio;
+    workspaceRuntime?.addListener(_onEnvironmentChanged);
+    environment?.addListener(_onEnvironmentChanged);
+    workspaces?.addListener(_onWorkspacesChanged);
+    loaded = _serializeServerMutation(() async {
+      await _loadKelivoBuiltinPrefs();
+      await _load();
+    });
+    unawaited(loaded);
+  }
+
+  List<McpServerConfig> get servers => List.unmodifiable(
+    _servers.where(
+      (s) => s.transport != McpTransportType.stdio || supportsStdio,
+    ),
+  );
+  McpStatus statusFor(String id) => _connections[id]?.status ?? McpStatus.idle;
+  String? errorFor(String id) => _connections[id]?.error;
+  bool get hasAnyEnabled => _servers.any((s) => s.enabled);
+  bool isConnected(String id) {
+    final state = _connections[id];
+    return state?.client?.isConnected == true &&
+        state?.status == McpStatus.connected;
+  }
+
+  bool isInCooldown(String id) => _activeCooldown(_connections[id]) != null;
+  List<McpServerConfig> get connectedServers => _servers
+      .where((s) => statusFor(s.id) == McpStatus.connected)
+      .toList(growable: false);
   Duration get requestTimeout => _requestTimeout;
   int get requestTimeoutSeconds => _requestTimeout.inSeconds;
-  List<McpCallLogEntry> get callLogs => List.unmodifiable(_callLogs);
-  bool get hasCallLogs => _callLogs.isNotEmpty;
-  String get githubToken => _githubToken;
-  bool get hasGithubToken => _githubToken.trim().isNotEmpty;
-  String get imagesApiBaseUrl => _imagesApiBaseUrl;
-  String get imagesApiKey => _imagesApiKey;
-  bool get hasImagesApiKey => _imagesApiKey.trim().isNotEmpty;
-  bool get hasImagesConfig =>
-      _imagesApiBaseUrl.trim().isNotEmpty && _imagesApiKey.trim().isNotEmpty;
-
-  @override
-  void notifyListeners() {
-    if (_disposed) return;
-    super.notifyListeners();
-  }
+  bool isOAuthAuthorized(String id) =>
+      getById(id)?.oauth?.accessToken.isNotEmpty == true;
 
   Future<void> _load() async {
-    final prefs = await SharedPreferences.getInstance();
-    final timeoutMs = prefs.getInt(_prefsTimeoutKey);
+    await preferences.load();
+    final timeoutMs = preferences.getInt(_prefsTimeoutKey);
     if (timeoutMs != null && timeoutMs > 0) {
       _requestTimeout = Duration(milliseconds: timeoutMs);
     }
-    _githubToken = prefs.getString(_githubTokenPrefsKey)?.trim() ?? '';
-    _imagesApiBaseUrl =
-        prefs.getString(_imagesApiBaseUrlPrefsKey)?.trim().isNotEmpty == true
-        ? prefs.getString(_imagesApiBaseUrlPrefsKey)!.trim()
-        : KelivoImagesMcpServerEngine.defaultApiBaseUrl;
-    _imagesApiKey = prefs.getString(_imagesApiKeyPrefsKey)?.trim() ?? '';
-    final raw = prefs.getString(_prefsKey);
+    final raw = preferences.getString(_prefsKey);
     if (raw != null && raw.isNotEmpty) {
       try {
         final list = (jsonDecode(raw) as List)
@@ -580,88 +599,45 @@ class McpProvider extends ChangeNotifier {
         _servers = list;
       } catch (_) {}
     }
+    // Ensure every built-in in-memory server (含全部逆向 MCP) is present.
     _ensureBuiltinServersPresent();
     // initialize statuses
     for (final s in _servers) {
-      _status[s.id] = McpStatus.idle; _connectedServersDirty = true;
-      _errors.remove(s.id);
+      _connections.putIfAbsent(s.id, _ServerConnection.new);
     }
-    notifyListeners();
+    _notify();
 
-    // Auto-connect enabled servers. Keep file access opt-in so app startup stays
-    // identical to the original built-in fetch behavior until the user enables it.
+    // Auto-connect enabled servers (files 服务器保持手动)
     for (final s in _autoConnectServers()) {
       // fire and forget
       unawaited(connect(s.id));
     }
   }
 
+  // 内置 MCP 全部默认禁用，用户按需手动启用（对齐 KE 的逆向套件行为）。
   void _ensureBuiltinServersPresent() {
-    final next = List<McpServerConfig>.of(_servers);
-    // —— 所有内置 MCP 服务器默认禁用，用户按需手动启用 ——
-    if (!_hasBuiltinServer(_builtinFetchId, _builtinFetchName)) {
-      next.add(_builtinServer(_builtinFetchId, _builtinFetchName, enabled: false));
+    final changed = <McpServerConfig>[];
+    void addIfMissing(String id, String name) {
+      if (!_hasBuiltinServer(id, name)) {
+        changed.add(_builtinServer(id, name, enabled: false));
+      }
     }
-    if (!_hasBuiltinServer(_builtinFilesId, _builtinFilesName)) {
-      next.add(
-        _builtinServer(_builtinFilesId, _builtinFilesName, enabled: false),
-      );
-    }
-    if (!_hasBuiltinServer(_builtinGithubId, _builtinGithubName)) {
-      next.add(
-        _builtinServer(_builtinGithubId, _builtinGithubName, enabled: false),
-      );
-    }
-    if (!_hasBuiltinServer(_builtinImagesId, _builtinImagesName)) {
-      next.add(
-        _builtinServer(_builtinImagesId, _builtinImagesName, enabled: false),
-      );
-    }
-    if (!_hasBuiltinServer(_builtinContextId, _builtinContextName)) {
-      next.add(
-        _builtinServer(_builtinContextId, _builtinContextName, enabled: false),
-      );
-    }
-    final soIndex = next.indexWhere(
-      (s) =>
-          s.transport == McpTransportType.inmemory &&
-          (s.id == _builtinSoId || s.name == _builtinSoName),
-    );
-    if (soIndex == -1) {
-      next.add(
-        _builtinServer(_builtinSoId, _builtinSoName, enabled: false),
-      );
-    }
-    if (!_hasBuiltinServer(_builtinDexId, _builtinDexName)) {
-      next.add(
-        _builtinServer(_builtinDexId, _builtinDexName, enabled: false),
-      );
-    }
-    if (!_hasBuiltinServer(_builtinReverseId, _builtinReverseName)) {
-      next.add(
-        _builtinServer(_builtinReverseId, _builtinReverseName, enabled: false),
-      );
-    }
-    if (!_hasBuiltinServer(_builtinJadxId, _builtinJadxName)) {
-      next.add(
-        _builtinServer(_builtinJadxId, _builtinJadxName, enabled: false),
-      );
-    }
-    if (!_hasBuiltinServer(_builtinMemoryId, _builtinMemoryName)) {
-      next.add(
-        _builtinServer(_builtinMemoryId, _builtinMemoryName, enabled: false),
-      );
-    }
-    if (!_hasBuiltinServer(_builtinApkToolsId, _builtinApkToolsName)) {
-      next.add(
-        _builtinServer(_builtinApkToolsId, _builtinApkToolsName, enabled: false),
-      );
-    }
-    _servers = next;
-  }
 
-  Iterable<McpServerConfig> _autoConnectServers() {
-    return _servers.where((s) => s.enabled && !_isBuiltinFilesServer(s));
+    addIfMissing(_builtinFetchId, _builtinFetchName);
+    addIfMissing(_builtinFilesId, _builtinFilesName);
+    addIfMissing(_builtinGithubId, _builtinGithubName);
+    addIfMissing(_builtinImagesId, _builtinImagesName);
+    addIfMissing(_builtinContextId, _builtinContextName);
+    addIfMissing(_builtinSoId, _builtinSoName);
+    addIfMissing(_builtinDexId, _builtinDexName);
+    addIfMissing(_builtinReverseId, _builtinReverseName);
+    addIfMissing(_builtinJadxId, _builtinJadxName);
+    addIfMissing(_builtinMemoryId, _builtinMemoryName);
+    addIfMissing(_builtinApkToolsId, _builtinApkToolsName);
+    if (changed.isNotEmpty) {
+      _servers = [..._servers, ...changed];
+      _persistServers(_servers);
+    }
   }
 
   bool _hasBuiltinServer(String id, String name) {
@@ -675,7 +651,7 @@ class McpProvider extends ChangeNotifier {
   McpServerConfig _builtinServer(
     String id,
     String name, {
-    bool enabled = true,
+    bool enabled = false,
   }) {
     return McpServerConfig(
       id: id,
@@ -686,89 +662,80 @@ class McpProvider extends ChangeNotifier {
     );
   }
 
-  // O(1) builtin server identification via Set lookup
   static final Set<String> _builtinServerIds = {
-    _builtinFetchId, _builtinFilesId, _builtinGithubId, _builtinImagesId,
-    _builtinContextId, _builtinSoId, _builtinDexId, _builtinReverseId,
-    _builtinJadxId, _builtinMemoryId,
+    _builtinFetchId,
+    _builtinFilesId,
+    _builtinGithubId,
+    _builtinImagesId,
+    _builtinContextId,
+    _builtinSoId,
+    _builtinDexId,
+    _builtinReverseId,
+    _builtinJadxId,
+    _builtinMemoryId,
     _builtinApkToolsId,
   };
   static final Set<String> _builtinServerNames = {
-    _builtinFetchName, _builtinFilesName, _builtinGithubName, _builtinImagesName,
-    _builtinContextName, _builtinSoName, _builtinDexName, _builtinReverseName,
-    _builtinJadxName, _builtinMemoryName,
+    _builtinFetchName,
+    _builtinFilesName,
+    _builtinGithubName,
+    _builtinImagesName,
+    _builtinContextName,
+    _builtinSoName,
+    _builtinDexName,
+    _builtinReverseName,
+    _builtinJadxName,
+    _builtinMemoryName,
     _builtinApkToolsName,
   };
 
-  bool _isInmemoryBuiltin(McpServerConfig server) {
-    return server.transport == McpTransportType.inmemory &&
-        (_builtinServerIds.contains(server.id) ||
-            _builtinServerNames.contains(server.name));
-  }
+  bool _isInmemoryBuiltin(McpServerConfig server) =>
+      server.transport == McpTransportType.inmemory &&
+      (_builtinServerIds.contains(server.id) ||
+          _builtinServerNames.contains(server.name));
 
-  bool _isBuiltinFilesServer(McpServerConfig server) {
-    return server.transport == McpTransportType.inmemory &&
-        (server.id == _builtinFilesId || server.name == _builtinFilesName);
-  }
+  // 文件读写类内置服务器保持手动开启，避免自动连接改变启动行为。
+  Iterable<McpServerConfig> _autoConnectServers() =>
+      _servers.where((s) => s.enabled && !_isBuiltinFilesServer(s));
 
-  bool _isBuiltinImagesServer(McpServerConfig server) {
-    return server.transport == McpTransportType.inmemory &&
-        (server.id == _builtinImagesId || server.name == _builtinImagesName);
-  }
+  final Map<String, KelivoInMemoryMcpServerEngine> _builtinEngines = {};
+  String _githubToken = '';
+  String _imagesApiBaseUrl = KelivoImagesMcpServerEngine.defaultApiBaseUrl;
+  // Reconnect bookkeeping to avoid duplicate concurrent retries
+  final Set<String> _reconnecting = <String>{};
+  static const int _maxCallLogEntries = 80;
+  final List<McpCallLogEntry> _callLogs = <McpCallLogEntry>[];
+  String _imagesApiKey = '';
+  String get githubToken => _githubToken;
+  bool get hasGithubToken => _githubToken.trim().isNotEmpty;
+  List<McpCallLogEntry> get callLogs => List.unmodifiable(_callLogs);
+  bool get hasCallLogs => _callLogs.isNotEmpty;
+  String get imagesApiBaseUrl => _imagesApiBaseUrl;
+  String get imagesApiKey => _imagesApiKey;
+  bool get hasImagesApiKey => _imagesApiKey.trim().isNotEmpty;
+  bool get hasImagesConfig =>
+      _imagesApiBaseUrl.trim().isNotEmpty && _imagesApiKey.trim().isNotEmpty;
 
-  bool _isBuiltinContextServer(McpServerConfig server) {
-    return server.transport == McpTransportType.inmemory &&
-        (server.id == _builtinContextId || server.name == _builtinContextName);
-  }
-
-  bool _isBuiltinSoServer(McpServerConfig server) {
-    return server.transport == McpTransportType.inmemory &&
-        (server.id == _builtinSoId || server.name == _builtinSoName);
-  }
-
-  bool _isBuiltinDexServer(McpServerConfig server) {
-    return server.transport == McpTransportType.inmemory &&
-        (server.id == _builtinDexId || server.name == _builtinDexName);
-  }
-
-  bool _isBuiltinReverseServer(McpServerConfig server) {
-    return server.transport == McpTransportType.inmemory &&
-        (server.id == _builtinReverseId || server.name == _builtinReverseName);
-  }
-  bool _isBuiltinJadxServer(McpServerConfig server) {
-    return server.transport == McpTransportType.inmemory &&
-        (server.id == _builtinJadxId || server.name == _builtinJadxName);
-  }
-  bool _isBuiltinMemoryServer(McpServerConfig server) {
-    return server.transport == McpTransportType.inmemory &&
-        (server.id == _builtinMemoryId || server.name == _builtinMemoryName);
-  }
-  bool _isBuiltinGithubServer(McpServerConfig server) {
-    return server.transport == McpTransportType.inmemory &&
-        (server.id == _builtinGithubId || server.name == _builtinGithubName);
-  }
-
+  bool _isBuiltinFetchServer(McpServerConfig server) =>
+      server.transport == McpTransportType.inmemory &&
+      (server.id == _builtinFetchId || server.name == _builtinFetchName);
+  bool _isBuiltinFilesServer(McpServerConfig server) =>
+      server.transport == McpTransportType.inmemory &&
+      (server.id == _builtinFilesId || server.name == _builtinFilesName);
+  bool _isBuiltinGithubServer(McpServerConfig server) =>
+      server.transport == McpTransportType.inmemory &&
+      (server.id == _builtinGithubId || server.name == _builtinGithubName);
+  bool _isBuiltinImagesServer(McpServerConfig server) =>
+      server.transport == McpTransportType.inmemory &&
+      (server.id == _builtinImagesId || server.name == _builtinImagesName);
   bool isBuiltinServer(McpServerConfig server) => _isInmemoryBuiltin(server);
-
-  bool isBuiltinGithubServer(McpServerConfig server) {
-    return _isBuiltinGithubServer(server);
-  }
-
-  bool isBuiltinFilesServer(McpServerConfig server) {
-    return _isBuiltinFilesServer(server);
-  }
-
-  bool isBuiltinImagesServer(McpServerConfig server) {
-    return _isBuiltinImagesServer(server);
-  }
-
-  bool _isBuiltinFetchServer(McpServerConfig server) {
-    return server.transport == McpTransportType.inmemory &&
-        (server.id == _builtinFetchId || server.name == _builtinFetchName);
-  }
-
+  bool isBuiltinGithubServer(McpServerConfig server) =>
+      _isBuiltinGithubServer(server);
+  bool isBuiltinFilesServer(McpServerConfig server) =>
+      _isBuiltinFilesServer(server);
+  bool isBuiltinImagesServer(McpServerConfig server) =>
+      _isBuiltinImagesServer(server);
   KelivoInMemoryMcpServerEngine _createBuiltinEngine(McpServerConfig server) {
-    // Use server.id for a single switch dispatch instead of 9 chained ifs
     if (server.transport != McpTransportType.inmemory) {
       return KelivoFetchMcpServerEngine();
     }
@@ -782,7 +749,9 @@ class McpProvider extends ChangeNotifier {
         );
       case _builtinGithubId:
         return KelivoGithubMcpServerEngine(
-          client: GitHubApiClient(accessTokenProvider: () async => _githubToken),
+          client: GitHubApiClient(
+            accessTokenProvider: () async => _githubToken,
+          ),
         );
       case _builtinContextId:
         return KelivoContextMcpServerEngine();
@@ -801,44 +770,6 @@ class McpProvider extends ChangeNotifier {
       default:
         return KelivoFetchMcpServerEngine();
     }
-  }
-
-  // Debounce for _persist — coalesce rapid writes into a single SharedPreferences commit.
-  Completer<void>? _persistLock;
-  bool _persistPending = false;
-
-  Future<void> _persist() async {
-    // If a persist is already in-flight, mark pending and wait for it to finish,
-    // then do one more write to capture the latest state.
-    if (_persistLock != null) {
-      _persistPending = true;
-      await _persistLock!.future;
-      if (!_persistPending) return; // another concurrent caller already flushed
-    }
-    _persistPending = false;
-    final completer = Completer<void>();
-    _persistLock = completer;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-        _prefsKey,
-        jsonEncode(_servers.map((e) => e.toJson()).toList()),
-      );
-      await prefs.setInt(_prefsTimeoutKey, _requestTimeout.inMilliseconds);
-      // If another persist was requested while we were writing, loop once more.
-      if (_persistPending) {
-        _persistLock = null;
-        return _persist(); // recursive, but at most one extra iteration
-      }
-    } finally {
-      _persistLock = null;
-      if (!completer.isCompleted) completer.complete();
-    }
-  }
-
-  Future<void> _persistTimeout() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_prefsTimeoutKey, _requestTimeout.inMilliseconds);
   }
 
   Future<void> updateGithubToken(String token) async {
@@ -889,6 +820,242 @@ class McpProvider extends ChangeNotifier {
     }
   }
 
+  Future<void> _loadKelivoBuiltinPrefs() async {
+    try {
+      final prefs0 = await SharedPreferences.getInstance();
+      _githubToken = prefs0.getString(_githubTokenPrefsKey) ?? '';
+      _imagesApiBaseUrl =
+          prefs0.getString(_imagesApiBaseUrlPrefsKey) ??
+          KelivoImagesMcpServerEngine.defaultApiBaseUrl;
+      _imagesApiKey = prefs0.getString(_imagesApiKeyPrefsKey) ?? '';
+    } catch (_) {}
+  }
+
+  /// Search tools across all enabled servers by keyword (name or description).
+  List<({String serverId, String serverName, McpToolConfig tool})> searchTools(
+    String keyword,
+  ) {
+    if (keyword.trim().isEmpty) return [];
+    final lower = keyword.toLowerCase();
+    final results =
+        <({String serverId, String serverName, McpToolConfig tool})>[];
+    for (final s in _servers) {
+      if (!s.enabled) continue;
+      for (final t in s.tools) {
+        if (t.name.toLowerCase().contains(lower) ||
+            (t.description ?? '').toLowerCase().contains(lower)) {
+          results.add((serverId: s.id, serverName: s.name, tool: t));
+        }
+      }
+    }
+    return results;
+  }
+
+  /// Batch enable or disable tools for a given server.
+  Future<void> batchSetToolsEnabled(
+    String serverId,
+    List<String> toolNames,
+    bool enabled,
+  ) async {
+    final idx = _servers.indexWhere((e) => e.id == serverId);
+    if (idx == -1) return;
+    final server = _servers[idx];
+    final updatedTools = server.tools
+        .map(
+          (t) => toolNames.contains(t.name) ? t.copyWith(enabled: enabled) : t,
+        )
+        .toList();
+    _servers[idx] = server.copyWith(tools: updatedTools);
+    _notify();
+    await _persistServers(_servers);
+  }
+
+  /// Execution statistics for all tools recorded in [callLogs].
+  Map<String, McpToolStats> getToolStats() {
+    final stats = <String, McpToolStats>{};
+    for (final log in _callLogs) {
+      final existing = stats[log.toolName];
+      final duration = log.finishedAt != null
+          ? log.finishedAt!.difference(log.startedAt)
+          : null;
+      if (existing == null) {
+        stats[log.toolName] = McpToolStats(
+          toolName: log.toolName,
+          totalCalls: 1,
+          successCount: log.status == McpCallLogStatus.success ? 1 : 0,
+          errorCount: log.status == McpCallLogStatus.error ? 1 : 0,
+          totalDuration: duration ?? Duration.zero,
+        );
+      } else {
+        stats[log.toolName] = McpToolStats(
+          toolName: log.toolName,
+          totalCalls: existing.totalCalls + 1,
+          successCount:
+              existing.successCount +
+              (log.status == McpCallLogStatus.success ? 1 : 0),
+          errorCount:
+              existing.errorCount +
+              (log.status == McpCallLogStatus.error ? 1 : 0),
+          totalDuration: existing.totalDuration + (duration ?? Duration.zero),
+        );
+      }
+    }
+    return stats;
+  }
+
+  /// Reconnect every enabled server that is currently in error/idle state.
+  Future<void> autoReconnectErrorServers() async {
+    for (final s in _servers) {
+      if (!s.enabled) continue;
+      final status = statusFor(s.id);
+      if (status == McpStatus.error ||
+          status == McpStatus.idle ||
+          status == McpStatus.needsAuthorization) {
+        if (_reconnecting.contains(s.id)) continue;
+        _reconnecting.add(s.id);
+        unawaited(() async {
+          try {
+            await reconnect(s.id);
+          } finally {
+            _reconnecting.remove(s.id);
+          }
+        }());
+      }
+    }
+  }
+
+  void clearCallLogs() {
+    _callLogs.clear();
+    _notify();
+  }
+
+  String _beginCallLog({
+    required String serverId,
+    required String toolName,
+    required Map<String, dynamic> arguments,
+  }) {
+    final server = getById(serverId);
+    final id = '${toolName}_${DateTime.now().microsecondsSinceEpoch}';
+    _callLogs.insert(
+      0,
+      McpCallLogEntry(
+        id: id,
+        serverId: serverId,
+        serverName: server?.name ?? serverId,
+        toolName: toolName,
+        startedAt: DateTime.now(),
+        status: McpCallLogStatus.running,
+        argumentsPreview: _previewJson(arguments),
+      ),
+    );
+    if (_callLogs.length > _maxCallLogEntries) {
+      _callLogs.removeRange(_maxCallLogEntries, _callLogs.length);
+    }
+    _notify();
+    return id;
+  }
+
+  void _finishCallLog(
+    String id, {
+    required McpCallLogStatus status,
+    String? resultPreview,
+    String? error,
+    bool retried = false,
+  }) {
+    final idx = _callLogs.indexWhere((entry) => entry.id == id);
+    if (idx < 0) return;
+    final now = DateTime.now();
+    final current = _callLogs[idx];
+    _callLogs[idx] = current.copyWith(
+      finishedAt: now,
+      durationMs: now.difference(current.startedAt).inMilliseconds,
+      status: status,
+      resultPreview: resultPreview,
+      error: error,
+      retried: retried,
+    );
+    _notify();
+  }
+
+  static String _previewJson(dynamic value, {int maxLength = 1200}) {
+    String text;
+    try {
+      text = const JsonEncoder.withIndent(
+        '  ',
+      ).convert(_redactSensitive(value));
+    } catch (_) {
+      text = value.toString();
+    }
+    if (text.length <= maxLength) return text;
+    return '${text.substring(0, maxLength)}…';
+  }
+
+  static dynamic _redactSensitive(dynamic value) {
+    if (value is List) return value.map(_redactSensitive).toList();
+    if (value is Map) {
+      final out = <String, dynamic>{};
+      for (final entry in value.entries) {
+        final key = entry.key.toString().toLowerCase();
+        final sensitive =
+            key.contains('token') ||
+            key.contains('key') ||
+            key.contains('secret') ||
+            key.contains('password') ||
+            key.contains('authorization');
+        out[entry.key.toString()] = sensitive
+            ? '***'
+            : _redactSensitive(entry.value);
+      }
+      return out;
+    }
+    return value;
+  }
+
+  static String _previewCallToolResult(mcp.CallToolResult result) {
+    final buf = StringBuffer();
+    for (final content in result.content.take(3)) {
+      try {
+        if (content is mcp.TextContent) {
+          final text = content.text.trim();
+          if (text.isNotEmpty) buf.writeln(text);
+          continue;
+        }
+        if (content is mcp.ImageContent) {
+          buf.writeln('[image ${content.mimeType}]');
+          continue;
+        }
+        if (content is mcp.ResourceContent) {
+          buf.writeln('[resource ${content.uri}]');
+          continue;
+        }
+        buf.writeln(content.toString());
+      } catch (_) {}
+    }
+    final text = buf.toString().trim();
+    if (text.isEmpty) return '<no text output>';
+    return text.length <= 1200 ? text : '${text.substring(0, 1200)}…';
+  }
+
+  Future<void> _persistServers(List<McpServerConfig> servers) async {
+    await preferences.setString(
+      _prefsKey,
+      jsonEncode(servers.map((e) => e.toJson()).toList()),
+    );
+  }
+
+  Future<T> _serializeServerMutation<T>(Future<T> Function() operation) {
+    final result = _serverMutationTail.then((_) => operation());
+    _serverMutationTail = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace __) {},
+    );
+    return result;
+  }
+
+  Future<void> _persistTimeout(Duration timeout) async {
+    await preferences.setInt(_prefsTimeoutKey, timeout.inMilliseconds);
+  }
+
   /// Export current MCP servers as a user-friendly JSON structure.
   ///
   /// Shape:
@@ -906,198 +1073,68 @@ class McpProvider extends ChangeNotifier {
   ///   }
   /// }
   String exportServersAsUiJson() {
-    // On mobile, skip stdio entries in exported JSON.
-    final isDesktop = _isDesktopPlatform();
     final map = <String, dynamic>{
       'mcpServers': {
         for (final s in _servers)
-          if (s.transport != McpTransportType.stdio || isDesktop)
-            s.id: {
-              'name': s.name,
-              if (s.transport == McpTransportType.http)
-                'type': 'streamableHttp',
-              if (s.transport == McpTransportType.sse) 'type': 'sse',
-              if (s.transport == McpTransportType.inmemory) 'type': 'inmemory',
-              'description': s.description,
-              'isActive': s.enabled,
-              if (s.transport != McpTransportType.stdio &&
-                  s.transport != McpTransportType.inmemory)
-                'baseUrl': s.url,
-              if (s.transport != McpTransportType.stdio &&
-                  s.transport != McpTransportType.inmemory &&
-                  s.headers.isNotEmpty)
-                'headers': s.headers,
-              // For stdio, include an optional type for compatibility
-              if (s.transport == McpTransportType.stdio) 'type': 'stdio',
-              // Include command/args/env
-              if (s.transport == McpTransportType.stdio &&
-                  (s.command ?? '').isNotEmpty)
-                'command': s.command,
-              if (s.transport == McpTransportType.stdio && s.args.isNotEmpty)
-                'args': s.args,
-              if (s.transport == McpTransportType.stdio && s.env.isNotEmpty)
-                'env': s.env,
-              if (s.transport == McpTransportType.stdio)
-                ...() {
-                  final reg =
-                      s.env['NPM_CONFIG_REGISTRY'] ??
-                      s.env['npm_config_registry'];
-                  return reg != null && reg.isNotEmpty
-                      ? {'registryUrl': reg}
-                      : <String, dynamic>{};
-                }(),
-              if (s.transport == McpTransportType.stdio &&
-                  (s.workingDirectory ?? '').isNotEmpty)
-                'workingDirectory': s.workingDirectory,
-              // Enhanced fields
-              if (s.tags.isNotEmpty) 'tags': s.tags,
-              if (!s.autoReconnect) 'autoReconnect': false,
-              if (s.maxReconnectAttempts != 3) 'maxReconnectAttempts': s.maxReconnectAttempts,
-              if (s.reconnectIntervalMs != 600) 'reconnectIntervalMs': s.reconnectIntervalMs,
-              if (s.heartbeatIntervalSeconds != 30) 'heartbeatIntervalSeconds': s.heartbeatIntervalSeconds,
-              if (s.connectionTimeoutSeconds != 30) 'connectionTimeoutSeconds': s.connectionTimeoutSeconds,
-            },
+          s.id: {
+            'name': s.name,
+            if (s.transport == McpTransportType.http) 'type': 'streamableHttp',
+            if (s.transport == McpTransportType.sse) 'type': 'sse',
+            if (s.transport == McpTransportType.inmemory) 'type': 'inmemory',
+            'description': '',
+            'isActive': s.enabled,
+            if (s.transport != McpTransportType.stdio &&
+                s.transport != McpTransportType.inmemory)
+              'baseUrl': s.url,
+            if (s.transport != McpTransportType.stdio &&
+                s.transport != McpTransportType.inmemory &&
+                s.headers.isNotEmpty)
+              'headers': s.headers,
+            if (s.transport != McpTransportType.stdio &&
+                s.transport != McpTransportType.inmemory &&
+                s.oauthClient != null)
+              'oauthClient': {
+                'clientId': s.oauthClient!.clientId,
+                'tokenEndpointAuthMethod':
+                    s.oauthClient!.tokenEndpointAuthMethod,
+                'registrationSource': s.oauthClient!.registrationSource.name,
+                if (s.oauthClient!.authorizationServer != null)
+                  'authorizationServer': s.oauthClient!.authorizationServer,
+              },
+            // For stdio, include an optional type for compatibility
+            if (s.transport == McpTransportType.stdio) 'type': 'stdio',
+            // Include command/args/env
+            if (s.transport == McpTransportType.stdio &&
+                (s.command ?? '').isNotEmpty)
+              'command': s.command,
+            if (s.transport == McpTransportType.stdio && s.args.isNotEmpty)
+              'args': s.args,
+            if (s.transport == McpTransportType.stdio && s.env.isNotEmpty)
+              'env': s.env,
+            if (s.transport == McpTransportType.stdio)
+              ...() {
+                final reg =
+                    s.env['NPM_CONFIG_REGISTRY'] ??
+                    s.env['npm_config_registry'];
+                return reg != null && reg.isNotEmpty
+                    ? {'registryUrl': reg}
+                    : <String, dynamic>{};
+              }(),
+            if (s.transport == McpTransportType.stdio &&
+                (s.workingDirectory ?? '').isNotEmpty)
+              'workingDirectory': s.workingDirectory,
+            if (s.transport == McpTransportType.stdio && s.workspaceId != null)
+              'workspaceId': s.workspaceId,
+          },
       },
     };
     return const JsonEncoder.withIndent('  ').convert(map);
   }
 
-  /// Get all unique tags across all servers.
-  Set<String> get allTags {
-    final result = <String>{};
-    for (final s in _servers) {
-      result.addAll(s.tags);
-    }
-    return result;
-  }
-
-  /// Get servers grouped by tag. Servers with no tags are under key ''.
-  Map<String, List<McpServerConfig>> get serversByTag {
-    final result = <String, List<McpServerConfig>>{};
-    for (final s in _servers) {
-      if (s.tags.isEmpty) {
-        result.putIfAbsent('', () => []).add(s);
-      } else {
-        for (final tag in s.tags) {
-          result.putIfAbsent(tag, () => []).add(s);
-        }
-      }
-    }
-    return result;
-  }
-
-  /// Get servers filtered by tag.
-  List<McpServerConfig> serversByTagFilter(String tag) {
-    if (tag.isEmpty) return _servers.where((s) => s.tags.isEmpty).toList();
-    return _servers.where((s) => s.tags.contains(tag)).toList();
-  }
-
-  /// Batch enable/disable servers by IDs.
-  Future<void> batchSetEnabled(List<String> ids, bool enabled) async {
-    bool changed = false;
-    for (final id in ids) {
-      final idx = _servers.indexWhere((s) => s.id == id);
-      if (idx < 0) continue;
-      if (_servers[idx].enabled == enabled) continue;
-      _servers[idx] = _servers[idx].copyWith(enabled: enabled);
-      changed = true;
-    }
-    if (changed) {
-      _connectedServersDirty = true;
-      await _persist();
-      notifyListeners();
-    }
-  }
-
-  /// Batch connect servers by IDs.
-  Future<void> batchConnect(List<String> ids) async {
-    for (final id in ids) {
-      if (!isConnected(id)) {
-        await connect(id);
-      }
-    }
-  }
-
-  /// Batch disconnect servers by IDs.
-  Future<void> batchDisconnect(List<String> ids) async {
-    for (final id in ids) {
-      if (isConnected(id)) {
-        await disconnect(id);
-      }
-    }
-  }
-
-  /// Update server tags.
-  Future<void> updateServerTags(String id, List<String> tags) async {
-    final idx = _servers.indexWhere((s) => s.id == id);
-    if (idx < 0) return;
-    _servers[idx] = _servers[idx].copyWith(tags: tags);
-    await _persist();
-    notifyListeners();
-  }
-
-  /// Update server description.
-  Future<void> updateServerDescription(String id, String description) async {
-    final idx = _servers.indexWhere((s) => s.id == id);
-    if (idx < 0) return;
-    _servers[idx] = _servers[idx].copyWith(description: description);
-    await _persist();
-    notifyListeners();
-  }
-
-  /// Update server connection settings (reconnect, heartbeat, timeout).
-  Future<void> updateServerConnectionSettings(
-    String id, {
-    bool? autoReconnect,
-    int? maxReconnectAttempts,
-    int? reconnectIntervalMs,
-    int? heartbeatIntervalSeconds,
-    int? connectionTimeoutSeconds,
-  }) async {
-    final idx = _servers.indexWhere((s) => s.id == id);
-    if (idx < 0) return;
-    _servers[idx] = _servers[idx].copyWith(
-      autoReconnect: autoReconnect,
-      maxReconnectAttempts: maxReconnectAttempts,
-      reconnectIntervalMs: reconnectIntervalMs,
-      heartbeatIntervalSeconds: heartbeatIntervalSeconds,
-      connectionTimeoutSeconds: connectionTimeoutSeconds,
-    );
-    await _persist();
-    // Restart heartbeat with new interval if connected
-    if (isConnected(id)) {
-      _startHeartbeat(id);
-    }
-    notifyListeners();
-  }
-
-  /// Export a single server config as JSON string.
-  String exportSingleServer(String id) {
-    final idx = _servers.indexWhere((s) => s.id == id);
-    if (idx < 0) return '{}';
-    return const JsonEncoder.withIndent('  ').convert(_servers[idx].toJson());
-  }
-
-  /// Import a single server from JSON and add it.
-  Future<void> importSingleServer(String rawJson) async {
-    final data = jsonDecode(rawJson);
-    if (data is! Map) throw FormatException('Expected JSON object');
-    final config = McpServerConfig.fromJson(data.cast<String, dynamic>());
-    // Avoid duplicate IDs
-    final existingIdx = _servers.indexWhere((s) => s.id == config.id);
-    if (existingIdx >= 0) {
-      _servers[existingIdx] = config;
-    } else {
-      _servers.add(config);
-    }
-    _connectedServersDirty = true;
-    await _persist();
-    notifyListeners();
-  }
-
   /// Replace all MCP servers from a JSON string.
   /// Accepts either the UI JSON (with top-level `mcpServers`) or the internal list format.
   Future<void> replaceAllFromJson(String rawJson) async {
+    final existingById = {for (final server in _servers) server.id: server};
     dynamic data;
     try {
       data = jsonDecode(rawJson);
@@ -1118,39 +1155,16 @@ class McpProvider extends ChangeNotifier {
       }
 
       if (serversFromMap != null) {
-        final isDesktop = _isDesktopPlatform();
-        final builtinEnabledById = <String, bool>{};
-        bool legacyBuiltinSeen = false;
-        bool legacyBuiltinEnabled = true;
+        bool builtinSeen = false;
+        bool builtinEnabled = true;
         serversFromMap.forEach((id, cfgAny) {
           if (cfgAny is! Map) return;
           final cfg = cfgAny.cast<String, dynamic>();
           final typeLower = (cfg['type'] ?? '').toString().toLowerCase();
           if (typeLower == 'inmemory') {
-            final enabled = McpServerConfig.enabledFromJson(cfg);
-            final name = (cfg['name'] as String?)?.trim();
-            if (id == _builtinFilesId || name == _builtinFilesName) {
-              builtinEnabledById[_builtinFilesId] = enabled;
-            } else if (id == _builtinGithubId || name == _builtinGithubName) {
-              builtinEnabledById[_builtinGithubId] = enabled;
-            } else if (id == _builtinImagesId || name == _builtinImagesName) {
-              builtinEnabledById[_builtinImagesId] = enabled;
-            } else if (id == _builtinContextId || name == _builtinContextName) {
-              builtinEnabledById[_builtinContextId] = enabled;
-            } else if (id == _builtinSoId || name == _builtinSoName) {
-              builtinEnabledById[_builtinSoId] = enabled;
-            } else if (id == _builtinDexId || name == _builtinDexName) {
-              builtinEnabledById[_builtinDexId] = enabled;
-            } else if (id == _builtinFetchId || name == _builtinFetchName) {
-              builtinEnabledById[_builtinFetchId] = enabled;
-            } else if (id == _builtinJadxId || name == _builtinJadxName) {
-              builtinEnabledById[_builtinJadxId] = enabled;
-            } else if (id == _builtinMemoryId || name == _builtinMemoryName) {
-              builtinEnabledById[_builtinMemoryId] = enabled;
-            } else {
-              legacyBuiltinSeen = true;
-              legacyBuiltinEnabled = enabled;
-            }
+            // Built-in @kelivo/fetch control via isActive; ignore name mismatches silently
+            builtinSeen = true;
+            builtinEnabled = (cfg['isActive'] as bool?) ?? true;
             return;
           }
           final hasStdioShape =
@@ -1159,11 +1173,7 @@ class McpProvider extends ChangeNotifier {
               cfg.containsKey('env') ||
               (cfg['type']?.toString().toLowerCase() == 'stdio');
           if (hasStdioShape) {
-            if (!isDesktop) {
-              // Mobile: skip stdio entries entirely
-              return;
-            }
-            final enabled = McpServerConfig.enabledFromJson(cfg);
+            final enabled = (cfg['isActive'] as bool?) ?? true;
             final name = (cfg['name'] as String?)?.trim();
             final cmd = (cfg['command'] as String?)?.trim();
             if (cmd == null || cmd.isEmpty) {
@@ -1195,13 +1205,7 @@ class McpProvider extends ChangeNotifier {
                     : const <String>[],
                 env: env,
                 workingDirectory: (wd != null && wd.isNotEmpty) ? wd : null,
-                description: (cfg['description'] as String?) ?? '',
-                tags: (cfg['tags'] is List) ? (cfg['tags'] as List).map((e) => e.toString()).toList() : const [],
-                autoReconnect: cfg['autoReconnect'] as bool? ?? true,
-                maxReconnectAttempts: cfg['maxReconnectAttempts'] as int? ?? 3,
-                reconnectIntervalMs: cfg['reconnectIntervalMs'] as int? ?? 600,
-                heartbeatIntervalSeconds: cfg['heartbeatIntervalSeconds'] as int? ?? 30,
-                connectionTimeoutSeconds: cfg['connectionTimeoutSeconds'] as int? ?? 30,
+                workspaceId: (cfg['workspaceId'] as String?)?.trim(),
               ),
             );
             return;
@@ -1212,7 +1216,7 @@ class McpProvider extends ChangeNotifier {
           final transport = (typeRaw.contains('http'))
               ? McpTransportType.http
               : McpTransportType.sse;
-          final enabled = McpServerConfig.enabledFromJson(cfg);
+          final enabled = (cfg['isActive'] as bool?) ?? true;
           final name = (cfg['name'] as String?)?.trim();
           final url = (cfg['baseUrl'] as String?)?.trim();
           final headersAny = cfg['headers'];
@@ -1226,86 +1230,49 @@ class McpProvider extends ChangeNotifier {
             // Skip invalid entries with empty URL
             return;
           }
+          final serverUrl = url!;
+          final existing = existingById[id];
+          final parsedOAuthClient = McpOAuthClientRegistration.tryFromJson(
+            cfg['oauthClient'],
+          );
+          final parsedOAuth = McpOAuthState.tryFromJson(
+            cfg['oauth'],
+            registrationSourceFallback:
+                parsedOAuthClient?.registrationSource ??
+                existing?.oauthClient?.registrationSource,
+          );
+          final oauth =
+              McpServerConfig._oauthMatchesServer(parsedOAuth, serverUrl)
+              ? parsedOAuth
+              : McpServerConfig._oauthMatchesServer(existing?.oauth, serverUrl)
+              ? existing!.oauth
+              : null;
+          final oauthClient = _mergeOAuthClient(
+            parsedOAuthClient,
+            existing?.oauthClient,
+          );
           next.add(
             McpServerConfig(
               id: id,
               enabled: enabled,
               name: (name == null || name.isEmpty) ? id : name,
               transport: transport,
-              url: url!,
+              url: serverUrl,
               headers: headers,
-              description: (cfg['description'] as String?) ?? '',
-              tags: (cfg['tags'] is List) ? (cfg['tags'] as List).map((e) => e.toString()).toList() : const [],
-              autoReconnect: cfg['autoReconnect'] as bool? ?? true,
-              maxReconnectAttempts: cfg['maxReconnectAttempts'] as int? ?? 3,
-              reconnectIntervalMs: cfg['reconnectIntervalMs'] as int? ?? 600,
-              heartbeatIntervalSeconds: cfg['heartbeatIntervalSeconds'] as int? ?? 30,
-              connectionTimeoutSeconds: cfg['connectionTimeoutSeconds'] as int? ?? 30,
+              oauth: oauth,
+              oauthClient: oauthClient,
             ),
           );
         });
-        if (builtinEnabledById.isNotEmpty || legacyBuiltinSeen) {
+        if (builtinSeen) {
+          // Append single built-in server with fixed id/name
           next.add(
-            _builtinServer(_builtinFetchId, _builtinFetchName).copyWith(
-              enabled:
-                  builtinEnabledById[_builtinFetchId] ?? legacyBuiltinEnabled,
+            McpServerConfig(
+              id: 'solab_fetch',
+              enabled: builtinEnabled,
+              name: '@kelivo/fetch',
+              transport: McpTransportType.inmemory,
             ),
-          );
-          next.add(
-            _builtinServer(
-              _builtinFilesId,
-              _builtinFilesName,
-              enabled: false,
-            ).copyWith(enabled: builtinEnabledById[_builtinFilesId] ?? false),
-          );
-          next.add(
-            _builtinServer(
-              _builtinGithubId,
-              _builtinGithubName,
-              enabled: false,
-            ).copyWith(enabled: builtinEnabledById[_builtinGithubId] ?? false),
-          );
-          next.add(
-            _builtinServer(
-              _builtinImagesId,
-              _builtinImagesName,
-              enabled: false,
-            ).copyWith(enabled: builtinEnabledById[_builtinImagesId] ?? false),
-          );
-          next.add(
-            _builtinServer(
-              _builtinContextId,
-              _builtinContextName,
-              enabled: false,
-            ).copyWith(enabled: builtinEnabledById[_builtinContextId] ?? false),
-          );
-          next.add(
-            _builtinServer(
-              _builtinSoId,
-              _builtinSoName,
-              enabled: true,
-            ).copyWith(enabled: builtinEnabledById[_builtinSoId] ?? true),
-          );
-          next.add(
-            _builtinServer(
-              _builtinDexId,
-              _builtinDexName,
-              enabled: false,
-            ).copyWith(enabled: builtinEnabledById[_builtinDexId] ?? false),
-          );
-          next.add(
-            _builtinServer(
-              _builtinJadxId,
-              _builtinJadxName,
-              enabled: false,
-            ).copyWith(enabled: builtinEnabledById[_builtinJadxId] ?? false),
-          );
-          next.add(
-            _builtinServer(
-              _builtinMemoryId,
-              _builtinMemoryName,
-              enabled: true,
-            ).copyWith(enabled: builtinEnabledById[_builtinMemoryId] ?? true),
           );
         }
       } else if (data is List) {
@@ -1361,40 +1328,83 @@ class McpProvider extends ChangeNotifier {
       throw FormatException('Unrecognized or invalid MCP JSON');
     }
 
+    next = [
+      for (final server in next)
+        if (_isRemoteTransport(server.transport))
+          server.copyWith(
+            oauth:
+                server.oauth ??
+                (McpServerConfig._oauthMatchesServer(
+                      existingById[server.id]?.oauth,
+                      server.url,
+                    )
+                    ? existingById[server.id]!.oauth
+                    : null),
+            oauthClient: _mergeOAuthClient(
+              server.oauthClient,
+              existingById[server.id]?.oauthClient,
+            ),
+          )
+        else
+          server,
+    ];
+
     if (next.isEmpty) {
       throw FormatException('No valid MCP servers found in JSON');
     }
 
-    await replaceAllFromConfigs(next);
+    var detached = <_DetachedConnection>[];
+    await _serializeServerMutation(() async {
+      final latestById = {for (final server in _servers) server.id: server};
+      final committed = [
+        for (final server in next)
+          if (_isRemoteTransport(server.transport) &&
+              identical(server.oauth, existingById[server.id]?.oauth) &&
+              McpServerConfig._oauthMatchesServer(
+                latestById[server.id]?.oauth,
+                server.url,
+              ))
+            server.copyWith(oauth: latestById[server.id]!.oauth)
+          else
+            server,
+      ];
+      await _persistServers(committed);
+      detached = [for (final server in _servers) _detachConnection(server.id)];
+      _servers = committed;
+      _connections.clear();
+      for (final server in _servers) {
+        _connections[server.id] = _ServerConnection();
+      }
+      _notify();
+    });
+    await Future.wait<void>([
+      for (final connection in detached)
+        _finishDisconnect(connection, terminateSession: true),
+    ]);
+    for (final server in _servers.where((server) => server.enabled)) {
+      unawaited(connect(server.id));
+    }
   }
 
-  Future<void> replaceAllFromConfigs(List<McpServerConfig> nextServers) async {
-    if (nextServers.isEmpty) {
-      throw const FormatException('No valid MCP servers found in JSON');
-    }
-
-    // Disconnect all current
-    for (final s in _servers) {
-      try {
-        await disconnect(s.id);
-      } catch (_) {}
-    }
-
-    // Replace and reset statuses
-    _servers = List<McpServerConfig>.of(nextServers);
-    _status.clear();
-    _errors.clear();
-    for (final s in _servers) {
-      _status[s.id] = McpStatus.idle; _connectedServersDirty = true;
-    }
-
-    await _persist();
-    notifyListeners();
-
-    // Auto-connect enabled servers
-    for (final s in _autoConnectServers()) {
-      // fire and forget
-      unawaited(connect(s.id));
+  /// Adds a validated import in one write, preserving existing connections.
+  Future<void> importServers(List<McpServerConfig> imported) async {
+    if (imported.isEmpty) return;
+    await _serializeServerMutation(() async {
+      final ids = _servers.map((server) => server.id).toSet();
+      for (final server in imported) {
+        if (!ids.add(server.id)) {
+          throw const FormatException('Duplicate MCP server ID');
+        }
+      }
+      await _persistServers([..._servers, ...imported]);
+      _servers = [..._servers, ...imported];
+      for (final server in imported) {
+        _connections[server.id] = _ServerConnection();
+      }
+      _notify();
+    });
+    for (final server in imported.where((server) => server.enabled)) {
+      unawaited(connect(server.id));
     }
   }
 
@@ -1411,10 +1421,13 @@ class McpProvider extends ChangeNotifier {
     required McpTransportType transport,
     String url = '',
     Map<String, String> headers = const {},
+    McpOAuthState? oauth,
+    McpOAuthClientRegistration? oauthClient,
     String? command,
     List<String> args = const <String>[],
     Map<String, String> env = const <String, String>{},
     String? workingDirectory,
+    String? workspaceId,
   }) async {
     final id = const Uuid().v4();
     final cfg = McpServerConfig(
@@ -1424,79 +1437,135 @@ class McpProvider extends ChangeNotifier {
       transport: transport,
       url: url.trim(),
       headers: headers,
+      oauth: oauth,
+      oauthClient: oauthClient,
       command: command?.trim(),
       args: args,
       env: env,
       workingDirectory: (workingDirectory?.trim().isNotEmpty ?? false)
           ? workingDirectory!.trim()
           : null,
+      workspaceId: workspaceId,
     );
-    _servers = [..._servers, cfg];
-    _status[id] = McpStatus.idle; _connectedServersDirty = true;
-    await _persist();
-    notifyListeners();
-    if (enabled) {
-      unawaited(connect(id));
-    }
+    await _serializeServerMutation(() async {
+      final next = <McpServerConfig>[..._servers, cfg];
+      await _persistServers(next);
+      _servers = next;
+      _connections[id] = _ServerConnection();
+      _notify();
+      if (enabled) {
+        unawaited(connect(id));
+      }
+    });
     return id;
   }
 
-  Future<String> addServerConfig(McpServerConfig config) async {
-    final id = config.id.trim().isEmpty ? const Uuid().v4() : config.id.trim();
-    final cfg = config.copyWith(
-      id: id,
-      name: config.name.trim().isEmpty ? 'MCP' : config.name.trim(),
-      url: config.url.trim(),
-      command: config.command?.trim(),
-      workingDirectory: (config.workingDirectory?.trim().isNotEmpty ?? false)
-          ? config.workingDirectory!.trim()
-          : null,
-      clearWorkingDirectory:
-          !(config.workingDirectory?.trim().isNotEmpty ?? false),
-    );
-    _servers = [..._servers, cfg];
-    _status[id] = McpStatus.idle; _connectedServersDirty = true;
-    await _persist();
-    notifyListeners();
-    if (cfg.enabled) {
-      unawaited(connect(id));
-    }
-    return id;
-  }
+  Future<void> updateServer(McpServerConfig updated) =>
+      _updateServer(updated, preserveLatestTools: false);
 
-  Future<void> updateServer(McpServerConfig updated) async {
-    final idx = _servers.indexWhere((e) => e.id == updated.id);
-    if (idx < 0) return;
-    _servers = List<McpServerConfig>.of(_servers)..[idx] = updated;
-    await _persist();
-    notifyListeners();
-    if (!updated.enabled) {
-      await disconnect(updated.id);
-    } else {
-      // Always reconnect after saving to apply changes (url/transport/name)
-      await disconnect(updated.id);
+  Future<void> updateServerMetadata(McpServerConfig updated) =>
+      _updateServer(updated, preserveLatestTools: true);
+
+  Future<void> _updateServer(
+    McpServerConfig updated, {
+    required bool preserveLatestTools,
+  }) async {
+    _DetachedConnection? detached;
+    var reconnect = false;
+    await _serializeServerMutation(() async {
+      final idx = _servers.indexWhere((e) => e.id == updated.id);
+      if (idx < 0) return;
+      final previous = _servers[idx];
+      final resourceChanged =
+          !_isRemoteTransport(updated.transport) ||
+          updated.url.trim() != previous.url.trim();
+      final effectiveUpdated = resourceChanged
+          ? updated.copyWith(clearOAuth: true, clearOAuthClient: true)
+          : updated.copyWith(
+              oauth: previous.oauth,
+              oauthClient: _mergeOAuthClient(
+                updated.oauthClient,
+                previous.oauthClient,
+              ),
+            );
+      final next = List<McpServerConfig>.of(_servers)
+        ..[idx] = preserveLatestTools
+            ? effectiveUpdated.copyWith(tools: previous.tools)
+            : effectiveUpdated;
+      await _persistServers(next);
+      _servers = next;
+      detached = _detachConnection(updated.id);
+      _resetOAuthFlowState(
+        _connections.putIfAbsent(updated.id, _ServerConnection.new),
+      );
+      _notify();
+      reconnect = effectiveUpdated.enabled;
+    });
+    final committedConnection = detached;
+    if (committedConnection == null) return;
+    final cleanup = _finishDisconnect(
+      committedConnection,
+      terminateSession: true,
+    );
+    if (reconnect) {
+      await cleanup;
       unawaited(connect(updated.id));
+    } else {
+      unawaited(cleanup.catchError((_) {}));
     }
   }
 
   Future<void> removeServer(String id) async {
-    final current = getById(id);
-    if (current != null && isBuiltinServer(current)) return;
-    await disconnect(id);
-    _servers = _servers.where((e) => e.id != id).toList(growable: false);
-    _status.remove(id);
-    await _persist();
-    notifyListeners();
+    _DetachedConnection? detached;
+    await _serializeServerMutation(() async {
+      final next = _servers.where((e) => e.id != id).toList(growable: false);
+      await _persistServers(next);
+      detached = _detachConnection(id);
+      _servers = next;
+      _connections.remove(id);
+      _notify();
+    });
+    final committedConnection = detached;
+    if (committedConnection != null) {
+      await _finishDisconnect(committedConnection, terminateSession: true);
+    }
   }
 
   Future<void> reorderServers(int oldIndex, int newIndex) async {
     if (oldIndex == newIndex) return;
     if (oldIndex < 0 || oldIndex >= _servers.length) return;
     if (newIndex < 0 || newIndex >= _servers.length) return;
-    final moved = _servers.removeAt(oldIndex);
-    _servers.insert(newIndex, moved);
-    notifyListeners();
-    await _persist();
+    final intended = List<McpServerConfig>.of(_servers);
+    final moved = intended.removeAt(oldIndex);
+    intended.insert(newIndex, moved);
+    final predecessorId = newIndex > 0 ? intended[newIndex - 1].id : null;
+    final successorId = newIndex + 1 < intended.length
+        ? intended[newIndex + 1].id
+        : null;
+    await _serializeServerMutation(() async {
+      final currentOldIndex = _servers.indexWhere(
+        (server) => server.id == moved.id,
+      );
+      if (currentOldIndex < 0) return;
+      final next = List<McpServerConfig>.of(_servers);
+      final current = next.removeAt(currentOldIndex);
+      var insertionIndex = successorId == null
+          ? -1
+          : next.indexWhere((server) => server.id == successorId);
+      if (insertionIndex < 0 && predecessorId != null) {
+        final predecessorIndex = next.indexWhere(
+          (server) => server.id == predecessorId,
+        );
+        if (predecessorIndex >= 0) insertionIndex = predecessorIndex + 1;
+      }
+      if (insertionIndex < 0) {
+        insertionIndex = newIndex.clamp(0, next.length);
+      }
+      next.insert(insertionIndex, current);
+      await _persistServers(next);
+      _servers = next;
+      _notify();
+    });
   }
 
   Future<void> setToolEnabled(
@@ -1504,15 +1573,19 @@ class McpProvider extends ChangeNotifier {
     String toolName,
     bool enabled,
   ) async {
-    final idx = _servers.indexWhere((e) => e.id == serverId);
-    if (idx < 0) return;
-    final server = _servers[idx];
-    final tools = server.tools
-        .map((t) => t.name == toolName ? t.copyWith(enabled: enabled) : t)
-        .toList();
-    _servers[idx] = server.copyWith(tools: tools);
-    await _persist();
-    notifyListeners();
+    await _serializeServerMutation(() async {
+      final idx = _servers.indexWhere((e) => e.id == serverId);
+      if (idx < 0) return;
+      final server = _servers[idx];
+      final tools = server.tools
+          .map((t) => t.name == toolName ? t.copyWith(enabled: enabled) : t)
+          .toList();
+      final next = List<McpServerConfig>.of(_servers)
+        ..[idx] = server.copyWith(tools: tools);
+      await _persistServers(next);
+      _servers = next;
+      _notify();
+    });
   }
 
   /// Set whether a tool requires user approval before execution.
@@ -1521,25 +1594,28 @@ class McpProvider extends ChangeNotifier {
     String toolName,
     bool needsApproval,
   ) async {
-    final idx = _servers.indexWhere((e) => e.id == serverId);
-    if (idx < 0) return;
-    final server = _servers[idx];
-    final tools = server.tools
-        .map(
-          (t) =>
-              t.name == toolName ? t.copyWith(needsApproval: needsApproval) : t,
-        )
-        .toList();
-    _servers[idx] = server.copyWith(tools: tools);
-    await _persist();
-    notifyListeners();
+    await _serializeServerMutation(() async {
+      final idx = _servers.indexWhere((e) => e.id == serverId);
+      if (idx < 0) return;
+      final server = _servers[idx];
+      final tools = server.tools
+          .map(
+            (t) => t.name == toolName
+                ? t.copyWith(needsApproval: needsApproval)
+                : t,
+          )
+          .toList();
+      final next = List<McpServerConfig>.of(_servers)
+        ..[idx] = server.copyWith(tools: tools);
+      await _persistServers(next);
+      _servers = next;
+      _notify();
+    });
   }
 
-  /// Check if a tool (by name) requires approval across all connected servers.
-  /// Conservative: returns true if ANY connected server marks the tool as needing approval.
+  /// Conservative: require approval if any enabled cached tool requires it.
   bool toolNeedsApproval(String toolName) {
     for (final s in _servers) {
-      if (statusFor(s.id) != McpStatus.connected) continue;
       if (!s.enabled) continue;
       for (final t in s.tools) {
         if (t.name == toolName && t.enabled && t.needsApproval) return true;
@@ -1548,349 +1624,850 @@ class McpProvider extends ChangeNotifier {
     return false;
   }
 
-  /// Find the server ID that owns a given tool name.
-  /// Returns null if no connected server has this tool.
-  String? serverIdForTool(String toolName) {
-    for (final s in _servers) {
-      if (statusFor(s.id) != McpStatus.connected) continue;
-      if (!s.enabled) continue;
-      for (final t in s.tools) {
-        if (t.name == toolName && t.enabled) return s.id;
-      }
+  Future<bool> authorize(String id) {
+    final server = getById(id);
+    if (server == null ||
+        !server.enabled ||
+        !_isRemoteTransport(server.transport) ||
+        _disposed) {
+      return Future<bool>.value(false);
     }
-    return null;
+    final state = _connections.putIfAbsent(id, _ServerConnection.new);
+    final active = state.authorizationFuture;
+    if (active != null) return active;
+
+    final detached = _detachConnection(id);
+    final generation = state.generation;
+    state.status = McpStatus.authorizing;
+    state.error = null;
+    _notify();
+    late final Future<bool> future;
+    future = _performAuthorization(server, state, generation, detached)
+        .whenComplete(() {
+          if (identical(state.authorizationFuture, future)) {
+            state.authorizationFuture = null;
+          }
+        });
+    state.authorizationFuture = future;
+    return future;
   }
 
-  /// Search tools across all servers by keyword.
-  /// Matches tool name or description (case-insensitive).
-  List<({String serverId, String serverName, McpToolConfig tool})> searchTools(
-    String keyword,
-  ) {
-    if (keyword.trim().isEmpty) return [];
-    final lower = keyword.toLowerCase();
-    final results = <({String serverId, String serverName, McpToolConfig tool})>[];
-    for (final s in _servers) {
-      if (!s.enabled) continue;
-      for (final t in s.tools) {
-        if (t.name.toLowerCase().contains(lower) ||
-            (t.description ?? '').toLowerCase().contains(lower)) {
-          results.add((serverId: s.id, serverName: s.name, tool: t));
-        }
-      }
-    }
-    return results;
-  }
-
-  /// Batch enable or disable tools for a given server.
-  Future<void> batchSetToolsEnabled(
-    String serverId,
-    List<String> toolNames,
-    bool enabled,
+  Future<bool> _performAuthorization(
+    McpServerConfig server,
+    _ServerConnection state,
+    int generation,
+    _DetachedConnection detached,
   ) async {
-    final idx = _servers.indexWhere((e) => e.id == serverId);
-    if (idx == -1) return;
-    final server = _servers[idx];
-    final updatedTools = server.tools.map((t) {
-      if (toolNames.contains(t.name)) {
-        return t.copyWith(enabled: enabled);
-      }
-      return t;
-    }).toList();
-    _servers[idx] = server.copyWith(tools: updatedTools);
-    notifyListeners();
-    await _persist();
-  }
-
-  /// Get execution statistics for all tools.
-  Map<String, McpToolStats> getToolStats() {
-    final stats = <String, McpToolStats>{};
-    for (final log in _callLogs) {
-      final existing = stats[log.toolName];
-      final duration = log.finishedAt != null
-          ? log.finishedAt!.difference(log.startedAt)
-          : null;
-      if (existing == null) {
-        stats[log.toolName] = McpToolStats(
-          toolName: log.toolName,
-          totalCalls: 1,
-          successCount: log.status == McpCallLogStatus.success ? 1 : 0,
-          errorCount: log.status == McpCallLogStatus.error ? 1 : 0,
-          totalDuration: duration ?? Duration.zero,
-        );
-      } else {
-        stats[log.toolName] = McpToolStats(
-          toolName: log.toolName,
-          totalCalls: existing.totalCalls + 1,
-          successCount: existing.successCount +
-              (log.status == McpCallLogStatus.success ? 1 : 0),
-          errorCount: existing.errorCount +
-              (log.status == McpCallLogStatus.error ? 1 : 0),
-          totalDuration: existing.totalDuration + (duration ?? Duration.zero),
-        );
-      }
-    }
-    return stats;
-  }
-
-  /// Auto-reconnect all servers that are in error state.
-  Future<void> autoReconnectErrorServers() async {
-    for (final s in _servers) {
-      if (!s.enabled) continue;
-      final status = statusFor(s.id);
-      if (status == McpStatus.error || status == McpStatus.idle) {
-        unawaited(connect(s.id));
-      }
-    }
-  }
-
-  void clearCallLogs() {
-    _callLogs.clear();
-    notifyListeners();
-  }
-
-  String _beginCallLog({
-    required String serverId,
-    required String toolName,
-    required Map<String, dynamic> arguments,
-  }) {
-    final server = getById(serverId);
-    final id = '${toolName}_${DateTime.now().microsecondsSinceEpoch}';
-    _callLogs.insert(
-      0,
-      McpCallLogEntry(
-        id: id,
-        serverId: serverId,
-        serverName: server?.name ?? serverId,
-        toolName: toolName,
-        startedAt: DateTime.now(),
-        status: McpCallLogStatus.running,
-        argumentsPreview: _previewJson(arguments),
-      ),
-    );
-    if (_callLogs.length > _maxCallLogEntries) {
-      _callLogs.removeRange(_maxCallLogEntries, _callLogs.length);
-    }
-    notifyListeners();
-    return id;
-  }
-
-  void _finishCallLog(
-    String id, {
-    required McpCallLogStatus status,
-    String? resultPreview,
-    String? error,
-    bool retried = false,
-  }) {
-    final idx = _callLogs.indexWhere((entry) => entry.id == id);
-    if (idx < 0) return;
-    final now = DateTime.now();
-    final current = _callLogs[idx];
-    _callLogs[idx] = current.copyWith(
-      finishedAt: now,
-      durationMs: now.difference(current.startedAt).inMilliseconds,
-      status: status,
-      resultPreview: resultPreview,
-      error: error,
-      retried: retried,
-    );
-    notifyListeners();
-  }
-
-  static String _previewJson(dynamic value, {int maxLength = 1200}) {
-    String text;
+    await _finishDisconnect(detached, terminateSession: true);
+    if (!_authorizationIsCurrent(server, state, generation)) return false;
     try {
-      text = const JsonEncoder.withIndent(
-        '  ',
-      ).convert(_redactSensitive(value));
-    } catch (_) {
-      text = value.toString();
-    }
-    if (text.length <= maxLength) return text;
-    return '${text.substring(0, maxLength)}…';
-  }
-
-  static dynamic _redactSensitive(dynamic value) {
-    if (value is List) return value.map(_redactSensitive).toList();
-    if (value is! Map) return value;
-    return value.map((key, entryValue) {
-      final keyText = key.toString().toLowerCase();
-      final sensitive =
-          keyText.contains('key') ||
-          keyText.contains('token') ||
-          keyText.contains('secret') ||
-          keyText.contains('password') ||
-          keyText.contains('authorization') ||
-          keyText.contains('cookie');
-      return MapEntry(
-        key.toString(),
-        sensitive ? '***' : _redactSensitive(entryValue),
+      final oauth = await _oauthService.authorize(
+        serverUrl: server.url,
+        serverName: server.name,
+        headers: server.headers,
+        wwwAuthenticate: state.oauthChallenges,
+        additionalScopes: state.additionalOAuthScopes.toList(),
+        clientRegistration: _authorizationRegistration(server, state),
       );
-    });
+      if (!_authorizationIsCurrent(server, state, generation)) return false;
+      final persisted = await _persistOAuthState(
+        server.id,
+        oauth,
+        expectedConnection: state,
+        expectedGeneration: generation,
+      );
+      if (!persisted) return false;
+      state.reRegisterDynamicClient = false;
+      final connected = await _connect(server.id, retryUnauthorized: false);
+      if (connected ||
+          !_isDesktopPlatform() ||
+          state.status != McpStatus.error ||
+          _activeCooldown(state) != null ||
+          !_authorizationIsCurrent(server, state, generation)) {
+        return connected;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      if (state.status != McpStatus.error ||
+          _activeCooldown(state) != null ||
+          !_authorizationIsCurrent(server, state, generation)) {
+        return false;
+      }
+      return await _connect(server.id, retryUnauthorized: false);
+    } catch (error) {
+      if (!_authorizationIsCurrent(server, state, generation)) return false;
+      state.status =
+          error is McpOAuthException &&
+              !error.requiresAuthorization &&
+              !error.isTransient
+          ? McpStatus.error
+          : McpStatus.needsAuthorization;
+      state.error = error.toString();
+      _notify();
+      return false;
+    }
   }
 
-  static String _previewCallToolResult(mcp.CallToolResult result) {
-    final buf = StringBuffer();
-    for (final content in result.content.take(3)) {
-      try {
-        if (content is mcp.TextContent) {
-          final text = content.text.trim();
-          if (text.isNotEmpty) buf.writeln(text);
-          continue;
-        }
-        if (content is mcp.ImageContent) {
-          buf.writeln('[image ${content.mimeType}]');
-          continue;
-        }
-        if (content is mcp.ResourceContent) {
-          buf.writeln('[resource ${content.uri}]');
-          continue;
-        }
-        buf.writeln(content.toString());
-      } catch (_) {}
+  bool _authorizationIsCurrent(
+    McpServerConfig server,
+    _ServerConnection state,
+    int generation,
+  ) {
+    final latest = getById(server.id);
+    return !_disposed &&
+        identical(_connections[server.id], state) &&
+        state.generation == generation &&
+        latest?.enabled == true &&
+        latest?.url == server.url;
+  }
+
+  McpOAuthClientRegistration? _authorizationRegistration(
+    McpServerConfig server,
+    _ServerConnection state,
+  ) {
+    final configured = server.oauthClient;
+    if (configured != null) {
+      if (state.reRegisterDynamicClient &&
+          configured.registrationSource ==
+              McpOAuthClientRegistrationSource.dcr) {
+        return null;
+      }
+      return configured;
     }
-    final text = buf.toString().trim();
-    if (text.isEmpty) return '(empty result)';
-    return text.length <= 1600 ? text : '${text.substring(0, 1600)}…';
+    final oauth = server.oauth;
+    if (oauth == null ||
+        (state.reRegisterDynamicClient &&
+            oauth.registrationSource == McpOAuthClientRegistrationSource.dcr)) {
+      return null;
+    }
+    return McpOAuthClientRegistration(
+      clientId: oauth.clientId,
+      clientSecret: oauth.clientSecret,
+      tokenEndpointAuthMethod: oauth.tokenEndpointAuthMethod,
+      authorizationServer: oauth.authorizationServer,
+      redirectUri: oauth.redirectUri,
+      registrationSource: oauth.registrationSource,
+    );
+  }
+
+  Future<bool> _persistOAuthState(
+    String id,
+    McpOAuthState oauth, {
+    _ServerConnection? expectedConnection,
+    int? expectedGeneration,
+    String? expectedResource,
+    String? expectedAccessToken,
+  }) => _serializeServerMutation(() async {
+    if (expectedConnection != null &&
+        !identical(_connections[id], expectedConnection)) {
+      return false;
+    }
+    if (expectedGeneration != null &&
+        _connections[id]?.generation != expectedGeneration) {
+      return false;
+    }
+    final index = _servers.indexWhere((server) => server.id == id);
+    if (index < 0) return false;
+    final server = _servers[index];
+    if (!McpServerConfig._oauthMatchesServer(oauth, server.url)) {
+      return false;
+    }
+    if (expectedResource != null) {
+      final current = server.oauth;
+      if (current == null ||
+          current.resource != expectedResource ||
+          (expectedAccessToken != null &&
+              current.accessToken != expectedAccessToken)) {
+        return false;
+      }
+    }
+    final configuredClient = server.oauthClient;
+    final McpOAuthClientRegistration? boundClient;
+    if (configuredClient?.registrationSource ==
+        McpOAuthClientRegistrationSource.dcr) {
+      boundClient = McpOAuthClientRegistration(
+        clientId: oauth.clientId,
+        clientSecret: oauth.clientSecret,
+        tokenEndpointAuthMethod: oauth.tokenEndpointAuthMethod,
+        authorizationServer: oauth.authorizationServer,
+        redirectUri: oauth.redirectUri,
+        registrationSource: oauth.registrationSource,
+      );
+    } else if (configuredClient != null &&
+        configuredClient.authorizationServer == null &&
+        configuredClient.registrationSource ==
+            McpOAuthClientRegistrationSource.preRegistered) {
+      boundClient = McpOAuthClientRegistration(
+        clientId: configuredClient.clientId,
+        clientSecret: configuredClient.clientSecret,
+        tokenEndpointAuthMethod: configuredClient.tokenEndpointAuthMethod,
+        authorizationServer: oauth.authorizationServer,
+        redirectUri: configuredClient.redirectUri,
+        registrationSource: configuredClient.registrationSource,
+      );
+    } else {
+      boundClient = configuredClient;
+    }
+    final next = List<McpServerConfig>.of(_servers)
+      ..[index] = server.copyWith(oauth: oauth, oauthClient: boundClient);
+    await _persistServers(next);
+    _servers = next;
+    _notify();
+    return true;
+  });
+
+  Future<McpServerConfig> _withFreshOAuth(
+    McpServerConfig server,
+    _ServerConnection state,
+  ) async {
+    final oauth = server.oauth;
+    if (oauth == null || !oauth.shouldRefresh()) return server;
+    final active = state.oauthRefreshFuture;
+    if (active != null) {
+      await active;
+      return getById(server.id) ?? server;
+    }
+
+    late final Future<McpOAuthState?> future;
+    future =
+        (() async {
+          final latest = getById(server.id);
+          final latestOAuth = latest?.oauth;
+          if (latestOAuth == null || !latestOAuth.shouldRefresh()) {
+            return latestOAuth;
+          }
+          final generation = state.generation;
+          final refreshed = await _oauthService.refresh(latestOAuth);
+          final persisted = await _persistOAuthState(
+            server.id,
+            refreshed,
+            expectedConnection: state,
+            expectedGeneration: generation,
+            expectedResource: latestOAuth.resource,
+            expectedAccessToken: latestOAuth.accessToken,
+          );
+          return persisted ? refreshed : getById(server.id)?.oauth;
+        })().whenComplete(() {
+          if (identical(state.oauthRefreshFuture, future)) {
+            state.oauthRefreshFuture = null;
+          }
+        });
+    state.oauthRefreshFuture = future;
+    await future;
+    return getById(server.id) ?? server;
   }
 
   Future<void> connect(String id) async {
-    if (_disposed) return;
-    final server = _servers.firstWhere(
-      (e) => e.id == id,
-      orElse: () => throw StateError('Server not found'),
-    );
-    // If already connected, try a ping by listing tools quickly; else return
-    if (_clients.containsKey(id)) {
-      // Already connected; update status just in case
-      _status[id] = McpStatus.connected; _connectedServersDirty = true;
-      _errors.remove(id);
-      notifyListeners();
-      return;
+    await _connect(id);
+  }
+
+  Future<bool> _connect(String id, {bool retryUnauthorized = true}) {
+    final server = getById(id);
+    if (server == null || !server.enabled || _disposed) {
+      return Future<bool>.value(false);
     }
-    _status[id] = McpStatus.connecting; _connectedServersDirty = true;
-    _errors.remove(id);
-    notifyListeners();
+    if (server.transport == McpTransportType.stdio && !supportsStdio) {
+      return Future<bool>.value(false);
+    }
+    final state = _connections.putIfAbsent(id, _ServerConnection.new);
+    final active = state.connectFuture;
+    if (active != null) return active;
+    if (_activeCooldown(state) != null) return Future<bool>.value(false);
+    if (state.client?.isConnected == true) {
+      state.status = McpStatus.connected;
+      state.error = null;
+      _notify();
+      unawaited(refreshTools(id));
+      return Future<bool>.value(true);
+    }
 
+    return _beginConnect(
+      id,
+      server,
+      state,
+      retryUnauthorized: retryUnauthorized,
+    );
+  }
+
+  Future<bool> _beginConnect(
+    String id,
+    McpServerConfig server,
+    _ServerConnection state, {
+    Future<bool>? waitFor,
+    bool retryUnauthorized = true,
+  }) {
+    state.status = McpStatus.connecting;
+    state.error = null;
+    final generation = state.generation;
+    _notify();
+    late final Future<bool> future;
+    future =
+        (() async {
+          if (waitFor != null) {
+            try {
+              await waitFor;
+            } catch (_) {}
+          }
+          if (_disposed ||
+              state.generation != generation ||
+              getById(id)?.enabled != true) {
+            return false;
+          }
+          return _performConnect(
+            id,
+            server,
+            state,
+            generation,
+            retryUnauthorized: retryUnauthorized,
+          );
+        })().whenComplete(() {
+          if (identical(state.connectFuture, future)) {
+            state.connectFuture = null;
+          }
+        });
+    state.connectFuture = future;
+    return future.then((connected) {
+      if (connected && !_disposed) unawaited(refreshTools(id));
+      return connected;
+    });
+  }
+
+  Future<bool> _performConnect(
+    String id,
+    McpServerConfig server,
+    _ServerConnection state,
+    int generation, {
+    bool retryUnauthorized = true,
+  }) async {
+    mcp.Client? client;
+    WorkspaceStdioTransport? workspaceTransport;
+    final startedAt = DateTime.now();
     try {
-      // Log connect intent and parameters
-      // debugPrint('[MCP/Connect] id=$id name=${server.name} transport=${server.transport.name}');
-      // debugPrint('[MCP/Connect] url=${server.url}');
-      // if (server.headers.isNotEmpty) {
-      //   debugPrint('[MCP/Headers] ${server.headers.length} headers:');
-      //   server.headers.forEach((k, v) {
-      //     final masked = _maskIfSensitive(k, v);
-      //     debugPrint('  - $k: $masked');
-      //   });
-      // } else {
-      //   debugPrint('[MCP/Headers] (none)');
-      // }
-
+      server = await _withFreshOAuth(server, state);
+      if (_disposed ||
+          state.generation != generation ||
+          getById(id)?.enabled != true) {
+        return false;
+      }
       final clientConfig = mcp.McpClient.simpleConfig(
-        name: 'Kelivo MCP',
+        name: 'SoLab MCP',
         version: '1.0.0',
-        // Turn on library-internal verbose logs
         enableDebugLogging: false,
         requestTimeout: _requestTimeout,
-      );
+      ).copyWith(maxRetries: 1);
 
-      // In-memory builtin server path
+      if (server.transport == McpTransportType.stdio &&
+          server.workspaceId != null &&
+          !supportsStdioWorkspaceBinding) {
+        throw StateError(
+          'Workspace binding requires the mobile Linux environment. '
+          'Unbind the workspace to run this server on desktop.',
+        );
+      }
+
       if (server.transport == McpTransportType.inmemory) {
         final engine = _createBuiltinEngine(server);
-        final transport = KelivoInMemoryClientTransport(engine);
-        final client = mcp.McpClient.createClient(clientConfig);
-        await client.connect(transport);
-        if (_disposed) {
-          try {
-            client.disconnect();
-          } catch (_) {}
-          return;
+        _builtinEngines[server.id] = engine;
+        client = mcp.McpClient.createClient(clientConfig);
+        await client.connect(KelivoInMemoryClientTransport(engine));
+      } else if (server.transport == McpTransportType.stdio &&
+          !_isDesktopPlatform()) {
+        final runtime = workspaceRuntime?.runtime;
+        if (!supportsStdio || runtime is! WorkspaceStdioRuntime) {
+          throw StateError('Workspace environment is not ready');
         }
-        _clients[id] = client;
-        _status[id] = McpStatus.connected; _connectedServersDirty = true;
-        _errors.remove(id);
-        notifyListeners();
-        await refreshTools(id);
-        _startHeartbeat(id);
-        return;
+        final config = await environment!.loadExecutionConfig();
+        final mounts = await _stdioWorkspaceMounts(server, state);
+        final cwd =
+            server.workingDirectory ??
+            (server.workspaceId == null ? '/root' : '/workspace');
+        await requireWorkspaceStdioCommand(
+          runtime: runtime,
+          command: server.command ?? '',
+          cwd: cwd,
+          mounts: mounts,
+          environment: {...config.variables, ...server.env},
+          timeout: _requestTimeout,
+          isCancelled: () =>
+              _disposed || state.generation != generation || !supportsStdio,
+        );
+        final transport = await WorkspaceStdioTransport.start(
+          runtime: runtime,
+          command: server.command ?? '',
+          arguments: server.args,
+          cwd: cwd,
+          mounts: mounts,
+          environment: {...config.variables, ...server.env},
+          startupTimeout: _requestTimeout,
+          isCancelled: () => _disposed || state.generation != generation,
+        );
+        workspaceTransport = transport;
+        if (_disposed || state.generation != generation) {
+          transport.close();
+          await transport.onClose;
+          return false;
+        }
+        // Keep the process cancellable while initialize installs dependencies
+        // or waits for the server; state.client is assigned only on success.
+        state.initializingTransport = transport;
+        client = mcp.McpClient.createClient(clientConfig);
+        // Package launchers can install dependencies before initialize is
+        // answered. Keep this separate from the user's tool-call timeout.
+        const installTimeout = Duration(minutes: 2);
+        client.setRequestTimeout(
+          _requestTimeout > installTimeout ? _requestTimeout : installTimeout,
+        );
+        try {
+          await client.connect(transport);
+        } finally {
+          client.setRequestTimeout(_requestTimeout);
+        }
+      } else {
+        final transportConfig = await _transportConfig(server);
+        final result = await mcp.McpClient.createAndConnect(
+          config: clientConfig,
+          transportConfig: transportConfig,
+        );
+        client = result.fold((value) => value, (error) => throw error);
+      }
+      final connectedClient = client;
+      if (connectedClient == null) {
+        throw StateError('MCP client was not created');
       }
 
-      final mergedHeaders = <String, String>{...server.headers};
-      final transportConfig = await () async {
-        if (server.transport == McpTransportType.sse) {
-          return mcp.TransportConfig.sse(
-            serverUrl: server.url,
-            headers: mergedHeaders.isEmpty ? null : mergedHeaders,
-          );
-        } else if (server.transport == McpTransportType.http) {
-          return mcp.TransportConfig.streamableHttp(
-            baseUrl: server.url,
-            headers: mergedHeaders.isEmpty ? null : mergedHeaders,
-            timeout: _requestTimeout,
-          );
-        } else {
-          // STDIO; only supported on desktop
-          if (!_isDesktopPlatform()) {
-            throw StateError('STDIO transport not supported on this platform');
-          }
-          final cmd = server.command;
-          if (cmd == null || cmd.isEmpty) {
-            throw StateError('STDIO command is empty');
-          }
-          final mergedEnv = await _stdioCommandResolver
-              .resolveEnvironmentWithPath(server.env);
-          final commandExists = await _stdioCommandResolver.commandExists(
-            cmd,
-            mergedEnv,
-          );
-          if (!commandExists) {
-            throw StateError(
-              'Command "$cmd" not found in PATH. '
-              'Ensure the command is installed and accessible.',
+      if (_disposed ||
+          state.generation != generation ||
+          getById(id)?.enabled != true) {
+        await connectedClient.terminateSession();
+        connectedClient.dispose();
+        return false;
+      }
+
+      state.client = connectedClient;
+      state.status = McpStatus.connected;
+      state.error = null;
+      _finishScopeUpgrade(state, 'connect');
+      _clearCooldownAfterSuccess(state, startedAt);
+      _attachClient(
+        id,
+        state,
+        connectedClient,
+        generation,
+        workspaceTransport: workspaceTransport,
+      );
+      _notify();
+      return true;
+    } catch (error) {
+      client?.dispose();
+      if (_disposed || state.generation != generation) return false;
+      Object effectiveError = error;
+      _rememberOAuthChallenge(state, error);
+      if (retryUnauthorized && _isHttpUnauthorized(error)) {
+        try {
+          if (await _refreshOAuthAfterUnauthorized(server, state)) {
+            final latest = getById(id);
+            if (latest == null || state.generation != generation) return false;
+            return await _performConnect(
+              id,
+              latest,
+              state,
+              generation,
+              retryUnauthorized: false,
             );
           }
-          return mcp.TransportConfig.stdio(
-            command: cmd,
-            arguments: server.args,
-            workingDirectory: server.workingDirectory,
-            environment: mergedEnv.isEmpty ? null : mergedEnv,
-          );
+        } catch (refreshError) {
+          effectiveError = refreshError;
         }
-      }();
+      }
+      if (await _requiresOAuthAuthorization(
+        server,
+        state,
+        effectiveError,
+        operation: 'connect',
+      )) {
+        state.status = McpStatus.needsAuthorization;
+        state.error = effectiveError.toString();
+        _notify();
+        return false;
+      }
+      if (effectiveError is mcp.McpHttpError &&
+          _requiresCooldown(effectiveError)) {
+        _enterCooldown(state, effectiveError.retryAfter);
+      }
+      state.status = McpStatus.error;
+      state.error =
+          workspaceTransport?.describeError(effectiveError) ??
+          effectiveError.toString();
+      _notify();
+      return false;
+    } finally {
+      if (workspaceTransport != null &&
+          identical(state.initializingTransport, workspaceTransport)) {
+        state.initializingTransport = null;
+      }
+    }
+  }
 
-      // debugPrint('[MCP/Connect] creating client (enableDebugLogging=true) ...');
-      final clientResult = await mcp.McpClient.createAndConnect(
-        config: clientConfig,
-        transportConfig: transportConfig,
+  Future<mcp.TransportConfig> _transportConfig(McpServerConfig server) async {
+    final effectiveHeaders = Map<String, String>.of(server.headers);
+    if (server.oauth != null &&
+        !_containsHeader(effectiveHeaders, 'authorization')) {
+      effectiveHeaders['Authorization'] = server.oauth!.authorizationHeader;
+    }
+    final headers = effectiveHeaders.isEmpty ? null : effectiveHeaders;
+    if (server.transport == McpTransportType.sse) {
+      return mcp.TransportConfig.sse(serverUrl: server.url, headers: headers);
+    }
+    if (server.transport == McpTransportType.http) {
+      return mcp.TransportConfig.streamableHttp(
+        baseUrl: server.url,
+        headers: headers,
+        timeout: _requestTimeout,
+        terminateOnClose: false,
+      );
+    }
+    if (!_isDesktopPlatform()) {
+      throw StateError('STDIO transport not supported on this platform');
+    }
+    final command = server.command;
+    if (command == null || command.isEmpty) {
+      throw StateError('STDIO command is empty');
+    }
+    final environment = await _stdioCommandResolver.resolveEnvironmentWithPath(
+      server.env,
+    );
+    if (!await _stdioCommandResolver.commandExists(command, environment)) {
+      throw StateError(
+        'Command "$command" not found in PATH. '
+        'Ensure the command is installed and accessible.',
+      );
+    }
+    return mcp.TransportConfig.stdio(
+      command: command,
+      arguments: server.args,
+      workingDirectory: server.workingDirectory,
+      environment: environment.isEmpty ? null : environment,
+    );
+  }
+
+  Future<bool> _requiresOAuthAuthorization(
+    McpServerConfig server,
+    _ServerConnection state,
+    Object error, {
+    required String operation,
+  }) async {
+    if (!_isRemoteTransport(server.transport) ||
+        _containsHeader(server.headers, 'authorization')) {
+      return false;
+    }
+    if (error is McpOAuthException) {
+      final registrationSource =
+          server.oauthClient?.registrationSource ??
+          server.oauth?.registrationSource;
+      if (error.oauthError == 'invalid_client' &&
+          registrationSource == McpOAuthClientRegistrationSource.dcr) {
+        state.reRegisterDynamicClient = true;
+        return true;
+      }
+      return error.requiresAuthorization;
+    }
+    final challenges = _wwwAuthenticate(error);
+    if (challenges.isNotEmpty) state.oauthChallenges = challenges;
+    if (error is mcp.McpHttpError && error.statusCode == 403) {
+      return _prepareScopeStepUp(server, state, error, operation);
+    }
+    final looksUnauthorized = _looksUnauthorized(error);
+    if (!looksUnauthorized) return false;
+    if (server.oauth == null) {
+      unawaited(
+        _oauthService.prefetchAuthorization(
+          server.url,
+          headers: server.headers,
+          wwwAuthenticate: challenges,
+        ),
+      );
+    }
+    return true;
+  }
+
+  bool _looksUnauthorized(Object error) {
+    if (error is mcp.McpHttpError) {
+      return error.statusCode == 401 ||
+          (error.statusCode == 403 && _isInsufficientScope(error));
+    }
+    final message = error.toString().toLowerCase();
+    return message.contains('401') ||
+        message.contains('unauthorized') ||
+        message.contains('invalid_token') ||
+        message.contains('authentication failed');
+  }
+
+  bool _isHttpUnauthorized(Object error) =>
+      error is mcp.McpHttpError && error.statusCode == 401;
+
+  List<String> _wwwAuthenticate(Object error) =>
+      error is mcp.McpHttpError ? error.wwwAuthenticate : const [];
+
+  void _rememberOAuthChallenge(_ServerConnection state, Object error) {
+    final challenges = _wwwAuthenticate(error);
+    if (challenges.isNotEmpty) state.oauthChallenges = challenges;
+  }
+
+  bool _isInsufficientScope(mcp.McpHttpError error) =>
+      McpOAuthService.bearerChallengeHasError(
+        error.wwwAuthenticate,
+        'insufficient_scope',
       );
 
-      final client = clientResult.fold((c) => c, (err) => throw err);
-      if (_disposed) {
-        try {
-          client.disconnect();
-        } catch (_) {}
+  bool _prepareScopeStepUp(
+    McpServerConfig server,
+    _ServerConnection state,
+    mcp.McpHttpError error,
+    String operation,
+  ) {
+    if (!_isInsufficientScope(error)) {
+      return false;
+    }
+    final attempts = state.scopeEscalationAttempts[operation] ?? 0;
+    if (attempts >= 2) {
+      _finishScopeUpgrade(state, operation);
+      return false;
+    }
+    final challenged = McpOAuthService.bearerChallengeParameterForError(
+      error.wwwAuthenticate,
+      'insufficient_scope',
+      'scope',
+    );
+    if (challenged == null || challenged.trim().isEmpty) return false;
+    state.scopeEscalationAttempts[operation] = attempts + 1;
+    state.oauthChallenges = error.wwwAuthenticate;
+    state.additionalOAuthScopes.addAll(
+      (server.oauth?.scope ?? '')
+          .split(RegExp(r'\s+'))
+          .where((scope) => scope.isNotEmpty),
+    );
+    state.additionalOAuthScopes.addAll(
+      challenged.split(RegExp(r'\s+')).where((scope) => scope.isNotEmpty),
+    );
+    return true;
+  }
+
+  void _finishScopeUpgrade(_ServerConnection state, String operation) {
+    state.scopeEscalationAttempts.remove(operation);
+    if (state.scopeEscalationAttempts.isEmpty) {
+      state.oauthChallenges = const [];
+      state.additionalOAuthScopes.clear();
+    }
+  }
+
+  void _resetOAuthFlowState(_ServerConnection state) {
+    state.oauthChallenges = const [];
+    state.additionalOAuthScopes.clear();
+    state.scopeEscalationAttempts.clear();
+    state.reRegisterDynamicClient = false;
+  }
+
+  String _scopeOperationForTool(String toolName) => 'tools/call:$toolName';
+
+  Future<bool> _refreshOAuthAfterUnauthorized(
+    McpServerConfig server,
+    _ServerConnection state,
+  ) async {
+    if (_containsHeader(server.headers, 'authorization')) return false;
+    final before = server.oauth;
+    if (before?.refreshToken?.isNotEmpty != true) return false;
+    final active = state.oauthRefreshFuture;
+    if (active != null) {
+      await active;
+      return getById(server.id)?.oauth?.accessToken != before!.accessToken;
+    }
+
+    late final Future<McpOAuthState?> future;
+    future =
+        (() async {
+          final latest = getById(server.id);
+          final latestOAuth = latest?.oauth;
+          if (latestOAuth?.refreshToken?.isNotEmpty != true) return latestOAuth;
+          final generation = state.generation;
+          final refreshed = await _oauthService.refresh(latestOAuth!);
+          final persisted = await _persistOAuthState(
+            server.id,
+            refreshed,
+            expectedConnection: state,
+            expectedGeneration: generation,
+            expectedResource: latestOAuth.resource,
+            expectedAccessToken: latestOAuth.accessToken,
+          );
+          return persisted ? refreshed : getById(server.id)?.oauth;
+        })().whenComplete(() {
+          if (identical(state.oauthRefreshFuture, future)) {
+            state.oauthRefreshFuture = null;
+          }
+        });
+    state.oauthRefreshFuture = future;
+    await future;
+    return getById(server.id)?.oauth?.accessToken != before!.accessToken;
+  }
+
+  Future<mcp.Client?> _recoverOAuthClientAfterUnauthorized(
+    String id,
+    _ServerConnection state,
+    mcp.Client failedClient,
+  ) {
+    final active = state.oauthRecoveryFuture;
+    if (active != null) return active;
+    late final Future<mcp.Client?> future;
+    future =
+        (() async {
+          final server = getById(id);
+          if (server == null ||
+              !await _refreshOAuthAfterUnauthorized(server, state)) {
+            return null;
+          }
+          if (!identical(state.client, failedClient)) {
+            final current = state.client;
+            return current?.isConnected == true ? current : null;
+          }
+          final detached = _detachConnection(id);
+          await _finishDisconnect(detached, terminateSession: false);
+          if (_disposed || getById(id)?.enabled != true) return null;
+          return await _connect(id) ? state.client : null;
+        })().whenComplete(() {
+          if (identical(state.oauthRecoveryFuture, future)) {
+            state.oauthRecoveryFuture = null;
+          }
+        });
+    state.oauthRecoveryFuture = future;
+    return future;
+  }
+
+  bool _containsHeader(Map<String, String> headers, String name) =>
+      headers.keys.any((header) => header.toLowerCase() == name.toLowerCase());
+
+  static McpOAuthClientRegistration? _mergeOAuthClient(
+    McpOAuthClientRegistration? incoming,
+    McpOAuthClientRegistration? existing,
+  ) {
+    if (incoming == null) return existing;
+    if (incoming.clientSecret != null ||
+        existing == null ||
+        incoming.clientId != existing.clientId ||
+        incoming.authorizationServer != existing.authorizationServer ||
+        incoming.registrationSource != existing.registrationSource) {
+      return incoming;
+    }
+    return McpOAuthClientRegistration(
+      clientId: incoming.clientId,
+      clientSecret: existing.clientSecret,
+      tokenEndpointAuthMethod: incoming.tokenEndpointAuthMethod,
+      authorizationServer: incoming.authorizationServer,
+      redirectUri: incoming.redirectUri ?? existing.redirectUri,
+      registrationSource: incoming.registrationSource,
+    );
+  }
+
+  bool _isRemoteTransport(McpTransportType transport) =>
+      transport == McpTransportType.http || transport == McpTransportType.sse;
+
+  void _attachClient(
+    String id,
+    _ServerConnection state,
+    mcp.Client client,
+    int generation, {
+    WorkspaceStdioTransport? workspaceTransport,
+  }) {
+    client.onDisconnect.listen((_) {
+      if (_disposed ||
+          state.generation != generation ||
+          !identical(state.client, client)) {
         return;
       }
-      _clients[id] = client;
-      _status[id] = McpStatus.connected; _connectedServersDirty = true;
-      _errors.remove(id);
-      // debugPrint('[MCP/Connected] id=$id (${server.name})');
-      notifyListeners();
+      state.client = null;
+      final failed = workspaceTransport?.failed == true;
+      state.status = failed ? McpStatus.error : McpStatus.idle;
+      state.error = failed
+          ? workspaceTransport!.describeError('STDIO transport disconnected')
+          : null;
+      _notify();
+    });
+    client.onError.listen((error) {
+      if (_disposed ||
+          state.generation != generation ||
+          !identical(state.client, client)) {
+        return;
+      }
+      if (error is mcp.McpHttpError &&
+          error.isBackgroundRequest &&
+          error.statusCode == 404 &&
+          error.sessionIdPresent) {
+        if (_isRapidBackgroundSessionExpiry(state)) {
+          _stopBackgroundSessionRecovery(state, client, error);
+        } else {
+          state.lastBackgroundSessionRecoveryAt = DateTime.now();
+          _startBackgroundSessionRecovery(id, state, client);
+        }
+      } else if (error is mcp.McpHttpError && _requiresCooldown(error)) {
+        _enterCooldown(state, error.retryAfter);
+        _notify();
+      } else if (_looksUnauthorized(error)) {
+        unawaited(_handleClientAuthorizationError(id, state, client, error));
+      }
+    });
+    client.onToolsListChanged(() {
+      if (_disposed ||
+          state.generation != generation ||
+          !identical(state.client, client)) {
+        return;
+      }
+      unawaited(refreshTools(id));
+    });
+  }
 
-      // Try to refresh tools once connected
-      // debugPrint('[MCP/Tools] refreshing tools for id=$id ...');
-      await refreshTools(id);
-      // debugPrint('[MCP/Tools] refresh done for id=$id');
-
-      // Start/refresh heartbeat for this connection
-      if (!_disposed) _startHeartbeat(id);
-    } catch (e) {
-      if (_disposed) return;
-      // debugPrint('[MCP/Error] connect failed for id=$id (${server.name})');
-      // _logMcpException('connect', serverId: id, error: e, stack: st);
-      _status[id] = McpStatus.error; _connectedServersDirty = true;
-      _errors[id] = e.toString();
-      notifyListeners();
+  Future<void> _handleClientAuthorizationError(
+    String id,
+    _ServerConnection state,
+    mcp.Client client,
+    Object error,
+  ) async {
+    final server = getById(id);
+    if (server == null) return;
+    Object effectiveError = error;
+    _rememberOAuthChallenge(state, error);
+    if (_isHttpUnauthorized(error)) {
+      try {
+        if (await _recoverOAuthClientAfterUnauthorized(id, state, client) !=
+            null) {
+          return;
+        }
+      } catch (refreshError) {
+        effectiveError = refreshError;
+      }
     }
+    final requiresAuthorization = await _requiresOAuthAuthorization(
+      server,
+      state,
+      effectiveError,
+      operation: 'background',
+    );
+    if (_disposed || !identical(state.client, client)) {
+      return;
+    }
+    if (!requiresAuthorization) {
+      if (effectiveError is McpOAuthException ||
+          (effectiveError is mcp.McpHttpError &&
+              effectiveError.statusCode == 403)) {
+        state.client = null;
+        state.status = McpStatus.error;
+        state.error = effectiveError.toString();
+        client.dispose();
+        _notify();
+      }
+      return;
+    }
+    state.client = null;
+    state.status = McpStatus.needsAuthorization;
+    state.error = effectiveError.toString();
+    client.dispose();
+    _notify();
   }
 
   Future<void> updateRequestTimeout(
@@ -1899,90 +2476,135 @@ class McpProvider extends ChangeNotifier {
   }) async {
     if (duration.inMilliseconds <= 0) return;
     if (duration == _requestTimeout) return;
+    await _persistTimeout(duration);
     _requestTimeout = duration;
-    await _persistTimeout();
-    notifyListeners();
+    _notify();
     if (reconnectActive) {
-      for (final id in _clients.keys.toList()) {
-        if (_servers.any((s) => s.id == id && s.enabled)) {
-          unawaited(reconnect(id));
-        }
+      for (final state in _connections.values) {
+        state.client?.setRequestTimeout(duration);
       }
     }
   }
 
-  Future<void> disconnect(String id) async {
-    final client = _clients.remove(id);
-    try {
-      // debugPrint('[MCP/Disconnect] id=$id ...');
-      client?.disconnect();
-      // debugPrint('[MCP/Disconnect] id=$id done');
-    } catch (e) {
-      // debugPrint('[MCP/Error] disconnect failed for id=$id');
-      // _logMcpException('disconnect', serverId: id, error: e, stack: st);
-    }
-    _status[id] = McpStatus.idle; _connectedServersDirty = true;
-    _errors.remove(id);
-    _stopHeartbeat(id);
-    notifyListeners();
+  Future<void> disconnect(String id, {bool terminateSession = true}) async {
+    final detached = _detachConnection(id);
+    await _finishDisconnect(detached, terminateSession: terminateSession);
   }
 
-  Future<void> reconnect(String id) async {
-    await disconnect(id);
-    await connect(id);
-  }
+  _DetachedConnection _detachConnection(String id) {
+    final state = _connections.putIfAbsent(id, _ServerConnection.new);
+    state.generation++;
+    final active = state.connectFuture;
+    final client = state.client;
+    final initializingTransport = state.initializingTransport;
+    state.initializingTransport = null;
+    initializingTransport?.close();
+    state.authorizationFuture = null;
+    state.client = null;
+    state.status = McpStatus.idle;
+    state.error = null;
+    state.cooldown = null;
+    state.refreshDirty = false;
+    state.lastBackgroundSessionRecoveryAt = null;
+    state.sessionRecoveryFuture = null;
+    _notify();
 
-  Future<void> _reconnectWithBackoff(String id, {int? maxAttempts, int? baseIntervalMs}) async {
-    if (_reconnecting.contains(id)) return;
-    // Resolve per-server config
-    final server = _servers.cast<McpServerConfig?>().firstWhere(
-      (s) => s!.id == id, orElse: () => null,
+    return _DetachedConnection(
+      activeConnect: active,
+      client: client,
+      initializingTransport: initializingTransport,
     );
-    if (server != null && !server.autoReconnect) return; // auto-reconnect disabled
-    final attempts = maxAttempts ?? server?.maxReconnectAttempts ?? 3;
-    final baseMs = baseIntervalMs ?? server?.reconnectIntervalMs ?? 600;
-    _reconnecting.add(id);
-    try {
-      for (int attempt = 1; attempt <= attempts; attempt++) {
-        await reconnect(id);
-        if (isConnected(id)) return;
-        // Progressive backoff: baseMs * 2^(attempt-1)
-        final delayMs = baseMs * (1 << (attempt - 1));
-        await Future.delayed(Duration(milliseconds: delayMs));
-      }
-    } finally {
-      _reconnecting.remove(id);
-    }
   }
 
-  void _startHeartbeat(String id) {
-    _stopHeartbeat(id);
-    // In-memory servers live in-process; they never go down independently.
-    final server = _servers.cast<McpServerConfig?>().firstWhere(
-      (s) => s!.id == id, orElse: () => null,
-    );
-    if (server == null) return;
-    if (server.transport == McpTransportType.inmemory) return;
-    final interval = Duration(seconds: server.heartbeatIntervalSeconds);
-    _heartbeats[id] = Timer.periodic(interval, (t) async {
-      if (!isConnected(id)) return;
-      final client = _clients[id];
-      if (client == null) return;
+  Future<void> _finishDisconnect(
+    _DetachedConnection detached, {
+    required bool terminateSession,
+  }) async {
+    await detached.initializingTransport?.onClose;
+    final active = detached.activeConnect;
+    if (active != null) {
       try {
-        await client.listTools().timeout(
-          Duration(seconds: server.connectionTimeoutSeconds.clamp(5, 120)),
-        );
-      } catch (e) {
-        _status[id] = McpStatus.error; _connectedServersDirty = true;
-        _errors[id] = e.toString();
-        notifyListeners();
-        await _reconnectWithBackoff(id);
+        await active;
+      } catch (_) {}
+    }
+    final client = detached.client;
+    if (client != null) {
+      try {
+        if (terminateSession) await client.terminateSession();
+      } finally {
+        client.dispose();
       }
-    });
+    }
   }
 
-  void _stopHeartbeat(String id) {
-    _heartbeats.remove(id)?.cancel();
+  Future<bool> reconnect(String id) async {
+    if (_activeCooldown(_connections[id]) != null) return false;
+    await disconnect(id, terminateSession: true);
+    if (!await _connect(id)) return false;
+    await _awaitHttpSessionSettlement(id);
+    return isConnected(id);
+  }
+
+  Future<void> _awaitHttpSessionSettlement(String id) async {
+    for (var attempt = 0; attempt < 4; attempt++) {
+      if (_disposed) return;
+      final state = _connections[id];
+      if (state == null) return;
+
+      final connecting = state.connectFuture;
+      if (connecting != null) {
+        try {
+          await connecting;
+        } catch (_) {}
+        continue;
+      }
+
+      final client = state.client;
+      if (client != null) {
+        try {
+          await client.waitForBackgroundStream().timeout(_requestTimeout);
+        } catch (_) {}
+        await _yieldBackgroundSessionHandlers(state);
+      }
+
+      final recovery = state.sessionRecoveryFuture ?? state.connectFuture;
+      if (recovery != null) {
+        try {
+          await recovery;
+        } catch (_) {}
+        continue;
+      }
+      if (state.status == McpStatus.connecting) continue;
+      return;
+    }
+  }
+
+  Future<void> _yieldBackgroundSessionHandlers(_ServerConnection state) async {
+    for (var i = 0; i < 8; i++) {
+      await Future<void>.delayed(Duration.zero);
+      if (state.sessionRecoveryFuture != null ||
+          state.connectFuture != null ||
+          state.status == McpStatus.connecting ||
+          state.status == McpStatus.error) {
+        return;
+      }
+    }
+  }
+
+  void _startBackgroundSessionRecovery(
+    String id,
+    _ServerConnection state,
+    mcp.Client client,
+  ) {
+    final recovery = _recoverExpiredSession(id, state, client);
+    state.sessionRecoveryFuture = recovery;
+    unawaited(
+      recovery.whenComplete(() {
+        if (identical(state.sessionRecoveryFuture, recovery)) {
+          state.sessionRecoveryFuture = null;
+        }
+      }),
+    );
   }
 
   McpToolConfig? _toolConfig(String serverId, String toolName) {
@@ -2004,11 +2626,8 @@ class McpProvider extends ChangeNotifier {
       final cfg = _toolConfig(serverId, toolName);
       final schema = cfg?.schema;
       if (schema == null || schema.isEmpty) return args;
-      // Shallow copy instead of jsonDecode(jsonEncode(args)) deep clone.
-      // _normalizeBySchema already creates new maps/arrays when traversing,
-      // so the original args map is never mutated.
-      final input = Map<String, dynamic>.from(args);
-      var normalized = _normalizeBySchema(input, schema, propertyName: null);
+      final cloned = jsonDecode(jsonEncode(args)) as Map<String, dynamic>;
+      var normalized = _normalizeBySchema(cloned, schema, propertyName: null);
       if (normalized is! Map<String, dynamic>) return args;
       normalized = _normalizeSpecialCases(toolName, normalized);
       return normalized;
@@ -2274,104 +2893,223 @@ class McpProvider extends ChangeNotifier {
     return const [];
   }
 
-  Future<void> refreshTools(String id) async {
-    final client = _clients[id];
-    if (client == null) return;
-    try {
-      // debugPrint('[MCP/Tools] listTools() ...');
-      final tools = await client.listTools();
-      // debugPrint('[MCP/Tools] listTools() returned ${tools.length} tools');
-      // Preserve enabled state from existing config
-      final idx = _servers.indexWhere((e) => e.id == id);
-      if (idx < 0) return;
-      final existing = _servers[idx].tools;
-      final existingMap = {for (final t in existing) t.name: t};
+  /// Returns whether discovery completed successfully and updated the cache.
+  /// A successful discovery may return an empty tool list.
+  Future<bool> refreshTools(String id) {
+    final state = _connections[id];
+    if (state?.client == null || _disposed) return Future<bool>.value(false);
+    state!.refreshDirty = true;
+    final active = state.refreshFuture;
+    if (active != null) return active;
 
-      List<McpToolConfig> merged = [];
-      for (final t in tools) {
-        final prior = existingMap[t.name];
-        // Extract params from inputSchema if present
+    final future = _drainToolRefresh(id, state);
+    state.refreshFuture = future;
+    return future.whenComplete(() {
+      if (!identical(state.refreshFuture, future)) return;
+      state.refreshFuture = null;
+      if (state.refreshDirty && !_disposed) {
+        unawaited(refreshTools(id));
+      }
+    });
+  }
+
+  Future<bool> _drainToolRefresh(String id, _ServerConnection state) async {
+    var sessionRecoveries = 0;
+    while (state.refreshDirty && !_disposed) {
+      state.refreshDirty = false;
+      final failedClient = state.client;
+      final outcome = await _refreshToolsOnce(id, state);
+      if (outcome == _ToolRefreshOutcome.sessionExpired &&
+          sessionRecoveries++ == 0 &&
+          failedClient != null &&
+          await _recoverExpiredSession(id, state, failedClient) != null) {
+        state.refreshDirty = true;
+        continue;
+      }
+      if (outcome == _ToolRefreshOutcome.oauthRecovered) {
+        state.refreshDirty = true;
+        continue;
+      }
+      if (outcome != _ToolRefreshOutcome.success) return false;
+    }
+    return !_disposed && isConnected(id);
+  }
+
+  Future<_ToolRefreshOutcome> _refreshToolsOnce(
+    String id,
+    _ServerConnection state,
+  ) async {
+    final client = state.client;
+    if (client == null) return _ToolRefreshOutcome.failed;
+    final generation = state.generation;
+
+    if (client.serverCapabilities?.tools != true) {
+      await _persistToolList(id, state, client, const <mcp.Tool>[]);
+      if (_disposed ||
+          state.generation != generation ||
+          !identical(state.client, client)) {
+        return _ToolRefreshOutcome.failed;
+      }
+      state.status = McpStatus.connected;
+      state.error = null;
+      _finishScopeUpgrade(state, 'tools/list');
+      _notify();
+      return _ToolRefreshOutcome.success;
+    }
+
+    for (var attempt = 0; attempt < 3; attempt++) {
+      final cooldown = _activeCooldown(state);
+      if (cooldown != null) {
+        await Future<void>.delayed(cooldown.until.difference(DateTime.now()));
+      }
+      if (_disposed ||
+          state.generation != generation ||
+          !identical(state.client, client)) {
+        return _ToolRefreshOutcome.failed;
+      }
+
+      final startedAt = DateTime.now();
+      try {
+        final tools = await client.listTools();
+        if (_disposed ||
+            state.generation != generation ||
+            !identical(state.client, client)) {
+          return _ToolRefreshOutcome.failed;
+        }
+        await _persistToolList(id, state, client, tools);
+        if (_disposed ||
+            state.generation != generation ||
+            !identical(state.client, client)) {
+          return _ToolRefreshOutcome.failed;
+        }
+        state.status = McpStatus.connected;
+        state.error = null;
+        _finishScopeUpgrade(state, 'tools/list');
+        _clearCooldownAfterSuccess(state, startedAt);
+        _notify();
+        return _ToolRefreshOutcome.success;
+      } catch (error) {
+        if (_isRejectedSession(error)) {
+          return _ToolRefreshOutcome.sessionExpired;
+        }
+        Object effectiveError = error;
+        _rememberOAuthChallenge(state, error);
+        if (_isHttpUnauthorized(error)) {
+          try {
+            if (await _recoverOAuthClientAfterUnauthorized(id, state, client) !=
+                null) {
+              return _ToolRefreshOutcome.oauthRecovered;
+            }
+          } catch (refreshError) {
+            effectiveError = refreshError;
+          }
+        }
+        final server = getById(id);
+        if (server != null &&
+            await _requiresOAuthAuthorization(
+              server,
+              state,
+              effectiveError,
+              operation: 'tools/list',
+            )) {
+          if (identical(state.client, client)) state.client = null;
+          client.dispose();
+          state.status = McpStatus.needsAuthorization;
+          state.error = effectiveError.toString();
+          _notify();
+          return _ToolRefreshOutcome.failed;
+        }
+        if (effectiveError is mcp.McpHttpError &&
+            _requiresCooldown(effectiveError)) {
+          _enterCooldown(state, effectiveError.retryAfter);
+        }
+        if (_isSafeTransient(effectiveError) && attempt < 2) {
+          if (_activeCooldown(state) == null) {
+            await Future<void>.delayed(Duration(seconds: attempt == 0 ? 1 : 4));
+          }
+          continue;
+        }
+        if (effectiveError is McpOAuthException &&
+            identical(state.client, client)) {
+          state.client = null;
+          client.dispose();
+        }
+        state.status = McpStatus.error;
+        state.error = effectiveError.toString();
+        _notify();
+        return _ToolRefreshOutcome.failed;
+      }
+    }
+    return _ToolRefreshOutcome.failed;
+  }
+
+  Future<void> _persistToolList(
+    String id,
+    _ServerConnection state,
+    mcp.Client client,
+    List<mcp.Tool> tools,
+  ) async {
+    await _serializeServerMutation(() async {
+      if (!identical(state.client, client)) return;
+      final index = _servers.indexWhere((server) => server.id == id);
+      if (index < 0) return;
+      final existing = {
+        for (final tool in _servers[index].tools) tool.name: tool,
+      };
+      final merged = <McpToolConfig>[];
+      for (final tool in tools) {
+        final prior = existing[tool.name];
         final params = <McpParamSpec>[];
-        Map<String, dynamic>? schemaJson;
-        try {
-          final js = t.inputSchema;
-          schemaJson = js;
-          final props =
-              (js['properties'] as Map?)?.cast<String, dynamic>() ??
-              const <String, dynamic>{};
-          final req =
-              (js['required'] as List?)?.map((e) => e.toString()).toSet() ??
-              const <String>{};
-          props.forEach((key, val) {
-            String? ty;
-            dynamic defVal;
-            try {
-              final v = (val as Map).cast<String, dynamic>();
-              final ttype = v['type'];
-              if (ttype is String) {
-                ty = ttype;
-              } else if (ttype is List) {
-                ty = ttype.map((e) => e.toString()).join('|');
-              }
-              defVal = v['default'];
-            } catch (_) {}
-            params.add(
-              McpParamSpec(
-                name: key,
-                required: req.contains(key),
-                type: ty,
-                defaultValue: defVal,
-              ),
-            );
-          });
-        } catch (_) {}
-
+        final schema = tool.inputSchema;
+        final properties =
+            (schema['properties'] as Map?)?.cast<String, dynamic>() ??
+            const <String, dynamic>{};
+        final required =
+            (schema['required'] as List?)?.map((e) => e.toString()).toSet() ??
+            const <String>{};
+        for (final entry in properties.entries) {
+          final value = entry.value is Map
+              ? (entry.value as Map).cast<String, dynamic>()
+              : const <String, dynamic>{};
+          final type = value['type'];
+          params.add(
+            McpParamSpec(
+              name: entry.key,
+              required: required.contains(entry.key),
+              type: type is List
+                  ? type.map((e) => e.toString()).join('|')
+                  : type?.toString(),
+              defaultValue: value['default'],
+            ),
+          );
+        }
         merged.add(
           McpToolConfig(
             enabled: prior?.enabled ?? true,
-            name: t.name,
-            description: t.description,
+            name: tool.name,
+            description: tool.description,
             params: params,
-            schema: schemaJson,
-            needsApproval:
-                prior?.needsApproval ??
-                (_isBuiltinFilesServer(_servers[idx]) &&
-                        _builtinFileWriteToolNames.contains(t.name)) ||
-                    (_isBuiltinGithubServer(_servers[idx]) &&
-                        _builtinGithubWriteToolNames.contains(t.name)),
+            schema: schema,
+            needsApproval: prior?.needsApproval ?? false,
           ),
         );
       }
-
-      // Only persist + notify if the tool list actually changed
-      final oldTools = _servers[idx].tools;
-      final changed = oldTools.length != merged.length ||
-          !oldTools.every((t) {
-            final m = merged.firstWhere(
-              (m2) => m2.name == t.name,
-              orElse: () => t,
-            );
-            return m.enabled == t.enabled &&
-                m.needsApproval == t.needsApproval;
-          });
-      _servers[idx] = _servers[idx].copyWith(tools: merged);
-      if (changed) {
-        await _persist();
-        notifyListeners();
-      }
-    } catch (e) {
-      // debugPrint('[MCP/Tools] listTools() failed for id=$id');
-      // ignore tool refresh errors; status stays connected
-    }
+      final next = List<McpServerConfig>.of(_servers)
+        ..[index] = _servers[index].copyWith(tools: merged);
+      await _persistServers(next);
+      _servers = next;
+    });
   }
 
   Future<void> ensureConnected(String id) async {
     // Do not attempt to connect if the server is disabled
     final cfg = getById(id);
     if (cfg == null || !cfg.enabled) return;
-    if (isConnected(id)) return;
-    // Try a few times with short backoff in case server blips
-    await _reconnectWithBackoff(id, maxAttempts: 3);
+    if (isConnected(id) && cfg.oauth?.shouldRefresh() != true) return;
+    if (isConnected(id)) {
+      await disconnect(id, terminateSession: false);
+    }
+    await _connect(id);
   }
 
   Future<mcp.CallToolResult?> callTool(
@@ -2384,111 +3122,309 @@ class McpProvider extends ChangeNotifier {
       toolName: toolName,
       arguments: args,
     );
+    await ensureConnected(serverId);
+    final state = _connections[serverId];
+    if (state == null) {
+      _finishCallLog(
+        logId,
+        status: McpCallLogStatus.error,
+        error: 'Server is not connected.',
+      );
+      return null;
+    }
+    final cooldown = _activeCooldown(state);
+    if (cooldown != null) {
+      _finishCallLog(
+        logId,
+        status: McpCallLogStatus.error,
+        error: 'MCP server is temporarily unavailable.',
+      );
+      return _toolError(
+        'MCP server is temporarily unavailable; retry after '
+        '${cooldown.until.difference(DateTime.now()).inSeconds + 1} seconds.',
+      );
+    }
+    final client = state.client;
+    if (client == null) {
+      _finishCallLog(
+        logId,
+        status: McpCallLogStatus.error,
+        error: 'Server is not connected.',
+      );
+      return null;
+    }
+    final scopeOperation = _scopeOperationForTool(toolName);
+    final normalized = _normalizeArgsForTool(serverId, toolName, args);
+    final startedAt = DateTime.now();
     try {
-      await ensureConnected(serverId);
-      var client = _clients[serverId];
-      if (client == null) {
-        _finishCallLog(
-          logId,
-          status: McpCallLogStatus.error,
-          error: 'Server is not connected.',
-        );
-        return null;
-      }
-      // Normalize arguments based on tool schema (best-effort)
-      final normalized = _normalizeArgsForTool(serverId, toolName, args);
-      // if (normalized != args) {
-      //   debugPrint('[MCP/Call] serverId=$serverId tool=$toolName args(normalized)=${jsonEncode(normalized)}');
-      // } else {
-      //   debugPrint('[MCP/Call] serverId=$serverId tool=$toolName args=${jsonEncode(args)}');
-      // }
       final result = await client.callTool(toolName, normalized);
-      // Detailed call timing/content logging disabled
+      _finishScopeUpgrade(state, scopeOperation);
+      _clearCooldownAfterSuccess(state, startedAt);
       _finishCallLog(
         logId,
         status: McpCallLogStatus.success,
         resultPreview: _previewCallToolResult(result),
       );
       return result;
-    } catch (e) {
-      // debugPrint('[MCP/Call/Error] serverId=$serverId tool=$toolName');
-
-      // If this is a parameter validation error from the server, do NOT disconnect.
-      try {
-        if (e is mcp.McpError && (e.code == -32602)) {
-          // Keep connection healthy status; surface error to caller via null
-          _errors[serverId] = e.toString();
-          // debugPrint('[MCP/Call] invalid arguments; skipping reconnect');
-          _finishCallLog(
-            logId,
-            status: McpCallLogStatus.error,
-            error: e.toString(),
-          );
-          return null;
-        }
-      } catch (_) {}
-
-      _status[serverId] = McpStatus.error; _connectedServersDirty = true;
-      _errors[serverId] = e.toString();
-      notifyListeners();
-      // Auto-reconnect a few times and try once more
-      try {
-        await _reconnectWithBackoff(serverId, maxAttempts: 3);
-        if (!isConnected(serverId)) {
-          _finishCallLog(
-            logId,
-            status: McpCallLogStatus.error,
-            error: _errors[serverId] ?? 'Server did not reconnect.',
-            retried: true,
-          );
-          return null;
-        }
-        final client = _clients[serverId];
-        if (client == null) {
-          _finishCallLog(
-            logId,
-            status: McpCallLogStatus.error,
-            error: 'Server is not connected after retry.',
-            retried: true,
-          );
-          return null;
-        }
-        // debugPrint('[MCP/Call] retry serverId=$serverId tool=$toolName');
-        final normalized = _normalizeArgsForTool(serverId, toolName, args);
-        final result = await client.callTool(toolName, normalized);
-        // Detailed retry logging disabled
-        // Mark healthy again
-        _status[serverId] = McpStatus.connected; _connectedServersDirty = true;
-        _errors.remove(serverId);
-        notifyListeners();
-        _finishCallLog(
-          logId,
-          status: McpCallLogStatus.success,
-          resultPreview: _previewCallToolResult(result),
-          retried: true,
-        );
-        return result;
-      } catch (e2) {
-        // debugPrint('[MCP/Call/RetryError] serverId=$serverId tool=$toolName');
-        // Keep error state; give up
+    } catch (error) {
+      if (error is mcp.McpError && error.code == -32602) {
         _finishCallLog(
           logId,
           status: McpCallLogStatus.error,
-          error: e2.toString(),
-          retried: true,
+          error: error.toString(),
         );
-        return null;
+        return _toolError(error.toString());
       }
+      Object effectiveError = error;
+      _rememberOAuthChallenge(state, error);
+      if (_isHttpUnauthorized(error)) {
+        try {
+          final replacement = await _recoverOAuthClientAfterUnauthorized(
+            serverId,
+            state,
+            client,
+          );
+          if (replacement != null &&
+              (error as mcp.McpHttpError).canRetryRequest) {
+            try {
+              final result = await replacement.callTool(toolName, normalized);
+              _finishScopeUpgrade(state, scopeOperation);
+              return result;
+            } catch (retryError) {
+              effectiveError = retryError;
+            }
+          }
+        } catch (refreshError) {
+          effectiveError = refreshError;
+        }
+      }
+      final server = getById(serverId);
+      if (server != null &&
+          await _requiresOAuthAuthorization(
+            server,
+            state,
+            effectiveError,
+            operation: scopeOperation,
+          )) {
+        final activeClient = state.client;
+        state.client = null;
+        activeClient?.dispose();
+        state.status = McpStatus.needsAuthorization;
+        state.error = effectiveError.toString();
+        _notify();
+        return _toolError('MCP OAuth authorization is required.');
+        _finishCallLog(
+          logId,
+          status: McpCallLogStatus.error,
+          error:
+              _connections[serverId]?.error ?? 'OAuth authorization required.',
+        );
+      }
+      if (effectiveError is McpOAuthException && effectiveError.isTransient) {
+        final activeClient = state.client;
+        state.client = null;
+        activeClient?.dispose();
+        state.status = McpStatus.error;
+        state.error = effectiveError.toString();
+        _notify();
+        return _toolError(
+          'MCP OAuth token refresh failed temporarily. Please retry.',
+        );
+        _finishCallLog(
+          logId,
+          status: McpCallLogStatus.error,
+          error:
+              _connections[serverId]?.error ?? 'OAuth authorization required.',
+        );
+      }
+      if (effectiveError is mcp.McpHttpError &&
+          _requiresCooldown(effectiveError)) {
+        _enterCooldown(state, effectiveError.retryAfter);
+        _notify();
+        if (effectiveError.statusCode == 429) {
+          return _toolError('MCP server rate limited this request.');
+        }
+      }
+      if (_isRejectedSession(effectiveError)) {
+        final replacement = await _recoverExpiredSession(
+          serverId,
+          state,
+          client,
+        );
+        if (replacement != null) {
+          try {
+            final result = await replacement.callTool(toolName, normalized);
+            _finishScopeUpgrade(state, scopeOperation);
+            return result;
+          } catch (retryError) {
+            if (retryError is mcp.McpHttpError &&
+                _requiresCooldown(retryError)) {
+              _enterCooldown(state, retryError.retryAfter);
+              _notify();
+              if (retryError.statusCode == 429) {
+                return _toolError('MCP server rate limited this request.');
+              }
+            }
+            if (retryError is mcp.McpError && retryError.code != null) {
+              return _toolError(retryError.toString());
+            }
+            return _toolError(
+              'The MCP tool request may have been executed, but its result is '
+              'unknown. It was not retried. $retryError',
+            );
+          }
+        }
+      }
+      if (effectiveError is mcp.McpHttpError &&
+          effectiveError.statusCode == 403) {
+        return _toolError('MCP permission denied: $effectiveError');
+      }
+      if (effectiveError is mcp.McpError && effectiveError.code != null) {
+        return _toolError(effectiveError.toString());
+      }
+      return _toolError(
+        'The MCP tool request may have been executed, but its result is '
+        'unknown. It was not retried. $effectiveError',
+      );
     }
   }
 
+  Future<mcp.Client?> _recoverExpiredSession(
+    String id,
+    _ServerConnection state,
+    mcp.Client failedClient,
+  ) async {
+    if (_disposed || getById(id)?.enabled != true) return null;
+    if (!identical(state.client, failedClient)) {
+      final active = state.connectFuture;
+      if (active != null) {
+        try {
+          await active;
+        } catch (_) {}
+      }
+      final current = state.client;
+      return current?.isConnected == true ? current : null;
+    }
+
+    final previousConnect = state.connectFuture;
+    state.generation++;
+    state.client = null;
+    state.status = McpStatus.connecting;
+    state.error = null;
+    state.cooldown = null;
+
+    final server = getById(id);
+    if (server == null || !server.enabled || _disposed) {
+      failedClient.dispose();
+      return null;
+    }
+    try {
+      final connected = await _beginConnect(
+        id,
+        server,
+        state,
+        waitFor: previousConnect,
+      );
+      await failedClient.waitForPendingRequests();
+      return connected ? state.client : null;
+    } finally {
+      failedClient.dispose();
+    }
+  }
+
+  _Cooldown? _activeCooldown(_ServerConnection? state) {
+    final cooldown = state?.cooldown;
+    if (cooldown == null) return null;
+    if (!cooldown.until.isAfter(DateTime.now())) {
+      state!.cooldown = null;
+      return null;
+    }
+    return cooldown;
+  }
+
+  void _enterCooldown(_ServerConnection state, Duration? retryAfter) {
+    const minimum = Duration(seconds: 1);
+    var delay = retryAfter ?? const Duration(seconds: 30);
+    if (delay < minimum) delay = minimum;
+    final now = DateTime.now();
+    final until = now.add(delay);
+    final current = _activeCooldown(state);
+    state.cooldown = _Cooldown(
+      startedAt: now,
+      until: current != null && current.until.isAfter(until)
+          ? current.until
+          : until,
+    );
+  }
+
+  void _clearCooldownAfterSuccess(
+    _ServerConnection state,
+    DateTime requestStartedAt,
+  ) {
+    final cooldown = state.cooldown;
+    if (cooldown == null || !requestStartedAt.isAfter(cooldown.startedAt)) {
+      return;
+    }
+    state.cooldown = null;
+  }
+
+  bool _requiresCooldown(mcp.McpHttpError error) =>
+      error.statusCode == 429 ||
+      (error.statusCode >= 500 && error.retryAfter != null);
+
+  bool _isRapidBackgroundSessionExpiry(_ServerConnection state) {
+    final last = state.lastBackgroundSessionRecoveryAt;
+    return last != null &&
+        DateTime.now().difference(last) < _backgroundSessionRecoveryWindow;
+  }
+
+  void _stopBackgroundSessionRecovery(
+    _ServerConnection state,
+    mcp.Client client,
+    Object error,
+  ) {
+    if (_disposed || !identical(state.client, client)) return;
+    state.generation++;
+    state.client = null;
+    state.status = McpStatus.error;
+    state.error =
+        'MCP session stream failed again immediately after reconnect '
+        '($error). Reconnect manually.';
+    _notify();
+    client.dispose();
+  }
+
+  bool _isRejectedSession(Object error) =>
+      error is mcp.McpHttpError &&
+      error.statusCode == 404 &&
+      error.sessionIdPresent &&
+      error.canRetryRequest;
+
+  bool _isSafeTransient(Object error) {
+    if (error is mcp.McpHttpError) {
+      return error.statusCode == 408 ||
+          error.statusCode == 429 ||
+          error.statusCode >= 500;
+    }
+    if (error is! mcp.McpError || error.code != null) return false;
+    final message = error.message.toLowerCase();
+    return message.contains('timed out') ||
+        message.contains('transport') ||
+        message.contains('socket') ||
+        message.contains('connection') ||
+        message.contains('handshake');
+  }
+
+  mcp.CallToolResult _toolError(String message) =>
+      mcp.CallToolResult([mcp.TextContent(text: message)], isError: true);
+
+  void _notify() {
+    if (!_disposed) notifyListeners();
+  }
+
   List<McpToolConfig> getEnabledToolsForServers(Set<String> serverIds) {
-    // Only expose tools for servers that are both selected AND currently connected.
-    // Use the cached connectedServers list instead of scanning all servers.
     final tools = <McpToolConfig>[];
-    for (final s in connectedServers) {
-      if (!serverIds.contains(s.id)) continue;
-      // connectedServers already guarantees status == connected
+    for (final s in servers.where((s) => serverIds.contains(s.id))) {
       if (!s.enabled) continue;
       tools.addAll(s.tools.where((t) => t.enabled));
     }
@@ -2497,13 +3433,44 @@ class McpProvider extends ChangeNotifier {
 
   @override
   void dispose() {
+    if (_disposed) return;
     _disposed = true;
-    // Clean up timers
-    for (final t in _heartbeats.values) {
-      t.cancel();
+    workspaceRuntime?.removeListener(_onEnvironmentChanged);
+    environment?.removeListener(_onEnvironmentChanged);
+    workspaces?.removeListener(_onWorkspacesChanged);
+    for (final state in _connections.values) {
+      state.generation++;
+      state.initializingTransport?.close();
+      state.initializingTransport = null;
+      state.client?.dispose();
+      state.client = null;
     }
-    _heartbeats.clear();
+    _connections.clear();
+    if (_ownsOAuthService) _oauthService.dispose();
     super.dispose();
+  }
+
+  Future<List<Mount>> _stdioWorkspaceMounts(
+    McpServerConfig server,
+    _ServerConnection state,
+  ) async {
+    final workspaceId = server.workspaceId;
+    if (workspaceId == null) return const [];
+    final provider = workspaces!;
+    await provider.loaded;
+    final workspace = provider.byId(workspaceId);
+    state.workspace = workspace;
+    if (workspace == null) {
+      throw StateError(
+        'Bound workspace not found. Select another workspace or unbind it '
+        'in the MCP server settings.',
+      );
+    }
+    final root = await provider.hostRootFor(workspace);
+    if (!await Directory(root).exists()) {
+      throw StateError('Bound workspace folder is unavailable: $root');
+    }
+    return [Mount(host: root, guest: '/workspace')];
   }
 
   bool _isDesktopPlatform() {

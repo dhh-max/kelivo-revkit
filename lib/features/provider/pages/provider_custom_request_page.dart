@@ -27,18 +27,23 @@ class ProviderCustomRequestPage extends StatelessWidget {
       defaultName: providerDisplayName,
     );
 
-return Scaffold(
-       appBar: AppBar(
-         leadingWidth: 52,
+    return Scaffold(
+      appBar: AppBar(
+        leadingWidth: 52,
         leading: Padding(
           padding: const EdgeInsets.only(left: 8),
           child: IosIconButton(
-            icon: Lucide.ChevronLeft,
+            icon: Lucide.ArrowLeft,
+            size: 22,
+            semanticLabel: l10n.settingsPageBackButton,
             minSize: 44,
             onTap: () => Navigator.of(context).maybePop(),
           ),
         ),
-        title: Text(l10n.providerDetailPageCustomRequestTitle),
+        title: Text(
+          l10n.providerDetailPageCustomRequestTitle,
+          style: const TextStyle(fontSize: 16),
+        ),
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
@@ -55,8 +60,8 @@ return Scaffold(
           ProviderCustomRequestEditor(
             key: ValueKey('provider-custom-request-$providerKey'),
             showHeader: false,
-headers: _mapToEditorHeaders(config.customHeaders),
-             body: _mapToEditorBody(config.customBody),
+            headers: config.customHeaders,
+            body: config.customBody,
             onHeadersChanged: (rows) async {
               final old = settings.getProviderConfig(
                 providerKey,
@@ -64,7 +69,7 @@ headers: _mapToEditorHeaders(config.customHeaders),
               );
               await settings.setProviderConfig(
                 providerKey,
-                old.copyWith(modelOverrides: _copyWithHeaders(config.modelOverrides, _headersToList(rows))),
+                old.copyWith(customHeaders: rows),
               );
             },
             onBodyChanged: (rows) async {
@@ -74,42 +79,12 @@ headers: _mapToEditorHeaders(config.customHeaders),
               );
               await settings.setProviderConfig(
                 providerKey,
-                old.copyWith(modelOverrides: _copyWithBody(config.modelOverrides, _bodyToList(rows))),
+                old.copyWith(customBody: rows),
               );
             },
-),
-         ],
-       ),
-     );
-   }
-
-   static Map<String, dynamic> _copyWithHeaders(
-     Map<String, dynamic> ov,
-     List<Map<String, String>> rows,
-   ) {
-     return {
-       ...ov,
-       'headers': rows,
-     };
-   }
-
-   static Map<String, dynamic> _copyWithBody(
-     Map<String, dynamic> ov,
-     List<Map<String, String>> rows,
-   ) {
-     return {
-       ...ov,
-       'body': rows,
-     };
-   }
-
-   static List<Map<String, String>> _mapToEditorHeaders(Map<String, String> m) =>
-       m.entries.map((e) => {'name': e.key, 'value': e.value}).toList();
-
-   static List<Map<String, String>> _mapToEditorBody(Map<String, dynamic> m) =>
-       m.entries.map((e) => {'key': e.key.toString(), 'value': e.value.toString()}).toList();
-
-   static List<Map<String, String>> _headersToList(List<Map<String, String>> l) => l;
-
-   static List<Map<String, String>> _bodyToList(List<Map<String, String>> l) => l;
- }
+          ),
+        ],
+      ),
+    );
+  }
+}

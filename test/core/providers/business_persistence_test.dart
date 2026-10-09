@@ -1,21 +1,21 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:solab/core/models/assistant.dart';
-import 'package:solab/core/models/instruction_injection.dart';
-import 'package:solab/core/models/quick_phrase.dart';
-import 'package:solab/core/models/world_book.dart';
-import 'package:solab/core/providers/assistant_provider.dart';
-import 'package:solab/core/providers/backup_reminder_provider.dart';
-import 'package:solab/core/providers/instruction_injection_group_provider.dart';
-import 'package:solab/core/providers/instruction_injection_provider.dart';
-import 'package:solab/core/providers/mcp_provider.dart';
-import 'package:solab/core/providers/tag_provider.dart';
-import 'package:solab/core/providers/user_provider.dart';
-import 'package:solab/core/services/instruction_injection_store.dart';
-import 'package:solab/core/services/memory_store.dart';
-import 'package:solab/core/services/quick_phrase_store.dart';
-import 'package:solab/core/services/world_book_store.dart';
+import 'package:Kelivo/core/models/assistant.dart';
+import 'package:Kelivo/core/models/instruction_injection.dart';
+import 'package:Kelivo/core/models/quick_phrase.dart';
+import 'package:Kelivo/core/models/world_book.dart';
+import 'package:Kelivo/core/providers/assistant_provider.dart';
+import 'package:Kelivo/core/providers/backup_reminder_provider.dart';
+import 'package:Kelivo/core/providers/instruction_injection_group_provider.dart';
+import 'package:Kelivo/core/providers/instruction_injection_provider.dart';
+import 'package:Kelivo/core/providers/mcp_provider.dart';
+import 'package:Kelivo/core/providers/tag_provider.dart';
+import 'package:Kelivo/core/providers/user_provider.dart';
+import 'package:Kelivo/core/services/instruction_injection_store.dart';
+import 'package:Kelivo/core/services/memory_store.dart';
+import 'package:Kelivo/core/services/quick_phrase_store.dart';
+import 'package:Kelivo/core/services/world_book_store.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -243,17 +243,25 @@ void main() {
     final prompts = {for (final item in provider.items) item.id: item.prompt};
     expect(
       prompts['apk_mod_injection_modification_discipline'],
-      contains('nextInputPath'),
+      contains('outputPath 是后续唯一输入'),
     );
     expect(
       prompts['apk_mod_injection_modification_discipline'],
-      contains('第一次写操作'),
+      contains('单独调用直接执行'),
     );
     expect(
       prompts['apk_mod_injection_reference_analysis'],
       contains('DT_NEEDED'),
     );
     expect(prompts['apk_mod_injection_ask_first'], contains('500 条结果'));
+    expect(
+      prompts['apk_mod_injection_ask_first'],
+      contains('第一轮直接调用该工具'),
+    );
+    expect(
+      prompts['apk_mod_injection_ask_first'],
+      isNot(contains('并 route_task')),
+    );
     await session.close();
 
     final reopened = await fixture.open();
@@ -268,6 +276,58 @@ void main() {
       provider.items.map((e) => e.id).toSet(),
     );
     await reopened.close();
+  });
+
+  test('V9 migration upgrades stale seed texts including orphaned variants', () async {
+    final fixture = await BusinessPreferencesTestHarness.create();
+    addTearDown(fixture.dispose);
+    final session = await fixture.open();
+    final injections = InstructionInjectionStore(session.preferences);
+    // 手机端真实出现过的两条旧文本：V8 执行纪律（强制 route_task）与一段
+    // 从未进入种子映射表的历史修改铁律变体（孤儿文本，此前永远不会升级）。
+    await injections.save(const <InstructionInjection>[
+      InstructionInjection(
+        id: 'apk_mod_injection_ask_first',
+        title: '执行纪律',
+        group: 'SoLab 修改纪律',
+        prompt:
+            '执行纪律：先精读用户原话并 route_task，只加载本轮相关工具、知识和 Skill；长报告只读摘要、目标分区和一次必要分页，禁止把 500 条结果从头读完。调用前核对当前 tools/list 与参数定义；工具没出现就查可用工具列表或改走已声明入口，禁止编造工具名、参数或路径。同一源 APK 只用一个以 App 名称命名的工作区，返回的 outputPath/nextInputPath 原样传递。目标明确直接执行；只在目标不明、方案实质分歧、预览不符或缺少决定性线索时一次问全。',
+      ),
+      InstructionInjection(
+        id: 'apk_mod_injection_modification_discipline',
+        title: '修改操作铁律',
+        group: 'SoLab 修改纪律',
+        prompt:
+            '修改操作铁律：先用当前报告和最窄定位工具闭合证据，再执行唯一必要改点。签名兼容注入必须在业务修改之前完成，产物作为后续唯一输入；工具参数、预览和确认语义以当前写工具 schema 为准。直接 DEX/SO 写回后签名，只有解码目录、资源或 Manifest 改动才重建。',
+      ),
+    ]);
+    await session.preferences.setInt(
+      'apk_mod_knowledge_seed_version_instruction_injection',
+      8,
+    );
+
+    final provider = InstructionInjectionProvider(
+      preferences: session.preferences,
+    );
+    addTearDown(provider.dispose);
+    await provider.initialize();
+
+    final prompts = {for (final item in provider.items) item.id: item.prompt};
+    expect(
+      prompts['apk_mod_injection_ask_first'],
+      contains('第一轮直接调用该工具'),
+    );
+    expect(
+      prompts['apk_mod_injection_modification_discipline'],
+      contains('单独调用直接执行'),
+    );
+    expect(
+      session.preferences.getInt(
+        'apk_mod_knowledge_seed_version_instruction_injection',
+      ),
+      9,
+    );
+    await session.close();
   });
 
   test(

@@ -1,3 +1,4 @@
+import '../utils/token_estimator.dart';
 import 'chat_message.dart';
 import '../../utils/utf16_safe_cut.dart';
 
@@ -102,31 +103,6 @@ int compressRequestCharBudget({
   final chars = (window * (1.0 - reserveFraction) * charsPerToken).floor();
   if (chars < 1) return 1;
   return chars < safeRequestChars ? chars : safeRequestChars;
-}
-
-/// Read a context-window token count from a model-override map.
-///
-/// Kelivo has no first-class [ModelInfo] context field; some imports /
-/// overrides may still store one of these keys.
-int? readModelContextWindowTokens(Map<String, dynamic>? override) {
-  if (override == null || override.isEmpty) return null;
-  const keys = <String>[
-    'contextWindow',
-    'context_window',
-    'maxContextTokens',
-    'max_context_tokens',
-    'contextLength',
-    'context_length',
-  ];
-  for (final key in keys) {
-    final raw = override[key];
-    if (raw is num && raw > 0) return raw.toInt();
-    if (raw is String) {
-      final parsed = int.tryParse(raw.trim());
-      if (parsed != null && parsed > 0) return parsed;
-    }
-  }
-  return null;
 }
 
 String buildCompressContextContent(
@@ -357,6 +333,43 @@ List<ChatMessage> selectKeepRecentMessages(
   return messages.sublist(userIndices[userIndices.length - keepUserMessages]);
 }
 
+/// 自动压缩的保留预算（tokens）：窗口的 15%，下限 8K、上限 120K。
+///
+/// 为什么按 token 预算而不是「保留 N 轮」（2026-10-05 用户问「参考项目也这样
+/// 吗」）：轮数在两种极端下都不对——一轮里贴进大文档时 3 轮也远超预算；反之
+/// 几十轮短问答又留得太少、白白多压。按预算保留是主流做法（Claude Code /
+/// Cline 的 auto-compact 都按「保留最近窗口占比」），与触发阈值同单位、可推理。
+int autoCompactKeepBudgetTokens(int contextWindowTokens) {
+  if (contextWindowTokens <= 0) return 8000;
+  final raw = (contextWindowTokens * 0.15).round();
+  return raw.clamp(8000, 120000);
+}
+
+/// 按 **token 预算**保留尾部消息（自动压缩用）。
+///
+/// 从最新往回累计 [estimateTokens]，直到加上下一条会超预算；至少保留最后一条
+/// 非空 user 消息（保证「刚才在做什么」始终在保留区里）。返回子列表——调用方
+/// 用 `active.length - 结果.length` 求要摘要的区间。
+List<ChatMessage> selectKeepRecentByTokenBudget(
+  List<ChatMessage> messages,
+  int budgetTokens,
+) {
+  if (messages.isEmpty || budgetTokens <= 0) return const <ChatMessage>[];
+  var used = 0;
+  var start = messages.length;
+  for (var i = messages.length - 1; i >= 0; i--) {
+    final cost = estimateTokens(messages[i].content);
+    if (start < messages.length && used + cost > budgetTokens) break;
+    used += cost;
+    start = i;
+  }
+  final lastUser = messages.lastIndexWhere(
+    (m) => m.role == 'user' && m.content.trim().isNotEmpty,
+  );
+  if (lastUser >= 0 && lastUser < start) start = lastUser;
+  return messages.sublist(start);
+}
+
 /// Number of user messages in a collapsed list (role 'user', non-empty
 /// content) — the count that [selectKeepRecentMessages] counts against.
 int countUserMessages(List<ChatMessage> messages) {
@@ -386,25 +399,6 @@ class CompressionTokenEstimate {
   final int keptTokens;
   final int minResultTokens;
   final int maxResultTokens;
-}
-
-bool _isCjkRune(int rune) {
-  return (rune >= 0x2E80 && rune <= 0x9FFF) ||
-      (rune >= 0xF900 && rune <= 0xFAFF) ||
-      (rune >= 0xFF00 && rune <= 0xFFEF);
-}
-
-int _estimateCharsToTokens(String text) {
-  var cjk = 0;
-  var other = 0;
-  for (final rune in text.runes) {
-    if (_isCjkRune(rune)) {
-      cjk++;
-    } else {
-      other++;
-    }
-  }
-  return (cjk / 1.6 + other / 4).round();
 }
 
 /// Conservative detector for provider context-window / prompt-too-long errors.
@@ -531,7 +525,7 @@ CompressionTokenEstimate estimateCompressionTokens({
   required String totalText,
   required String keptText,
 }) {
-  final totalTokens = _estimateCharsToTokens(totalText);
+  final totalTokens = estimateTokens(totalText);
   final totalChars = totalText.length;
   if (totalChars == 0) {
     return const CompressionTokenEstimate(

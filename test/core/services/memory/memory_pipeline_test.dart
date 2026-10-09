@@ -1,23 +1,26 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:solab/core/database/app_database.dart';
-import 'package:solab/core/database/business_data.dart';
-import 'package:solab/core/database/business_preferences.dart';
-import 'package:solab/core/database/business_repository.dart';
-import 'package:solab/core/database/chat_database_repository.dart';
-import 'package:solab/core/models/assistant.dart';
-import 'package:solab/core/models/chat_message.dart';
-import 'package:solab/core/models/message_part.dart';
-import 'package:solab/core/models/memory_entry.dart';
-import 'package:solab/core/providers/assistant_provider.dart';
-import 'package:solab/core/providers/memory_provider_v2.dart';
-import 'package:solab/core/providers/settings_provider.dart';
-import 'package:solab/core/services/chat/chat_service.dart';
-import 'package:solab/core/services/memory/memory_gatekeeper.dart';
-import 'package:solab/core/services/memory/memory_pipeline.dart';
-import 'package:solab/core/services/memory/memory_prompts.dart';
-import 'package:solab/core/services/memory/memory_repository.dart';
+import 'package:Kelivo/core/database/app_database.dart';
+import 'package:Kelivo/core/database/business_data.dart';
+import 'package:Kelivo/core/database/business_preferences.dart';
+import 'package:Kelivo/core/database/business_repository.dart';
+import 'package:Kelivo/core/database/chat_database_repository.dart';
+import 'package:Kelivo/core/models/assistant.dart';
+import 'package:Kelivo/core/models/reasoning_request.dart';
+import 'package:Kelivo/core/models/chat_message.dart';
+import 'package:Kelivo/core/models/message_part.dart';
+import 'package:Kelivo/core/models/memory_entry.dart';
+import 'package:Kelivo/core/providers/assistant_provider.dart';
+import 'package:Kelivo/core/providers/memory_provider_v2.dart';
+import 'package:Kelivo/core/providers/settings_provider.dart';
+import 'package:Kelivo/core/services/chat/chat_service.dart';
+import 'package:Kelivo/core/services/memory/memory_gatekeeper.dart';
+import 'package:Kelivo/core/services/memory/memory_pipeline.dart';
+import 'package:Kelivo/core/services/memory/memory_prompts.dart';
+import 'package:Kelivo/core/services/memory/memory_repository.dart';
+import 'package:Kelivo/core/services/workspace/project_scope.dart';
+import 'package:Kelivo/features/home/services/context_usage_service.dart';
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -53,6 +56,8 @@ void main() {
   late MemoryRepository memoryRepository;
   late ChatService chatService;
   late SettingsProvider settings;
+  late AssistantProvider assistants;
+  late MemoryProviderV2 memoryV2;
   late MemoryPipelineService pipeline;
   late Directory tempDir;
   late PathProviderPlatform previousPathProvider;
@@ -90,13 +95,13 @@ void main() {
       cfg.copyWith(models: ['gpt-test']),
     );
 
-    final assistants = AssistantProvider(
+    assistants = AssistantProvider(
       preferences: preferences,
       chatService: chatService,
     );
     await assistants.loaded;
 
-    final memoryV2 = MemoryProviderV2(
+    memoryV2 = MemoryProviderV2(
       repository: memoryRepository,
       chatRepository: chatRepository,
     );
@@ -113,7 +118,8 @@ void main() {
             required ProviderConfig config,
             required String modelId,
             required String prompt,
-            int? thinkingBudget,
+            String? conversationId,
+            ReasoningRequest reasoning = ReasoningRequest.auto,
           }) async =>
               throw StateError('use processWindow llmCall in these tests'),
     );
@@ -423,7 +429,7 @@ void main() {
           if (step == 2) {
             return '''
 <extracted>
-<item type="identity">用户是大学生，学习软件工程。</item>
+<item type="workflow">处理混淆崩溃先确认 keep 规则覆盖反射入口。</item>
 </extracted>
 ''';
           }
@@ -441,10 +447,47 @@ void main() {
       expect(convo.lastMemoryExtractedOrder, 7);
       final entries = await chatRepository.queryVisibleMemories(
         assistantId: 'a1',
-        type: MemoryType.identity,
+        type: MemoryType.workflow,
       );
       expect(entries, isNotEmpty);
       expect(entries.first.source, MemorySource.extracted);
+    });
+
+    test('identity / voice items never reach Smart Add', () async {
+      await seedAssistant('a1');
+      final convo = await chatService.createConversation(
+        title: 't',
+        assistantId: 'a1',
+      );
+      var calls = 0;
+      final result = await pipeline.processWindow(
+        conversationId: convo.id,
+        assistant: assistant(mode: MemorySmartAddMode.perItem),
+        settings: settings,
+        watermark: -1,
+        window: sampleWindow(conversationId: convo.id, endOrder: 6),
+        llmCall: (prompt) async {
+          calls++;
+          if (calls == 1) {
+            return '<gate><user_memory>true</user_memory></gate>';
+          }
+          return '''
+<extracted>
+<item type="identity">用户是大学生。</item>
+<item type="voice">语气要简短。</item>
+</extracted>
+''';
+        },
+      );
+      expect(result.advanced, isTrue);
+      expect(result.extractedCount, 2);
+      // 白名单把两类条目全部挡在 Smart Add 之前：只有 Gate + Extract 两次调用。
+      expect(calls, 2);
+      final entries = await chatRepository.queryVisibleMemories(
+        assistantId: 'a1',
+      );
+      expect(entries, isEmpty);
+      expect(convo.lastMemoryExtractedOrder, 6);
     });
 
     test('user prompt override is used for Gatekeeper', () async {
@@ -504,4 +547,272 @@ void main() {
       expect(convo.lastMemoryExtractedOrder, 9);
     });
   });
+
+  group('background run project scope (工作区隔离)', () {
+    tearDown(ProjectScope.clearActive);
+
+    /// 全流程 stub：Gate → Extract（一条 workflow）→（无候选，本地 NEW）。
+    Future<String> Function(String) scriptedLlm({
+      required void Function() onGate,
+    }) {
+      var step = 0;
+      return (prompt) async {
+        step++;
+        if (step == 1) {
+          onGate();
+          return '<gate><user_memory>true</user_memory></gate>';
+        }
+        if (step == 2) {
+          return '<extracted><item type="workflow">改包前先确认 keep 规则覆盖反射入口。</item></extracted>';
+        }
+        return jsonEncode({
+          'action': 'NEW',
+          'targetId': null,
+          'mergedContent': null,
+          'relatedIds': <String>[],
+        });
+      };
+    }
+
+    MemoryPipelineService pipelineWith({
+      ConversationProjectResolver? resolver,
+      required Future<String> Function(String prompt) llm,
+    }) {
+      return MemoryPipelineService(
+        chatService: chatService,
+        repository: memoryRepository,
+        chatRepository: chatRepository,
+        settings: () => settings,
+        assistants: () => assistants,
+        memoryV2: () => memoryV2,
+        resolveConversationProject: resolver,
+        generateText:
+            ({
+              required ProviderConfig config,
+              required String modelId,
+              required String prompt,
+              String? conversationId,
+              ReasoningRequest reasoning = ReasoningRequest.auto,
+            }) => llm(prompt),
+      );
+    }
+
+    Future<List<MemoryEntry>> workflowEntries() async => (await memoryRepository
+            .readAll())
+        .where((entry) => entry.type == MemoryType.workflow)
+        .toList(growable: false);
+
+    /// 通过 provider 建助手：runNow/scheduleIfNeeded 会去 provider 里查助手
+    /// （直接写 preferences 的 [seedAssistant] 只对显式传 assistant 的
+    /// processWindow 路径有效）。
+    Future<Assistant> addMemoryAssistant() async {
+      final id = await assistants.addAssistant(name: 'A1');
+      final created = assistants.getById(id)!;
+      final updated = created.copyWith(
+        enableMemory: true,
+        autoOrganizeMemory: true,
+        memorySmartAddMode: MemorySmartAddMode.perItem,
+        memoryWriteScope: MemoryWriteScope.alwaysGlobal,
+      );
+      await assistants.updateAssistant(updated);
+      return updated;
+    }
+
+    /// runNow 走真实落库的消息（processWindow 的合成 window 不适用）。
+    Future<void> seedTurns(String conversationId) async {
+      await chatService.addMessage(
+        conversationId: conversationId,
+        role: 'user',
+        content: '我是大学生，学软件工程。',
+      );
+      await chatService.addMessage(
+        conversationId: conversationId,
+        role: 'assistant',
+        content: '了解了。',
+      );
+    }
+
+    test('入队后切工作区，落库仍打「入队时那条会话的工作区」', () async {
+      // 回归：打标过去读的是进程级活动项目（最后一次生成），后台任务排队/等模型
+      // 期间用户切工作区，就会把 A 会话的经验写进 B 工作区。
+      final ai = await addMemoryAssistant();
+      final convo = await chatService.createConversation(
+        title: 'A 工作区会话',
+        assistantId: ai.id,
+      );
+      ProjectScope.activeId = 'p-a';
+      await seedTurns(convo.id);
+      final scoped = pipelineWith(
+        llm: scriptedLlm(onGate: () => ProjectScope.activeId = 'p-b'),
+      );
+
+      final result = await scoped.runNow(
+        conversationId: convo.id,
+        assistantId: ai.id,
+      );
+
+      expect(result.advanced, isTrue, reason: '${result.error}');
+      final entries = await workflowEntries();
+      expect(entries, hasLength(1));
+      expect(
+        entries.single.projectId,
+        'p-a',
+        reason: '打标必须跟着任务所属工作区，不跟进程级活动项目',
+      );
+    });
+
+    test('注入的会话解析器优先于环境态活动项目', () async {
+      final ai = await addMemoryAssistant();
+      final convo = await chatService.createConversation(
+        title: 'C 工作区会话',
+        assistantId: ai.id,
+      );
+      ProjectScope.activeId = 'p-b';
+      await seedTurns(convo.id);
+      final scoped = pipelineWith(
+        resolver: (conversationId) async => (id: 'p-c', root: null),
+        llm: scriptedLlm(onGate: () {}),
+      );
+
+      final result = await scoped.runNow(
+        conversationId: convo.id,
+        assistantId: ai.id,
+      );
+
+      expect(result.advanced, isTrue, reason: '${result.error}');
+      expect((await workflowEntries()).single.projectId, 'p-c');
+    });
+
+    test('解析器说「这条会话没绑工作区」时不回落到过期的活动项目', () async {
+      // 否则「切到无工作区会话再发一轮」会把 A 的经验标成 A 之外/全局。
+      final ai = await addMemoryAssistant();
+      final convo = await chatService.createConversation(
+        title: '无工作区会话',
+        assistantId: ai.id,
+      );
+      ProjectScope.activeId = 'p-b';
+      await seedTurns(convo.id);
+      final scoped = pipelineWith(
+        resolver: (conversationId) async => (id: null, root: null),
+        llm: scriptedLlm(onGate: () {}),
+      );
+
+      final result = await scoped.runNow(
+        conversationId: convo.id,
+        assistantId: ai.id,
+      );
+
+      expect(result.advanced, isTrue, reason: '${result.error}');
+      expect(
+        (await workflowEntries()).single.projectId,
+        isNull,
+        reason: '未绑定工作区 = 全局，不能猜成别的项目',
+      );
+    });
+
+    test('解析器抛错时回落到入队时捕获的活动项目', () async {
+      final ai = await addMemoryAssistant();
+      final convo = await chatService.createConversation(
+        title: '解析失败的会话',
+        assistantId: ai.id,
+      );
+      ProjectScope.activeId = 'p-a';
+      await seedTurns(convo.id);
+      final scoped = pipelineWith(
+        resolver: (conversationId) async => throw StateError('resolver boom'),
+        llm: scriptedLlm(onGate: () {}),
+      );
+
+      final result = await scoped.runNow(
+        conversationId: convo.id,
+        assistantId: ai.id,
+      );
+
+      expect(result.advanced, isTrue, reason: '${result.error}');
+      expect((await workflowEntries()).single.projectId, 'p-a');
+    });
+
+    test('用量 hash 用显式项目钉住：环境态变了也不漂', () async {
+      // 回归：切工作区后重算的 hash 若取环境态，会与请求期不同 → 精确锚定作废。
+      await seedAssistant('a1');
+      ProjectScope.activeId = 'p-a';
+      await memoryRepository.create(
+        scope: MemoryScope.global,
+        type: MemoryType.workflow,
+        content: 'A 工作区的结论',
+        source: MemorySource.tool,
+      );
+      final assistantForHash = assistant();
+
+      final pinnedA = await readContextMemorySnapshotHash(
+        repository: chatRepository,
+        settings: settings,
+        assistant: assistantForHash,
+        projectId: 'p-a',
+        useAmbientProject: false,
+      );
+      final pinnedNone = await readContextMemorySnapshotHash(
+        repository: chatRepository,
+        settings: settings,
+        assistant: assistantForHash,
+        projectId: null,
+        useAmbientProject: false,
+      );
+      // 环境态切到别的工作区：显式项目的结果不变。
+      ProjectScope.activeId = 'p-b';
+      final pinnedAAgain = await readContextMemorySnapshotHash(
+        repository: chatRepository,
+        settings: settings,
+        assistant: assistantForHash,
+        projectId: 'p-a',
+        useAmbientProject: false,
+      );
+
+      expect(pinnedA, isNotNull);
+      expect(pinnedAAgain, pinnedA, reason: '显式项目与环境态无关');
+      expect(
+        pinnedNone,
+        isNot(pinnedA),
+        reason: '无项目的会话看不到 A 工作区的结论',
+      );
+    });
+  });
+
+  group('quota cooldown tiering (user-facing repeated-toast fix)', () {
+    test('monthly usage limit parses Resets-in-days into day-scale cooldown', () {
+      final err =
+          'gate_request_failed:HttpException: HTTP 429: {"error":{"type":'
+          '"GoUsageLimitError","message":"Monthly usage limit reached. '
+          'Resets in 6 days. To continue using this model now, enable usage '
+          'from your available balance."}}';
+      expect(MemoryPipelineService.isPermanentQuotaError(err), isTrue);
+      final cooldown = MemoryPipelineService.quotaCooldownFor(err);
+      // 6 天 + 2h 余量，封顶 7 天。
+      expect(cooldown.inHours, 6 * 24 + 2);
+    });
+
+    test('monthly without reset days falls back to 24h; unknown stays 6h', () {
+      expect(
+        MemoryPipelineService.quotaCooldownFor(
+          'HTTP 429: Monthly usage limit reached.',
+        ).inHours,
+        24,
+      );
+      expect(
+        MemoryPipelineService.quotaCooldownFor(
+          'HTTP 429: hourly rate limit exceeded',
+        ).inHours,
+        MemoryPipelineService.quotaCooldownDuration.inHours,
+      );
+    });
+
+    test('quota_cooldown skip is not a task failure (no repeated toast)', () {
+      // 回归：冷却内每条消息曾被当任务失败冒泡弹「记忆失败：quota_cooldown」。
+      expect(
+        MemoryPipelineService.skipReasonCodes.contains('quota_cooldown'),
+        isTrue,
+      );
+    });
+  });
 }
+

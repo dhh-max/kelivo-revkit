@@ -44,7 +44,22 @@ class GptMarkdown extends StatelessWidget {
     this.components,
     this.inlineComponents,
     this.useDollarSignsForLatex = false,
+    this.preprocessBlocks,
+    this.generation,
+    this.textBuilder,
+    this.streaming = false,
+    this.spanBuilder,
+    this.newlinesNormalized = false,
   });
+
+  /// The caller has already normalized CR/CRLF, or proved they are absent.
+  final bool newlinesNormalized;
+
+  /// Allows plain append reuse for Markdown components with delimiter-based syntax.
+  final bool streaming;
+
+  /// Custom presentation of a parsed rich-text paragraph.
+  final Widget Function(Text text)? textBuilder;
 
   /// The direction of the text.
   final TextDirection textDirection;
@@ -148,6 +163,15 @@ class GptMarkdown extends StatelessWidget {
   /// ```
   final List<MarkdownComponent>? inlineComponents;
 
+  /// See [GptMarkdownConfig.preprocessBlocks].
+  final String Function(String text)? preprocessBlocks;
+
+  /// Optional spans for a block whose caller already parsed its structure.
+  final List<InlineSpan> Function(BuildContext, GptMarkdownConfig)? spanBuilder;
+
+  /// See [GptMarkdownConfig.generation].
+  final Object? generation;
+
   /// A method to remove extra lines inside block LaTeX.
   // String _removeExtraLinesInsideBlockLatex(String text) {
   //   return text.replaceAllMapped(
@@ -161,7 +185,10 @@ class GptMarkdown extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    String tex = data.replaceAll('\r\n', '\n').replaceAll('\r', '\n').trim();
+    String tex =
+        !newlinesNormalized && data.contains('\r')
+            ? data.replaceAll('\r\n', '\n').replaceAll('\r', '\n').trim()
+            : data.trim();
     if (useDollarSignsForLatex) {
       tex = tex.replaceAllMapped(
         RegExp(r"(?<!\\)\$\$(.*?)(?<!\\)\$\$", dotAll: true),
@@ -207,6 +234,11 @@ class GptMarkdown extends StatelessWidget {
           components: components,
           inlineComponents: inlineComponents,
           tableBuilder: tableBuilder,
+          preprocessBlocks: preprocessBlocks,
+          generation: generation,
+          textBuilder: textBuilder,
+          streaming: streaming,
+          spanBuilder: spanBuilder,
         ),
       ),
     );

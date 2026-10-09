@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/features/solab_apk/analyzer/analyzer_api.dart';
-import 'package:solab/features/solab_apk/analyzer/analyzer_gateway_impl.dart';
-import 'package:solab/features/solab_apk/analyzer/analyzer_index.dart';
+import 'package:Kelivo/features/solab_apk/analyzer/analyzer_api.dart';
+import 'package:Kelivo/features/solab_apk/analyzer/analyzer_gateway_impl.dart';
+import 'package:Kelivo/features/solab_apk/analyzer/analyzer_index.dart';
 
 /// VIP_CHAIN_001：600 万 token 事故基准回归。
 ///

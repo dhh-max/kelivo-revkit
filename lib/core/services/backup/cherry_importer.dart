@@ -48,7 +48,7 @@ class CherryImporter {
   static Future<CherryImportResult> importFromCherryStudio({
     required File file,
     required RestoreMode mode,
-    BusinessRepository? businessRepository,
+    required BusinessRepository businessRepository,
     required ChatService chatService,
     BackupProgressSink? onProgress,
     BackupCancelToken? cancelToken,
@@ -751,7 +751,7 @@ class CherryImporter {
         'contextMessageSize': ctxCount ?? 64,
         'limitContextMessages': true,
         'streamOutput': streamOutput ?? true,
-        'thinkingBudget': null,
+        'reasoning': null,
         'maxTokens': maxTokens,
         'systemPrompt': prompt,
         'messageTemplate': '{{ message }}',
@@ -769,12 +769,12 @@ class CherryImporter {
   }
 
   static Future<void> _importBusinessData({
-    BusinessRepository? businessRepository,
+    required BusinessRepository businessRepository,
     required RestoreMode mode,
     required Map<String, Map<String, dynamic>> providers,
     required List<Map<String, dynamic>> assistants,
   }) {
-    return businessRepository!.transformSnapshot((current) {
+    return businessRepository.transformSnapshot((current) {
       final settings = BusinessSettingsRouter.exportSnapshot(current);
       if (mode == RestoreMode.overwrite) {
         settings[_providersKey] = jsonEncode(providers);

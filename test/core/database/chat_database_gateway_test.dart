@@ -1,8 +1,8 @@
 import 'dart:io';
 
-import 'package:solab/core/database/chat_database_gateway.dart';
-import 'package:solab/core/database/chat_database_observer.dart';
-import 'package:solab/core/database/business_data.dart';
+import 'package:Kelivo/core/database/chat_database_gateway.dart';
+import 'package:Kelivo/core/database/chat_database_observer.dart';
+import 'package:Kelivo/core/database/business_data.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

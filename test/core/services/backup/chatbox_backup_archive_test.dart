@@ -5,8 +5,10 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 
-import 'package:solab/core/services/backup/chatbox_backup_archive.dart';
+import 'package:Kelivo/core/services/backup/chatbox_backup_archive.dart';
+import 'package:Kelivo/utils/sandbox_path_resolver.dart';
 
 void main() {
   late Directory root;
@@ -60,7 +62,9 @@ void main() {
           ((session['messages'] as List)[1] as Map)['contentParts'] as List;
       expect(
         (image[1] as Map)['url'],
-        '${root.path}/dest/resource-000001-${sha256.convert(png)}.png',
+        SandboxPathResolver.canonicalize(
+          p.join(root.path, 'dest', 'resource-000001-${sha256.convert(png)}.png'),
+        ),
       );
       expect(result.stagedResourceFiles, hasLength(1));
       expect(await result.stagedResourceFiles.single.readAsBytes(), png);

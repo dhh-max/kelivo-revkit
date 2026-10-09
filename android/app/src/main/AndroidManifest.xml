@@ -1,10 +1,16 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <!-- Photo access for picking images -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <!-- R9 自动验收：PackageInstaller 会话安装（系统安装器执行安装 + 系统验签） -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
-    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <!-- Android 10 及以下无「所有文件访问」开关，走旧版存储权限写工作目录 -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
+    <!-- SoLab APK 写公共存储（工作目录=MT 工作目录），Android 11+ 需「所有文件访问」特殊授权 -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
     <uses-permission android:name="android.permission.VIBRATE"/>
     <!-- Microphone access for voice input waveform -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
@@ -12,13 +18,42 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- 上游 1.2.6 新增：Android 16 起了「推广通知」独立权限 -->
+    <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
+    <!-- 自研保活：WakeLock 防 Doze 限流；电池优化豁免由用户显式开启常驻时引导 -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- Assistant local tools: calendar query/create -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <uses-permission android:name="android.permission.WRITE_CALENDAR" />
+    <!-- 上游 1.2.6 新增：位置类本地工具（一次性前台定位） -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-feature android:name="android.hardware.location" android:required="false" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+    <uses-feature android:name="android.hardware.location.network" android:required="false" />
+    <!-- Assistant local tools: screen time. Special permission granted by the
+         user via the 'Usage access' settings page (opened by the tool). -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+    <!-- OS auto-backup/device-transfer can restore a partial SQLite file
+         family (db without -wal, receipt without db), which the fail-closed
+         startup gate rejects. SoLab ships its own backup (WebDAV/S3/local
+         export), so system backup is disabled. -->
     <application
         android:label="Kelivo"
-        android:name="${applicationName}"
+        android:name="com.psyche.kelivo.KelivoApplication"
+        android:appCategory="productivity"
         android:allowBackup="false"
         android:fullBackupContent="false"
         android:usesCleartextTraffic="true"
         android:requestLegacyExternalStorage="true"
+        android:largeHeap="true"
         android:icon="@mipmap/ic_launcher">
         <activity
             android:name=".MainActivity"
@@ -46,26 +81,9 @@
                 <category android:name="android.intent.category.DEFAULT"/>
                 <data android:mimeType="text/plain"/>
             </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.SEND"/>
-                <category android:name="android.intent.category.DEFAULT"/>
-                <data android:mimeType="text/*"/>
-                <data android:mimeType="image/*"/>
-                <data android:mimeType="application/pdf"/>
-                <data android:mimeType="application/zip"/>
-                <data android:mimeType="application/octet-stream"/>
-            </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.SEND_MULTIPLE"/>
-                <category android:name="android.intent.category.DEFAULT"/>
-                <data android:mimeType="image/*"/>
-                <data android:mimeType="application/pdf"/>
-                <data android:mimeType="application/zip"/>
-                <data android:mimeType="application/octet-stream"/>
-            </intent-filter>
         </activity>
         <activity
-            android:name=".McpOAuthCallbackActivity"
+            android:name="com.psyche.kelivo.OAuthCallbackActivity"
             android:excludeFromRecents="true"
             android:exported="true"
             android:launchMode="singleTask"
@@ -79,15 +97,68 @@
                 <data android:scheme="psyche.kelivo" android:host="mcp-oauth-callback"/>
             </intent-filter>
         </activity>
-        <!-- Foreground service to keep Flutter isolate alive for background generation -->
+        <!-- Custom Tabs binds here only while its authorization window is visible. -->
         <service
-            android:name="de.julianassmann.flutter_background.IsolateHolderService"
+            android:name="com.psyche.kelivo.OAuthBrowserService"
+            android:exported="true" />
+        <!-- 无障碍「手机控制」工具（上游 1.3.0）。类在 com.psyche.kelivo 包下，
+             本应用 namespace 是 zhou.solab，故此处必须写全限定名。 -->
+        <service
+            android:name="com.psyche.kelivo.PhoneControlService"
+            android:label="@string/phone_control_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/phone_control_service" />
+        </service>
+        <!-- A separate process keeps Android SQLite handles separate from Drift's
+             native SQLite connection and works without starting a Flutter engine. -->
+        <provider
+            android:name="com.psyche.kelivo.workspace.WorkspaceDocumentsProvider"
+            android:authorities="${applicationId}.workspace.documents"
+            android:exported="true"
+            android:grantUriPermissions="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS"
+            android:process=":workspace_documents">
+            <intent-filter>
+                <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
+            </intent-filter>
+        </provider>
+        <receiver android:name="com.psyche.kelivo.scheduled.ScheduledTaskReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
+            </intent-filter>
+        </receiver>
+        <!-- Foreground service to keep Flutter isolate alive for background generation -->
+        <!-- 自研保活前台服务（FGS + WakeLock + WifiLock）：agent 模式生成期持有，MCP 模式常驻开关。
+             specialUse：Android 15 的 dataSync 有 6h 强限时（到时 FGS 被停→进程冻结→后台工具失效），
+             本服务用途为「局域网 MCP 工具服务器保活」，属 specialUse 场景，不受限时。 -->
+        <service
+            android:name="zhou.solab.KeepAliveService"
             android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="dataSync|specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="MCP tool server keep-alive (local device automation endpoint)" />
+        </service>
         <activity
             android:name="com.yalantis.ucrop.UCropActivity"
             android:screenOrientation="portrait"
             android:theme="@style/Ucrop.CropTheme" />
+        <!-- M5: Blutter 离线 Flutter AOT 分析隔离进程（每作业一进程，完成后 stopSelf） -->
+        <service
+            android:name="zhou.solab.blutter.BlutterRunnerService"
+            android:exported="false"
+            android:isolatedProcess="true"
+            android:process=":blutter" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data
@@ -100,6 +171,14 @@
 
          In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
     <queries>
+        <!-- 手机控制 list_apps/open_app 需要能查询可启动应用（Android 11+ 包可见性） -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.support.customtabs.action.CustomTabsService" />
+        </intent>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>

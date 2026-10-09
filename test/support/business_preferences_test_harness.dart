@@ -1,8 +1,8 @@
 import 'dart:io';
 
-import 'package:solab/core/database/app_database.dart';
-import 'package:solab/core/database/business_preferences.dart';
-import 'package:solab/core/database/business_repository.dart';
+import 'package:Kelivo/core/database/app_database.dart';
+import 'package:Kelivo/core/database/business_preferences.dart';
+import 'package:Kelivo/core/database/business_repository.dart';
 import 'package:drift/native.dart';
 
 final class BusinessPreferencesTestHarness {

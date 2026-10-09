@@ -3,13 +3,13 @@ import 'dart:convert';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/core/database/app_database.dart';
-import 'package:solab/core/database/business_preferences.dart';
-import 'package:solab/core/database/business_data.dart';
-import 'package:solab/core/database/business_repository.dart';
-import 'package:solab/core/database/business_restore_service.dart';
-import 'package:solab/core/database/business_settings_router.dart';
-import 'package:solab/core/services/instruction_injection_store.dart';
+import 'package:Kelivo/core/database/app_database.dart';
+import 'package:Kelivo/core/database/business_preferences.dart';
+import 'package:Kelivo/core/database/business_data.dart';
+import 'package:Kelivo/core/database/business_repository.dart';
+import 'package:Kelivo/core/database/business_restore_service.dart';
+import 'package:Kelivo/core/database/business_settings_router.dart';
+import 'package:Kelivo/core/services/instruction_injection_store.dart';
 
 void main() {
   late AppDatabase database;
@@ -87,6 +87,49 @@ void main() {
 
     expect(await service.exportSettings(), before);
   });
+
+  for (final merge in [false, true]) {
+    test(
+      'invalid prompt cache key setting leaves existing data intact during ${merge ? 'merge' : 'overwrite'}',
+      () async {
+        await service.overwrite({
+          'provider_configs_v1': jsonEncode({
+            'old': {
+              'id': 'old',
+              'apiKey': 'old-key',
+              'promptCacheKeyEnabled': true,
+            },
+          }),
+          'providers_order_v1': ['old'],
+          'theme_mode_v1': 'light',
+        });
+        final before = await service.exportSettings();
+        for (final invalidValue in <Object>['true', 1, [], {}]) {
+          final incoming = <String, Object?>{
+            'provider_configs_v1': jsonEncode({
+              'incoming': {
+                'id': 'incoming',
+                'promptCacheKeyEnabled': invalidValue,
+              },
+            }),
+            'providers_order_v1': ['incoming'],
+            'theme_mode_v1': 'dark',
+          };
+          await expectLater(
+            merge ? service.merge(incoming) : service.overwrite(incoming),
+            throwsA(
+              isA<FormatException>().having(
+                (error) => error.message,
+                'setting key',
+                'provider_configs_v1',
+              ),
+            ),
+          );
+          expect(await service.exportSettings(), before);
+        }
+      },
+    );
+  }
 
   test('overwrite preserves an explicitly empty instruction list', () async {
     await service.overwrite({

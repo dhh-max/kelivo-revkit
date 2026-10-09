@@ -2,9 +2,9 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/core/database/business_settings_router.dart';
-import 'package:solab/core/providers/settings_provider.dart';
-import 'package:solab/theme/chat_bubble_style.dart';
+import 'package:Kelivo/core/database/business_settings_router.dart';
+import 'package:Kelivo/core/providers/settings_provider.dart';
+import 'package:Kelivo/theme/chat_bubble_style.dart';
 
 import 'support/business_test_harness.dart';
 

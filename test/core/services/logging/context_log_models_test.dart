@@ -1,6 +1,6 @@
-import 'package:solab/core/services/logging/context_log_models.dart';
-import 'package:solab/core/services/memory/memory_block_builder.dart';
-import 'package:solab/core/services/memory/memory_prompts.dart';
+import 'package:Kelivo/core/services/logging/context_log_models.dart';
+import 'package:Kelivo/core/services/memory/memory_block_builder.dart';
+import 'package:Kelivo/core/services/memory/memory_prompts.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

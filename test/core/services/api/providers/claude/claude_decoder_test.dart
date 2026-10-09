@@ -1,8 +1,8 @@
 import 'dart:convert';
 
-import 'package:solab/core/services/api/providers/claude/claude_decoder.dart';
-import 'package:solab/core/services/api/stream/sse_event.dart';
-import 'package:solab/core/services/api/stream/stream_chunk.dart';
+import 'package:Kelivo/core/services/api/providers/claude/claude_decoder.dart';
+import 'package:Kelivo/core/services/api/stream/sse_event.dart';
+import 'package:Kelivo/core/services/api/stream/stream_chunk.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 SseEvent _event(String type, Map<String, dynamic> data) {
@@ -379,10 +379,11 @@ void main() {
           },
         }),
       );
-      expect(decoder.usage!.promptTokens, 25);
+      expect(decoder.usage!.promptTokens, 40);
       expect(decoder.usage!.completionTokens, 1);
-      expect(decoder.usage!.cachedTokens, 15);
-      expect(start.chunks.whereType<Usage>().single.usage.promptTokens, 25);
+      expect(decoder.usage!.cachedTokens, 5);
+      expect(decoder.usage!.cacheWriteTokens, 10);
+      expect(start.chunks.whereType<Usage>().single.usage.promptTokens, 40);
 
       final delta = decoder.accept(
         _event('message_delta', {
@@ -391,19 +392,21 @@ void main() {
           'usage': {'output_tokens': 15},
         }),
       );
-      expect(decoder.usage!.promptTokens, 25);
+      expect(decoder.usage!.promptTokens, 40);
       expect(decoder.usage!.completionTokens, 15);
-      expect(decoder.usage!.cachedTokens, 15);
-      expect(decoder.usage!.totalTokens, 40);
+      expect(decoder.usage!.cachedTokens, 5);
+      expect(decoder.usage!.cacheWriteTokens, 10);
+      expect(decoder.usage!.totalTokens, 55);
       final streamed = delta.chunks.whereType<Usage>().single.usage;
-      expect(streamed.promptTokens, 25);
+      expect(streamed.promptTokens, 40);
       expect(streamed.completionTokens, 15);
-      expect(streamed.cachedTokens, 15);
-      expect(streamed.totalTokens, 40);
+      expect(streamed.cachedTokens, 5);
+      expect(streamed.cacheWriteTokens, 10);
+      expect(streamed.totalTokens, 55);
     },
   );
 
-  test('follow-up decoder usage is the cumulative snapshot', () {
+  test('follow-up decoder usage is the last round only', () {
     final first = ClaudeStreamDecoder();
     first.accept(
       _event('message_start', {
@@ -454,13 +457,13 @@ void main() {
       }),
     );
 
-    expect(second.usage!.promptTokens, 400);
-    expect(second.usage!.completionTokens, 60);
-    expect(second.usage!.totalTokens, 460);
+    expect(second.usage!.promptTokens, 300);
+    expect(second.usage!.completionTokens, 40);
+    expect(second.usage!.totalTokens, 340);
     final streamed = follow.chunks.whereType<Usage>().single.usage;
-    expect(streamed.promptTokens, 400);
-    expect(streamed.completionTokens, 60);
-    expect(streamed.totalTokens, 460);
+    expect(streamed.promptTokens, 300);
+    expect(streamed.completionTokens, 40);
+    expect(streamed.totalTokens, 340);
   });
 
   test('a follow-up round without usage keeps the prior snapshot', () {

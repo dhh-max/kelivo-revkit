@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/core/models/assistant.dart';
+import 'package:Kelivo/core/models/assistant.dart';
 
 void main() {
   group('Assistant memory fields (§4.1)', () {
@@ -14,6 +14,22 @@ void main() {
       expect(a.allowPastConversationRecall, isFalse);
       expect(a.generateConversationSummary, isFalse);
       expect(a.appendCurrentTimeToUserMessage, isFalse);
+      expect(a.useIso8601TimeFormat, isFalse);
+    });
+
+    test('time format defaults off and survives serialization and copies', () {
+      final a = Assistant.fromJson({'id': 'a', 'name': 'A'});
+      expect(a.useIso8601TimeFormat, isFalse);
+      final enabled = a.copyWith(useIso8601TimeFormat: true);
+      final restored = Assistant.decodeList(
+        Assistant.encodeList([enabled]),
+      ).single;
+      expect(restored.useIso8601TimeFormat, isTrue);
+      expect(restored.copyWith(name: 'B').useIso8601TimeFormat, isTrue);
+      expect(
+        restored.copyWith(useIso8601TimeFormat: false).useIso8601TimeFormat,
+        isFalse,
+      );
     });
 
     test('fromJson maps legacy enableRecentChatsReference', () {

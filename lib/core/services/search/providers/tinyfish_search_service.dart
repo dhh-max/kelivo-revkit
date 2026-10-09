@@ -51,12 +51,9 @@ class TinyFishSearchService extends SearchService<TinyFishOptions> {
         serviceOptions.resolvedUrl,
       ).replace(queryParameters: params);
 
-      final response = await SearchService.withHttpClient(
+      final response = await withHttpClient(
         (client) => client
-            .get(
-              uri,
-              headers: {'X-API-Key': apiKey},
-            )
+            .get(uri, headers: {'X-API-Key': apiKey})
             .timeout(Duration(milliseconds: commonOptions.timeout)),
       );
 

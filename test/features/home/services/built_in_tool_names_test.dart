@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/core/services/memory/memory_tools.dart';
-import 'package:solab/core/services/search/search_tool_service.dart';
-import 'package:solab/features/home/services/built_in_tool_names.dart';
-import 'package:solab/core/services/local_tools/local_tool_names.dart';
+import 'package:Kelivo/core/services/memory/memory_tools.dart';
+import 'package:Kelivo/core/services/search/search_tool_service.dart';
+import 'package:Kelivo/features/home/services/built_in_tool_names.dart';
+import 'package:Kelivo/core/services/local_tools/local_tool_names.dart';
 
 void main() {
   test('BuiltInToolNames.all reserves search, memory, and local names', () {

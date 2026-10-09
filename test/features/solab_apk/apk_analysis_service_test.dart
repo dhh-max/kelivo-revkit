@@ -4,8 +4,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:solab/features/solab_apk/services/apk_analysis_service.dart';
-import 'package:solab/features/solab_apk/services/apk_workspace_binding_service.dart';
+import 'package:Kelivo/features/solab_apk/services/apk_analysis_service.dart';
+import 'package:Kelivo/features/solab_apk/services/apk_workspace_binding_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

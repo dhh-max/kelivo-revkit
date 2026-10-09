@@ -1,18 +1,81 @@
+import 'dart:async';
+
+import '../../../../utils/mcp_structured_image.dart';
 import '../../../models/token_usage.dart';
+import '../chat_api_helpers.dart';
 import '../stream/stream_chunk.dart';
 import '../stream/stream_chunk_emit.dart';
-/// Local typedef matching Kelivo's ToolCallHandler signature.
-typedef ToolCallHandler =
-    Future<String> Function(
-      String name,
-      Map<String, dynamic> arguments, {
-      String? toolCallId,
-    });
-final class ExecutedClientTool {
-  const ExecutedClientTool({required this.call, required this.content});
-  final EmitToolCall call;
-  final String content;
+
+/// 工具调用循环的最大轮数硬顶（2026-09-15 审核新增）。
+///
+/// 此前两个 runner 都没有全局上限：LoopGuard 只拦「同参数精确重复」，
+/// ApkAnalysisGuard 只覆盖 APK 工具且可自动续期——换参数的无效探索、
+/// file/外部 MCP 工具不受任何预算约束，模型异常时会无限循环空耗 token。
+/// 达到上限时：当前批次工具照常执行并回填（保证 transcript 里每个
+/// tool_call 都有结果，不破坏协议），随后直接 finish，不再发起新轮次。
+/// 单轮工具循环的轮数上限。
+///
+/// 2026-09-21 用户定案："去除所有限制，只保留熔断机制防止模型死循环"。
+/// 30 轮这种工作性上限已拆掉——它过去还会**静默**收尾（见下面两处到顶
+/// 提示），是"安静停了"的元凶。这里留下的是**兜底量级**的值：正常任务
+/// 永远碰不到，只防跑飞。防"原地打转"由环路闸门（ToolCallLoopGuard，
+/// 同参重复即拦）负责。
+const int kMaxToolLoopRounds = 5000;
+
+/// Wraps one round's HTTP call so the caller can retry transient failures.
+typedef StreamRoundRunner =
+    Stream<StreamChunk> Function(Stream<StreamChunk> Function() sendRound);
+
+/// Tag the first usage of each HTTP round, including non-stream responses
+/// whose usage is only available after parsing. Tagging happens outside the
+/// retry runner so bookkeeping cannot disable retries of empty failed attempts.
+/// Hosts reset [usageOf] for each request so it never returns an earlier round.
+Stream<StreamChunk> _withRequestUsage(
+  Stream<StreamChunk> source,
+  TokenUsage? Function()? usageOf,
+) async* {
+  var startsRequest = true;
+  await for (final chunk in source) {
+    if (chunk is Usage) {
+      yield Usage(chunk.usage, startsRequest: startsRequest);
+      startsRequest = false;
+    } else {
+      yield chunk;
+    }
+  }
+  final usage = usageOf?.call();
+  if (usage != null || startsRequest) {
+    // Missing usage must not count the preceding request again.
+    yield Usage(usage ?? const TokenUsage(), startsRequest: startsRequest);
+  }
 }
+
+final class ExecutedClientTool {
+  const ExecutedClientTool({
+    required this.call,
+    required this.content,
+    this.metadata,
+  });
+
+  final EmitToolCall call;
+
+  /// Markdown / plain text sent back to the model and persisted as content.
+  final String content;
+
+  /// Result metadata (e.g. `mcpResult`). Merged with [call.metadata] on emit.
+  final Map<String, dynamic>? metadata;
+}
+
+EmitToolResult _emitExecuted(ExecutedClientTool item) {
+  return emitToolResult(
+    id: item.call.id,
+    name: item.call.name,
+    arguments: item.call.arguments,
+    content: item.content,
+    metadata: mergeToolResultMetadata(item.call.metadata, item.metadata),
+  );
+}
+
 /// Execute [calls] and yield [ToolCallResult]s (and optionally [ToolCall*]).
 Stream<StreamChunk> executeClientTools({
   required List<EmitToolCall> calls,
@@ -25,92 +88,112 @@ Stream<StreamChunk> executeClientTools({
   if (emitCalls) {
     yield* emitToolCalls(calls, usage: usage, totalTokens: totalTokens);
   }
-  final results = <EmitToolResult>[];
+  final executed = <ExecutedClientTool>[];
   for (final call in calls) {
-    final content = await onToolCall(
-      call.name,
-      call.arguments,
-      toolCallId: call.id,
-    );
-    results.add(
-      emitToolResult(
-        id: call.id,
-        name: call.name,
-        arguments: call.arguments,
-        content: content,
-        metadata: call.metadata,
-      ),
-    );
+    executed.add(await _executeClientTool(call, onToolCall));
   }
-  yield* emitToolResults(results, usage: usage, totalTokens: totalTokens);
+  yield* emitToolResults(
+    [for (final item in executed) _emitExecuted(item)],
+    usage: usage,
+    totalTokens: totalTokens,
+  );
 }
+
 /// After-round client-tool loop: execute → append → send follow-up → repeat.
+///
+/// The host owns protocol-specific HTTP and transcript shape. This runner
+/// owns execute + [ToolCallResult] emit + the loop.
+///
+/// Two entries stay on purpose. [runProviderToolRounds] owns the first HTTP
+/// round via [sendRound] (Claude / Gemini). OpenAI's first round is consumed
+/// by the caller (`await for` SSE or one-shot JSON); only later rounds enter
+/// [runClientToolFollowUps]. Unifying stream/non-stream return types does not
+/// change who drives the first request, so these cannot merge.
 Stream<StreamChunk> runClientToolFollowUps({
   required List<EmitToolCall> initialCalls,
   required ToolCallHandler onToolCall,
-  required void Function(List<ExecutedClientTool> executed) append,
+  required FutureOr<void> Function(List<ExecutedClientTool> executed) append,
   required Stream<StreamChunk> Function() sendFollowUp,
   required List<EmitToolCall> Function() takeCallsAfterRound,
   required Stream<StreamChunk> Function() finish,
   bool emitCalls = false,
   TokenUsage? Function()? usageOf,
+  StreamRoundRunner? retryRound,
+  int maxRounds = kMaxToolLoopRounds,
 }) async* {
   var calls = List<EmitToolCall>.from(initialCalls);
+  var rounds = 0;
   while (calls.isNotEmpty) {
     final usage = usageOf?.call();
     final totalTokens = usage?.totalTokens ?? 0;
     final executed = <ExecutedClientTool>[];
+    // Do not clear [emitCalls] after the first round. OpenAI non-stream
+    // follow-ups have no decoder emitting ToolCall*, so later rounds would
+    // otherwise land as ToolCallResult-only cards with empty name/args.
     if (emitCalls) {
       yield* emitToolCalls(calls, usage: usage, totalTokens: totalTokens);
     }
     for (final call in calls) {
-      executed.add(
-        ExecutedClientTool(
-          call: call,
-          content: await onToolCall(
-            call.name,
-            call.arguments,
-            toolCallId: call.id,
-          ),
-        ),
-      );
+      executed.add(await _executeClientTool(call, onToolCall));
     }
     yield* emitToolResults(
-      [
-        for (final item in executed)
-          emitToolResult(
-            id: item.call.id,
-            name: item.call.name,
-            arguments: item.call.arguments,
-            content: item.content,
-            metadata: item.call.metadata,
-          ),
-      ],
+      [for (final item in executed) _emitExecuted(item)],
       usage: usage,
       totalTokens: totalTokens,
     );
-    append(executed);
-    yield* sendFollowUp();
+    await append(executed);
+    yield* _withRequestUsage(
+      retryRound?.call(sendFollowUp) ?? sendFollowUp(),
+      usageOf,
+    );
     calls = takeCallsAfterRound();
   }
   yield* finish();
 }
-/// In-round loop used by Claude / Gemini.
+
+/// In-round loop used by Claude / Gemini: send (and maybe execute mid-stream),
+/// then append and repeat until [takeCalls] and [continueWithoutCalls] are both
+/// empty/false.
 Stream<StreamChunk> runProviderToolRounds({
   required Stream<StreamChunk> Function() sendRound,
   required List<EmitToolCall> Function() takeCalls,
-  required void Function(List<ExecutedClientTool> executed) append,
+  required FutureOr<void> Function(List<ExecutedClientTool> executed) append,
   required bool Function() continueWithoutCalls,
   required Stream<StreamChunk> Function() finish,
   ToolCallHandler? onToolCall,
   bool emitCalls = false,
   bool executeAfterRound = true,
   TokenUsage? Function()? usageOf,
+  StreamRoundRunner? retryRound,
+  int maxRounds = kMaxToolLoopRounds,
 }) async* {
+  var rounds = 0;
   while (true) {
-    yield* sendRound();
+    yield* _withRequestUsage(
+      retryRound?.call(sendRound) ?? sendRound(),
+      usageOf,
+    );
     final calls = takeCalls();
     if (calls.isEmpty && !continueWithoutCalls()) {
+      yield* finish();
+      return;
+    }
+    // 调用方自己拥有循环（子代理循环：它要自己控步数、类别与取消，因此不传
+    // onToolCall）：把这一轮的调用如实 emit 出去，然后收尾。
+    //
+    // 绝不能落进下面的执行块——没有工具结果可回填，append 是空表，下一轮
+    // 请求与这一轮逐字相同，只会拿回同一个调用。2026-09-30 端到端复现：
+    // 旧代码在这里既不发调用也不执行，子代理看到的是一段空结论，
+    // 于是「指派他，他说 OK，其实什么工作都不干」。
+    if (calls.isNotEmpty && onToolCall == null) {
+      final usage = usageOf?.call();
+      if (emitCalls) {
+        yield* emitToolCalls(
+          calls,
+          usage: usage,
+          totalTokens: usage?.totalTokens ?? 0,
+        );
+      }
       yield* finish();
       return;
     }
@@ -122,32 +205,31 @@ Stream<StreamChunk> runProviderToolRounds({
         yield* emitToolCalls(calls, usage: usage, totalTokens: totalTokens);
       }
       for (final call in calls) {
-        executed.add(
-          ExecutedClientTool(
-            call: call,
-            content: await onToolCall(
-              call.name,
-              call.arguments,
-              toolCallId: call.id,
-            ),
-          ),
-        );
+        executed.add(await _executeClientTool(call, onToolCall));
       }
       yield* emitToolResults(
-        [
-          for (final item in executed)
-            emitToolResult(
-              id: item.call.id,
-              name: item.call.name,
-              arguments: item.call.arguments,
-              content: item.content,
-              metadata: item.call.metadata,
-            ),
-        ],
+        [for (final item in executed) _emitExecuted(item)],
         usage: usage,
         totalTokens: totalTokens,
       );
     }
-    append(executed);
+    await append(executed);
   }
+}
+
+Future<ExecutedClientTool> _executeClientTool(
+  EmitToolCall call,
+  ToolCallHandler onToolCall,
+) async {
+  final raw = await onToolCall(
+    call.name,
+    call.arguments,
+    toolCallId: call.id,
+  );
+  final parsed = ClientToolResult.fromHandler(raw);
+  return ExecutedClientTool(
+    call: call,
+    content: parsed.content,
+    metadata: parsed.metadata,
+  );
 }

@@ -9,14 +9,14 @@ import 'package:flutter_highlight/themes/github.dart';
 import 'package:highlight/highlight.dart' show Node, highlight;
 import 'package:provider/provider.dart';
 
-import 'package:solab/core/providers/settings_provider.dart';
-import 'package:solab/core/services/haptics.dart';
-import 'package:solab/icons/lucide_adapter.dart';
-import 'package:solab/l10n/app_localizations.dart';
-import 'package:solab/shared/utils/format_bytes.dart';
-import 'package:solab/shared/widgets/ios_tactile.dart';
-import 'package:solab/shared/widgets/snackbar.dart';
-import 'package:solab/theme/app_font_weights.dart';
+import 'package:Kelivo/core/providers/settings_provider.dart';
+import 'package:Kelivo/core/services/haptics.dart';
+import 'package:Kelivo/icons/lucide_adapter.dart';
+import 'package:Kelivo/l10n/app_localizations.dart';
+import 'package:Kelivo/shared/utils/format_bytes.dart';
+import 'package:Kelivo/shared/widgets/ios_tactile.dart';
+import 'package:Kelivo/shared/widgets/snackbar.dart';
+import 'package:Kelivo/theme/app_font_weights.dart';
 
 import 'preview_file_type.dart';
 import 'paged_text_file_view.dart';

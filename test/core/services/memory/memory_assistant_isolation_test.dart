@@ -1,16 +1,16 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:solab/core/database/app_database.dart';
-import 'package:solab/core/database/business_preferences.dart';
-import 'package:solab/core/database/business_repository.dart';
-import 'package:solab/core/database/chat_database_repository.dart';
-import 'package:solab/core/models/assistant.dart';
-import 'package:solab/core/models/chat_message.dart';
-import 'package:solab/core/models/conversation.dart';
-import 'package:solab/core/services/chat/chat_service.dart';
-import 'package:solab/core/services/memory/memory_repository.dart';
-import 'package:solab/core/services/memory/memory_tools.dart';
+import 'package:Kelivo/core/database/app_database.dart';
+import 'package:Kelivo/core/database/business_preferences.dart';
+import 'package:Kelivo/core/database/business_repository.dart';
+import 'package:Kelivo/core/database/chat_database_repository.dart';
+import 'package:Kelivo/core/models/assistant.dart';
+import 'package:Kelivo/core/models/chat_message.dart';
+import 'package:Kelivo/core/models/conversation.dart';
+import 'package:Kelivo/core/services/chat/chat_service.dart';
+import 'package:Kelivo/core/services/memory/memory_repository.dart';
+import 'package:Kelivo/core/services/memory/memory_tools.dart';
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';

@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 
-import 'package:solab/core/models/workspace.dart';
-import 'package:solab/features/workspace/pages/workspace_files_desktop_layout.dart';
-import 'package:solab/features/workspace/pages/workspaces_page.dart';
-import 'package:solab/icons/lucide_adapter.dart';
-import 'package:solab/l10n/app_localizations.dart';
+import 'package:Kelivo/core/models/workspace.dart';
+import 'package:Kelivo/features/workspace/pages/workspace_files_desktop_layout.dart';
+import 'package:Kelivo/features/workspace/pages/workspaces_page.dart';
+import 'package:Kelivo/icons/lucide_adapter.dart';
+import 'package:Kelivo/l10n/app_localizations.dart';
 import 'desktop_workspace_text_field.dart';
-import 'package:solab/shared/widgets/ios_tactile.dart';
-import 'package:solab/theme/app_font_weights.dart';
+import 'package:Kelivo/shared/widgets/ios_tactile.dart';
+import 'package:Kelivo/theme/app_font_weights.dart';
 
 import 'desktop_workspace_button.dart';
 

@@ -1,10 +1,10 @@
-import 'package:solab/core/models/workspace.dart';
-import 'package:solab/core/providers/workspace_provider.dart';
-import 'package:solab/features/workspace/pages/workspace_files_desktop_layout.dart';
-import 'package:solab/features/workspace/pages/workspace_files_mobile_layout.dart';
-import 'package:solab/l10n/app_localizations.dart';
-import 'package:solab/features/workspace/workspace_layout.dart';
-import 'package:solab/theme/app_font_weights.dart';
+import 'package:Kelivo/core/models/workspace.dart';
+import 'package:Kelivo/core/providers/workspace_provider.dart';
+import 'package:Kelivo/features/workspace/pages/workspace_files_desktop_layout.dart';
+import 'package:Kelivo/features/workspace/pages/workspace_files_mobile_layout.dart';
+import 'package:Kelivo/l10n/app_localizations.dart';
+import 'package:Kelivo/features/workspace/workspace_layout.dart';
+import 'package:Kelivo/theme/app_font_weights.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 

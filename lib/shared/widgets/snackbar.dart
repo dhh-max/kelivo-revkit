@@ -1,8 +1,11 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import '../../core/services/haptics.dart';
+import 'package:Kelivo/shared/services/haptics.dart';
 import 'package:Kelivo/theme/app_font_weights.dart';
+import 'package:Kelivo/theme/app_semantic_colors.dart';
+
+final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
 
 enum NotificationType { success, error, info, warning }
 
@@ -35,12 +38,19 @@ class AppSnackBarManager extends ChangeNotifier {
   List<NotificationEntry> get activeToasts => List.unmodifiable(_activeToasts);
 
   void show(BuildContext context, AppNotification notification) {
+    final navigator =
+        Navigator.maybeOf(context) ?? rootNavigatorKey.currentState;
+    if (navigator == null) {
+      throw FlutterError(
+        'No Navigator is available to show an app notification.',
+      );
+    }
     final entry = NotificationEntry(
       key: UniqueKey(),
       notification: notification,
       animationController: AnimationController(
         duration: const Duration(milliseconds: 300),
-        vsync: Navigator.of(context),
+        vsync: navigator,
       ),
       slideAnimation: null,
       fadeAnimation: null,
@@ -64,13 +74,17 @@ class AppSnackBarManager extends ChangeNotifier {
 
     entry.animationController.forward();
 
-    // Auto dismiss
-    Timer(notification.duration, () {
+    // Auto dismiss（定时器挂在 entry 上，手动 dismiss 时一并取消——否则每次
+    // 弹完被手动收掉都会留下一个 3 秒后空跑的定时器；测试里表现为
+    // 「A Timer is still pending」）。
+    entry.autoDismiss = Timer(notification.duration, () {
       _dismiss(entry);
     });
   }
 
   void _dismiss(NotificationEntry entry) async {
+    entry.autoDismiss?.cancel();
+    entry.autoDismiss = null;
     if (!_activeToasts.contains(entry)) return;
 
     // Start exit animation
@@ -100,6 +114,9 @@ class NotificationEntry {
   final AnimationController animationController;
   Animation<Offset>? slideAnimation;
   Animation<double>? fadeAnimation;
+
+  /// 自动消失定时器：手动 dismiss 时取消，避免留下空跑定时器。
+  Timer? autoDismiss;
 
   NotificationEntry({
     required this.key,
@@ -321,14 +338,14 @@ class _NotificationWidgetState extends State<NotificationWidget>
     }
   }
 
-  Color _getIconColor(ColorScheme cs) {
+  Color _getIconColor(ColorScheme cs, AppSemanticColors app) {
     switch (widget.notification.type) {
       case NotificationType.success:
-        return const Color(0xFF34C759);
+        return app.success;
       case NotificationType.error:
-        return const Color(0xFFFF3B30);
+        return cs.error;
       case NotificationType.warning:
-        return const Color(0xFFFF9500);
+        return app.warning;
       case NotificationType.info:
         return cs.primary;
     }
@@ -368,14 +385,12 @@ class _NotificationWidgetState extends State<NotificationWidget>
           margin: const EdgeInsets.only(bottom: 8),
           constraints: const BoxConstraints(maxWidth: 400),
           decoration: BoxDecoration(
-            color: isDark
-                ? const Color(0xFF1C1C1E).withValues(alpha: 0.98)
-                : Colors.white.withValues(alpha: 0.98),
+            color: cs.surfaceContainerHigh.withValues(alpha: 0.98),
             // color: cs.surface.withValues(alpha: 0.98),
             borderRadius: BorderRadius.circular(14),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.1),
+                color: cs.shadow.withValues(alpha: isDark ? 0.3 : 0.1),
                 blurRadius: 16,
                 offset: const Offset(0, 4),
               ),
@@ -387,7 +402,11 @@ class _NotificationWidgetState extends State<NotificationWidget>
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               child: Row(
                 children: [
-                  Icon(_getIcon(), size: 22, color: _getIconColor(cs)),
+                  Icon(
+                    _getIcon(),
+                    size: 22,
+                    color: _getIconColor(cs, context.appColors),
+                  ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(

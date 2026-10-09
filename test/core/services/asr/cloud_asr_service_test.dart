@@ -3,8 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:solab/core/services/asr/asr_service_options.dart';
-import 'package:solab/core/services/asr/cloud_asr_service.dart';
+import 'package:Kelivo/core/services/asr/asr_service_options.dart';
+import 'package:Kelivo/core/services/asr/cloud_asr_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -638,7 +638,7 @@ void main() {
             ].join('\n'),
           ),
           200,
-          headers: {'content-type': 'text/event-stream; charset=utf-8'},
+          headers: {'content-type': 'text/event-stream'},
         );
       });
       final session = await CloudAsrService(httpClient: client).startSession(

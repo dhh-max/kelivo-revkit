@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/core/models/assistant.dart';
-import 'package:solab/core/models/memory_entry.dart';
-import 'package:solab/core/services/memory/memory_extractor.dart';
-import 'package:solab/core/services/memory/memory_prompts.dart';
+import 'package:Kelivo/core/models/assistant.dart';
+import 'package:Kelivo/core/models/memory_entry.dart';
+import 'package:Kelivo/core/services/memory/memory_extractor.dart';
+import 'package:Kelivo/core/services/memory/memory_prompts.dart';
 
 void main() {
   group('MemoryExtractor.parse (§18.1 item 14)', () {

@@ -3,8 +3,8 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
-import 'package:solab/core/services/backup/restore_archive_pruner.dart';
-import 'package:solab/core/services/backup/restore_workspace_lock.dart';
+import 'package:Kelivo/core/services/backup/restore_archive_pruner.dart';
+import 'package:Kelivo/core/services/backup/restore_workspace_lock.dart';
 
 void main() {
   late Directory root;

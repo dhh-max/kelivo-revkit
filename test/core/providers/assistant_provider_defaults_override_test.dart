@@ -2,9 +2,11 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/core/providers/assistant_provider.dart';
+import 'package:Kelivo/core/providers/assistant_provider.dart';
 
 import '../../support/business_preferences_test_harness.dart';
+import 'package:Kelivo/core/models/model_spec.dart';
+import 'package:Kelivo/core/models/reasoning_request.dart';
 
 /// 内置 APK Mod 助手升级覆盖策略：
 /// 用户编辑过（apk_mod_assistant_user_edited_v1=true）→ 升级不覆盖；
@@ -66,8 +68,10 @@ void main() {
     expect(apkMod.systemPrompt, isNot(customPrompt));
     expect(
       apkMod.systemPrompt,
-      contains('You are SoLab, an Android APK reverse'),
+      contains('You are 逆向助手 (SoLab)'),
     );
+    // v102 起：助手名随版本强刷为「逆向助手」（内置助手身份由模板唯一决定）。
+    expect(apkMod.name, '逆向助手');
     // 内置助手只保留当前模板工具，避免旧入口继续残留。
     expect(
       apkMod.localToolIds,
@@ -87,9 +91,12 @@ void main() {
         'list_apk_builds',
       ]),
     );
-    expect(apkMod.localToolIds, isNot(contains('get_time_info')));
+    // 迁移后工具集必须与当前模板一致，旧条目不得残留。
+    // （历史断言用 get_time_info 探测，但模板后来把它并入
+    //  BuiltinApkMod.toolIds 以对齐 MCP 暴露面，该探测已失效。）
+    expect(apkMod.localToolIds, AssistantProvider.apkModToolIds);
     expect(apkMod.mcpServerIds, containsAll(['external-mt', 'solab_fetch']));
-    expect(apkMod.thinkingBudget, -1);
+    expect(apkMod.reasoning?.level, ReasoningLevel.auto);
   });
 
   test('用户未编辑过内置助手时，升级覆盖为最新模板', () async {
@@ -109,9 +116,14 @@ void main() {
       (a) => a.id == AssistantProvider.apkModAssistantId,
     );
     expect(apkMod.systemPrompt, isNot('旧提示词'));
-    expect(apkMod.limitContextMessages, isTrue);
+    // 用户 2026-10-04 改口径：内置助手默认**不**限上下文条数（有自动压缩，
+    // 限条数会让窗口永远不满、超出直接丢 = 静默失忆）。模板早已是 false，
+    // 这里原先断言 true 属存量过期期望（2026-10-06 复核：stash 后同样失败）。
+    expect(apkMod.limitContextMessages, isFalse);
     expect(apkMod.generateConversationSummary, isTrue);
-    expect(apkMod.thinkingBudget, -1);
+    expect(apkMod.reasoning?.level, ReasoningLevel.auto);
+    // v105：作业约定开关必须随模板刷到已装助手（漏搬字段 = 老装用户看不到开关）。
+    expect(apkMod.operatorConventionsEnabled, isTrue);
     // Phase 0：内置助手收敛为 analyzer.* 高阶 API（58 工具不再直接挂载）。
     expect(
       apkMod.localToolIds,
@@ -128,7 +140,7 @@ void main() {
       {
         'id': AssistantProvider.apkModAssistantId,
         'name': 'APK Mod',
-        'thinkingBudget': 0,
+        'reasoning': {'level': 'auto'},
       },
     ]);
     await session.preferences.setInt('builtin_apk_mod_assistant_version', 88);
@@ -138,6 +150,6 @@ void main() {
     final apkMod = provider.assistants.firstWhere(
       (a) => a.id == AssistantProvider.apkModAssistantId,
     );
-    expect(apkMod.thinkingBudget, 0);
+    expect(apkMod.reasoning?.level, ReasoningLevel.auto);
   });
 }

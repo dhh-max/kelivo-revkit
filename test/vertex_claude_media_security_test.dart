@@ -3,9 +3,9 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/core/providers/settings_provider.dart';
-import 'package:solab/core/services/api/chat_api_service.dart';
-import 'package:solab/core/utils/multimodal_input_utils.dart';
+import 'package:Kelivo/core/providers/settings_provider.dart';
+import 'package:Kelivo/core/services/api/chat_api_service.dart';
+import 'package:Kelivo/core/utils/multimodal_input_utils.dart';
 
 ProviderConfig _vertexClaudeConfig() {
   return ProviderConfig(

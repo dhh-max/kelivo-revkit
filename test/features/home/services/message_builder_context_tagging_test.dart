@@ -2,15 +2,15 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:solab/core/models/assistant.dart';
-import 'package:solab/core/models/chat_message.dart';
-import 'package:solab/core/models/conversation.dart';
-import 'package:solab/core/providers/settings_provider.dart';
-import 'package:solab/core/services/chat/chat_service.dart';
-import 'package:solab/core/services/logging/context_log_models.dart';
-import 'package:solab/core/services/logging/context_logger.dart';
-import 'package:solab/core/services/search/search_tool_service.dart';
-import 'package:solab/features/home/services/message_builder_service.dart';
+import 'package:Kelivo/core/models/assistant.dart';
+import 'package:Kelivo/core/models/chat_message.dart';
+import 'package:Kelivo/core/models/conversation.dart';
+import 'package:Kelivo/core/providers/settings_provider.dart';
+import 'package:Kelivo/core/services/chat/chat_service.dart';
+import 'package:Kelivo/core/services/logging/context_log_models.dart';
+import 'package:Kelivo/core/services/logging/context_logger.dart';
+import 'package:Kelivo/core/services/search/search_tool_service.dart';
+import 'package:Kelivo/features/home/services/message_builder_service.dart';
 
 import '../../../support/business_test_harness.dart';
 

@@ -6,7 +6,6 @@ class ChatInputOverlayLayout extends StatelessWidget {
     required this.topInset,
     required this.content,
     required this.bottomOverlay,
-    this.background,
     this.topBackground,
     this.foreground,
     this.backgroundImageActive = false,
@@ -14,11 +13,12 @@ class ChatInputOverlayLayout extends StatelessWidget {
 
   static const double _topOverlayTailHeight = 16;
   static const double _bottomOverlayFadeHeight = 180;
+  // Leaves room for badges riding 12px above the composer's top edge.
+  static const double _bottomOverlayTopGap = 12;
 
   final double topInset;
   final Widget content;
   final Widget bottomOverlay;
-  final Widget? background;
   final Widget? topBackground;
   final Widget? foreground;
   final bool backgroundImageActive;
@@ -27,22 +27,25 @@ class ChatInputOverlayLayout extends StatelessWidget {
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        if (background != null) Positioned.fill(child: background!),
         Positioned.fill(
           child: Stack(
             children: [
               Positioned.fill(child: content),
               if (backgroundImageActive && topBackground != null)
                 Positioned.fill(
-                  child: ClipRect(
-                    clipper: _TopOverlayClipper(
-                      topInset + _topOverlayTailHeight,
-                    ),
-                    child: _TopBackgroundFade(
-                      height: topInset + _topOverlayTailHeight,
-                      child: IgnorePointer(
-                        key: const Key('chat-input-overlay-top-background'),
-                        child: topBackground!,
+                  child: RepaintBoundary(
+                    child: ClipRect(
+                      clipper: _TopOverlayClipper(
+                        topInset + _topOverlayTailHeight,
+                      ),
+                      child: _TopBackgroundFade(
+                        height: topInset + _topOverlayTailHeight,
+                        child: IgnorePointer(
+                          key: const Key('chat-input-overlay-top-background'),
+                          child: _KeyboardStableBackground(
+                            child: topBackground!,
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -57,15 +60,21 @@ class ChatInputOverlayLayout extends StatelessWidget {
                 ),
               if (backgroundImageActive && topBackground != null)
                 Positioned.fill(
-                  child: ClipRect(
-                    clipper: const _BottomOverlayClipper(
-                      _bottomOverlayFadeHeight,
-                    ),
-                    child: _BottomBackgroundFade(
-                      height: _bottomOverlayFadeHeight,
-                      child: IgnorePointer(
-                        key: const Key('chat-input-overlay-bottom-background'),
-                        child: topBackground!,
+                  child: RepaintBoundary(
+                    child: ClipRect(
+                      clipper: const _BottomOverlayClipper(
+                        _bottomOverlayFadeHeight,
+                      ),
+                      child: _BottomBackgroundFade(
+                        height: _bottomOverlayFadeHeight,
+                        child: IgnorePointer(
+                          key: const Key(
+                            'chat-input-overlay-bottom-background',
+                          ),
+                          child: _KeyboardStableBackground(
+                            child: topBackground!,
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -82,15 +91,49 @@ class ChatInputOverlayLayout extends StatelessWidget {
             ],
           ),
         ),
-        Align(
-          alignment: Alignment.bottomCenter,
-          child: UnconstrainedBox(
-            constrainedAxis: Axis.horizontal,
-            alignment: Alignment.bottomCenter,
-            child: bottomOverlay,
-          ),
+        // The overlay may grow up to the top bar (an expanded composer does)
+        // but never behind it.
+        Positioned.fill(
+          top: topInset + _bottomOverlayTopGap,
+          child: Align(alignment: Alignment.bottomCenter, child: bottomOverlay),
         ),
       ],
+    );
+  }
+}
+
+/// Lays the chat artwork out as if the keyboard were closed, letting the extra
+/// height overflow behind the IME instead of shrinking with the Scaffold body.
+/// A `BoxFit.cover` background re-crops whenever its box changes height, so
+/// without this the whole image visibly jumps upwards as the keyboard opens.
+///
+/// The inset has to come from the [View]: Scaffold strips the bottom view inset
+/// off the MediaQuery it hands to its body, so reading it from MediaQuery here
+/// would always yield zero. Reading it inside the [LayoutBuilder] also keeps it
+/// in sync, because the body's constraints change on the very same frame.
+class _KeyboardStableBackground extends StatelessWidget {
+  const _KeyboardStableBackground({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRect(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          if (!constraints.hasBoundedHeight) return child;
+          final view = View.of(context);
+          final bottomInset = view.viewInsets.bottom / view.devicePixelRatio;
+          if (bottomInset <= 0) return child;
+          final height = constraints.maxHeight + bottomInset;
+          return OverflowBox(
+            alignment: Alignment.topCenter,
+            minHeight: height,
+            maxHeight: height,
+            child: child,
+          );
+        },
+      ),
     );
   }
 }
@@ -140,18 +183,19 @@ class _TopBackgroundFade extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final surface = Theme.of(context).colorScheme.surface;
     return ShaderMask(
       blendMode: BlendMode.dstIn,
       shaderCallback: (bounds) {
-        return const LinearGradient(
+        return LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          stops: [0.0, 0.48, 0.78, 1.0],
+          stops: const [0.0, 0.48, 0.78, 1.0],
           colors: [
-            Color(0xFFFFFFFF),
-            Color(0xFFFFFFFF),
-            Color(0xE6FFFFFF),
-            Color(0x00FFFFFF),
+            surface,
+            surface,
+            surface.withValues(alpha: 0.9),
+            surface.withValues(alpha: 0),
           ],
         ).createShader(Rect.fromLTWH(0, 0, bounds.width, height));
       },
@@ -170,6 +214,7 @@ class _BottomBackgroundFade extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    final surface = theme.colorScheme.surface;
     return ShaderMask(
       blendMode: BlendMode.dstIn,
       shaderCallback: (bounds) {
@@ -178,9 +223,9 @@ class _BottomBackgroundFade extends StatelessWidget {
           end: Alignment.bottomCenter,
           stops: const [0.0, 0.48, 1.0],
           colors: [
-            Colors.white.withValues(alpha: 0),
-            Colors.white.withValues(alpha: isDark ? 0.74 : 0.82),
-            Colors.white.withValues(alpha: isDark ? 0.92 : 0.98),
+            surface.withValues(alpha: 0),
+            surface.withValues(alpha: isDark ? 0.74 : 0.82),
+            surface.withValues(alpha: isDark ? 0.92 : 0.98),
           ],
         ).createShader(
           Rect.fromLTWH(0, bounds.height - height, bounds.width, height),

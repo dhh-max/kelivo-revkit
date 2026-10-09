@@ -1,7 +1,7 @@
-import 'package:solab/core/models/message_part.dart';
-import 'package:solab/core/services/api/stream/stream_chunk.dart';
-import 'package:solab/core/services/api/stream/stream_chunk_handler.dart';
-import 'package:solab/features/home/controllers/chat_actions.dart';
+import 'package:Kelivo/core/models/message_part.dart';
+import 'package:Kelivo/core/services/api/stream/stream_chunk.dart';
+import 'package:Kelivo/core/services/api/stream/stream_chunk_handler.dart';
+import 'package:Kelivo/features/home/controllers/chat_actions.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

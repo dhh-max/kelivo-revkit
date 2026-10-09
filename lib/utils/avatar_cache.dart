@@ -5,7 +5,26 @@ import './app_directories.dart';
 class AvatarCache {
   AvatarCache._();
 
+  /// 内存 memo 只是"少一次 stat / 少一次下载"的加速表，真相在磁盘缓存目录里。
+  /// 此前它是只增不减的静态 Map（只随见过的 URL 增长），头像/头部图换得多了
+  /// 就是一条常驻进程、永不回收的泄漏；这里给一个上限，超出按最久未用逐出
+  /// （只逐出内存记录，磁盘文件不动，下次命中会从磁盘重新解析）。
+  static const int maxMemoEntries = 256;
+
+  /// 插入序即最近使用序：Dart 的 Map 字面量是 LinkedHashMap，
+  /// [_remember] 先 remove 再写回，于是 keys.first 恒为最久未用。
   static final Map<String, String?> _memo = <String, String?>{};
+
+  /// 供测试断言内存表规模；生产代码不应依赖这个数字。
+  static int get memoEntryCount => _memo.length;
+
+  static void _remember(String url, String? path) {
+    _memo.remove(url);
+    _memo[url] = path;
+    while (_memo.length > maxMemoEntries) {
+      _memo.remove(_memo.keys.first);
+    }
+  }
 
   static void clearMemory() {
     _memo.clear();
@@ -47,7 +66,10 @@ class AvatarCache {
     final cached = _memo[url];
     if (cached == null) return null;
     try {
-      if (File(cached).existsSync()) return cached;
+      if (File(cached).existsSync()) {
+        _remember(url, cached);
+        return cached;
+      }
     } catch (_) {}
     return null;
   }
@@ -74,18 +96,18 @@ class AvatarCache {
       final name = _safeName(url);
       final file = File('${dir.path}/$name');
       if (await file.exists()) {
-        _memo[url] = file.path;
+        _remember(url, file.path);
         return file.path;
       }
       // Download and save
       final res = await http.get(Uri.parse(url));
       if (res.statusCode >= 200 && res.statusCode < 300) {
         await file.writeAsBytes(res.bodyBytes, flush: true);
-        _memo[url] = file.path;
+        _remember(url, file.path);
         return file.path;
       }
     } catch (_) {}
-    _memo[url] = null;
+    _remember(url, null);
     return null;
   }
 

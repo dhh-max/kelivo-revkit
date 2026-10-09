@@ -1,5 +1,5 @@
-import 'package:solab/core/models/token_usage.dart';
-import 'package:solab/core/services/api/stream/stream_chunk.dart';
+import 'package:Kelivo/core/models/token_usage.dart';
+import 'package:Kelivo/core/services/api/stream/stream_chunk.dart';
 
 extension StreamChunkListGeneration on List<StreamChunk> {
   bool get isGenerationDone => any((chunk) => chunk is Finish);

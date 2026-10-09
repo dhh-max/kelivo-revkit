@@ -1,8 +1,9 @@
+import '../../runtime/pages/runtime_sheet.dart';
+import '../widgets/mode_token_text_controller.dart';
 import 'dart:async';
-import 'dart:io' show File;
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
-import 'package:desktop_drop/desktop_drop.dart';
+import 'package:flutter/services.dart' show MissingPluginException;
 import 'package:provider/provider.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../main.dart';
@@ -15,6 +16,7 @@ import '../../../shared/widgets/snackbar.dart';
 import '../../../theme/app_font_weights.dart';
 import '../../../theme/design_tokens.dart';
 import '../../../core/providers/settings_provider.dart';
+import '../../../core/services/model_spec/model_spec_resolver.dart';
 import '../../../core/providers/assistant_provider.dart';
 import '../../../core/providers/quick_phrase_provider.dart';
 import '../../../core/providers/instruction_injection_provider.dart';
@@ -22,28 +24,35 @@ import '../../../core/providers/world_book_provider.dart';
 import '../../../core/models/quick_phrase.dart';
 import '../../../core/models/chat_input_data.dart';
 import '../../../core/models/chat_message.dart';
+import '../../../core/models/compress_context_options.dart';
 import '../../../core/services/android_process_text.dart';
-import '../../../utils/sandbox_path_resolver.dart';
+import '../../../core/services/incoming_share_service.dart';
+import '../../../core/services/logging/flutter_logger.dart';
 import '../../../utils/platform_utils.dart';
 import '../../../desktop/search_provider_popover.dart';
-import '../../../desktop/reasoning_budget_popover.dart';
-import '../../../desktop/mcp_servers_popover.dart';
+import '../../../desktop/reasoning_level_popover.dart';
+import '../../../desktop/context_usage_popover.dart';
+import '../../../desktop/tools_popover.dart';
+import '../../../desktop/workspace_dialog.dart';
+import '../../../desktop/skills_popover.dart';
 import '../../../desktop/mini_map_popover.dart';
 import '../../../desktop/quick_phrase_popover.dart';
 import '../../../desktop/instruction_injection_popover.dart';
 import '../../../desktop/world_book_popover.dart';
 import '../../../icons/lucide_adapter.dart';
 import '../../chat/widgets/bottom_tools_sheet.dart';
+import '../../chat/widgets/chat_tools_sheet.dart';
+import '../../chat/utils/ensure_conversation.dart';
 import '../../chat/widgets/context_management_sheet.dart';
-import '../../chat/widgets/reasoning_budget_sheet.dart';
+import '../../chat/widgets/reasoning_level_sheet.dart';
 import '../../search/widgets/search_settings_sheet.dart';
+import '../../chat/widgets/frosted/chat_frosted_backdrop.dart';
+import '../../chat/widgets/chat_assistant_background.dart';
 import '../../model/widgets/model_select_sheet.dart';
 import '../../mcp/pages/mcp_page.dart';
 import '../../provider/pages/providers_page.dart';
-import '../../assistant/widgets/mcp_assistant_sheet.dart';
 import '../../quick_phrase/pages/quick_phrases_page.dart';
 import '../../quick_phrase/widgets/quick_phrase_menu.dart';
-import '../../skills/pages/skills_page.dart';
 import '../widgets/chat_input_bar.dart';
 import '../widgets/mini_map_sheet.dart';
 import '../widgets/instruction_injection_sheet.dart';
@@ -52,6 +61,7 @@ import '../widgets/learning_prompt_sheet.dart';
 import '../widgets/scroll_nav_buttons.dart';
 import '../widgets/message_list_view.dart';
 import '../widgets/chat_input_section.dart';
+import '../widgets/conversation_system_prompt_button.dart';
 import '../widgets/chat_input_overlay_layout.dart';
 import '../widgets/chat_selection_app_bar.dart';
 import '../widgets/chat_selection_delete_bar.dart';
@@ -59,11 +69,14 @@ import '../widgets/chat_selection_export_bar.dart';
 import '../widgets/user_message_edit_overlay.dart';
 import '../utils/model_display_helper.dart';
 import '../utils/chat_layout_constants.dart';
+import '../../chat/widgets/solab_chat_usage_bar.dart';
+import '../../chat/widgets/solab_todo_panel.dart';
+import '../services/context_usage_service.dart';
 import '../controllers/home_page_controller.dart';
-import '../controllers/home_view_model.dart';
 import '../controllers/scroll_controller.dart' as scroll_ctrl;
 import 'home_mobile_layout.dart';
 import 'home_desktop_layout.dart';
+import 'package:Kelivo/theme/app_semantic_colors.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -76,10 +89,12 @@ class _TemporaryConversationEmptyState extends StatelessWidget {
   const _TemporaryConversationEmptyState({
     required this.topContentPadding,
     required this.bottomContentPadding,
+    this.footer,
   });
 
   final double topContentPadding;
   final double bottomContentPadding;
+  final Widget? footer;
 
   @override
   Widget build(BuildContext context) {
@@ -115,6 +130,10 @@ class _TemporaryConversationEmptyState extends StatelessWidget {
                   fontWeight: AppFontWeights.medium,
                 ),
               ),
+              if (footer != null) ...[
+                const SizedBox(height: 16),
+                SizedBox(height: 48, child: footer),
+              ],
             ],
           ),
         ),
@@ -134,7 +153,9 @@ String _compressContextErrorMessage(AppLocalizations l10n, String error) {
 }
 
 class _CompressContextOptionsDialog extends StatefulWidget {
-  const _CompressContextOptionsDialog();
+  const _CompressContextOptionsDialog({required this.collapsedMessages});
+
+  final List<ChatMessage> collapsedMessages;
 
   @override
   State<_CompressContextOptionsDialog> createState() =>
@@ -145,25 +166,84 @@ class _CompressContextOptionsDialogState
     extends State<_CompressContextOptionsDialog> {
   CompressContextLimitMode _mode = CompressContextLimitMode.start;
   late final TextEditingController _maxCharsController;
+  late final TextEditingController _keepCountController;
+  late final String _totalTextForEstimate;
   String? _error;
+
+  int get _userMessageCount => countUserMessages(widget.collapsedMessages);
+
+  int? get _keepCount => int.tryParse(_keepCountController.text.trim());
+
+  bool get _keepCoversAll =>
+      _userMessageCount == 0 || (_keepCount ?? 0) >= _userMessageCount;
 
   @override
   void initState() {
     super.initState();
+    final settings = context.read<SettingsProvider>();
+    _mode = settings.compressLimitMode;
     _maxCharsController = TextEditingController(
-      text: CompressContextOptions.defaultMaxChars.toString(),
+      text: settings.compressMaxChars.toString(),
+    );
+    _keepCountController = TextEditingController(
+      text:
+          (settings.compressKeepUserMessages ??
+                  defaultKeepUserMessageCountFor(_userMessageCount))
+              .toString(),
+    );
+    _totalTextForEstimate = buildConversationTextForCompression(
+      widget.collapsedMessages,
     );
   }
 
   @override
   void dispose() {
     _maxCharsController.dispose();
+    _keepCountController.dispose();
     super.dispose();
   }
 
-  void _submit() {
+  Future<void> _persistSelections({
+    int? maxChars,
+    int? keepUserMessages,
+  }) async {
+    final settings = context.read<SettingsProvider>();
+    await settings.setCompressLimitMode(_mode);
+    if (keepUserMessages != null) {
+      await settings.setCompressKeepUserMessages(keepUserMessages);
+    } else if (_keepCount != null && _keepCount! > 0) {
+      await settings.setCompressKeepUserMessages(_keepCount);
+    }
+    final persistedMaxChars =
+        maxChars ?? int.tryParse(_maxCharsController.text.trim());
+    if (persistedMaxChars != null && persistedMaxChars > 0) {
+      await settings.setCompressMaxChars(persistedMaxChars);
+    }
+  }
+
+  Future<void> _submit() async {
+    if (_mode == CompressContextLimitMode.keepRecent) {
+      if (_keepCount == null || _keepCount! <= 0) {
+        setState(() {
+          _error = AppLocalizations.of(context)!.compressContextInvalidLimit;
+        });
+        return;
+      }
+      if (_keepCoversAll) {
+        // The keep-all hint is already shown inline in the preview area.
+        return;
+      }
+      await _persistSelections(keepUserMessages: _keepCount);
+      if (!mounted) return;
+      Navigator.of(
+        context,
+      ).pop(CompressContextOptions(mode: _mode, keepUserMessages: _keepCount));
+      return;
+    }
+
     int? maxChars;
-    if (_mode != CompressContextLimitMode.unlimited) {
+    if (_mode == CompressContextLimitMode.start ||
+        _mode == CompressContextLimitMode.recent) {
       maxChars = int.tryParse(_maxCharsController.text.trim());
       if (maxChars == null || maxChars <= 0) {
         setState(() {
@@ -173,17 +253,38 @@ class _CompressContextOptionsDialogState
       }
     }
 
+    await _persistSelections(maxChars: maxChars);
+    if (!mounted) return;
     Navigator.of(
       context,
     ).pop(CompressContextOptions(mode: _mode, maxChars: maxChars));
+  }
+
+  String _keepEstimateText(AppLocalizations l10n) {
+    final keptText = buildConversationTextForCompression(
+      selectKeepRecentMessages(widget.collapsedMessages, _keepCount ?? 0),
+    );
+    final summarizedChars = (_totalTextForEstimate.length - keptText.length)
+        .clamp(0, _totalTextForEstimate.length)
+        .toInt();
+    final est = estimateCompressionTokens(
+      totalText: _totalTextForEstimate,
+      keptText: keptText,
+    );
+    return l10n.compressContextEstimatePreview(
+      summarizedChars,
+      keptText.length,
+      est.minResultTokens,
+      est.maxResultTokens,
+      est.totalTokens,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final panelColor = isDark ? const Color(0xFF1C1C1E) : cs.surface;
+    final panelColor = cs.surfaceContainerHigh;
     final constrainedWidth = MediaQuery.of(
       context,
     ).size.width.clamp(0.0, 420.0).toDouble();
@@ -192,7 +293,10 @@ class _CompressContextOptionsDialogState
       insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
       backgroundColor: Colors.transparent,
       child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: constrainedWidth),
+        constraints: BoxConstraints(
+          maxWidth: constrainedWidth,
+          maxHeight: MediaQuery.sizeOf(context).height,
+        ),
         child: Material(
           color: panelColor,
           borderRadius: BorderRadius.circular(18),
@@ -202,66 +306,109 @@ class _CompressContextOptionsDialogState
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Row(
-                  children: [
-                    Icon(Lucide.package2, size: 20, color: cs.primary),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        l10n.compressContextOptionsTitle,
-                        style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: AppFontWeights.emphasis,
-                          color: cs.onSurface,
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Lucide.package2, size: 20, color: cs.primary),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                l10n.compressContextOptionsTitle,
+                                style: TextStyle(
+                                  fontSize: 17,
+                                  fontWeight: AppFontWeights.emphasis,
+                                  color: cs.onSurface,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
+                        const SizedBox(height: 8),
+                        Text(
+                          l10n.compressContextOptionsDesc,
+                          style: TextStyle(
+                            fontSize: 13,
+                            height: 1.35,
+                            color: cs.onSurface.withValues(alpha: 0.62),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        const _CompressModelPickerRow(),
+                        const SizedBox(height: 16),
+                        _CompressModeSegmented(
+                          mode: _mode,
+                          keepRecentDisabled: _userMessageCount <= 1,
+                          onChanged: (mode) {
+                            setState(() {
+                              _mode = mode;
+                              _error = null;
+                            });
+                          },
+                        ),
+                        if (_mode == CompressContextLimitMode.start ||
+                            _mode == CompressContextLimitMode.recent) ...[
+                          const SizedBox(height: 10),
+                          IosFormTextField(
+                            label: l10n.compressContextMaxCharsLabel,
+                            controller: _maxCharsController,
+                            keyboardType: TextInputType.number,
+                            textInputAction: TextInputAction.done,
+                            selectAllOnFocus: true,
+                            fieldWidth: 120,
+                            onChanged: (_) {
+                              if (_error != null) {
+                                setState(() => _error = null);
+                              }
+                            },
+                          ),
+                        ],
+                        if (_mode == CompressContextLimitMode.keepRecent) ...[
+                          const SizedBox(height: 10),
+                          IosFormTextField(
+                            label: l10n.compressContextKeepCountLabel,
+                            controller: _keepCountController,
+                            keyboardType: TextInputType.number,
+                            textInputAction: TextInputAction.done,
+                            selectAllOnFocus: true,
+                            fieldWidth: 120,
+                            onChanged: (_) {
+                              setState(() => _error = null);
+                            },
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            _keepCoversAll
+                                ? l10n.compressContextKeepAllMessages
+                                : _keepEstimateText(l10n),
+                            style: TextStyle(
+                              fontSize: 12,
+                              height: 1.35,
+                              color: _keepCoversAll
+                                  ? cs.error
+                                  : cs.onSurface.withValues(alpha: 0.62),
+                            ),
+                          ),
+                        ],
+                        if (_error != null) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            _error!,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: cs.error,
+                              fontWeight: AppFontWeights.medium,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  l10n.compressContextOptionsDesc,
-                  style: TextStyle(
-                    fontSize: 13,
-                    height: 1.35,
-                    color: cs.onSurface.withValues(alpha: 0.62),
                   ),
                 ),
-                const SizedBox(height: 16),
-                _CompressModeSegmented(
-                  mode: _mode,
-                  onChanged: (mode) {
-                    setState(() {
-                      _mode = mode;
-                      _error = null;
-                    });
-                  },
-                ),
-                if (_mode != CompressContextLimitMode.unlimited) ...[
-                  const SizedBox(height: 10),
-                  IosFormTextField(
-                    label: l10n.compressContextMaxCharsLabel,
-                    controller: _maxCharsController,
-                    keyboardType: TextInputType.number,
-                    textInputAction: TextInputAction.done,
-                    selectAllOnFocus: true,
-                    fieldWidth: 120,
-                    onChanged: (_) {
-                      if (_error != null) setState(() => _error = null);
-                    },
-                  ),
-                ],
-                if (_error != null) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    _error!,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: cs.error,
-                      fontWeight: AppFontWeights.medium,
-                    ),
-                  ),
-                ],
                 const SizedBox(height: 18),
                 Row(
                   children: [
@@ -290,39 +437,172 @@ class _CompressContextOptionsDialogState
   }
 }
 
-class _CompressModeSegmented extends StatelessWidget {
-  const _CompressModeSegmented({required this.mode, required this.onChanged});
+String? _compressModelDisplayName(
+  SettingsProvider settings, {
+  required String? providerKey,
+  required String? modelId,
+}) {
+  if (providerKey == null || modelId == null) return null;
+  try {
+    final cfg = settings.getProviderConfig(providerKey);
+    final ov = cfg.modelOverrides[modelId] as Map?;
+    if (ov != null) {
+      final overrideName = (ov['name'] as String?)?.trim();
+      if (overrideName != null && overrideName.isNotEmpty) {
+        return overrideName;
+      }
+      final apiId = (ov['apiModelId'] ?? ov['api_model_id'])?.toString().trim();
+      if (apiId != null && apiId.isNotEmpty) return apiId;
+    }
+    return modelId;
+  } catch (_) {
+    return modelId;
+  }
+}
 
-  final CompressContextLimitMode mode;
-  final ValueChanged<CompressContextLimitMode> onChanged;
+class _CompressModelPickerRow extends StatelessWidget {
+  const _CompressModelPickerRow();
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return Row(
+    final cs = Theme.of(context).colorScheme;
+    final settings = context.watch<SettingsProvider>();
+    final assistant = context.watch<AssistantProvider>().currentAssistant;
+    final resolved = resolveCompressContextModel(
+      compressProvider: settings.compressModelProvider,
+      compressModelId: settings.compressModelId,
+      summaryProvider: settings.summaryModelProvider,
+      summaryModelId: settings.summaryModelId,
+      titleProvider: settings.titleModelProvider,
+      titleModelId: settings.titleModelId,
+      assistantProvider: assistant?.chatModelProvider,
+      assistantModelId: assistant?.chatModelId,
+      currentProvider: settings.currentModelProvider,
+      currentModelId: settings.currentModelId,
+    );
+    final display =
+        _compressModelDisplayName(
+          settings,
+          providerKey: resolved.providerKey,
+          modelId: resolved.modelId,
+        ) ??
+        l10n.compressContextModelUnset;
+    final labelColor = cs.onSurface.withValues(alpha: 0.85);
+    final valueColor = cs.onSurface.withValues(alpha: 0.92);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(
-          child: _SegmentButton(
-            label: l10n.compressContextKeepStart,
-            selected: mode == CompressContextLimitMode.start,
-            onTap: () => onChanged(CompressContextLimitMode.start),
+        Text(
+          l10n.compressContextModelLabel,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: AppFontWeights.semibold,
+            color: labelColor,
           ),
         ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: _SegmentButton(
-            label: l10n.compressContextKeepRecent,
-            selected: mode == CompressContextLimitMode.recent,
-            onTap: () => onChanged(CompressContextLimitMode.recent),
+        const SizedBox(height: 6),
+        IosCardPress(
+          baseColor: context.appColors.surfaceFill,
+          borderRadius: BorderRadius.circular(12),
+          pressedScale: 0.98,
+          haptics: false,
+          onTap: () async {
+            final sel = await showModelSelector(
+              context,
+              initialProviderKey: resolved.providerKey,
+              initialModelId: resolved.modelId,
+            );
+            if (sel == null || !context.mounted) return;
+            await context.read<SettingsProvider>().setCompressModel(
+              sel.providerKey,
+              sel.modelId,
+            );
+          },
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  display,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: AppFontWeights.medium,
+                    color: valueColor,
+                  ),
+                ),
+              ),
+              Icon(
+                Lucide.ChevronRight,
+                size: 16,
+                color: cs.onSurface.withValues(alpha: 0.45),
+              ),
+            ],
           ),
         ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: _SegmentButton(
-            label: l10n.compressContextUnlimited,
-            selected: mode == CompressContextLimitMode.unlimited,
-            onTap: () => onChanged(CompressContextLimitMode.unlimited),
-          ),
+      ],
+    );
+  }
+}
+
+class _CompressModeSegmented extends StatelessWidget {
+  const _CompressModeSegmented({
+    required this.mode,
+    required this.onChanged,
+    this.keepRecentDisabled = false,
+  });
+
+  final CompressContextLimitMode mode;
+  final ValueChanged<CompressContextLimitMode> onChanged;
+  final bool keepRecentDisabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _SegmentButton(
+                label: l10n.compressContextKeepStart,
+                selected: mode == CompressContextLimitMode.start,
+                onTap: () => onChanged(CompressContextLimitMode.start),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _SegmentButton(
+                label: l10n.compressContextKeepRecent,
+                selected: mode == CompressContextLimitMode.recent,
+                onTap: () => onChanged(CompressContextLimitMode.recent),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: _SegmentButton(
+                label: l10n.compressContextUnlimited,
+                selected: mode == CompressContextLimitMode.unlimited,
+                onTap: () => onChanged(CompressContextLimitMode.unlimited),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _SegmentButton(
+                label: l10n.compressContextKeepRecentMessages,
+                selected: mode == CompressContextLimitMode.keepRecent,
+                enabled: !keepRecentDisabled,
+                onTap: () => onChanged(CompressContextLimitMode.keepRecent),
+              ),
+            ),
+          ],
         ),
       ],
     );
@@ -334,11 +614,13 @@ class _SegmentButton extends StatelessWidget {
     required this.label,
     required this.selected,
     required this.onTap,
+    this.enabled = true,
   });
 
   final String label;
   final bool selected;
   final VoidCallback onTap;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
@@ -347,13 +629,13 @@ class _SegmentButton extends StatelessWidget {
     final selectedBg = isDark
         ? cs.primary.withValues(alpha: 0.22)
         : cs.primary.withValues(alpha: 0.12);
-    final baseBg = isDark ? Colors.white10 : const Color(0xFFF2F3F5);
+    final baseBg = context.appColors.surfaceFill;
 
     return IosCardPress(
       baseColor: selected ? selectedBg : baseBg,
       borderRadius: BorderRadius.circular(10),
       pressedScale: 0.98,
-      onTap: onTap,
+      onTap: enabled ? onTap : null,
       haptics: false,
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
       child: Center(
@@ -364,7 +646,11 @@ class _SegmentButton extends StatelessWidget {
           style: TextStyle(
             fontSize: 13,
             fontWeight: AppFontWeights.emphasis,
-            color: selected ? cs.primary : cs.onSurface.withValues(alpha: 0.78),
+            color: !enabled
+                ? cs.onSurface.withValues(alpha: 0.3)
+                : selected
+                ? cs.primary
+                : cs.onSurface.withValues(alpha: 0.78),
           ),
         ),
       ),
@@ -386,10 +672,7 @@ class _DialogActionButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final base = primary
-        ? cs.primary
-        : (isDark ? Colors.white10 : const Color(0xFFF2F3F5));
+    final base = primary ? cs.primary : (context.appColors.surfaceFill);
 
     return IosCardPress(
       baseColor: base,
@@ -415,7 +698,7 @@ class _DialogActionButton extends StatelessWidget {
 }
 
 class _HomePageState extends State<HomePage>
-    with SingleTickerProviderStateMixin, RouteAware, WidgetsBindingObserver {
+    with TickerProviderStateMixin, RouteAware, WidgetsBindingObserver {
   // ============================================================================
   // UI Controllers (owned by State for lifecycle management)
   // ============================================================================
@@ -425,16 +708,32 @@ class _HomePageState extends State<HomePage>
       InteractiveDrawerController();
   final ValueNotifier<int> _assistantPickerCloseTick = ValueNotifier<int>(0);
   final FocusNode _inputFocus = FocusNode();
-  final TextEditingController _inputController = TextEditingController();
+  // 模式命令（/plan 等）在输入框里渲染成一枚不可编辑的胶囊。
+  final TextEditingController _inputController = ModeTokenTextEditingController();
   final ChatInputBarController _mediaController = ChatInputBarController();
-  final scroll_ctrl.ChatAutoFollowScrollController _scrollController =
+  scroll_ctrl.ChatAutoFollowScrollController _scrollController =
       scroll_ctrl.ChatAutoFollowScrollController();
-  final BackdropKey _messageListBackdropKey = BackdropKey();
+  String? _scrollConversationId;
   final GlobalKey _inputBarKey = GlobalKey();
+  final GlobalKey _runtimeStripKey = GlobalKey();
+
+  /// 输入框**上方**那一摞浮层（运行时状态条 + 任务清单面板）的整体测量点。
+  ///
+  /// 用户 2026-10-03：「有面板时联网引用被挡住，列表已经滚到底」——它们的真实高度
+  /// 必须并入消息列表的底部内边距，否则最后一条会被盖住。
+  final GlobalKey _bottomPanelsKey = GlobalKey();
+
+  /// 输入框**下方**的统计 dock 也占高度，同样要记账。
+  final GlobalKey _usageDockKey = GlobalKey();
   final GlobalKey _selectionMiniMapKey = GlobalKey();
   final GlobalKey _selectionActionBarKey = GlobalKey();
   bool _scrollNavHovering = false;
+  double _lastViewInsetBottom = 0;
   StreamSubscription<String>? _processTextSub;
+  IncomingShareService? _incomingShares;
+  late final Future<void> _chatReady;
+  bool _readingIncomingShares = false;
+  bool _incomingShareChanged = false;
 
   // ============================================================================
   // Page Controller (manages all business logic and state)
@@ -464,13 +763,18 @@ class _HomePageState extends State<HomePage>
       scrollController: _scrollController,
     );
 
+    _controller.onRevealConversation = () => _drawerController.jumpTo(0);
     _controller.addListener(_onControllerChanged);
     _drawerController.addListener(_onDrawerValueChanged);
 
-    _controller.initChat();
+    _chatReady = _controller.initChat();
     _initProcessText();
+    _initIncomingShares();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _lastViewInsetBottom = View.of(context).viewInsets.bottom;
+      }
       _controller.measureInputBar();
       if (!mounted) return;
       context.read<WorldBookProvider>().initialize();
@@ -480,6 +784,9 @@ class _HomePageState extends State<HomePage>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    // Modal routes disable tickers only after an opaque route covers us.
+    // Keep streaming visible behind translucent dialogs and bottom sheets.
+    _controller.onHomeVisibilityChanged(TickerMode.valuesOf(context).enabled);
     final route = ModalRoute.of(context);
     if (route != null) {
       routeObserver.subscribe(this, route);
@@ -489,6 +796,17 @@ class _HomePageState extends State<HomePage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _controller.onAppLifecycleStateChanged(state);
+    if (state == AppLifecycleState.resumed) _readIncomingShares();
+  }
+
+  @override
+  void didChangeMetrics() {
+    if (!mounted) return;
+    final nextInset = View.of(context).viewInsets.bottom;
+    final keyboardOpening = nextInset > _lastViewInsetBottom + 0.5;
+    _lastViewInsetBottom = nextInset;
+    if (!keyboardOpening || !PlatformUtils.isMobileTarget) return;
+    _controller.scrollCtrl.pinBottomDuringViewportResizeIfNeeded();
   }
 
   @override
@@ -507,17 +825,27 @@ class _HomePageState extends State<HomePage>
       WidgetsBinding.instance.removeObserver(this);
     } catch (_) {}
     _processTextSub?.cancel();
+    _incomingShares?.dispose();
     _controller.removeListener(_onControllerChanged);
     _drawerController.removeListener(_onDrawerValueChanged);
     _inputFocus.dispose();
     _inputController.dispose();
-    _scrollController.dispose();
     _controller.dispose();
+    _scrollController.dispose();
     routeObserver.unsubscribe(this);
     super.dispose();
   }
 
   void _onControllerChanged() {
+    final conversationId = _controller.currentConversation?.id;
+    if (conversationId != null && conversationId != _scrollConversationId) {
+      _scrollConversationId = conversationId;
+      final previous = _scrollController;
+      final replacement = scroll_ctrl.ChatAutoFollowScrollController();
+      _scrollController = replacement;
+      _controller.replaceScrollController(replacement);
+      WidgetsBinding.instance.addPostFrameCallback((_) => previous.dispose());
+    }
     if (mounted) setState(() {});
   }
 
@@ -543,18 +871,88 @@ class _HomePageState extends State<HomePage>
     });
   }
 
+  void _initIncomingShares() {
+    if (!PlatformUtils.isMobile) return;
+    _incomingShares = IncomingShareService()
+      ..listen(
+        onChanged: _readIncomingShares,
+        onFailed: _showIncomingShareFailure,
+      );
+    _incomingShares!.progress.addListener(() {
+      _mediaController.shareImport.value = _incomingShares!.progress.value;
+    });
+    _mediaController.cancelShareImport = () =>
+        unawaited(_incomingShares!.cancelImport());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _readIncomingShares());
+  }
+
+  void _showIncomingShareFailure() {
+    if (!mounted) return;
+    showAppSnackBar(
+      context,
+      message: AppLocalizations.of(context)!.incomingShareFailed,
+      type: NotificationType.error,
+    );
+  }
+
+  Future<void> _readIncomingShares() async {
+    final service = _incomingShares;
+    if (service == null || !mounted) return;
+    _incomingShareChanged = true;
+    if (_readingIncomingShares) return;
+    _readingIncomingShares = true;
+    try {
+      await _chatReady;
+      while (mounted && _incomingShareChanged) {
+        _incomingShareChanged = false;
+        final shares = await service.pending();
+        if (!mounted || shares.isEmpty) continue;
+        final hasContent = shares.any(
+          (share) => share.text.trim().isNotEmpty || share.files.isNotEmpty,
+        );
+        if (hasContent) {
+          final homeRoute = ModalRoute.of(context);
+          Navigator.of(
+            context,
+          ).popUntil((route) => route == homeRoute || route.isFirst);
+          _drawerController.close();
+          await WidgetsBinding.instance.endOfFrame;
+          if (!mounted) return;
+          final ChatInputData input;
+          try {
+            input = await service.prepare(shares);
+          } on ShareImportCancelled {
+            await service.acknowledge(shares);
+            continue;
+          }
+          var accepted = false;
+          try {
+            if (!mounted) return;
+            // Check the current draft at delivery time: preparing a large
+            // attachment may take long enough for the user to keep typing.
+            accepted = await _controller.acceptIncomingShareDraft(input);
+          } finally {
+            if (!accepted) await service.discardPrepared(input);
+          }
+        }
+        if (shares.any((share) => share.failedFiles > 0)) {
+          _showIncomingShareFailure();
+        }
+        await service.acknowledge(shares);
+      }
+    } on MissingPluginException {
+      // The desktop/test host does not have a mobile incoming-share inbox.
+    } catch (_) {
+      _showIncomingShareFailure();
+    } finally {
+      _readingIncomingShares = false;
+    }
+  }
+
   void _handleProcessText(String text) {
     if (!mounted) return;
     final trimmed = text.trim();
     if (trimmed.isEmpty) return;
-    final parsed = _controller.parseSharedInput(trimmed);
-    final insertText = parsed.text;
-    if (parsed.imagePaths.isNotEmpty) {
-      _mediaController.addImages(parsed.imagePaths);
-    }
-    if (parsed.documents.isNotEmpty) {
-      _mediaController.addFiles(parsed.documents);
-    }
     final current = _inputController.text;
     final selection = _inputController.selection;
     final start = (selection.start >= 0 && selection.start <= current.length)
@@ -566,12 +964,10 @@ class _HomePageState extends State<HomePage>
             selection.end >= start)
         ? selection.end
         : start;
-    final next = insertText.isEmpty
-        ? current
-        : current.replaceRange(start, end, insertText);
+    final next = current.replaceRange(start, end, trimmed);
     _inputController.value = _inputController.value.copyWith(
       text: next,
-      selection: TextSelection.collapsed(offset: start + insertText.length),
+      selection: TextSelection.collapsed(offset: start + trimmed.length),
       composing: TextRange.empty,
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -592,7 +988,11 @@ class _HomePageState extends State<HomePage>
     final settings = context.watch<SettingsProvider>();
     final assistant = context.watch<AssistantProvider>().currentAssistant;
 
-    final modelInfo = getModelDisplayInfo(settings, assistant: assistant);
+    final modelInfo = getModelDisplayInfo(
+      settings,
+      conversation: _controller.currentConversation,
+      assistant: assistant,
+    );
 
     final title = _controller.isTemporaryConversation
         ? AppLocalizations.of(context)!.temporaryChatTitle
@@ -626,13 +1026,7 @@ class _HomePageState extends State<HomePage>
     required String? modelDisplay,
     required ColorScheme cs,
   }) {
-    final collapsed = _controller.collapseVersions(_controller.messages);
-    final selectable = collapsed
-        .where((m) => m.role == 'user' || m.role == 'assistant')
-        .toList();
-    final allSelected =
-        selectable.isNotEmpty &&
-        selectable.every((m) => _controller.selectedItems.contains(m.id));
+    final allSelected = _controller.allSelectableMessagesSelected;
 
     return HomeMobileScaffold(
       scaffoldKey: _scaffoldKey,
@@ -666,7 +1060,8 @@ class _HomePageState extends State<HomePage>
       canToggleTemporaryConversation:
           _controller.canToggleTemporaryConversation,
       temporaryConversationEnabled: _controller.isTemporaryConversation,
-      onSelectModel: () => showModelSelectSheet(context),
+      onSelectModel: () =>
+          showModelSelectSheet(context, controller: _controller),
       globalSearchMode: _controller.isGlobalSearchMode,
       globalSearchQuery: _controller.globalSearchQuery,
       onGlobalSearchQueryChanged: _controller.setGlobalSearchQuery,
@@ -697,14 +1092,20 @@ class _HomePageState extends State<HomePage>
     final bottomContentPadding = _controller.inputBarHeight + 16;
     final topContentPadding = _chatTopOverlayInset(context) + 8;
     final backgroundImageActive = _assistantBackgroundActive(context);
+    // 键盘是否弹起：这里的 context 是 Scaffold **之上**的页面 context（body 由
+    // 外层方法传入）——Scaffold 会把底部 view inset 从交给 body 的 MediaQuery
+    // 里剥掉，在 body 内部读恒为 0（chat_input_overlay_layout 的
+    // _KeyboardStableBackground 注释记的是同一个坑，2026-10-05 收统计 dock 的
+    // 第一版就栽在这里）。
+    final keyboardVisible = MediaQuery.viewInsetsOf(context).bottom > 0;
 
     return ChatInputOverlayLayout(
       topInset: _chatTopOverlayInset(context),
-      background: backgroundImageActive
-          ? _buildChatBackground(context, cs)
-          : null,
+      // The full-window artwork already sits behind the Scaffold
+      // (MobileBackgroundLayer); painting it again inside the body would only
+      // duplicate it in a box that shrinks with the keyboard.
       topBackground: backgroundImageActive
-          ? _buildChatBackground(context, cs)
+          ? const ChatAssistantBackground(expand: false, pinnedToBackdrop: true)
           : null,
       backgroundImageActive: backgroundImageActive,
       content: Builder(
@@ -723,20 +1124,10 @@ class _HomePageState extends State<HomePage>
               ),
             ),
           );
-          final isAndroid =
-              Theme.of(context).platform == TargetPlatform.android;
-          Widget w = content;
-          if (!isAndroid) {
-            w = w
-                .animate(
-                  key: ValueKey(
-                    'mob_body_${_controller.currentConversation?.id ?? 'none'}',
-                  ),
-                )
-                .fadeIn(duration: 200.ms, curve: Curves.easeOutCubic);
-            w = FadeTransition(opacity: _controller.convoFade, child: w);
-          }
-          return w;
+          return FadeTransition(
+            opacity: _controller.convoFade,
+            child: _wrapMessageJumpTransition(content),
+          );
         },
       ),
       bottomOverlay: _controller.selecting
@@ -744,14 +1135,63 @@ class _HomePageState extends State<HomePage>
           : NotificationListener<SizeChangedLayoutNotification>(
               onNotification: (n) {
                 WidgetsBinding.instance.addPostFrameCallback(
-                  (_) => _controller.measureInputBar(),
+                  (_) {
+                    _controller.measureInputBar();
+                    _measureRuntimeStrip();
+                  },
                 );
                 return false;
               },
               child: SizeChangedLayoutNotifier(
                 child: Builder(
-                  builder: (context) =>
+                  builder: (context) => Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // 子代理活动条（本会话自研）：仅当本会话有子代理/专家团
+                      // 活动（在跑或刚跑完）时出现，点开是子代理队列。原运行时
+                      // 状态条+弹层已按用户要求整体删除（2026-10-03）。
+                      // 高度经 setBottomOverlayExtra 并入输入区内边距，
+                      // 避免盖住聊天列表最后一条。
+                      // 输入框上方的浮层区（活动条 + 任务清单）：整体测量高度并入
+                      // 列表底部内边距，材质统一走 SolabGlassCard。
+                      Column(
+                        key: _bottomPanelsKey,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          RuntimeStatusStrip(
+                            key: _runtimeStripKey,
+                            scopeKey: _controller.currentConversation?.id,
+                          ),
+                          // 会话任务清单面板（参考项目行为：空则不渲染、默认折叠、
+                          // 标题带分状态计数）——放在输入框**上方**，写入后即时刷新。
+                          SolabTodoPanel(
+                            conversationId:
+                                _controller.currentConversation?.id,
+                          ),
+                        ],
+                      ),
                       _buildChatInputBar(context, isTablet: false),
+                      // 输入卡片正下方的统计 dock（贴紧）：环 + 百分比 + 读数居中。
+                      // 点它只弹**上下文图谱小卡片**（在环的正上方），功能开关仍在加号菜单里。
+                      // 键盘弹起时整条收掉（用户 2026-10-05：它原会被顶到键盘上方，
+                      // 打字时又挤又难看）——收起/恢复经 SizeChangedLayoutNotifier
+                      // 重新量高，列表底部内边距自动跟着走，不会盖住最后一条消息。
+                      if (!keyboardVisible)
+                        Builder(
+                          key: _usageDockKey,
+                          builder: (barContext) => SolabChatUsageBar(
+                            messages: _controller.messages,
+                            conversationId:
+                                _controller.currentConversation?.id,
+                            snapshot: barContext
+                                .watch<ContextUsageService?>()
+                                ?.snapshot(
+                                  _controller.currentConversation?.id ?? '',
+                                ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -768,13 +1208,7 @@ class _HomePageState extends State<HomePage>
   }) {
     _controller.initDesktopUi();
 
-    final collapsed = _controller.collapseVersions(_controller.messages);
-    final selectable = collapsed
-        .where((m) => m.role == 'user' || m.role == 'assistant')
-        .toList();
-    final allSelected =
-        selectable.isNotEmpty &&
-        selectable.every((m) => _controller.selectedItems.contains(m.id));
+    final allSelected = _controller.allSelectableMessagesSelected;
 
     return HomeDesktopScaffold(
       scaffoldKey: _scaffoldKey,
@@ -813,7 +1247,8 @@ class _HomePageState extends State<HomePage>
       onGlobalSearchQueryChanged: _controller.setGlobalSearchQuery,
       onOpenGlobalSearchResult: (convId, msgId) => _controller
           .openGlobalSearchResult(conversationId: convId, messageId: msgId),
-      onSelectModel: () => showModelSelectSheet(context),
+      onSelectModel: () =>
+          showModelSelectSheet(context, controller: _controller),
       onSidebarWidthChanged: _controller.updateSidebarWidth,
       onSidebarWidthChangeEnd: _controller.saveSidebarWidth,
       onRightSidebarWidthChanged: _controller.updateRightSidebarWidth,
@@ -837,7 +1272,9 @@ class _HomePageState extends State<HomePage>
   }
 
   Future<void> _openSelectionMiniMap() async {
-    final collapsed = _controller.allCollapsedMessagesForCurrentConversation();
+    final collapsed = await _controller
+        .loadAllCollapsedMessagesForCurrentConversation();
+    if (!mounted) return;
     if (collapsed.isEmpty) return;
 
     if (PlatformUtils.isDesktop &&
@@ -909,32 +1346,31 @@ class _HomePageState extends State<HomePage>
     return ChatInputOverlayLayout(
       topInset: _chatTopOverlayInset(context),
       topBackground: backgroundImageActive
-          ? _buildAssistantBackground(context)
+          ? const ChatAssistantBackground(
+              desktop: true,
+              includeSurfaceFill: true,
+              pinnedToBackdrop: true,
+            )
           : null,
       backgroundImageActive: backgroundImageActive,
       content: FadeTransition(
         opacity: _controller.convoFade,
-        child:
-            KeyedSubtree(
-                  key: ValueKey<String>(
-                    _controller.currentConversation?.id ?? 'none',
-                  ),
-                  child: _buildMessageListView(
-                    context,
-                    topContentPadding: topContentPadding,
-                    bottomContentPadding: bottomContentPadding,
-                    dividerPadding: const EdgeInsets.symmetric(
-                      vertical: 8,
-                      horizontal: 12,
-                    ),
-                  ),
-                )
-                .animate(
-                  key: ValueKey(
-                    'tab_body_${_controller.currentConversation?.id ?? 'none'}',
-                  ),
-                )
-                .fadeIn(duration: 200.ms, curve: Curves.easeOutCubic),
+        child: _wrapMessageJumpTransition(
+          KeyedSubtree(
+            key: ValueKey<String>(
+              _controller.currentConversation?.id ?? 'none',
+            ),
+            child: _buildMessageListView(
+              context,
+              topContentPadding: topContentPadding,
+              bottomContentPadding: bottomContentPadding,
+              dividerPadding: const EdgeInsets.symmetric(
+                vertical: 8,
+                horizontal: 12,
+              ),
+            ),
+          ),
+        ),
       ),
       bottomOverlay: _controller.selecting
           ? ConstrainedBox(
@@ -954,7 +1390,9 @@ class _HomePageState extends State<HomePage>
                 child: Builder(
                   builder: (context) {
                     Widget input = _buildChatInputBar(context, isTablet: true);
-                    input = Center(
+                    input = Align(
+                      alignment: Alignment.bottomCenter,
+                      heightFactor: 1,
                       child: ConstrainedBox(
                         constraints: const BoxConstraints(
                           maxWidth: ChatLayoutConstants.maxInputWidth,
@@ -975,146 +1413,19 @@ class _HomePageState extends State<HomePage>
   // UI Component Builders
   // ============================================================================
 
-  Widget _buildChatBackground(BuildContext context, ColorScheme cs) {
-    return Builder(
-      builder: (context) {
-        final bg = context
-            .watch<AssistantProvider>()
-            .currentAssistant
-            ?.background;
-        final maskStrength = context
-            .watch<SettingsProvider>()
-            .chatBackgroundMaskStrength;
-        if (bg == null || bg.trim().isEmpty) return const SizedBox.shrink();
-        ImageProvider provider;
-        if (bg.startsWith('http')) {
-          provider = NetworkImage(bg);
-        } else {
-          final localPath = SandboxPathResolver.fix(bg);
-          final file = File(localPath);
-          if (!file.existsSync()) return const SizedBox.shrink();
-          provider = FileImage(file);
-        }
-        return Stack(
-          children: [
-            Positioned.fill(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  image: DecorationImage(
-                    image: provider,
-                    fit: BoxFit.cover,
-                    colorFilter: ColorFilter.mode(
-                      Colors.black.withValues(alpha: 0.04),
-                      BlendMode.srcATop,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            Positioned.fill(
-              child: IgnorePointer(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: () {
-                        final top = (0.20 * maskStrength).clamp(0.0, 1.0);
-                        final bottom = (0.50 * maskStrength).clamp(0.0, 1.0);
-                        return [
-                          cs.surface.withValues(alpha: top),
-                          cs.surface.withValues(alpha: bottom),
-                        ];
-                      }(),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
   Widget _buildAssistantBackground(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final assistant = context.watch<AssistantProvider>().currentAssistant;
-    final bgRaw = (assistant?.background ?? '').trim();
-    Widget? bg;
-    if (bgRaw.isNotEmpty) {
-      if (bgRaw.startsWith('http')) {
-        bg = Image.network(
-          bgRaw,
-          fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-        );
-      } else {
-        try {
-          final fixed = SandboxPathResolver.fix(bgRaw);
-          final f = File(fixed);
-          if (f.existsSync()) {
-            bg = Image(image: FileImage(f), fit: BoxFit.cover);
-          }
-        } catch (_) {}
-      }
-    }
-    return IgnorePointer(
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          ColoredBox(color: cs.surface),
-          if (bg != null) Opacity(opacity: 0.9, child: bg),
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  cs.surface.withValues(alpha: 0.08),
-                  cs.surface.withValues(alpha: 0.36),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
+    return const ChatAssistantBackground(
+      desktop: true,
+      includeSurfaceFill: true,
     );
   }
 
   bool _assistantBackgroundActive(BuildContext context) {
-    final bgRaw =
-        (context.watch<AssistantProvider>().currentAssistant?.background ?? '')
-            .trim();
-    if (bgRaw.isEmpty) return false;
-    if (bgRaw.startsWith('http')) return true;
-    try {
-      final fixed = SandboxPathResolver.fix(bgRaw);
-      return File(fixed).existsSync();
-    } catch (_) {
-      return false;
-    }
+    return ChatBackdropSpec.resolve(context).active;
   }
 
   double _chatTopOverlayInset(BuildContext context) {
     return kToolbarHeight + MediaQuery.paddingOf(context).top;
-  }
-
-  /// Map persisted truncateIndex (raw message count) to collapsed index.
-  int _computeTruncCollapsedIndex() {
-    final int truncRaw = _controller.chatController.loadedWindowTruncateIndex();
-    if (truncRaw <= 0) return -1;
-    final rawMessages = _controller.messages;
-    final seen = <String>{};
-    final int limit = truncRaw < rawMessages.length
-        ? truncRaw
-        : rawMessages.length;
-    int count = 0;
-    for (int i = 0; i < limit; i++) {
-      final gid = (rawMessages[i].groupId ?? rawMessages[i].id);
-      if (seen.add(gid)) count++;
-    }
-    return count - 1;
   }
 
   Widget _buildMessageListView(
@@ -1123,97 +1434,146 @@ class _HomePageState extends State<HomePage>
     required double bottomContentPadding,
     required EdgeInsetsGeometry dividerPadding,
   }) {
+    final assistant = context.watch<AssistantProvider>().currentAssistant;
+    final footer =
+        assistant?.allowConversationSystemPrompt == true &&
+            !_controller.isCurrentConversationLoading &&
+            !_controller.selecting
+        ? ConversationSystemPromptButton(
+            assistantId: assistant!.id,
+            conversationId: _controller.currentConversation?.id,
+            backgroundImageActive: _assistantBackgroundActive(context),
+          )
+        : null;
     if (_controller.isTemporaryConversation &&
         _controller.chatController.collapsedMessages.isEmpty) {
       return _TemporaryConversationEmptyState(
         topContentPadding: topContentPadding,
         bottomContentPadding: bottomContentPadding,
+        footer: footer,
       );
     }
 
     final settings = context.watch<SettingsProvider>();
-    final suggestionsEnabled =
-        settings.suggestionModelProvider != null &&
-        settings.suggestionModelId != null;
-    return BackdropGroup(
-      backdropKey: _messageListBackdropKey,
-      child: MessageListView(
-        isProcessingFiles: _controller.isProcessingFiles,
-        scrollController: _scrollController,
-        observerController: _controller.scrollCtrl.observerController,
-        messages: _controller.chatController.collapsedMessages,
-        byGroup: _controller.chatController.groupedMessages,
-        versionSelections: _controller.versionSelections,
-        truncCollapsedIndex: _computeTruncCollapsedIndex(),
-        reasoning: _controller.reasoning,
-        reasoningSegments: _controller.reasoningSegments,
-        contentSplits: _controller.contentSplits,
-        toolParts: _controller.toolParts,
-        translations: _buildTranslationUiStates(),
-        selecting: _controller.selecting,
-        selectedItems: _controller.selectedItems,
-        suggestions: suggestionsEnabled
-            ? (_controller.currentConversation?.chatSuggestions ??
-                  const <String>[])
-            : const <String>[],
-        topContentPadding: topContentPadding,
-        bottomContentPadding: bottomContentPadding,
-        dividerPadding: dividerPadding,
-        streamingContentNotifier: _controller.streamingContentNotifier,
-        spotlightMessageId: _controller.spotlightMessageId,
-        spotlightToken: _controller.spotlightToken,
-        hasMoreBefore: _controller.chatController.hasMoreBefore,
-        onLoadMoreBefore: _controller.loadMoreBefore,
-        hasMoreAfter: _controller.chatController.hasMoreAfter,
-        onLoadMoreAfter: _controller.loadMoreAfter,
-        onVersionChange: (groupId, version) async {
-          await _controller.setSelectedVersion(groupId, version);
-        },
-        onRegenerateMessage: (message) =>
-            _controller.regenerateAtMessage(message),
-        onResendMessage: (message) => _controller.regenerateAtMessage(message),
-        onTranslateMessage: (message) => _controller.translateMessage(message),
-        onEditMessage: (message) => _controller.editMessage(message),
-        onDeleteMessage: (message, byGroup) =>
-            _handleDeleteMessage(context, message, byGroup),
-        onDeleteAllVersions: (message, byGroup) => _handleDeleteMessage(
-          context,
-          message,
-          byGroup,
-          deleteAllVersions: true,
-        ),
-        onForkConversation: (message) => _controller.forkConversation(message),
-        onShareMessage: (index, messages) =>
-            _controller.shareMessage(index, messages),
-        onSelectMessages: (index, messages) =>
-            _controller.startMessageSelection(
-              messageIndex: index,
-              messageList: messages,
-              mode: ChatSelectionMode.delete,
-            ),
-        onSpeakMessage: (message) => _controller.speakMessage(message),
-        onSuggestionTap: (suggestion) => _controller.sendSuggestion(suggestion),
-        onRecoveredAskUserAnswer: (message, part, result) =>
-            _controller.submitRecoveredAskUserAnswer(message, part, result),
-        onToggleSelection: (messageId, selected) {
-          _controller.toggleSelection(messageId, selected);
-        },
-        onToggleReasoning: (messageId) {
-          _controller.toggleReasoning(messageId);
-        },
-        onToggleTranslation: (messageId) {
-          _controller.toggleTranslation(messageId);
-        },
-        onToggleReasoningSegment: (messageId, segmentIndex) {
-          _controller.toggleReasoningSegment(messageId, segmentIndex);
-        },
+    final suggestionsEnabled = settings.isSuggestionGenerationEnabled;
+    return MessageListView(
+      footer: footer,
+      processingFilesMessageId: _controller.processingFilesMessageId,
+      scrollController: _scrollController,
+      listController: _controller.scrollCtrl.messageListController,
+      messages: _controller.chatController.collapsedMessages,
+      renderModels: _controller.chatController.messageRenderModels,
+      byGroup: _controller.chatController.groupedMessages,
+      versionSelections: _controller.versionSelections,
+      reasoning: _controller.reasoning,
+      reasoningSegments: _controller.reasoningSegments,
+      contentSplits: _controller.contentSplits,
+      toolParts: _controller.toolParts,
+      translations: _buildTranslationUiStates(),
+      selecting: _controller.selecting,
+      selectedItems: _controller.selectedItems,
+      suggestions: suggestionsEnabled
+          ? (_controller.currentConversation?.chatSuggestions ??
+                const <String>[])
+          : const <String>[],
+      topContentPadding: topContentPadding,
+      bottomContentPadding: bottomContentPadding,
+      dividerPadding: dividerPadding,
+      streamingContentNotifier: _controller.streamingContentNotifier,
+      spotlightMessageId: _controller.spotlightMessageId,
+      spotlightToken: _controller.spotlightToken,
+      removingSlotIds: _controller.removingSlotIds,
+      hasMoreBefore: _controller.chatController.hasMoreBefore,
+      isLoadingWindow: _controller.isLoadingWindow,
+      onLoadMoreBefore: _controller.loadMoreBefore,
+      hasMoreAfter: _controller.chatController.hasMoreAfter,
+      onLoadMoreAfter: _controller.loadMoreAfter,
+      onUserScrollIntent: _controller.scrollCtrl.handleUserScrollIntent,
+      chatFontScale: settings.chatFontScale,
+      collapseThinking: settings.autoCollapseThinking,
+      collapseThinkingSteps: settings.collapseThinkingSteps,
+      // 步骤区气泡路由：必须与渲染侧（ChatMessageWidget._ChainOfThoughtCard）
+      // 读到的同一个开关同步，否则合并模式下高度估算仍按"每步一张卡"算。
+      stepsSharedBubble: settings.chatStepsSharedBubble,
+      showThinkingCards: settings.showThinkingCards,
+      showToolCards: settings.showToolCards,
+      showProducedFiles: settings.showProducedFiles,
+      showToolResultSummary: settings.showToolResultSummary,
+      hideToolResultImages: settings.hideToolResultImages,
+      collapsedCodeLines: settings.autoCollapseCodeBlock
+          ? settings.autoCollapseCodeBlockLines
+          : null,
+      // Mirrors the wrap decision in the code block renderer.
+      wrapCodeBlocks:
+          Platform.isMacOS ||
+          Platform.isWindows ||
+          Platform.isLinux ||
+          settings.mobileCodeBlockWrap,
+      showModelIcon: settings.showModelIcon,
+      showUserAvatar: settings.showUserAvatar,
+      showTokenStats: settings.showTokenStats,
+      assistant: assistant,
+      onVersionChange: (groupId, version) async {
+        await _controller.setSelectedVersion(groupId, version);
+      },
+      onRegenerateMessage: (message) =>
+          _controller.regenerateAtMessage(message),
+      onResendMessage: (message) => _controller.regenerateAtMessage(message),
+      onTranslateMessage: (message) => _controller.translateMessage(message),
+      onEditMessage: (message) => _controller.editMessage(message),
+      onDeleteMessage: (message, byGroup) =>
+          _handleDeleteMessage(context, message, byGroup),
+      onDeleteAllVersions: (message, byGroup) => _handleDeleteMessage(
+        context,
+        message,
+        byGroup,
+        deleteAllVersions: true,
       ),
+      onForkConversation: _controller.isTemporaryConversation
+          ? null
+          : (message) => _controller.forkConversation(message),
+      onShareMessage: (index, messages) =>
+          _controller.shareMessage(index, messages),
+      onSelectMessages: (index, messages) => _controller.startMessageSelection(
+        messageIndex: index,
+        messageList: messages,
+        mode: ChatSelectionMode.delete,
+      ),
+      onSpeakMessage: (message) => _controller.speakMessage(message),
+      onSuggestionTap: (suggestion) => _controller.sendSuggestion(suggestion),
+      onRecoveredAskUserAnswer: (message, part, result) =>
+          _controller.submitRecoveredAskUserAnswer(message, part, result),
+      onToggleSelection: (messageId, selected) {
+        _controller.toggleSelection(messageId, selected);
+      },
+      onToggleReasoning: (messageId) {
+        _controller.toggleReasoning(messageId);
+      },
+      onToggleTranslation: (messageId) {
+        _controller.toggleTranslation(messageId);
+      },
+      onToggleReasoningSegment: (messageId, segmentIndex) {
+        _controller.toggleReasoningSegment(messageId, segmentIndex);
+      },
     );
   }
 
   Widget _buildChatInputBar(BuildContext context, {required bool isTablet}) {
+    final conversation = _controller.currentConversation;
+    final settings = context.watch<SettingsProvider>();
+    final chatModel = resolveChatModel(
+      settings,
+      conversation: conversation,
+      assistant: context.watch<AssistantProvider>().currentAssistant,
+    );
     return ChatInputSection(
       inputBarKey: _inputBarKey,
+      chatModelProviderKey: chatModel.providerKey,
+      chatModelId: chatModel.modelId,
+      chatModelIsConversationOverride:
+          settings.perChatModelEnabled &&
+          conversation?.chatModelProvider != null &&
+          conversation?.chatModelId != null,
       inputFocus: _inputFocus,
       inputController: _inputController,
       mediaController: _mediaController,
@@ -1227,48 +1587,70 @@ class _HomePageState extends State<HomePage>
           ? AppLocalizations.of(context)!.messageEditPageSaveAndSend
           : null,
       onMore: _toggleTools,
-      onSelectModel: () => showModelSelectSheet(context),
+      onSelectModel: () =>
+          showModelSelectSheet(context, controller: _controller),
       onLongPressSelectModel: () {
         Navigator.of(
           context,
         ).push(MaterialPageRoute(builder: (_) => const ProvidersPage()));
       },
-      onOpenMcp: () {
+      onOpenWorkspace: () {
         final a = context.read<AssistantProvider>().currentAssistant;
-        if (a != null) {
-          if (PlatformUtils.isDesktop) {
-            showDesktopMcpServersPopover(
-              context,
-              anchorKey: _inputBarKey,
-              assistantId: a.id,
-            );
-          } else {
-            showAssistantMcpSheet(context, assistantId: a.id);
-          }
+        if (PlatformUtils.isDesktop) {
+          showDesktopWorkspaceDialog(
+            context,
+            conversationListenable: _controller,
+            conversationId: () => _controller.currentConversation?.id,
+            assistantId: a?.id,
+          );
+        } else {
+          _toggleTools();
         }
       },
-      onLongPressMcp: () {
+      onOpenSkills: () async {
+        final assistant = context.read<AssistantProvider>().currentAssistant;
+        final id = await ensureConversationId(
+          context,
+          conversationId: _controller.currentConversation?.id,
+          assistantId: assistant?.id,
+        );
+        if (id == null || !context.mounted) return;
+        await showDesktopSkillsPopover(
+          context,
+          anchorKey: _inputBarKey,
+          conversationId: id,
+          assistant: assistant,
+        );
+      },
+      onOpenTools: () {
+        final a = context.read<AssistantProvider>().currentAssistant;
+        if (a == null) return;
+        if (PlatformUtils.isDesktop) {
+          showDesktopToolsPopover(
+            context,
+            anchorKey: _inputBarKey,
+            assistantId: a.id,
+          );
+        } else {
+          _controller.dismissKeyboard();
+          showChatToolsSheet(
+            context,
+            assistantId: a.id,
+            conversationId: _controller.currentConversation?.id,
+          );
+        }
+      },
+      onLongPressTools: () {
         Navigator.of(
           context,
         ).push(MaterialPageRoute(builder: (_) => const McpPage()));
       },
-      onOpenSkills: _openSkills,
       onOpenSearch: _openSearchSettings,
       onConfigureReasoning: () async {
-        final assistantProvider = context.read<AssistantProvider>();
-        final settingsProvider = context.read<SettingsProvider>();
-        final assistant = assistantProvider.currentAssistant;
-        if (assistant != null) {
-          if (assistant.thinkingBudget != null) {
-            settingsProvider.setThinkingBudget(assistant.thinkingBudget);
-          }
-          await _openReasoningSettings();
-          if (!mounted) return;
-          final chosen = settingsProvider.thinkingBudget;
-          await assistantProvider.updateAssistant(
-            assistant.copyWith(thinkingBudget: chosen),
-          );
-        }
+        await _openReasoningSettings();
+      },
+      onOpenContextUsage: () async {
+        await _openContextUsagePopover();
       },
       onSend: (text) async {
         final result = await _controller.sendMessage(text);
@@ -1283,6 +1665,7 @@ class _HomePageState extends State<HomePage>
       hasQueuedInput: _controller.currentQueuedInput != null,
       queuedPreviewText: _controller.currentQueuedInput?.input.text,
       onCancelQueuedInput: _controller.cancelQueuedMessage,
+      onExpandedChanged: _controller.setInputBarExpanded,
       onQuickPhrase: _showQuickPhraseMenu,
       onLongPressQuickPhrase: () {
         Navigator.of(
@@ -1358,7 +1741,7 @@ class _HomePageState extends State<HomePage>
                 }
               : null,
           bottomOffset: _controller.inputBarHeight + 12,
-          onScrollToTop: _controller.scrollToTop,
+          onScrollToTop: () => _controller.scrollToTop(animate: false),
           onPreviousMessage: _controller.jumpToPreviousQuestion,
           onNextMessage: _controller.jumpToNextQuestion,
           onScrollToBottom: _controller.forceScrollToBottom,
@@ -1389,7 +1772,9 @@ class _HomePageState extends State<HomePage>
   }
 
   Future<void> _openMiniMap() async {
-    final collapsed = _controller.allCollapsedMessagesForCurrentConversation();
+    final collapsed = await _controller
+        .loadAllCollapsedMessagesForCurrentConversation();
+    if (!mounted) return;
     if (collapsed.isEmpty) return;
 
     String? selectedId;
@@ -1400,89 +1785,101 @@ class _HomePageState extends State<HomePage>
         messages: collapsed,
       );
     } else {
-      selectedId = await showMiniMapSheet(context, collapsed);
+      selectedId = await showMiniMapSheet(
+        context,
+        collapsed,
+        onSearch: (query) => _controller.searchMiniMapMatches(query),
+      );
     }
     if (!mounted) return;
     if (selectedId != null && selectedId.isNotEmpty) {
-      await _controller.scrollToMessageId(selectedId);
+      await _controller.scrollToMessageId(selectedId, useRikkaTransition: true);
     }
   }
 
-  Widget _wrapWithDropTarget(Widget child) {
-    if (!_controller.isDesktopPlatform) return child;
-    return DropTarget(
-      onDragEntered: (_) {
-        _controller.setDragHovering(true);
-      },
-      onDragExited: (_) {
-        _controller.setDragHovering(false);
-      },
-      onDragDone: (details) async {
-        _controller.setDragHovering(false);
-        try {
-          final files = details.files;
-          await _controller.onFilesDroppedDesktop(files);
-        } catch (_) {}
-      },
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          child,
-          if (_controller.isDragHovering)
-            IgnorePointer(
-              child: Container(
-                color: Colors.black.withValues(alpha: 0.12),
-                child: Center(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 24,
-                      vertical: 16,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.surface.withValues(alpha: 0.95),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.primary.withValues(alpha: 0.4),
-                        width: 2,
-                      ),
-                    ),
-                    child: Text(
-                      AppLocalizations.of(context)!.homePageDropToUpload,
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: AppFontWeights.semibold,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
+  Widget _wrapMessageJumpTransition(Widget child) {
+    return FadeTransition(
+      opacity: _controller.messageJumpOpacity,
+      child: child,
     );
+  }
+
+  /// 桌面拖放包装（上游用 desktop_drop 实现"拖文件进窗口上传"）。
+  ///
+  /// SoLab 是 Android-only 构建，`desktop_drop` 属已裁剪的桌面依赖，
+  /// 移动端也没有拖放投放动作——直接返回子节点，保留调用点形状不变。
+  Widget _wrapWithDropTarget(Widget child) {
+    return child;
   }
 
   // ============================================================================
   // Action Handlers (UI-specific, not in controller)
   // ============================================================================
 
+  /// The model this chat sends with: the conversation's own override first,
+  /// then the assistant's model, then the global default.
+  ({String? providerKey, String? modelId}) _resolvedChatModel() =>
+      resolveChatModel(
+        context.read<SettingsProvider>(),
+        conversation: _controller.currentConversation,
+        assistant: context.read<AssistantProvider>().currentAssistant,
+      );
+
   void _openSearchSettings() {
+    final model = _resolvedChatModel();
     if (PlatformUtils.isDesktop) {
-      showDesktopSearchProviderPopover(context, anchorKey: _inputBarKey);
+      showDesktopSearchProviderPopover(
+        context,
+        anchorKey: _inputBarKey,
+        chatModelProviderKey: model.providerKey,
+        chatModelId: model.modelId,
+      );
     } else {
-      showSearchSettingsSheet(context);
+      showSearchSettingsSheet(
+        context,
+        chatModelProviderKey: model.providerKey,
+        chatModelId: model.modelId,
+      );
     }
   }
 
+  Future<void> _openContextUsagePopover() async {
+    final conversationId = _controller.currentConversation?.id;
+    if (conversationId == null || conversationId.isEmpty) return;
+    await showContextUsagePopover(
+      context,
+      anchorKey: _inputBarKey,
+      conversationId: conversationId,
+      draftText: _inputController.text,
+    );
+  }
+
   Future<void> _openReasoningSettings() async {
+    final model = _resolvedChatModel();
+    final providerKey = model.providerKey;
+    final modelId = model.modelId;
+    if (providerKey == null || modelId == null) return;
+    final settings = context.read<SettingsProvider>();
+    final config = settings.getProviderConfig(providerKey);
+    if (!ModelSpecResolver.instance.spec(config, modelId).supportsReasoning) {
+      return;
+    }
+    final assistant = context.read<AssistantProvider>().currentAssistant;
     if (PlatformUtils.isDesktop) {
-      await showDesktopReasoningBudgetPopover(context, anchorKey: _inputBarKey);
+      await showDesktopReasoningLevelPopover(
+        context,
+        anchorKey: _inputBarKey,
+        config: config,
+        modelId: modelId,
+        assistant: assistant,
+      );
     } else {
-      await showReasoningBudgetSheet(context);
+      await showReasoningLevelSheet(
+        context,
+        config: config,
+        modelId: modelId,
+        assistant: assistant,
+      );
     }
   }
 
@@ -1495,15 +1892,34 @@ class _HomePageState extends State<HomePage>
     final items = provider.items;
     if (items.isEmpty) return;
 
+    final scoped =
+        context
+            .read<AssistantProvider>()
+            .currentAssistant
+            ?.allowConversationPromptInjection ??
+        false;
+    final scopeId = scoped
+        ? await ensureConversationId(
+            context,
+            conversationId: _controller.currentConversation?.id,
+            assistantId: assistantId,
+          )
+        : null;
+    if (!mounted || (scoped && scopeId == null)) return;
     if (isDesktop) {
       await showDesktopInstructionInjectionPopover(
         context,
         anchorKey: _inputBarKey,
         items: items,
         assistantId: assistantId,
+        conversationId: scopeId,
       );
     } else {
-      await showInstructionInjectionSheet(context, assistantId: assistantId);
+      await showInstructionInjectionSheet(
+        context,
+        assistantId: assistantId,
+        conversationId: scopeId,
+      );
     }
   }
 
@@ -1516,22 +1932,35 @@ class _HomePageState extends State<HomePage>
     final books = provider.books;
     if (books.isEmpty) return;
 
+    final scoped =
+        context
+            .read<AssistantProvider>()
+            .currentAssistant
+            ?.allowConversationPromptInjection ??
+        false;
+    final scopeId = scoped
+        ? await ensureConversationId(
+            context,
+            conversationId: _controller.currentConversation?.id,
+            assistantId: assistantId,
+          )
+        : null;
+    if (!mounted || (scoped && scopeId == null)) return;
     if (isDesktop) {
       await showDesktopWorldBookPopover(
         context,
         anchorKey: _inputBarKey,
         books: books,
         assistantId: assistantId,
+        conversationId: scopeId,
       );
     } else {
-      await showWorldBookSheet(context, assistantId: assistantId);
+      await showWorldBookSheet(
+        context,
+        assistantId: assistantId,
+        conversationId: scopeId,
+      );
     }
-  }
-
-  void _openSkills() {
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => const SkillsPage()));
   }
 
   Future<void> _showLearningPromptSheet() async {
@@ -1540,48 +1969,53 @@ class _HomePageState extends State<HomePage>
 
   void _toggleTools() async {
     _controller.dismissKeyboard();
-    final cs = Theme.of(context).colorScheme;
     final assistantId = context.read<AssistantProvider>().currentAssistantId;
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (ctx) {
-        return SafeArea(
-          top: false,
-          child: BottomToolsSheet(
-            onPhotos: () {
-              Navigator.of(ctx).maybePop();
-              _controller.onPickPhotos();
-            },
-            onCamera: () {
-              Navigator.of(ctx).maybePop();
-              _controller.onPickCamera();
-            },
-            onUpload: () {
-              Navigator.of(ctx).maybePop();
-              _controller.onPickFiles();
-            },
-            onClear: () async {
-              await Navigator.of(ctx).maybePop();
-              _showContextManagementSheet();
-            },
-            assistantId: assistantId,
-          ),
+        return ListenableBuilder(
+          listenable: _controller,
+          builder: (context, _) {
+            return SafeArea(
+              top: false,
+              child: BottomToolsSheet(
+                onPhotos: () {
+                  Navigator.of(ctx).maybePop();
+                  _controller.onPickPhotos();
+                },
+                onCamera: () {
+                  Navigator.of(ctx).maybePop();
+                  _controller.onPickCamera();
+                },
+                onUpload: () {
+                  Navigator.of(ctx).maybePop();
+                  _controller.onPickFiles();
+                },
+                onClear: () async {
+                  await Navigator.of(ctx).maybePop();
+                  _showContextManagementSheet();
+                },
+                assistantId: assistantId,
+                conversationId: _controller.currentConversation?.id,
+                onClose: () => Navigator.of(ctx).maybePop(),
+              ),
+            );
+          },
         );
       },
     );
   }
 
   void _showContextManagementSheet() async {
-    final cs = Theme.of(context).colorScheme;
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -1589,7 +2023,9 @@ class _HomePageState extends State<HomePage>
         return SafeArea(
           top: false,
           child: ContextManagementSheet(
-            clearLabel: _controller.clearContextLabel(),
+            conversationId: _controller.currentConversation?.id,
+            draftText: _inputController.text,
+            messageCountLabel: _controller.contextMessageCountLabel(),
             onCompress: () async {
               await Navigator.of(ctx).maybePop();
               if (!mounted) return;
@@ -1610,31 +2046,47 @@ class _HomePageState extends State<HomePage>
   }
 
   Future<void> _showCompressContextOptions() async {
+    final allMsgs = await _controller
+        .allMessagesForCurrentConversationContext();
+    final collapsed = _controller.collapseVersions(allMsgs);
+    if (!mounted) return;
     final options = await showDialog<CompressContextOptions>(
       context: context,
       barrierDismissible: true,
-      builder: (_) => const _CompressContextOptionsDialog(),
+      builder: (_) =>
+          _CompressContextOptionsDialog(collapsedMessages: collapsed),
     );
     if (options == null || !mounted) return;
 
     final l10n = AppLocalizations.of(context)!;
-    unawaited(
-      showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => LoadingDialogCard(label: l10n.compressingContext),
-      ),
+    final dialogContextCompleter = Completer<BuildContext>();
+    final dialogClosed = showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        if (!dialogContextCompleter.isCompleted) {
+          dialogContextCompleter.complete(dialogContext);
+        }
+        return LoadingDialogCard(label: l10n.compressingContext);
+      },
     );
+    unawaited(dialogClosed);
+    final dialogContext = await dialogContextCompleter.future;
 
     String? error;
     try {
       error = await _controller.compressContext(options: options);
-    } catch (e) {
+    } catch (e, st) {
+      FlutterLogger.log(
+        '[CompressContext] dialog failed: $e\n$st',
+        tag: 'HomePage',
+      );
       error = e.toString();
     } finally {
-      if (mounted) {
-        Navigator.of(context, rootNavigator: true).maybePop();
+      if (dialogContext.mounted) {
+        Navigator.of(dialogContext).pop();
       }
+      await dialogClosed;
     }
     if (error != null && mounted) {
       showAppSnackBar(
@@ -1716,7 +2168,7 @@ class _HomePageState extends State<HomePage>
             onPressed: () => Navigator.of(ctx).pop(true),
             child: Text(
               l10n.homePageDelete,
-              style: TextStyle(color: Colors.red),
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
           ),
         ],
@@ -1775,7 +2227,7 @@ class _HomePageState extends State<HomePage>
             onPressed: () => Navigator.of(ctx).pop(true),
             child: Text(
               l10n.homePageDelete,
-              style: TextStyle(color: Colors.red),
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
           ),
         ],
@@ -1800,4 +2252,26 @@ class _HomePageState extends State<HomePage>
     }
     return result;
   }
+
+  /// 输入框上/下浮层的高度量给控制器（并入输入区内边距）。
+  ///
+  /// 单独量是因为 _inputBarKey 挂在 ChatInputSection 上（滚动按钮等位置计算
+  /// 也复用它，不能挪到外层 Column），不补这两截消息列表底部就会被盖住
+  /// （用户 2026-10-03：面板出现后最后一条的「N个引用」被挡）。
+  void _measureRuntimeStrip() {
+    double heightOf(GlobalKey key) {
+      try {
+        final box = key.currentContext?.findRenderObject() as RenderBox?;
+        if (box == null || !box.hasSize) return 0;
+        return box.size.height;
+      } catch (_) {
+        return 0;
+      }
+    }
+
+    // 上方：运行时状态条 + 任务清单面板；下方：统计 dock。
+    final total = heightOf(_bottomPanelsKey) + heightOf(_usageDockKey);
+    _controller.setBottomOverlayExtra(total);
+  }
+
 }

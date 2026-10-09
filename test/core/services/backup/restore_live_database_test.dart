@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart' as sqlite;
 
-import 'package:solab/core/services/backup/restore_live_database.dart';
+import 'package:Kelivo/core/services/backup/restore_live_database.dart';
 
 void main() {
   group('RestoreLiveDatabase', () {

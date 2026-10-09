@@ -10,7 +10,6 @@ class _BasicSettingsTab extends StatefulWidget {
 
 class _BasicSettingsTabState extends State<_BasicSettingsTab> {
   late final TextEditingController _nameCtrl;
-  late final TextEditingController _thinkingCtrl;
   late final TextEditingController _maxTokensCtrl;
   late final TextEditingController _backgroundCtrl;
 
@@ -20,9 +19,6 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
     final ap = context.read<AssistantProvider>();
     final a = ap.getById(widget.assistantId)!;
     _nameCtrl = TextEditingController(text: a.name);
-    _thinkingCtrl = TextEditingController(
-      text: a.thinkingBudget?.toString() ?? '',
-    );
     _maxTokensCtrl = TextEditingController(text: a.maxTokens?.toString() ?? '');
     _backgroundCtrl = TextEditingController(text: a.background ?? '');
   }
@@ -34,7 +30,6 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
       final ap = context.read<AssistantProvider>();
       final a = ap.getById(widget.assistantId)!;
       _nameCtrl.text = a.name;
-      _thinkingCtrl.text = a.thinkingBudget?.toString() ?? '';
       _maxTokensCtrl.text = a.maxTokens?.toString() ?? '';
       _backgroundCtrl.text = a.background ?? '';
     }
@@ -43,7 +38,6 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
   @override
   void dispose() {
     _nameCtrl.dispose();
-    _thinkingCtrl.dispose();
     _maxTokensCtrl.dispose();
     _backgroundCtrl.dispose();
     super.dispose();
@@ -134,34 +128,23 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       children: [
         // Identity card (avatar + name) - iOS style
-        Container(
-          decoration: BoxDecoration(
-            color: isDark
-                ? Colors.white10
-                : Colors.white.withValues(alpha: 0.96),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: cs.outlineVariant.withValues(alpha: isDark ? 0.08 : 0.06),
-              width: 0.6,
-            ),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Row(
-              children: [
-                avatarWidget(size: 64),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: _InputRow(
-                    label: l10n.assistantEditAssistantNameLabel,
-                    controller: _nameCtrl,
-                    onChanged: (v) => context
-                        .read<AssistantProvider>()
-                        .updateAssistant(a.copyWith(name: v)),
-                  ),
+        SectionCard(
+          radius: 16,
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              avatarWidget(size: 64),
+              const SizedBox(width: 14),
+              Expanded(
+                child: _InputRow(
+                  label: l10n.assistantEditAssistantNameLabel,
+                  controller: _nameCtrl,
+                  onChanged: (v) => context
+                      .read<AssistantProvider>()
+                      .updateAssistant(a.copyWith(name: v)),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 16),
@@ -169,7 +152,7 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
         // iOS section card with all settings (without Use Assistant Avatar and Stream Output)
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 0),
-          child: _iosSectionCard(
+          child: SectionCard(
             children: [
               // Temperature
               _iosNavRow(
@@ -204,28 +187,27 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                 onTap: () => _showContextMessagesSheet(context, a),
               ),
               _iosDivider(context),
-              // Thinking budget
+              // Thinking / reasoning default
               _iosNavRow(
                 context,
                 icon: Lucide.Brain,
                 label: l10n.assistantEditThinkingBudgetTitle,
-                detailText: a.thinkingBudget?.toString() ?? '-',
+                tip: l10n.assistantEditReasoningClampedSubtitle,
+                detailText: a.reasoning == null
+                    ? l10n.assistantEditReasoningFollowDefault
+                    : reasoningLevelLabel(l10n, a.reasoning!.level),
                 onTap: () async {
-                  final settingsProvider = context.read<SettingsProvider>();
                   final assistantProvider = context.read<AssistantProvider>();
-                  final currentBudget = a.thinkingBudget;
-                  if (currentBudget != null) {
-                    settingsProvider.setThinkingBudget(currentBudget);
-                  }
-                  await showReasoningBudgetSheet(
+                  final picked = await showAssistantReasoningPicker(
                     context,
-                    modelProvider: a.chatModelProvider,
-                    modelId: a.chatModelId,
+                    current: a.reasoning,
                   );
-                  if (!context.mounted) return;
-                  final chosen = settingsProvider.thinkingBudget;
+                  if (!context.mounted || picked == null) return;
+                  if (picked.request == a.reasoning) return;
                   await assistantProvider.updateAssistant(
-                    a.copyWith(thinkingBudget: chosen),
+                    picked.request == null
+                        ? a.copyWith(clearReasoning: true)
+                        : a.copyWith(reasoning: picked.request),
                   );
                 },
               ),
@@ -239,6 +221,8 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                     a.maxTokens?.toString() ?? l10n.assistantEditMaxTokensHint,
                 onTap: () => _showMaxTokensSheet(context, a),
               ),
+              _iosDivider(context),
+              AssistantDefaultWorkspaceRow(assistantId: widget.assistantId),
               _iosDivider(context),
               // Use assistant avatar
               _iosSwitchRow(
@@ -271,191 +255,162 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                     .read<AssistantProvider>()
                     .updateAssistant(a.copyWith(streamOutput: v)),
               ),
-              _iosDivider(context),
-              _iosNavRow(
-                context,
-                icon: Lucide.Shield,
-                label: '神经权能网关',
-                detailText: _appControlSummary(a),
-                onTap: () => _showAppControlPolicySheet(context, a),
-              ),
             ],
           ),
         ),
         const SizedBox(height: 16),
 
         // Chat model card (moved down, styled like DefaultModelPage)
-        Container(
-          decoration: BoxDecoration(
-            color: isDark
-                ? Colors.white10
-                : Colors.white.withValues(alpha: 0.96),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: cs.outlineVariant.withValues(alpha: isDark ? 0.08 : 0.06),
-              width: 0.6,
-            ),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(Lucide.MessageCircle, size: 18, color: cs.onSurface),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        l10n.assistantEditChatModelTitle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: AppFontWeights.semibold,
-                        ),
+        SectionCard(
+          radius: 16,
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Lucide.MessageCircle, size: 18, color: cs.onSurface),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      l10n.assistantEditChatModelTitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: AppFontWeights.semibold,
                       ),
                     ),
-                    if (a.chatModelProvider != null && a.chatModelId != null)
-                      Tooltip(
-                        message: l10n.defaultModelPageResetDefault,
-                        child: _TactileIconButton(
-                          icon: Lucide.RotateCcw,
-                          color: cs.onSurface,
-                          size: 20,
-                          onTap: () async {
-                            await context
-                                .read<AssistantProvider>()
-                                .updateAssistant(
-                                  a.copyWith(clearChatModel: true),
-                                );
-                          },
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  l10n.assistantEditChatModelSubtitle,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: cs.onSurface.withValues(alpha: 0.7),
                   ),
+                  if (a.chatModelProvider != null && a.chatModelId != null)
+                    Tooltip(
+                      message: l10n.defaultModelPageResetDefault,
+                      child: _TactileIconButton(
+                        icon: Lucide.RotateCcw,
+                        color: cs.onSurface,
+                        size: 20,
+                        onTap: () async {
+                          await context
+                              .read<AssistantProvider>()
+                              .updateAssistant(
+                                a.copyWith(clearChatModel: true),
+                              );
+                        },
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                l10n.assistantEditChatModelSubtitle,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: cs.onSurface.withValues(alpha: 0.7),
                 ),
-                const SizedBox(height: 8),
-                _TactileRow(
-                  onTap: () async {
-                    final assistantProvider = context.read<AssistantProvider>();
-                    final sel = await showModelSelector(
-                      context,
-                      initialProviderKey: a.chatModelProvider,
-                      initialModelId: a.chatModelId,
-                    );
-                    if (!context.mounted || sel == null) return;
-                    await assistantProvider.updateAssistant(
-                      a.copyWith(
-                        chatModelProvider: sel.providerKey,
-                        chatModelId: sel.modelId,
-                      ),
-                    );
-                  },
-                  pressedScale: 0.98,
-                  builder: (pressed) {
-                    final bg = isDark
-                        ? Colors.white10
-                        : const Color(0xFFF2F3F5);
-                    final overlay = isDark
-                        ? Colors.white.withValues(alpha: 0.06)
-                        : Colors.black.withValues(alpha: 0.05);
-                    final pressedBg = Color.alphaBlend(overlay, bg);
-                    final l10n = AppLocalizations.of(context)!;
-                    final settings = context.read<SettingsProvider>();
-                    String display = l10n.assistantEditModelUseGlobalDefault;
-                    if (a.chatModelProvider != null && a.chatModelId != null) {
-                      try {
-                        final cfg = settings.getProviderConfig(
-                          a.chatModelProvider!,
-                        );
-                        final ov = cfg.modelOverrides[a.chatModelId] as Map?;
-                        final mdl =
-                            (ov != null &&
-                                (ov['name'] as String?)?.isNotEmpty == true)
-                            ? (ov['name'] as String)
-                            : a.chatModelId!;
-                        display = mdl;
-                      } catch (_) {
-                        display = a.chatModelId ?? '';
-                      }
+              ),
+              const SizedBox(height: 8),
+              _TactileRow(
+                onTap: () async {
+                  final assistantProvider = context.read<AssistantProvider>();
+                  final sel = await showModelSelector(
+                    context,
+                    initialProviderKey: a.chatModelProvider,
+                    initialModelId: a.chatModelId,
+                  );
+                  if (!context.mounted || sel == null) return;
+                  await assistantProvider.updateAssistant(
+                    a.copyWith(
+                      chatModelProvider: sel.providerKey,
+                      chatModelId: sel.modelId,
+                    ),
+                  );
+                },
+                pressedScale: 0.98,
+                builder: (pressed) {
+                  final bg = context.appColors.surfaceFill;
+                  final overlay = cs.onSurface.withValues(
+                    alpha: isDark ? 0.06 : 0.05,
+                  );
+                  final pressedBg = Color.alphaBlend(overlay, bg);
+                  final l10n = AppLocalizations.of(context)!;
+                  final settings = context.read<SettingsProvider>();
+                  String display = l10n.assistantEditModelUseGlobalDefault;
+                  if (a.chatModelProvider != null && a.chatModelId != null) {
+                    try {
+                      final cfg = settings.getProviderConfig(
+                        a.chatModelProvider!,
+                      );
+                      final ov = cfg.modelOverrides[a.chatModelId] as Map?;
+                      final mdl =
+                          (ov != null &&
+                              (ov['name'] as String?)?.isNotEmpty == true)
+                          ? (ov['name'] as String)
+                          : a.chatModelId!;
+                      display = mdl;
+                    } catch (_) {
+                      display = a.chatModelId ?? '';
                     }
-                    return AnimatedContainer(
-                      duration: const Duration(milliseconds: 160),
-                      curve: Curves.easeOutCubic,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 10,
-                      ),
-                      decoration: BoxDecoration(
-                        color: pressed ? pressedBg : bg,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(
-                        children: [
-                          _BrandAvatarLike(name: display, size: 24),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              display,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: AppFontWeights.semibold,
-                              ),
+                  }
+                  return AnimatedContainer(
+                    duration: const Duration(milliseconds: 160),
+                    curve: Curves.easeOutCubic,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: pressed ? pressedBg : bg,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        _BrandAvatarLike(name: display, size: 24),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            display,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: AppFontWeights.semibold,
                             ),
                           ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-              ],
-            ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 16),
 
         // Chat background (separate iOS card)
-        Container(
-          decoration: BoxDecoration(
-            color: isDark
-                ? Colors.white10
-                : Colors.white.withValues(alpha: 0.96),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: cs.outlineVariant.withValues(alpha: isDark ? 0.08 : 0.06),
-              width: 0.6,
-            ),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(Lucide.Image, size: 18, color: cs.onSurface),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        l10n.assistantEditChatBackgroundTitle,
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: AppFontWeights.semibold,
-                        ),
+        SectionCard(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Lucide.Image, size: 18, color: cs.onSurface),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      l10n.assistantEditChatBackgroundTitle,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: AppFontWeights.semibold,
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              AssistantGradientSettings(assistant: a),
+              if (!a.useGradientBackground) ...[
                 const SizedBox(height: 6),
                 Text(
                   l10n.assistantEditChatBackgroundDescription,
@@ -471,12 +426,10 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                     onTap: () => _pickBackground(context, a),
                     pressedScale: 0.98,
                     builder: (pressed) {
-                      final bg = isDark
-                          ? Colors.white10
-                          : const Color(0xFFF2F3F5);
-                      final overlay = isDark
-                          ? Colors.white.withValues(alpha: 0.06)
-                          : Colors.black.withValues(alpha: 0.05);
+                      final bg = context.appColors.surfaceFill;
+                      final overlay = cs.onSurface.withValues(
+                        alpha: isDark ? 0.06 : 0.05,
+                      );
                       final pressedBg = Color.alphaBlend(overlay, bg);
                       final iconColor = cs.onSurface.withValues(alpha: 0.75);
                       final textColor = cs.onSurface.withValues(alpha: 0.9);
@@ -554,7 +507,7 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                   ),
                 ],
               ],
-            ),
+            ],
           ),
         ),
       ],
@@ -566,7 +519,7 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Theme.of(context).colorScheme.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -580,7 +533,7 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
               height: 48,
               child: IosCardPress(
                 borderRadius: BorderRadius.circular(14),
-                baseColor: cs.surface,
+                baseColor: sheetTileColor(ctx),
                 duration: const Duration(milliseconds: 260),
                 onTap: () async {
                   Haptics.light();
@@ -680,11 +633,10 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
   }
 
   Future<void> _showTemperatureSheet(BuildContext context, Assistant a) async {
-    final cs = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context)!;
     await showModalBottomSheet(
       context: context,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -702,7 +654,7 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                         .watch<AssistantProvider>()
                         .getById(widget.assistantId)
                         ?.temperature ??
-                    0.6;
+                    Assistant.defaultTemperature;
                 return Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -738,7 +690,9 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                             final navigator = Navigator.of(ctx);
                             if (v) {
                               await assistantProvider.updateAssistant(
-                                a.copyWith(temperature: 0.6),
+                                a.copyWith(
+                                  temperature: Assistant.defaultTemperature,
+                                ),
                               );
                             } else {
                               await assistantProvider.updateAssistant(
@@ -793,11 +747,10 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
   }
 
   Future<void> _showTopPSheet(BuildContext context, Assistant a) async {
-    final cs = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context)!;
     await showModalBottomSheet(
       context: context,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -909,11 +862,10 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
     BuildContext context,
     Assistant a,
   ) async {
-    final cs = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context)!;
     await showModalBottomSheet(
       context: context,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -993,6 +945,8 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                           256.0,
                           512.0,
                           1024.0,
+                          2048.0,
+                          4096.0,
                         ],
                         onLabelTap: () async {
                           final assistantProvider = context
@@ -1052,7 +1006,7 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -1138,9 +1092,7 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                   decoration: InputDecoration(
                     hintText: l10n.assistantEditMaxTokensHint,
                     filled: true,
-                    fillColor: Theme.of(ctx).brightness == Brightness.dark
-                        ? Colors.white10
-                        : const Color(0xFFF2F3F5),
+                    fillColor: ctx.appColors.surfaceFill,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                       borderSide: BorderSide(
@@ -1174,607 +1126,6 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
           ),
         );
       },
-    );
-  }
-
-  String _appControlSummary(Assistant a) {
-    if (!a.appControlEnabled) return '已关闭';
-    final enabled = a.appControlPolicy.enabledTargetCount;
-    final approvals = a.appControlPolicy.approvalRequiredTargetCount;
-    if (enabled == 0) return '无已启用功能';
-    return '$enabled 项，$approvals 项审批';
-  }
-
-  Future<void> _showAppControlPolicySheet(
-    BuildContext context,
-    Assistant a,
-  ) async {
-    final cs = Theme.of(context).colorScheme;
-    await showModalBottomSheet(
-      context: context,
-      backgroundColor: cs.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-      ),
-      isScrollControlled: true,
-      builder: (ctx) => DraggableScrollableSheet(
-        expand: false,
-        initialChildSize: 0.88,
-        minChildSize: 0.55,
-        maxChildSize: 0.96,
-        builder: (context, scrollController) => _AppControlPolicySheet(
-          assistantId: a.id,
-          scrollController: scrollController,
-        ),
-      ),
-    );
-  }
-}
-
-class _AppControlCapabilityMeta {
-  const _AppControlCapabilityMeta({
-    required this.target,
-    required this.title,
-    required this.subtitle,
-    required this.icon,
-    required this.highRisk,
-  });
-
-  final String target;
-  final String title;
-  final String subtitle;
-  final IconData icon;
-  final bool highRisk;
-}
-
-const List<_AppControlCapabilityMeta> _appControlCapabilityMetas = [
-  _AppControlCapabilityMeta(
-    target: AppControlPolicy.currentAssistantSettings,
-    title: '助手配置',
-    subtitle: '名称、模型、温度、上下文和搜索记忆开关',
-    icon: Lucide.Settings2,
-    highRisk: true,
-  ),
-  _AppControlCapabilityMeta(
-    target: AppControlPolicy.currentAssistantSystemPrompt,
-    title: '系统提示词',
-    subtitle: '追加、覆盖、导入或导出当前助手提示词',
-    icon: Lucide.FileText,
-    highRisk: true,
-  ),
-  _AppControlCapabilityMeta(
-    target: AppControlPolicy.currentAssistantMemory,
-    title: '记忆',
-    subtitle: '创建、更新、删除或导入导出助手记忆',
-    icon: Lucide.Brain,
-    highRisk: false,
-  ),
-  _AppControlCapabilityMeta(
-    target: AppControlPolicy.currentAssistantSkills,
-    title: '技能',
-    subtitle: '创建、绑定、版本快照、回滚和导入导出技能',
-    icon: Lucide.Sparkles,
-    highRisk: false,
-  ),
-  _AppControlCapabilityMeta(
-    target: AppControlPolicy.quickPhrase,
-    title: '快捷短语',
-    subtitle: '创建、更新、排序和删除快捷短语',
-    icon: Lucide.Zap,
-    highRisk: false,
-  ),
-  _AppControlCapabilityMeta(
-    target: AppControlPolicy.worldBook,
-    title: '世界书',
-    subtitle: '管理书本、条目和助手激活状态',
-    icon: Lucide.BookOpen,
-    highRisk: false,
-  ),
-  _AppControlCapabilityMeta(
-    target: AppControlPolicy.instructionInjection,
-    title: '指令注入',
-    subtitle: '创建、启停、更新或删除指令卡片',
-    icon: Lucide.Bot,
-    highRisk: true,
-  ),
-  _AppControlCapabilityMeta(
-    target: AppControlPolicy.currentAssistantLocalTools,
-    title: '本地工具绑定',
-    subtitle: '绑定或解绑时间、剪贴板、TTS、计算器等工具',
-    icon: Lucide.Wrench,
-    highRisk: false,
-  ),
-  _AppControlCapabilityMeta(
-    target: AppControlPolicy.currentAssistantMcp,
-    title: '助手 MCP 绑定',
-    subtitle: '为当前助手绑定或解绑 MCP 服务器',
-    icon: Lucide.Terminal,
-    highRisk: true,
-  ),
-  _AppControlCapabilityMeta(
-    target: AppControlPolicy.mcpServer,
-    title: 'MCP 服务器配置',
-    subtitle: '创建、更新、删除 MCP 服务器和审批规则',
-    icon: Lucide.Server,
-    highRisk: true,
-  ),
-  _AppControlCapabilityMeta(
-    target: AppControlPolicy.searchSettings,
-    title: '搜索设置',
-    subtitle: '启停搜索、更新搜索服务和全局配置',
-    icon: Lucide.Search,
-    highRisk: true,
-  ),
-  _AppControlCapabilityMeta(
-    target: AppControlPolicy.appBundle,
-    title: '迁移包',
-    subtitle: '导入或导出助手能力配置包',
-    icon: Lucide.Package,
-    highRisk: true,
-  ),
-  _AppControlCapabilityMeta(
-    target: AppControlPolicy.auditLog,
-    title: '审计日志',
-    subtitle: '查看最近网关操作和撤销栈状态',
-    icon: Lucide.History,
-    highRisk: false,
-  ),
-];
-
-class _AppControlPolicySheet extends StatelessWidget {
-  const _AppControlPolicySheet({
-    required this.assistantId,
-    required this.scrollController,
-  });
-
-  final String assistantId;
-  final ScrollController scrollController;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final isDark = theme.brightness == Brightness.dark;
-    final assistant = context.watch<AssistantProvider>().getById(assistantId)!;
-    final policy = assistant.appControlPolicy;
-    final enabledCount = assistant.appControlEnabled
-        ? policy.enabledTargetCount
-        : 0;
-    final approvalCount = assistant.appControlEnabled
-        ? policy.approvalRequiredTargetCount
-        : 0;
-
-    Future<void> updatePolicy(AppControlPolicy next) {
-      return context.read<AssistantProvider>().updateAssistant(
-        assistant.copyWith(
-          appControlEnabled: next.enabled,
-          appControlPolicy: next,
-        ),
-      );
-    }
-
-    Future<void> setEnabled(bool value) {
-      final next = policy.targets.isEmpty
-          ? AppControlPolicy.safeDefault(enabled: value)
-          : policy.copyWith(enabled: value);
-      return updatePolicy(next);
-    }
-
-    return SafeArea(
-      top: false,
-      child: Column(
-        children: [
-          Container(
-            width: 36,
-            height: 4,
-            margin: const EdgeInsets.only(top: 10, bottom: 10),
-            decoration: BoxDecoration(
-              color: cs.onSurface.withValues(alpha: 0.18),
-              borderRadius: BorderRadius.circular(999),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(18, 0, 10, 8),
-            child: Row(
-              children: [
-                Container(
-                  width: 38,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    color: cs.primary.withValues(alpha: isDark ? 0.18 : 0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  alignment: Alignment.center,
-                  child: Icon(Lucide.Shield, size: 20, color: cs.primary),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '神经权能网关',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: AppFontWeights.emphasis,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        assistant.appControlEnabled
-                            ? '已启用 $enabledCount 项功能，$approvalCount 项需要审批'
-                            : '已关闭，不会向模型暴露网关工具',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          color: cs.onSurface.withValues(alpha: 0.62),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                _TactileIconButton(
-                  icon: Lucide.X,
-                  color: cs.onSurface,
-                  size: 21,
-                  onTap: () => Navigator.of(context).maybePop(),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: ListView(
-              controller: scrollController,
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
-              children: [
-                _iosSectionCard(
-                  children: [
-                    _iosSwitchRow(
-                      context,
-                      icon: Lucide.Power,
-                      label: '启用神经权能网关',
-                      value: assistant.appControlEnabled,
-                      onChanged: setEnabled,
-                    ),
-                    _iosDivider(context),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(60, 4, 14, 10),
-                      child: Text(
-                        '总开关关闭时，助手不会看到 kelivo_app_control 工具；开启后仍会受下方功能权限和审批策略限制。',
-                        style: TextStyle(
-                          color: cs.onSurface.withValues(alpha: 0.58),
-                          fontSize: 12.5,
-                          height: 1.35,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _AppControlPresetButton(
-                        label: '安全默认',
-                        icon: Lucide.ShieldCheck,
-                        onTap: () => updatePolicy(
-                          AppControlPolicy.safeDefault(enabled: true),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _AppControlPresetButton(
-                        label: '全部关闭',
-                        icon: Lucide.ShieldOff,
-                        onTap: () => updatePolicy(
-                          AppControlPolicy.safeDefault(enabled: false),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _AppControlPresetButton(
-                        label: '完整权限',
-                        icon: Lucide.Unlock,
-                        onTap: () async {
-                          final ok = await _confirmFullAccess(context);
-                          if (ok == true && context.mounted) {
-                            await updatePolicy(AppControlPolicy.fullAccess());
-                          }
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                Text(
-                  '功能权限',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: AppFontWeights.semibold,
-                    color: cs.onSurface.withValues(alpha: 0.64),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                _iosSectionCard(
-                  children: [
-                    for (
-                      var i = 0;
-                      i < _appControlCapabilityMetas.length;
-                      i++
-                    ) ...[
-                      _AppControlCapabilityRow(
-                        meta: _appControlCapabilityMetas[i],
-                        assistantEnabled: assistant.appControlEnabled,
-                        policy: policy,
-                        onChanged: updatePolicy,
-                      ),
-                      if (i != _appControlCapabilityMetas.length - 1)
-                        _iosDivider(context),
-                    ],
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<bool?> _confirmFullAccess(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        backgroundColor: cs.surface,
-        title: const Text('启用完整权限？'),
-        content: const Text('这会开放所有神经权能网关功能。高风险目标和删除、覆盖、导入类操作仍会强制审批。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('启用'),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _AppControlPresetButton extends StatelessWidget {
-  const _AppControlPresetButton({
-    required this.label,
-    required this.icon,
-    required this.onTap,
-  });
-
-  final String label;
-  final IconData icon;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return _TactileRow(
-      onTap: onTap,
-      pressedScale: 0.98,
-      builder: (pressed) {
-        final bg = isDark ? Colors.white10 : const Color(0xFFF2F3F5);
-        final overlay = isDark
-            ? Colors.white.withValues(alpha: 0.06)
-            : Colors.black.withValues(alpha: 0.05);
-        return AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-          decoration: BoxDecoration(
-            color: pressed ? Color.alphaBlend(overlay, bg) : bg,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: cs.outlineVariant.withValues(alpha: 0.24),
-            ),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: 16, color: cs.onSurface.withValues(alpha: 0.76)),
-              const SizedBox(width: 6),
-              Flexible(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: AppFontWeights.semibold,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _AppControlCapabilityRow extends StatelessWidget {
-  const _AppControlCapabilityRow({
-    required this.meta,
-    required this.assistantEnabled,
-    required this.policy,
-    required this.onChanged,
-  });
-
-  final _AppControlCapabilityMeta meta;
-  final bool assistantEnabled;
-  final AppControlPolicy policy;
-  final ValueChanged<AppControlPolicy> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final defaults = AppControlPolicy.safeDefault().targets;
-    final targetPolicy =
-        policy.targets[meta.target] ??
-        defaults[meta.target] ??
-        const AppControlTargetPolicy();
-    final enabled = assistantEnabled && targetPolicy.enabled;
-    final approvalForced = AppControlPolicy.forceApprovalTargets.contains(
-      meta.target,
-    );
-    final approvalValue = approvalForced || targetPolicy.approvalRequired;
-    final textAlpha = assistantEnabled ? 0.92 : 0.42;
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          SizedBox(
-            width: 36,
-            child: Icon(
-              meta.icon,
-              size: 20,
-              color: cs.onSurface.withValues(alpha: textAlpha),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        meta.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 14.5,
-                          color: cs.onSurface.withValues(alpha: textAlpha),
-                          fontWeight: AppFontWeights.semibold,
-                        ),
-                      ),
-                    ),
-                    if (meta.highRisk)
-                      Container(
-                        margin: const EdgeInsets.only(left: 6),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: cs.error.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Text(
-                          '高风险',
-                          style: TextStyle(
-                            fontSize: 10.5,
-                            color: cs.error,
-                            fontWeight: AppFontWeights.semibold,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  meta.subtitle,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 12,
-                    height: 1.25,
-                    color: cs.onSurface.withValues(
-                      alpha: assistantEnabled ? 0.56 : 0.34,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 6,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    _MiniSwitchLabel(
-                      label: '功能',
-                      value: enabled,
-                      enabled: assistantEnabled,
-                      onChanged: (value) => onChanged(
-                        policy.setTargetEnabled(meta.target, value),
-                      ),
-                    ),
-                    _MiniSwitchLabel(
-                      label: approvalForced ? '强制审批' : '审批',
-                      value: approvalValue,
-                      enabled:
-                          assistantEnabled &&
-                          targetPolicy.enabled &&
-                          !approvalForced,
-                      onChanged: (value) => onChanged(
-                        policy.setTargetApprovalRequired(meta.target, value),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MiniSwitchLabel extends StatelessWidget {
-  const _MiniSwitchLabel({
-    required this.label,
-    required this.value,
-    required this.enabled,
-    required this.onChanged,
-  });
-
-  final String label;
-  final bool value;
-  final bool enabled;
-  final ValueChanged<bool> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Opacity(
-      opacity: enabled ? 1 : 0.52,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11.5,
-              color: cs.onSurface.withValues(alpha: 0.62),
-            ),
-          ),
-          const SizedBox(width: 5),
-          Transform.scale(
-            scale: 0.76,
-            child: IosSwitch(
-              value: value,
-              semanticLabel: label,
-              onChanged: enabled ? onChanged : null,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
@@ -1994,7 +1345,7 @@ class _SliderTileNew extends StatelessWidget {
                               ? []
                               : [
                                   BoxShadow(
-                                    color: Colors.black.withValues(alpha: 0.08),
+                                    color: cs.shadow.withValues(alpha: 0.08),
                                     blurRadius: 8,
                                     offset: const Offset(0, 2),
                                   ),
@@ -2064,7 +1415,7 @@ class _ValuePill extends StatelessWidget {
           : HitTestBehavior.deferToChild,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: isDark ? Colors.white10 : cs.primary.withValues(alpha: 0.10),
+          color: cs.primary.withValues(alpha: isDark ? 0.18 : 0.10),
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
             color: cs.primary.withValues(alpha: isDark ? 0.28 : 0.22),
@@ -2225,7 +1576,7 @@ extension _AssistantAvatarActions on _BasicSettingsTabState {
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
-              backgroundColor: cs.surface,
+              backgroundColor: context.overlaySurface,
               title: Text(l10n.assistantEditEmojiDialogTitle),
               content: SizedBox(
                 width: 360,
@@ -2265,9 +1616,7 @@ extension _AssistantAvatarActions on _BasicSettingsTabState {
                       decoration: InputDecoration(
                         hintText: l10n.assistantEditEmojiDialogHint,
                         filled: true,
-                        fillColor: Theme.of(ctx).brightness == Brightness.dark
-                            ? Colors.white10
-                            : const Color(0xFFF2F3F5),
+                        fillColor: ctx.appColors.surfaceFill,
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                           borderSide: BorderSide(color: Colors.transparent),
@@ -2368,7 +1717,7 @@ extension _AssistantAvatarActions on _BasicSettingsTabState {
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
-              backgroundColor: cs.surface,
+              backgroundColor: context.overlaySurface,
               title: Text(l10n.assistantEditImageUrlDialogTitle),
               content: TextField(
                 controller: controller,
@@ -2376,9 +1725,7 @@ extension _AssistantAvatarActions on _BasicSettingsTabState {
                 decoration: InputDecoration(
                   hintText: l10n.assistantEditImageUrlDialogHint,
                   filled: true,
-                  fillColor: Theme.of(ctx).brightness == Brightness.dark
-                      ? Colors.white10
-                      : const Color(0xFFF2F3F5),
+                  fillColor: ctx.appColors.surfaceFill,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                     borderSide: BorderSide(color: Colors.transparent),
@@ -2491,7 +1838,7 @@ extension _AssistantAvatarActions on _BasicSettingsTabState {
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
-              backgroundColor: cs.surface,
+              backgroundColor: context.overlaySurface,
               title: Text(l10n.assistantEditQQAvatarDialogTitle),
               content: TextField(
                 controller: controller,
@@ -2500,9 +1847,7 @@ extension _AssistantAvatarActions on _BasicSettingsTabState {
                 decoration: InputDecoration(
                   hintText: l10n.assistantEditQQAvatarDialogHint,
                   filled: true,
-                  fillColor: Theme.of(ctx).brightness == Brightness.dark
-                      ? Colors.white10
-                      : const Color(0xFFF2F3F5),
+                  fillColor: ctx.appColors.surfaceFill,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                     borderSide: BorderSide(color: Colors.transparent),

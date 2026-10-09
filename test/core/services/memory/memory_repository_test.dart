@@ -1,13 +1,13 @@
 import 'dart:convert';
 
-import 'package:solab/core/database/app_database.dart';
-import 'package:solab/core/database/business_data.dart';
-import 'package:solab/core/database/business_preferences.dart';
-import 'package:solab/core/database/business_repository.dart';
-import 'package:solab/core/database/chat_database_repository.dart';
-import 'package:solab/core/models/memory_entry.dart';
-import 'package:solab/core/services/memory/memory_repository.dart';
-import 'package:solab/core/services/memory/memory_tokenizer.dart';
+import 'package:Kelivo/core/database/app_database.dart';
+import 'package:Kelivo/core/database/business_data.dart';
+import 'package:Kelivo/core/database/business_preferences.dart';
+import 'package:Kelivo/core/database/business_repository.dart';
+import 'package:Kelivo/core/database/chat_database_repository.dart';
+import 'package:Kelivo/core/models/memory_entry.dart';
+import 'package:Kelivo/core/services/memory/memory_repository.dart';
+import 'package:Kelivo/core/services/memory/memory_tokenizer.dart';
 import 'package:drift/drift.dart' show Variable, driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -773,6 +773,111 @@ void main() {
       expect(counts[MemoryType.identity], 1);
       expect(counts[MemoryType.workflow], 2);
       expect(counts[MemoryType.voice], 0);
+    });
+  });
+
+  // 用户 2026-10-04：工作区（项目）删掉后，打标过的一般记忆既不会被注入、
+  // 工具也读不到（visibleInProject 对任何上下文都是 false）——孤儿数据必须能
+  // 查出来、能交接（转全局/迁移）、能清理。
+  group('工作区删除后的项目记忆（孤儿 / 交接）', () {
+    Future<MemoryEntry> putProjected({
+      required String content,
+      String? projectId,
+      MemoryType type = MemoryType.workflow,
+    }) => memoryRepository.create(
+      scope: MemoryScope.global,
+      type: type,
+      content: content,
+      source: MemorySource.manual,
+      extraJson: projectId == null
+          ? null
+          : <String, dynamic>{'projectId': projectId},
+    );
+
+    test('孤儿识别：只认「有标记且标记不在现存工作区」', () async {
+      final kept = await putProjected(content: 'A 项目', projectId: 'p-a');
+      final orphan = await putProjected(content: 'B 项目', projectId: 'p-b');
+      final global = await putProjected(content: '全局');
+      // 经验类不参与隔离，即使打了标也不算孤儿。
+      final experience = await putProjected(
+        content: '经验',
+        projectId: 'p-b',
+        type: MemoryType.apkPatch,
+      );
+
+      final orphans = MemoryRepository.orphanProjectEntries(
+        await memoryRepository.readAll(),
+        <String>{'p-a'},
+      );
+      expect(orphans.map((e) => e.id), <String>[orphan.id]);
+      expect(orphans.map((e) => e.id), isNot(contains(kept.id)));
+      expect(orphans.map((e) => e.id), isNot(contains(global.id)));
+      expect(
+        orphans.map((e) => e.id),
+        isNot(contains(experience.id)),
+        reason: 'apkPatch 的 projectId 只是历史误标，经验跨工作区保留',
+      );
+    });
+
+    test('交接：转全局后所有工作区可见', () async {
+      final entry = await putProjected(content: 'A 的结论', projectId: 'p-a');
+      expect(entry.visibleInProject('p-b'), isFalse);
+
+      final changed = await memoryRepository.releaseProjectMemories('p-a');
+      expect(changed, 1);
+      final released = (await memoryRepository.readAll()).single;
+      expect(released.projectId, isNull);
+      expect(released.visibleInProject('p-b'), isTrue);
+      expect(released.visibleInProject(null), isTrue);
+    });
+
+    test('交接：迁移到另一个工作区只改标记', () async {
+      await putProjected(content: 'A 的结论', projectId: 'p-a');
+      await putProjected(content: '别的项目', projectId: 'p-c');
+
+      final changed = await memoryRepository.releaseProjectMemories(
+        'p-a',
+        toProjectId: 'p-b',
+      );
+      expect(changed, 1);
+      final all = await memoryRepository.readAll();
+      final moved = all.firstWhere((e) => e.content == 'A 的结论');
+      expect(moved.projectId, 'p-b');
+      expect(moved.visibleInProject('p-b'), isTrue);
+      expect(moved.visibleInProject('p-a'), isFalse);
+      expect(
+        all.firstWhere((e) => e.content == '别的项目').projectId,
+        'p-c',
+        reason: '别的项目不受影响',
+      );
+    });
+
+    test('清理：只删孤儿，现存项目与全局保留', () async {
+      final kept = await putProjected(content: 'A 项目', projectId: 'p-a');
+      await putProjected(content: 'B 项目', projectId: 'p-b');
+      final global = await putProjected(content: '全局');
+
+      final deleted = await memoryRepository.deleteOrphanProjectMemories(
+        <String>{'p-a'},
+      );
+      expect(deleted, 1);
+      final ids = (await memoryRepository.readAll()).map((e) => e.id).toSet();
+      expect(ids, containsAll(<String>[kept.id, global.id]));
+      expect(ids, hasLength(2));
+    });
+
+    test('删除某个工作区的全部记忆（删工作区时选「一并删除」）', () async {
+      await putProjected(content: 'A1', projectId: 'p-a');
+      await putProjected(content: 'A2', projectId: 'p-a');
+      final other = await putProjected(content: 'B1', projectId: 'p-b');
+
+      final ids = <String>{
+        for (final entry in await memoryRepository.readAll())
+          if (entry.projectId == 'p-a') entry.id,
+      };
+      expect(await memoryRepository.hardDeleteIds(ids), 2);
+      final rest = await memoryRepository.readAll();
+      expect(rest.map((e) => e.id), <String>[other.id]);
     });
   });
 }

@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/core/services/mcp_server/mcp_http_server.dart';
+import 'package:Kelivo/core/services/mcp_server/mcp_http_server.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

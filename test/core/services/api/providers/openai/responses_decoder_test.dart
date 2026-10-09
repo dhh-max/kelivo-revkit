@@ -1,8 +1,13 @@
 import 'dart:convert';
 
-import 'package:solab/core/services/api/providers/openai/responses_decoder.dart';
-import 'package:solab/core/services/api/stream/sse_event.dart';
-import 'package:solab/core/services/api/stream/stream_chunk.dart';
+import 'package:Kelivo/core/services/api/providers/openai/openai_tool_transcript.dart';
+import 'package:Kelivo/core/services/api/providers/openai/responses_api.dart';
+import 'package:Kelivo/core/services/api/providers/openai/responses_decoder.dart';
+import 'package:Kelivo/core/services/api/stream/sse_event.dart';
+import 'package:Kelivo/core/models/message_part.dart';
+import 'package:Kelivo/core/services/api/stream/stream_chunk.dart';
+import 'package:Kelivo/core/services/api/stream/stream_chunk_handler.dart';
+import 'package:Kelivo/features/home/services/tool_approval_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 SseEvent _event(Map<String, dynamic> data) => SseEvent(data: jsonEncode(data));
@@ -217,6 +222,150 @@ void main() {
     );
   });
 
+  for (final started in [false, true]) {
+    test(
+      'terminal citations stay on the completed search card, started=$started',
+      () {
+        final decoder = ResponsesStreamDecoder();
+        final handler = StreamChunkHandler();
+        if (started) {
+          for (final chunk
+              in decoder
+                  .accept(
+                    _event({
+                      'type': 'response.output_item.added',
+                      'item': {
+                        'type': 'web_search_call',
+                        'id': 'search-1',
+                        'status': 'in_progress',
+                      },
+                    }),
+                  )
+                  .chunks) {
+            handler.handle(chunk);
+          }
+        }
+        final done = decoder.accept(
+          _event({
+            'type': 'response.completed',
+            'response': {
+              'output': [
+                {
+                  'type': 'web_search_call',
+                  'id': 'search-1',
+                  'status': 'completed',
+                },
+                {
+                  'type': 'message',
+                  'content': [
+                    {
+                      'type': 'output_text',
+                      'text': 'answer',
+                      'annotations': [
+                        {
+                          'type': 'url_citation',
+                          'url': 'https://example.com',
+                          'title': 'Source',
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+        );
+        for (final chunk in done.chunks) {
+          handler.handle(chunk);
+        }
+        final card = jsonDecode(
+          handler.parts.whereType<ToolCallPart>().single.payloadJson,
+        );
+        expect(card['id'], 'search-1');
+        expect(card['content']['items'], [
+          {'url': 'https://example.com', 'title': 'Source'},
+        ]);
+      },
+    );
+  }
+
+  test('keeps message items separate so a hosted search stays inline', () {
+    final decoder = ResponsesStreamDecoder();
+    final handler = StreamChunkHandler();
+    void feed(Map<String, dynamic> data) {
+      for (final chunk in decoder.accept(_event(data)).chunks) {
+        handler.handle(chunk);
+      }
+    }
+
+    // DeepSeek's built-in search splits one response into several `message`
+    // items with a `web_search_call` item between them.
+    feed({
+      'type': 'response.reasoning_text.delta',
+      'output_index': 0,
+      'delta': 'think A',
+    });
+    feed({
+      'type': 'response.output_text.delta',
+      'output_index': 1,
+      'delta': 'text A',
+    });
+    feed({
+      'type': 'response.output_item.added',
+      'output_index': 2,
+      'item': {
+        'id': 'call_0',
+        'type': 'web_search_call',
+        'status': 'in_progress',
+      },
+    });
+    feed({
+      'type': 'response.output_item.done',
+      'output_index': 2,
+      'item': {
+        'id': 'call_0',
+        'type': 'web_search_call',
+        'status': 'completed',
+        'action': {
+          'type': 'search',
+          'queries': ['news'],
+        },
+      },
+    });
+    feed({
+      'type': 'response.reasoning_text.delta',
+      'output_index': 3,
+      'delta': 'think B',
+    });
+    feed({
+      'type': 'response.output_text.delta',
+      'output_index': 4,
+      'delta': 'text B',
+    });
+    feed({
+      'type': 'response.completed',
+      'response': {'output': const []},
+    });
+
+    expect(
+      handler.parts.map(
+        (part) => switch (part) {
+          ReasoningPart(:final text) => 'reasoning:$text',
+          TextPart(:final text) => 'text:$text',
+          ToolCallPart() => 'tool',
+          _ => 'other',
+        },
+      ),
+      <String>[
+        'reasoning:think A',
+        'text:text A',
+        'tool',
+        'reasoning:think B',
+        'text:text B',
+      ],
+    );
+  });
+
   test('maps response.incomplete to failed ServerToolEnd status', () {
     final decoder = ResponsesStreamDecoder();
     decoder.accept(
@@ -418,7 +567,79 @@ void main() {
     expect(delta.chunks.whereType<ToolCallDelta>().single.id, 'call_1');
   });
 
-  test('follow-up decoder usage is the cumulative snapshot', () {
+  test(
+    'late call_id keeps first-seen series id for emit, approval, and transcript',
+    () async {
+      final decoder = ResponsesStreamDecoder(sourceId: 'round-0');
+      final start = decoder.accept(
+        _event({
+          'type': 'response.output_item.added',
+          'output_index': 0,
+          'item': {'type': 'function_call', 'id': 'fc_1', 'name': 'lookup'},
+        }),
+      );
+      decoder.accept(
+        _event({
+          'type': 'response.function_call_arguments.delta',
+          'output_index': 0,
+          'delta': '{"q":"kelivo"}',
+        }),
+      );
+      decoder.accept(
+        _event({
+          'type': 'response.output_item.done',
+          'output_index': 0,
+          'item': {
+            'type': 'function_call',
+            'id': 'fc_1',
+            'call_id': 'call_late',
+            'name': 'lookup',
+            'arguments': '{"q":"kelivo"}',
+          },
+        }),
+      );
+
+      final uiId = start.chunks.whereType<ToolCallStart>().single.id;
+      expect(uiId, 'fc_1');
+      expect(decoder.toolCallsByIndex[0]!.seriesId, 'fc_1');
+      expect(decoder.toolCallsByIndex[0]!.callId, 'call_late');
+
+      final decoded = decoder.takeFunctionCalls().single;
+      expect(decoded.seriesId, 'fc_1');
+      expect(decoded.callId, 'call_late');
+
+      final emitCall = responsesCallsFromIndexMap({
+        decoded.index: decoded.toIndexFields(),
+      }).single;
+      expect(emitCall.id, uiId);
+      expect(emitCall.providerCallId, 'call_late');
+      expect(openaiTranscriptCallId(emitCall), 'call_late');
+      expect(
+        withResponsesFunctionCallItems(const [], [emitCall]).single['call_id'],
+        'call_late',
+      );
+
+      final approval = ToolApprovalService();
+      addTearDown(approval.dispose);
+      final approvalFuture = approval.requestApproval(
+        toolCallId: emitCall.id,
+        toolName: emitCall.name,
+        arguments: emitCall.arguments,
+        conversationId: 'conversation-responses-late-id',
+      );
+      expect(
+        approval.pendingFor(
+          toolCallId: uiId,
+          conversationId: 'conversation-responses-late-id',
+        ),
+        isNotNull,
+      );
+      approval.approve(uiId, conversationId: 'conversation-responses-late-id');
+      expect((await approvalFuture).approved, isTrue);
+    },
+  );
+
+  test('follow-up decoder usage is the last round only', () {
     final first = ResponsesStreamDecoder();
     final firstDone = first.accept(
       _event({
@@ -445,13 +666,13 @@ void main() {
       }),
     );
 
-    expect(second.usage!.promptTokens, 400);
-    expect(second.usage!.completionTokens, 60);
-    expect(second.usage!.totalTokens, 460);
+    expect(second.usage!.promptTokens, 300);
+    expect(second.usage!.completionTokens, 40);
+    expect(second.usage!.totalTokens, 340);
     final streamed = follow.chunks.whereType<Usage>().single.usage;
-    expect(streamed.promptTokens, 400);
-    expect(streamed.completionTokens, 60);
-    expect(streamed.totalTokens, 460);
+    expect(streamed.promptTokens, 300);
+    expect(streamed.completionTokens, 40);
+    expect(streamed.totalTokens, 340);
   });
 
   test('a follow-up round without usage keeps the prior snapshot', () {

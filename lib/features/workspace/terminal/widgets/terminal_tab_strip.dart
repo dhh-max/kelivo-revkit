@@ -4,14 +4,14 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
-import 'package:solab/core/services/haptics.dart';
-import 'package:solab/features/workspace/terminal/terminal_session_manager.dart';
-import 'package:solab/icons/lucide_adapter.dart';
-import 'package:solab/l10n/app_localizations.dart';
-import 'package:solab/shared/widgets/action_sheet.dart';
-import 'package:solab/shared/widgets/ios_tactile.dart';
-import 'package:solab/theme/app_font_weights.dart';
-import 'package:solab/theme/app_semantic_colors.dart';
+import 'package:Kelivo/core/services/haptics.dart';
+import 'package:Kelivo/features/workspace/terminal/terminal_session_manager.dart';
+import 'package:Kelivo/icons/lucide_adapter.dart';
+import 'package:Kelivo/l10n/app_localizations.dart';
+import 'package:Kelivo/shared/widgets/action_sheet.dart';
+import 'package:Kelivo/shared/widgets/ios_tactile.dart';
+import 'package:Kelivo/theme/app_font_weights.dart';
+import 'package:Kelivo/theme/app_semantic_colors.dart';
 
 class TerminalTabStrip extends StatefulWidget {
   const TerminalTabStrip({

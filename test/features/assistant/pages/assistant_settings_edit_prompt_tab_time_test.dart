@@ -6,24 +6,24 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:provider/provider.dart';
 
-import 'package:solab/core/database/chat_database_repository.dart';
-import 'package:solab/core/models/assistant.dart';
-import 'package:solab/core/providers/assistant_provider.dart';
-import 'package:solab/core/providers/memory_provider.dart';
-import 'package:solab/core/providers/memory_provider_v2.dart';
-import 'package:solab/core/providers/quick_phrase_provider.dart';
-import 'package:solab/core/providers/settings_provider.dart';
-import 'package:solab/core/providers/tts_provider.dart';
-import 'package:solab/core/providers/user_provider.dart';
-import 'package:solab/core/services/chat/chat_service.dart';
-import 'package:solab/core/services/memory/memory_pipeline.dart';
-import 'package:solab/core/services/memory/memory_repository.dart';
-import 'package:solab/core/services/tts/tts_playback_models.dart';
-import 'package:solab/features/assistant/pages/assistant_settings_edit_page.dart';
-import 'package:solab/icons/lucide_adapter.dart';
-import 'package:solab/l10n/app_localizations.dart';
-import 'package:solab/shared/widgets/ios_switch.dart';
-import 'package:solab/shared/widgets/ios_tactile.dart';
+import 'package:Kelivo/core/database/chat_database_repository.dart';
+import 'package:Kelivo/core/models/assistant.dart';
+import 'package:Kelivo/core/providers/assistant_provider.dart';
+import 'package:Kelivo/core/providers/memory_provider.dart';
+import 'package:Kelivo/core/providers/memory_provider_v2.dart';
+import 'package:Kelivo/core/providers/quick_phrase_provider.dart';
+import 'package:Kelivo/core/providers/settings_provider.dart';
+import 'package:Kelivo/core/providers/tts_provider.dart';
+import 'package:Kelivo/core/providers/user_provider.dart';
+import 'package:Kelivo/core/services/chat/chat_service.dart';
+import 'package:Kelivo/core/services/memory/memory_pipeline.dart';
+import 'package:Kelivo/core/services/memory/memory_repository.dart';
+import 'package:Kelivo/core/services/tts/tts_playback_models.dart';
+import 'package:Kelivo/features/assistant/pages/assistant_settings_edit_page.dart';
+import 'package:Kelivo/icons/lucide_adapter.dart';
+import 'package:Kelivo/l10n/app_localizations.dart';
+import 'package:Kelivo/shared/widgets/ios_switch.dart';
+import 'package:Kelivo/shared/widgets/ios_tactile.dart';
 
 class _FakeTtsProvider extends ChangeNotifier implements TtsProvider {
   @override

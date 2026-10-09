@@ -8,8 +8,8 @@ import 'package:terminal_view/ui.dart';
 import 'package:uuid/uuid.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
-import 'package:solab/core/services/workspace/workspace_runtime.dart';
-import 'package:solab/features/workspace/terminal/osc_1337.dart';
+import 'package:Kelivo/core/services/workspace/workspace_runtime.dart';
+import 'package:Kelivo/features/workspace/terminal/osc_1337.dart';
 
 typedef TerminalWakelockSetter = Future<void> Function(bool enable);
 

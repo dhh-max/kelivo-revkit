@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/providers/settings_provider.dart';
-import '../../../core/services/haptics.dart';
+import 'package:Kelivo/shared/services/haptics.dart';
 import '../../../icons/lucide_adapter.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/ios_tactile.dart';
@@ -29,49 +29,59 @@ bool get _isDesktop =>
 
 /// Centered custom dialog: scrim barrier, fade+scale-in, rounded surface
 /// container with a subtle border (same look as the desktop dialogs).
-Future<T?> _showAppDialog<T>(
+Future<T?> showAppDialog<T>(
   BuildContext context, {
   required Widget child,
   double maxWidth = 420,
+  bool dismissible = true,
+  EdgeInsets insetPadding = const EdgeInsets.symmetric(
+    horizontal: 24,
+    vertical: 24,
+  ),
 }) {
   return showGeneralDialog<T>(
     context: context,
-    barrierDismissible: true,
+    barrierDismissible: dismissible,
     barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
-    barrierColor:
-        Theme.of(context).colorScheme.scrim.withValues(alpha: 0.25),
+    barrierColor: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.25),
     pageBuilder: (ctx, _, __) {
       final cs = Theme.of(ctx).colorScheme;
       final isDark = Theme.of(ctx).brightness == Brightness.dark;
-      return GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () => Navigator.of(ctx).maybePop(),
-        child: Material(
-          type: MaterialType.transparency,
-          child: Center(
-            child: GestureDetector(
-              behavior: HitTestBehavior.translucent,
-              onTap: () {},
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: maxWidth,
-                  maxHeight: MediaQuery.of(ctx).size.height * 0.85,
-                ),
-                child: DecoratedBox(
-                  decoration: ShapeDecoration(
-                    color: cs.surface,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      side: BorderSide(
-                        color: isDark
-                            ? cs.onSurface.withValues(alpha: 0.08)
-                            : cs.outlineVariant.withValues(alpha: 0.25),
+      return PopScope(
+        canPop: dismissible,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: dismissible ? () => Navigator.of(ctx).maybePop() : null,
+          child: Material(
+            type: MaterialType.transparency,
+            child: Center(
+              child: Padding(
+                padding: insetPadding,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onTap: () {},
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: maxWidth,
+                      maxHeight: MediaQuery.of(ctx).size.height * 0.85,
+                    ),
+                    child: DecoratedBox(
+                      decoration: ShapeDecoration(
+                        color: cs.surface,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          side: BorderSide(
+                            color: isDark
+                                ? cs.onSurface.withValues(alpha: 0.08)
+                                : cs.outlineVariant.withValues(alpha: 0.25),
+                          ),
+                        ),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(14),
+                        child: child,
                       ),
                     ),
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(14),
-                    child: child,
                   ),
                 ),
               ),
@@ -183,9 +193,10 @@ Future<T?> _showAppSheet<T>(
 }
 
 /// Dialog header (desktop): title + close button.
-class _DialogHeader extends StatelessWidget {
-  const _DialogHeader({required this.title});
+class AppDialogHeader extends StatelessWidget {
+  const AppDialogHeader({super.key, required this.title, this.actions});
   final String title;
+  final List<Widget>? actions;
 
   @override
   Widget build(BuildContext context) {
@@ -207,11 +218,16 @@ class _DialogHeader extends StatelessWidget {
                 ),
               ),
             ),
-            IosIconButton(
-              icon: Lucide.X,
-              size: 18,
-              color: cs.onSurface.withValues(alpha: 0.62),
-              onTap: () => Navigator.of(context).maybePop(),
+            ...?actions,
+            Tooltip(
+              message: AppLocalizations.of(context)!.commonClose,
+              child: IosIconButton(
+                icon: Lucide.X,
+                size: 18,
+                color: cs.onSurface.withValues(alpha: 0.62),
+                semanticLabel: AppLocalizations.of(context)!.commonClose,
+                onTap: () => Navigator.of(context).maybePop(),
+              ),
             ),
           ],
         ),
@@ -275,9 +291,9 @@ InputDecoration _fieldDecoration(
   final cs = Theme.of(context).colorScheme;
   final isDark = Theme.of(context).brightness == Brightness.dark;
   OutlineInputBorder border(Color color) => OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: color),
-      );
+    borderRadius: BorderRadius.circular(12),
+    borderSide: BorderSide(color: color),
+  );
   return InputDecoration(
     hintText: hintText,
     errorText: errorText,
@@ -398,9 +414,9 @@ class _DragRegion extends StatelessWidget {
       gestures: {
         EagerGestureRecognizer:
             GestureRecognizerFactoryWithHandlers<EagerGestureRecognizer>(
-          EagerGestureRecognizer.new,
-          (_) {},
-        ),
+              EagerGestureRecognizer.new,
+              (_) {},
+            ),
       },
       child: Listener(
         onPointerDown: (e) => onDrag(e.localPosition),
@@ -623,10 +639,7 @@ class _HsvColorPickerState extends State<HsvColorPicker> {
               child: TextField(
                 controller: _hexController,
                 style: const TextStyle(fontSize: 14, fontFamily: 'monospace'),
-                decoration: _fieldDecoration(
-                  context,
-                  hintText: '#RRGGBB',
-                ),
+                decoration: _fieldDecoration(context, hintText: '#RRGGBB'),
                 inputFormatters: [
                   FilteringTextInputFormatter.allow(RegExp(r'[#0-9a-fA-F]')),
                   LengthLimitingTextInputFormatter(7),
@@ -653,7 +666,7 @@ class _HsvColorPickerState extends State<HsvColorPicker> {
 }
 
 /// Adaptive color picker (sheet on mobile, dialog on desktop).
-Future<Color?> _showColorPicker(
+Future<Color?> showAppColorPicker(
   BuildContext context, {
   required String title,
   required Color initial,
@@ -661,27 +674,27 @@ Future<Color?> _showColorPicker(
   var current = initial;
   final l10n = AppLocalizations.of(context)!;
   Widget content(BuildContext ctx) => Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          HsvColorPicker(initial: initial, onChanged: (c) => current = c),
-          const SizedBox(height: 16),
-          _ActionButtons(
-            confirmLabel: l10n.customThemeSave,
-            confirmIcon: Lucide.Check,
-            onConfirm: () => Navigator.of(ctx).pop(current),
-          ),
-        ],
-      );
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      HsvColorPicker(initial: initial, onChanged: (c) => current = c),
+      const SizedBox(height: 16),
+      _ActionButtons(
+        confirmLabel: l10n.customThemeSave,
+        confirmIcon: Lucide.Check,
+        onConfirm: () => Navigator.of(ctx).pop(current),
+      ),
+    ],
+  );
 
   if (_isDesktop) {
-    return _showAppDialog<Color>(
+    return showAppDialog<Color>(
       context,
       maxWidth: 380,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _DialogHeader(title: title),
+          AppDialogHeader(title: title),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
             child: Builder(builder: content),
@@ -690,7 +703,11 @@ Future<Color?> _showColorPicker(
       ),
     );
   }
-  return _showAppSheet<Color>(context, title: title, child: Builder(builder: content));
+  return _showAppSheet<Color>(
+    context,
+    title: title,
+    child: Builder(builder: content),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -699,11 +716,7 @@ Future<Color?> _showColorPicker(
 
 /// Editor content (name + 3 color roles + live preview + actions).
 class CustomThemeEditor extends StatefulWidget {
-  const CustomThemeEditor({
-    super.key,
-    this.initial,
-    required this.onSave,
-  });
+  const CustomThemeEditor({super.key, this.initial, required this.onSave});
 
   final CustomTheme? initial;
   final ValueChanged<CustomTheme> onSave;
@@ -722,7 +735,8 @@ class _CustomThemeEditorState extends State<CustomThemeEditor> {
   void initState() {
     super.initState();
     _nameController = TextEditingController(text: widget.initial?.name ?? '');
-    _primaryArgb = widget.initial?.primaryArgb ??
+    _primaryArgb =
+        widget.initial?.primaryArgb ??
         ThemePalettes.defaultPalette.light.primary.toARGB32();
     _secondaryArgb = widget.initial?.secondaryArgb;
     _tertiaryArgb = widget.initial?.tertiaryArgb;
@@ -735,19 +749,19 @@ class _CustomThemeEditorState extends State<CustomThemeEditor> {
   }
 
   CustomTheme get _current => CustomTheme(
-        id: widget.initial?.id ?? '',
-        name: _nameController.text.trim(),
-        primaryArgb: _primaryArgb,
-        secondaryArgb: _secondaryArgb,
-        tertiaryArgb: _tertiaryArgb,
-      );
+    id: widget.initial?.id ?? '',
+    name: _nameController.text.trim(),
+    primaryArgb: _primaryArgb,
+    secondaryArgb: _secondaryArgb,
+    tertiaryArgb: _tertiaryArgb,
+  );
 
   Future<void> _pickColor({
     required String title,
     required Color initial,
     required ValueChanged<Color> onResult,
   }) async {
-    final result = await _showColorPicker(
+    final result = await showAppColorPicker(
       context,
       title: title,
       initial: initial,
@@ -864,12 +878,15 @@ class _CustomThemeEditorState extends State<CustomThemeEditor> {
         ),
         _colorRow(
           label: l10n.customThemeSecondaryColor,
-          color: _secondaryArgb != null ? Color(_secondaryArgb!) : scheme.secondary,
+          color: _secondaryArgb != null
+              ? Color(_secondaryArgb!)
+              : scheme.secondary,
           isAuto: _secondaryArgb == null,
           onTap: () => _pickColor(
             title: l10n.customThemeSecondaryColor,
-            initial:
-                _secondaryArgb != null ? Color(_secondaryArgb!) : scheme.secondary,
+            initial: _secondaryArgb != null
+                ? Color(_secondaryArgb!)
+                : scheme.secondary,
             onResult: (c) => _secondaryArgb = c.toARGB32(),
           ),
           onReset: _secondaryArgb != null
@@ -878,12 +895,15 @@ class _CustomThemeEditorState extends State<CustomThemeEditor> {
         ),
         _colorRow(
           label: l10n.customThemeTertiaryColor,
-          color: _tertiaryArgb != null ? Color(_tertiaryArgb!) : scheme.tertiary,
+          color: _tertiaryArgb != null
+              ? Color(_tertiaryArgb!)
+              : scheme.tertiary,
           isAuto: _tertiaryArgb == null,
           onTap: () => _pickColor(
             title: l10n.customThemeTertiaryColor,
-            initial:
-                _tertiaryArgb != null ? Color(_tertiaryArgb!) : scheme.tertiary,
+            initial: _tertiaryArgb != null
+                ? Color(_tertiaryArgb!)
+                : scheme.tertiary,
             onResult: (c) => _tertiaryArgb = c.toARGB32(),
           ),
           onReset: _tertiaryArgb != null
@@ -1018,8 +1038,9 @@ Future<void> showCustomThemeEditor(
   CustomTheme? initial,
 }) async {
   final l10n = AppLocalizations.of(context)!;
-  final title =
-      initial == null ? l10n.customThemeNewTheme : l10n.customThemeEditTheme;
+  final title = initial == null
+      ? l10n.customThemeNewTheme
+      : l10n.customThemeEditTheme;
   Future<void> save(CustomTheme t) async {
     final sp = context.read<SettingsProvider>();
     final saved = await sp.saveCustomTheme(t);
@@ -1027,12 +1048,12 @@ Future<void> showCustomThemeEditor(
   }
 
   if (_isDesktop) {
-    await _showAppDialog<void>(
+    await showAppDialog<void>(
       context,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _DialogHeader(title: title),
+          AppDialogHeader(title: title),
           Flexible(
             child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
@@ -1062,12 +1083,12 @@ Future<void> showImportCustomThemeDialog(BuildContext context) async {
   final controller = TextEditingController();
 
   final imported = await (_isDesktop
-      ? _showAppDialog<CustomTheme>(
+      ? showAppDialog<CustomTheme>(
           context,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _DialogHeader(title: l10n.customThemeImportTheme),
+              AppDialogHeader(title: l10n.customThemeImportTheme),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
                 child: _ImportThemeForm(controller: controller),
@@ -1143,7 +1164,7 @@ Future<bool> showCustomThemeConfirmDialog(
   required String message,
 }) async {
   final l10n = AppLocalizations.of(context)!;
-  final ok = await _showAppDialog<bool>(
+  final ok = await showAppDialog<bool>(
     context,
     maxWidth: 360,
     child: Padding(
@@ -1154,10 +1175,7 @@ Future<bool> showCustomThemeConfirmDialog(
         children: [
           Text(
             message,
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: AppFontWeights.medium,
-            ),
+            style: TextStyle(fontSize: 15, fontWeight: AppFontWeights.medium),
           ),
           const SizedBox(height: 20),
           _ActionButtons(

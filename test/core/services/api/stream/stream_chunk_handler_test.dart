@@ -1,15 +1,168 @@
 import 'dart:convert';
 
-import 'package:solab/core/models/message_part.dart';
-import 'package:solab/core/models/token_usage.dart';
-import 'package:solab/core/services/api/providers/openai/chat_completions_decoder.dart';
-import 'package:solab/core/services/api/stream/sse_event.dart';
-import 'package:solab/core/services/api/generation/text_generation_result.dart';
-import 'package:solab/core/services/api/stream/stream_chunk.dart';
-import 'package:solab/core/services/api/stream/stream_chunk_handler.dart';
+import 'package:Kelivo/core/models/message_part.dart';
+import 'package:Kelivo/core/models/token_usage.dart';
+import 'package:Kelivo/core/services/api/providers/openai/chat_completions_decoder.dart';
+import 'package:Kelivo/core/services/api/stream/sse_event.dart';
+import 'package:Kelivo/core/services/api/generation/text_generation_result.dart';
+import 'package:Kelivo/core/services/api/stream/stream_chunk.dart';
+import 'package:Kelivo/core/services/api/stream/stream_chunk_handler.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test(
+    'sum requests once while merging partial and repeated usage updates',
+    () {
+      final handler = StreamChunkHandler();
+      handler.handle(
+        const Usage(
+          TokenUsage(promptTokens: 100, cachedTokens: 10, cacheWriteTokens: 30),
+        ),
+      );
+      handler.handle(
+        const Usage(TokenUsage(completionTokens: 20, reasoningTokens: 5)),
+      );
+      handler.handle(
+        const Usage(TokenUsage(completionTokens: 20, reasoningTokens: 5)),
+      );
+      handler.handle(
+        const Usage(TokenUsage(promptTokens: 200), startsRequest: true),
+      );
+      handler.handle(const Usage(TokenUsage(completionTokens: 30)));
+      handler.handle(const Finish());
+      final result = handler.toResult();
+      expect(result.usage!.totalTokens, 230);
+      expect(result.usage!.cacheWriteTokens, 0);
+      expect(result.usage!.reasoningTokens, 0);
+      expect(result.totalUsage!.toJson(), {
+        'promptTokens': 300,
+        'completionTokens': 50,
+        'cachedTokens': 10,
+        'cacheWriteTokens': 30,
+        'reasoningTokens': 5,
+        'totalTokens': 350,
+      });
+      final nonStreamHandler = StreamChunkHandler()..handleResult(result);
+      expect(nonStreamHandler.totalUsage!.totalTokens, 350);
+      expect(nonStreamHandler.usage!.totalTokens, 230);
+    },
+  );
+
+  test('materialized snapshots survive later appends and text boundaries', () {
+    final handler = StreamChunkHandler();
+    handler.handle(const ReasoningDelta(id: 'r', text: 'plan'));
+    handler.handle(const TextDelta(id: 't', text: 'before'));
+    final before = handler.parts;
+    handler.handle(const TextDelta(id: 't', text: '\n'));
+    handler.handle(const TextDelta(id: 't', text: '\uD83D'));
+    handler.handle(const TextDelta(id: 't', text: '\uDE42'));
+    final after = handler.parts;
+    expect((before.last as TextPart).text, 'before');
+    expect(identical(before.first, after.first), true);
+    expect(identical(after, handler.parts), true);
+    handler.handle(const TextEnd('t'));
+    handler.handle(const TextDelta(id: 't', text: 'next'));
+    handler.handle(const ReasoningDelta(id: 'r', text: ' finished'));
+    expect(
+      handler.toResult().parts.whereType<ReasoningPart>().single.text,
+      'plan finished',
+    );
+    expect(handler.toResult().parts.whereType<TextPart>().map((p) => p.text), [
+      'before\n\uD83D\uDE42',
+      'next',
+    ]);
+    expect((before.first as ReasoningPart).text, 'plan');
+  });
+
+  test(
+    'a hosted card keeps its input when the result lands a response later',
+    () {
+      // A turn that starts a hosted tool alongside a client one is cut in two:
+      // the call streams its input in the first response and the result only
+      // arrives in the second, whose decoder never saw that input.
+      final handler = StreamChunkHandler();
+      handler.handle(const ToolCallStart(id: 'srvtoolu_1', toolName: 'web 获取'));
+      handler.handle(
+        const ServerToolStart(id: 'srvtoolu_1', toolName: 'web 获取'),
+      );
+      handler.handle(
+        const ToolCallDelta(
+          id: 'srvtoolu_1',
+          inputDelta: '{"url":"https://example.com"}',
+        ),
+      );
+      handler.handle(const ToolCallEnd('srvtoolu_1'));
+      handler.handle(
+        const ServerToolEnd(
+          id: 'srvtoolu_1',
+          output: <String, dynamic>{'content': 'ok'},
+        ),
+      );
+
+      final card = jsonDecode(
+        handler.parts.whereType<ToolCallPart>().single.payloadJson,
+      );
+      expect(card['arguments'], {'url': 'https://example.com'});
+    },
+  );
+
+  test(
+    'an empty input reported for a card does not erase the streamed one',
+    () {
+      // Empty arguments are no news, whoever reports them: a decoder closing an
+      // unfinished call still knows less about its input than the deltas do.
+      final handler = StreamChunkHandler();
+      handler.handle(const ToolCallStart(id: 'srvtoolu_1', toolName: 'web 获取'));
+      handler.handle(
+        const ToolCallDelta(
+          id: 'srvtoolu_1',
+          inputDelta: '{"url":"https://example.com"}',
+        ),
+      );
+      handler.handle(
+        const ServerToolEnd(
+          id: 'srvtoolu_1',
+          input: <String, dynamic>{},
+          status: ServerToolStatus.failed,
+        ),
+      );
+
+      final card = jsonDecode(
+        handler.parts.whereType<ToolCallPart>().single.payloadJson,
+      );
+      expect(card['arguments'], {'url': 'https://example.com'});
+    },
+  );
+
+  test('a generated file becomes an image part only when it is one', () {
+    final handler = StreamChunkHandler();
+    handler.handle(
+      const GeneratedFile(
+        uri: 'kelivo-file:///upload/chart.png',
+        name: 'chart.png',
+        mime: 'image/png',
+      ),
+    );
+    handler.handle(
+      const GeneratedFile(
+        uri: 'kelivo-file:///upload/data.csv',
+        name: 'data.csv',
+        mime: 'text/csv',
+      ),
+    );
+    handler.handle(
+      const GeneratedFile(uri: '', name: 'nothing.txt', mime: 'text/plain'),
+    );
+
+    expect(handler.parts, hasLength(2));
+    final image = handler.parts[0] as ImagePart;
+    expect(image.uri, 'kelivo-file:///upload/chart.png');
+    expect(image.mime, 'image/png');
+    final file = handler.parts[1] as FilePart;
+    expect(file.uri, 'kelivo-file:///upload/data.csv');
+    expect(file.name, 'data.csv');
+  });
+
   test('creates a text part on Delta when Start was omitted', () {
     final handler = StreamChunkHandler();
     handler.handle(const TextDelta(id: 't', text: 'Hello'));
@@ -83,6 +236,20 @@ void main() {
     expect(payloads.map((p) => p['id']), ['a', 'b']);
     expect(payloads[0]['arguments']['query'], 'Kotlin');
     expect(payloads[1]['arguments']['query'], 'Ktor');
+  });
+
+  test('ImageDelta does not publish an accumulating data URI', () {
+    final handler = StreamChunkHandler();
+    handler.handle(const ImageStart(id: 'img', mimeType: 'image/png'));
+    handler.handle(const ImageDelta(id: 'img', data: 'aaa'));
+    handler.handle(const ImageDelta(id: 'img', data: 'bbb'));
+
+    expect(handler.parts.whereType<ImagePart>(), isEmpty);
+
+    handler.handle(const ImageEnd('img'));
+    final image = handler.parts.single as ImagePart;
+    expect(image.uri, 'data:image/png;base64,aaabbb');
+    expect(image.id, 'img');
   });
 
   test('ImageSnapshot replaces previous data for the same id', () {

@@ -1,3 +1,4 @@
+import '../widgets/settings_search_target.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -6,8 +7,10 @@ import '../../../icons/lucide_adapter.dart';
 import '../../../theme/palettes.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/ios_switch.dart';
-import '../../../core/services/haptics.dart';
+import 'package:Kelivo/shared/services/haptics.dart';
 import 'package:Kelivo/theme/app_font_weights.dart';
+import '../../../theme/custom_theme.dart';
+import '../widgets/custom_theme_widgets.dart';
 
 class ThemeSettingsPage extends StatelessWidget {
   const ThemeSettingsPage({super.key});
@@ -29,6 +32,27 @@ class ThemeSettingsPage extends StatelessWidget {
         ),
       ),
     );
+
+    // Section header with trailing action icons (e.g. new/import theme).
+    Widget headerWithActions(String text, {required List<Widget> actions}) =>
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 18, 8, 6),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  text,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: AppFontWeights.semibold,
+                    color: cs.onSurface.withValues(alpha: 0.8),
+                  ),
+                ),
+              ),
+              ...actions,
+            ],
+          ),
+        );
 
     return Scaffold(
       appBar: AppBar(
@@ -91,14 +115,143 @@ class ThemeSettingsPage extends StatelessWidget {
                     ThemePalettes.all[i].id,
                   ),
                 ),
-                if (i != ThemePalettes.all.length - 1) _iosDivider(context),
               ],
             ],
           ),
+          headerWithActions(
+            l10n.themeSettingsPageCustomThemesSection,
+            actions: [
+              Tooltip(
+                message: l10n.customThemeNewTheme,
+                child: _TactileIconButton(
+                  icon: Lucide.Plus,
+                  color: cs.onSurface.withValues(alpha: 0.7),
+                  size: 18,
+                  onTap: () => showCustomThemeEditor(context),
+                ),
+              ),
+              Tooltip(
+                message: l10n.customThemeImportTheme,
+                child: _TactileIconButton(
+                  icon: Lucide.Download,
+                  color: cs.onSurface.withValues(alpha: 0.7),
+                  size: 18,
+                  onTap: () => showImportCustomThemeDialog(context),
+                ),
+              ),
+            ],
+          ),
+          _customThemesSection(context),
+          const SizedBox(height: 12),
         ],
       ),
     );
   }
+}
+
+/// Saved custom themes list (create/import live in the section header).
+Widget _customThemesSection(BuildContext context) {
+  final l10n = AppLocalizations.of(context)!;
+  final settings = context.watch<SettingsProvider>();
+  final themes = settings.customThemes;
+  final isCustomActive =
+      settings.themePaletteId == ThemePalettes.customPaletteId;
+
+  Future<void> confirmDelete(CustomTheme t) async {
+    final ok = await showCustomThemeConfirmDialog(
+      context,
+      message: l10n.customThemeDeleteConfirm,
+    );
+    if (ok && context.mounted) {
+      await context.read<SettingsProvider>().deleteCustomTheme(t.id);
+    }
+  }
+
+  if (themes.isEmpty) return const SizedBox.shrink();
+
+  return _iosSectionCard(
+    children: [
+      for (int i = 0; i < themes.length; i++) ...[
+        _customThemeRow(
+          context,
+          theme: themes[i],
+          selected:
+              isCustomActive && settings.selectedCustomThemeId == themes[i].id,
+          onTap: () =>
+              context.read<SettingsProvider>().selectCustomTheme(themes[i].id),
+          onCopy: () => exportCustomThemeToClipboard(context, themes[i]),
+          onEdit: () => showCustomThemeEditor(context, initial: themes[i]),
+          onDelete: () => confirmDelete(themes[i]),
+        ),
+      ],
+    ],
+  );
+}
+
+Widget _customThemeRow(
+  BuildContext context, {
+  required CustomTheme theme,
+  required bool selected,
+  required VoidCallback onTap,
+  required VoidCallback onCopy,
+  required VoidCallback onEdit,
+  required VoidCallback onDelete,
+}) {
+  final cs = Theme.of(context).colorScheme;
+  final l10n = AppLocalizations.of(context)!;
+  return _TactileRow(
+    onTap: onTap,
+    builder: (pressed) {
+      final baseColor = cs.onSurface.withValues(alpha: 0.9);
+      return _AnimatedPressColor(
+        pressed: pressed,
+        base: baseColor,
+        builder: (c) => Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            children: [
+              CustomThemeDot(theme: theme, size: 28, selected: selected),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  theme.name.isEmpty
+                      ? l10n.themeSettingsPageCustomPaletteName
+                      : theme.name,
+                  style: TextStyle(fontSize: 15, color: c),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (selected) Icon(Lucide.Check, size: 18, color: cs.primary),
+              _rowAction(context, icon: Lucide.Copy, onTap: onCopy),
+              _rowAction(context, icon: Lucide.Pencil, onTap: onEdit),
+              _rowAction(
+                context,
+                icon: Lucide.Trash2,
+                onTap: onDelete,
+                color: cs.error,
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
+Widget _rowAction(
+  BuildContext context, {
+  required IconData icon,
+  required VoidCallback onTap,
+  Color? color,
+}) {
+  final cs = Theme.of(context).colorScheme;
+  return _TactileIconButton(
+    icon: icon,
+    color: color ?? cs.onSurface.withValues(alpha: 0.7),
+    size: 16,
+    onTap: onTap,
+  );
 }
 
 // --- iOS-style helpers ---
@@ -132,16 +285,6 @@ Widget _iosSectionCard({required List<Widget> children}) {
   );
 }
 
-Widget _iosDivider(BuildContext context) {
-  final cs = Theme.of(context).colorScheme;
-  return Divider(
-    height: 6,
-    thickness: 0.6,
-    indent: 12,
-    endIndent: 12,
-    color: cs.outlineVariant.withValues(alpha: 0.18),
-  );
-}
 
 class _AnimatedPressColor extends StatelessWidget {
   const _AnimatedPressColor({
@@ -257,7 +400,7 @@ Widget _iosSwitchRow(
   required ValueChanged<bool> onChanged,
 }) {
   final cs = Theme.of(context).colorScheme;
-  return _TactileRow(
+  final row = _TactileRow(
     onTap: () => onChanged(!value),
     builder: (pressed) {
       final baseColor = cs.onSurface.withValues(alpha: 0.9);
@@ -293,6 +436,7 @@ Widget _iosSwitchRow(
       );
     },
   );
+  return SettingsSearchTarget.wrap(context, label, row);
 }
 
 Widget _paletteRow(

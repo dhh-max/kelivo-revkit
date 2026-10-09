@@ -6,12 +6,12 @@ import 'package:hive_flutter/hive_flutter.dart';
 // ignore: depend_on_referenced_packages
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 
-import 'package:solab/core/database/app_database.dart';
-import 'package:solab/core/models/chat_message.dart';
-import 'package:solab/core/database/chat_database_repository.dart';
-import 'package:solab/core/services/chat/chat_service.dart';
-import 'package:solab/features/home/controllers/chat_controller.dart';
-import 'package:solab/utils/app_directories.dart';
+import 'package:Kelivo/core/database/app_database.dart';
+import 'package:Kelivo/core/models/chat_message.dart';
+import 'package:Kelivo/core/database/chat_database_repository.dart';
+import 'package:Kelivo/core/services/chat/chat_service.dart';
+import 'package:Kelivo/features/home/controllers/chat_controller.dart';
+import 'package:Kelivo/utils/app_directories.dart';
 
 class _FakePathProviderPlatform extends PathProviderPlatform {
   _FakePathProviderPlatform(this.path);

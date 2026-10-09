@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../../database/backup_portability.dart';
 import '../../database/business_settings_router.dart';
 
 /// Pure validation shared by backup preflight and business-data restoration.
@@ -26,6 +27,7 @@ final class BackupSettingsValidator {
     'mcp_servers_v1',
     'provider_groups_v1',
     'world_books_v1',
+    'agent_skills_v1',
     'quick_phrases_v1',
     'search_services_v1',
     'tts_services_v1',
@@ -60,7 +62,10 @@ final class BackupSettingsValidator {
   static bool isDiscarded(String key) =>
       BusinessKeyRegistry.classify(key) == BusinessKeyDisposition.discarded;
 
-  static bool shouldIgnore(String key) => isLocalOnly(key) || isDiscarded(key);
+  static bool shouldIgnore(String key) =>
+      isLocalOnly(key) ||
+      isDiscarded(key) ||
+      BackupPortability.devicePreferenceKeys.contains(key);
 
   static void normalizeAndValidate(Map<String, dynamic> data) {
     normalizeLegacyStringLists(data);

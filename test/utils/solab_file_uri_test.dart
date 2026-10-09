@@ -1,4 +1,4 @@
-import 'package:solab/utils/solab_file_uri.dart';
+import 'package:Kelivo/utils/solab_file_uri.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

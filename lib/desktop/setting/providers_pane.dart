@@ -24,6 +24,13 @@ class _DesktopProvidersBodyState extends State<_DesktopProvidersBody> {
   bool _temporarilyCollapseGroupedProviders = false;
   bool _groupHeaderDragActive = false;
   bool _groupHeaderRestorePending = false;
+  final GlobalKey _catalogAnchorKey = GlobalKey();
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(ModelCatalogService.instance.ensureLoaded());
+  }
 
   @override
   void dispose() {
@@ -214,6 +221,9 @@ class _DesktopProvidersBodyState extends State<_DesktopProvidersBody> {
       name: item.name,
       keyName: item.key,
       enabled: enabled,
+      needsLogin:
+          cfg.isOAuth &&
+          (cfg.oauthCredentials == null || cfg.oauthCredentials!.requiresLogin),
       selected: selected,
       background: bg,
       onTap: () => setState(() => _selectedKey = item.key),
@@ -237,6 +247,7 @@ class _DesktopProvidersBodyState extends State<_DesktopProvidersBody> {
           : () async {
               final l10n = AppLocalizations.of(context)!;
               final ap = context.read<AssistantProvider>();
+              final chatService = context.read<ChatService>();
               final ok = await showDialog<bool>(
                 context: context,
                 builder: (ctx) => AlertDialog(
@@ -251,7 +262,9 @@ class _DesktopProvidersBodyState extends State<_DesktopProvidersBody> {
                       onPressed: () => Navigator.of(ctx).pop(true),
                       child: Text(
                         l10n.providerDetailPageDeleteButton,
-                        style: TextStyle(color: Colors.red),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
                       ),
                     ),
                   ],
@@ -266,6 +279,10 @@ class _DesktopProvidersBodyState extends State<_DesktopProvidersBody> {
                     );
                   }
                 }
+                // Conversations can pin a model too.
+                await chatService.clearConversationModelOverrides(
+                  providerKey: item.key,
+                );
               } catch (_) {}
               await settings.removeProviderConfig(item.key);
               if (!mounted) return;
@@ -290,10 +307,13 @@ class _DesktopProvidersBodyState extends State<_DesktopProvidersBody> {
       (name: l10n.providersPageSiliconFlowName, key: 'SiliconFlow'),
       (name: 'Gemini', key: 'Gemini'),
       (name: 'OpenRouter', key: 'OpenRouter'),
-      (name: 'KelivoIN', key: 'KelivoIN'),
+      (name: 'Vercel AI Gateway', key: 'Vercel'),
+      (name: 'SoLabIN', key: 'SoLabIN'),
       (name: 'Tensdaq', key: 'Tensdaq'),
       (name: 'DeepSeek', key: 'DeepSeek'),
       (name: 'AIhubmix', key: 'AIhubmix'),
+      (name: '随想AI中转站', key: '随想AI中转站'),
+      (name: 'MaruCode', key: 'MaruCode'),
       (name: l10n.providersPageAliyunName, key: 'Aliyun'),
       (name: l10n.providersPageZhipuName, key: 'Zhipu AI'),
       (name: 'Claude', key: 'Claude'),
@@ -345,7 +365,14 @@ class _DesktopProvidersBodyState extends State<_DesktopProvidersBody> {
     final selectedKey = _selectedKey;
     final rightPane = selectedKey == null
         ? const SizedBox()
-        : _DesktopProviderDetailPane(
+        : settings.getProviderConfig(selectedKey).isOAuth
+        ? OAuthProviderDetailPage(
+            key: ValueKey(selectedKey),
+            providerId: selectedKey,
+            embedded: true,
+            desktopPaneKey: _detailKey,
+          )
+        : DesktopProviderDetailPane(
             key: _detailKey,
             providerKey: selectedKey,
             displayName: settings.getProviderConfig(selectedKey).name.isNotEmpty
@@ -366,21 +393,62 @@ class _DesktopProvidersBodyState extends State<_DesktopProvidersBody> {
                 width: 256,
                 child: Column(
                   children: [
-                    _DesktopProvidersSearchField(
-                      controller: _searchController,
-                      hintText: l10n.providersPageSearchHint,
-                      onChanged: (value) {
-                        setState(() {
-                          _searchQuery = _normalizeSearchQuery(value);
-                        });
-                      },
-                      onClear: () {
-                        if (_searchController.text.isEmpty) return;
-                        _searchController.clear();
-                        setState(() {
-                          _searchQuery = '';
-                        });
-                      },
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _DesktopProvidersSearchField(
+                            controller: _searchController,
+                            hintText: l10n.providersPageSearchHint,
+                            onChanged: (value) {
+                              setState(() {
+                                _searchQuery = _normalizeSearchQuery(value);
+                              });
+                            },
+                            onClear: () {
+                              if (_searchController.text.isEmpty) return;
+                              _searchController.clear();
+                              setState(() {
+                                _searchQuery = '';
+                              });
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Tooltip(
+                          message: l10n.modelCatalogTitle,
+                          child: KeyedSubtree(
+                            key: _catalogAnchorKey,
+                            child: _IconBtn(
+                              icon: lucide.Lucide.BookOpen,
+                              onTap: () {
+                                unawaited(
+                                  showDesktopModelCatalogPopover(
+                                    context,
+                                    anchorKey: _catalogAnchorKey,
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Tooltip(
+                          message: l10n.providersPageImportTooltip,
+                          child: _IconBtn(
+                            icon: lucide.Lucide.cloudDownload,
+                            onTap: () async {
+                              final keys =
+                                  await showDesktopImportProviderDialog(
+                                    context,
+                                  );
+                              if (!mounted || keys == null || keys.isEmpty) {
+                                return;
+                              }
+                              setState(() => _selectedKey = keys.first);
+                            },
+                          ),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 8),
                     Expanded(
@@ -764,10 +832,7 @@ class _DesktopProvidersSearchField extends StatelessWidget {
     return TextField(
       controller: controller,
       onChanged: onChanged,
-      style: TextStyle(
-        color: isDark ? Colors.white : Colors.black87,
-        fontSize: 14,
-      ),
+      style: TextStyle(color: cs.onSurface, fontSize: 14),
       cursorColor: cs.primary,
       decoration: InputDecoration(
         hintText: hintText,
@@ -805,9 +870,7 @@ class _DesktopProvidersSearchField extends StatelessWidget {
           minHeight: 34,
         ),
         filled: true,
-        fillColor: isDark
-            ? Colors.white.withValues(alpha: 0.12)
-            : const Color(0xFFEBEBEB),
+        fillColor: cs.onSurface.withValues(alpha: isDark ? 0.12 : 0.08),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide.none,
@@ -852,9 +915,7 @@ class _DesktopProviderGroupHeaderRowState
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = _hover
-        ? (isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.04))
+        ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.04))
         : Colors.transparent;
 
     return MouseRegion(
@@ -909,21 +970,30 @@ class _DesktopProviderGroupHeaderRowState
   }
 }
 
-class _DesktopProviderDetailPane extends StatefulWidget {
-  const _DesktopProviderDetailPane({
+class DesktopProviderDetailPane extends StatefulWidget {
+  const DesktopProviderDetailPane({
     super.key,
     required this.providerKey,
     required this.displayName,
+    this.oauthAccount,
+    this.oauthFooter,
+    this.onSyncModels,
+    this.syncingModels = false,
+    this.onClose,
   });
   final String providerKey;
   final String displayName;
+  final Widget? oauthAccount;
+  final Widget? oauthFooter;
+  final VoidCallback? onSyncModels;
+  final bool syncingModels;
+  final VoidCallback? onClose;
   @override
-  State<_DesktopProviderDetailPane> createState() =>
+  State<DesktopProviderDetailPane> createState() =>
       _DesktopProviderDetailPaneState();
 }
 
-class _DesktopProviderDetailPaneState
-    extends State<_DesktopProviderDetailPane> {
+class _DesktopProviderDetailPaneState extends State<DesktopProviderDetailPane> {
   bool _showSearch = false;
   final TextEditingController _filterCtrl = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
@@ -1023,7 +1093,7 @@ class _DesktopProviderDetailPaneState
   }
 
   @override
-  void didUpdateWidget(covariant _DesktopProviderDetailPane oldWidget) {
+  void didUpdateWidget(covariant DesktopProviderDetailPane oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.providerKey == widget.providerKey) return;
     _clearProviderScopedState(cancelRunningDetection: true);
@@ -1060,14 +1130,13 @@ class _DesktopProviderDetailPaneState
     required String title,
     required String hint,
   }) async {
-    final cs = Theme.of(context).colorScheme;
     final ctrl = TextEditingController();
     String? result;
     await showDialog<String>(
       context: context,
       barrierDismissible: true,
       builder: (ctx) => Dialog(
-        backgroundColor: cs.surface,
+        backgroundColor: context.overlaySurface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
         child: ConstrainedBox(
@@ -1147,97 +1216,12 @@ class _DesktopProviderDetailPaneState
     final filtered = _applyFilter(models, _filterCtrl.text.trim());
     final groups = _groupModels(filtered);
 
+    if (cfg.isOAuth) return _buildOAuthDetails(context, cfg, groups);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SizedBox(
-          height: 36,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Row(
-              children: [
-                // Title + Settings button grouped at left, per request
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 480),
-                      child: Text(
-                        cfg.name.isNotEmpty ? cfg.name : widget.providerKey,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: AppFontWeights.emphasis,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    _IconBtn(
-                      key: ValueKey(
-                        'desktop-provider-settings-${widget.providerKey}',
-                      ),
-                      icon: lucide.Lucide.Settings,
-                      onTap: () => _showProviderSettingsDialog(context),
-                    ),
-                    if (kind == ProviderKind.openai &&
-                        cfg.balanceEnabled == true) ...[
-                      const SizedBox(width: 8),
-                      ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 120),
-                        child: ProviderBalanceBadge(
-                          providerKey: widget.providerKey,
-                          displayName: widget.displayName,
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: AppFontWeights.emphasis,
-                          ),
-                          color: cs.primary,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-                const Spacer(),
-                IosSwitch(
-                  value: cfg.enabled,
-                  onChanged: (v) async {
-                    final ap = context.read<AssistantProvider>();
-                    final old = sp.getProviderConfig(
-                      widget.providerKey,
-                      defaultName: widget.displayName,
-                    );
-                    await sp.setProviderConfig(
-                      widget.providerKey,
-                      old.copyWith(enabled: v),
-                    );
-                    // If provider is now disabled, clear model selections referencing it
-                    if (!v && old.enabled) {
-                      await sp.clearSelectionsForProvider(widget.providerKey);
-                      try {
-                        for (final a in ap.assistants) {
-                          if (a.chatModelProvider == widget.providerKey) {
-                            await ap.updateAssistant(
-                              a.copyWith(clearChatModel: true),
-                            );
-                          }
-                        }
-                      } catch (_) {}
-                    }
-                  },
-                ),
-              ],
-            ),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Divider(
-            height: 1,
-            thickness: 0.5,
-            color: cs.outlineVariant.withValues(alpha: 0.12),
-          ),
-        ),
+        ..._buildHeader(context, cfg),
         Expanded(
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
@@ -1369,6 +1353,132 @@ class _DesktopProviderDetailPaneState
                 const SizedBox(height: 12),
               ],
 
+              if (widget.providerKey.toLowerCase() == '随想ai中转站') ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: cs.primary.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: cs.primary.withValues(alpha: 0.35),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '可靠高效的 API 中继服务，提供 Claude、Codex、Gemini 等中继服务。注重隐私·无数据倒卖·无模型掺水，充值额度 1:1，按量付费。多线路冗余、跨区域容灾、自动故障切换，长链路 SSE 不中断。',
+                        style: TextStyle(
+                          color: cs.onSurface.withValues(alpha: 0.8),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text.rich(
+                        TextSpan(
+                          text: '官网：',
+                          style: TextStyle(
+                            color: cs.onSurface.withValues(alpha: 0.8),
+                          ),
+                          children: [
+                            TextSpan(
+                              text: 'https://sui-xiang.com',
+                              style: TextStyle(
+                                color: cs.primary,
+                                fontWeight: AppFontWeights.emphasis,
+                              ),
+                              recognizer: TapGestureRecognizer()
+                                ..onTap = () async {
+                                  final uri = Uri.parse(
+                                    'https://sui-xiang.com',
+                                  );
+                                  try {
+                                    final ok = await launchUrl(
+                                      uri,
+                                      mode: LaunchMode.externalApplication,
+                                    );
+                                    if (!ok) {
+                                      await launchUrl(uri);
+                                    }
+                                  } catch (_) {
+                                    await launchUrl(uri);
+                                  }
+                                },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
+
+              if (widget.providerKey.toLowerCase() == 'marucode') ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: cs.primary.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: cs.primary.withValues(alpha: 0.35),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '偶尔做做慈善的小破站 API，自营号池，主要提供 Codex、Claude Code、GPT Image 等主流模型。支持 Websocket 协议，明码标价(Codex 0.25x, CC 1.5x)，透明汇率(1:1)，新用户注册送 2 刀。',
+                        style: TextStyle(
+                          color: cs.onSurface.withValues(alpha: 0.8),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text.rich(
+                        TextSpan(
+                          text: '官网：',
+                          style: TextStyle(
+                            color: cs.onSurface.withValues(alpha: 0.8),
+                          ),
+                          children: [
+                            TextSpan(
+                              text: 'https://api.muteki.site',
+                              style: TextStyle(
+                                color: cs.primary,
+                                fontWeight: AppFontWeights.emphasis,
+                              ),
+                              recognizer: TapGestureRecognizer()
+                                ..onTap = () async {
+                                  final uri = Uri.parse(
+                                    'https://api.muteki.site/register?aff=kelivo&promo=kelivo',
+                                  );
+                                  try {
+                                    final ok = await launchUrl(
+                                      uri,
+                                      mode: LaunchMode.externalApplication,
+                                    );
+                                    if (!ok) {
+                                      await launchUrl(uri);
+                                    }
+                                  } catch (_) {
+                                    await launchUrl(uri);
+                                  }
+                                },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
+
               // API Key (hidden when Google Vertex)
               if (!(kind == ProviderKind.google && (cfg.vertexAI == true))) ...[
                 Row(
@@ -1453,8 +1563,8 @@ class _DesktopProviderDetailPaneState
                               color: _eyeHover
                                   ? (Theme.of(context).brightness ==
                                             Brightness.dark
-                                        ? Colors.white.withValues(alpha: 0.06)
-                                        : Colors.black.withValues(alpha: 0.04))
+                                        ? cs.onSurface.withValues(alpha: 0.06)
+                                        : cs.onSurface.withValues(alpha: 0.04))
                                   : Colors.transparent,
                               borderRadius: BorderRadius.circular(8),
                             ),
@@ -2127,6 +2237,196 @@ class _DesktopProviderDetailPaneState
     );
   }
 
+  List<Widget> _buildHeader(BuildContext context, ProviderConfig cfg) {
+    final cs = Theme.of(context).colorScheme;
+    final sp = context.read<SettingsProvider>();
+    final kind = ProviderConfig.classify(
+      widget.providerKey,
+      explicitType: cfg.providerType,
+    );
+    return [
+      SizedBox(
+        height: 36,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Row(
+            children: [
+              // Title + Settings button grouped at left, per request
+              Expanded(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 480),
+                        child: Text(
+                          cfg.name.isNotEmpty ? cfg.name : widget.providerKey,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: AppFontWeights.emphasis,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    _IconBtn(
+                      key: ValueKey(
+                        'desktop-provider-settings-${widget.providerKey}',
+                      ),
+                      icon: lucide.Lucide.Settings,
+                      onTap: () => _showProviderSettingsDialog(context),
+                    ),
+                    if (kind == ProviderKind.openai &&
+                        cfg.balanceEnabled == true) ...[
+                      const SizedBox(width: 8),
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 120),
+                        child: ProviderBalanceBadge(
+                          providerKey: widget.providerKey,
+                          displayName: widget.displayName,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: AppFontWeights.emphasis,
+                          ),
+                          color: cs.primary,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              IosSwitch(
+                value: cfg.enabled,
+                onChanged: (v) async {
+                  if (cfg.isOAuth) {
+                    final current = sp.getProviderConfig(cfg.id);
+                    await sp.setProviderConfig(
+                      cfg.id,
+                      current.copyWith(enabled: v),
+                    );
+                    return;
+                  }
+                  final ap = context.read<AssistantProvider>();
+                  final chatService = context.read<ChatService>();
+                  final old = sp.getProviderConfig(
+                    widget.providerKey,
+                    defaultName: widget.displayName,
+                  );
+                  await sp.setProviderConfig(
+                    widget.providerKey,
+                    old.copyWith(enabled: v),
+                  );
+                  // If provider is now disabled, clear model selections referencing it
+                  if (!v && old.enabled) {
+                    await sp.clearSelectionsForProvider(widget.providerKey);
+                    try {
+                      for (final a in ap.assistants) {
+                        if (a.chatModelProvider == widget.providerKey) {
+                          await ap.updateAssistant(
+                            a.copyWith(clearChatModel: true),
+                          );
+                        }
+                      }
+                      // Conversations can pin a model too.
+                      await chatService.clearConversationModelOverrides(
+                        providerKey: widget.providerKey,
+                      );
+                    } catch (_) {}
+                  }
+                },
+              ),
+              if (widget.onClose != null) ...[
+                const SizedBox(width: 8),
+                _IconBtn(icon: lucide.Lucide.X, onTap: widget.onClose!),
+              ],
+            ],
+          ),
+        ),
+      ),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: Divider(
+          height: 1,
+          thickness: 0.5,
+          color: cs.outlineVariant.withValues(alpha: 0.12),
+        ),
+      ),
+    ];
+  }
+
+  Widget _buildOAuthDetails(
+    BuildContext context,
+    ProviderConfig config,
+    Map<String, List<String>> groups,
+  ) {
+    final l10n = AppLocalizations.of(context)!;
+    final canSync = widget.onSyncModels != null && !widget.syncingModels;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ..._buildHeader(context, config),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+            children: [
+              if (widget.oauthAccount != null) widget.oauthAccount!,
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Text(
+                    l10n.providerDetailPageModelsTitle,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: AppFontWeights.emphasis,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  _GreyCapsule(label: '${config.models.length}'),
+                  const Spacer(),
+                  _IconTextBtn(
+                    icon: widget.syncingModels
+                        ? lucide.Lucide.Loader
+                        : lucide.Lucide.RefreshCcwDot,
+                    label: widget.syncingModels
+                        ? l10n.oauthSyncing
+                        : l10n.oauthSyncModels,
+                    onTap: canSync ? widget.onSyncModels : null,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              if (config.models.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 20),
+                  child: Text(
+                    l10n.oauthNoModels,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withValues(alpha: .5),
+                    ),
+                  ),
+                ),
+              for (final group in groups.entries)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _ModelGroupAccordion(
+                    group: group.key,
+                    modelIds: group.value,
+                    providerKey: config.id,
+                  ),
+                ),
+              if (widget.oauthFooter != null) widget.oauthFooter!,
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   Map<String, List<String>> _groupModels(List<String> models) {
     final map = <String, List<String>>{};
     for (final m in models) {
@@ -2156,12 +2456,11 @@ class _DesktopProviderDetailPaneState
   }
 
   InputDecoration _inputDecoration(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final cs = Theme.of(context).colorScheme;
     return InputDecoration(
       isDense: true,
       filled: true,
-      fillColor: isDark ? Colors.white10 : const Color(0xFFF7F7F9),
+      fillColor: context.appColors.surfaceFill,
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
         borderSide: BorderSide(
@@ -2237,12 +2536,11 @@ class _DesktopProviderDetailPaneState
   }
 
   InputDecoration _proxyInputDecoration(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final cs = Theme.of(context).colorScheme;
     return InputDecoration(
       isDense: true,
       filled: true,
-      fillColor: isDark ? Colors.white10 : const Color(0xFFF7F7F9),
+      fillColor: context.appColors.surfaceFill,
       hintStyle: TextStyle(
         fontSize: 14,
         color: cs.onSurface.withValues(alpha: 0.5),
@@ -2286,7 +2584,7 @@ class _DesktopProviderDetailPaneState
         final GlobalKey avatarKey = GlobalKey();
         return Dialog(
           key: const ValueKey('desktop-provider-settings-dialog'),
-          backgroundColor: cs.surface,
+          backgroundColor: context.overlaySurface,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
@@ -2624,10 +2922,7 @@ class _DesktopProviderDetailPaneState
                                       options: groupOptions,
                                       maxLabelWidth: 150,
                                       triggerFillColor:
-                                          Theme.of(ctx).brightness ==
-                                              Brightness.dark
-                                          ? Colors.white10
-                                          : const Color(0xFFF7F7F9),
+                                          ctx.appColors.surfaceFill,
                                       onSelected: (v) async {
                                         if (v ==
                                             SettingsProvider
@@ -2653,7 +2948,7 @@ class _DesktopProviderDetailPaneState
                                           TextEditingController();
                                       final ok = await showDialog<bool>(
                                         context: ctx,
-                                        barrierColor: Colors.black.withValues(
+                                        barrierColor: cs.scrim.withValues(
                                           alpha: 0.12,
                                         ),
                                         builder: (dctx) => AlertDialog(
@@ -2706,7 +3001,7 @@ class _DesktopProviderDetailPaneState
                                       showDialog<void>(
                                         context: ctx,
                                         barrierDismissible: true,
-                                        barrierColor: Colors.black.withValues(
+                                        barrierColor: cs.scrim.withValues(
                                           alpha: 0.12,
                                         ),
                                         builder: (_) =>
@@ -2718,116 +3013,34 @@ class _DesktopProviderDetailPaneState
                               ),
                             ),
                             const SizedBox(height: 4),
-                            // 2) Provider type
-                            row(
-                              l10n.providerDetailPageProviderTypeTitle,
-                              _ProviderTypeDropdown(
-                                value: kindNow,
-                                onChanged: (k) async {
-                                  final old = spWatch.getProviderConfig(
-                                    widget.providerKey,
-                                    defaultName: widget.displayName,
-                                  );
-                                  await spWatch.setProviderConfig(
-                                    widget.providerKey,
-                                    old.copyWith(providerType: k),
-                                  );
-                                },
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            // 3) Multi-Key
-                            row(
-                              l10n.providerDetailPageMultiKeyModeTitle,
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: IosSwitch(
-                                  value: multiNow,
-                                  onChanged: (v) async {
+                            if (cfgNow.isOAuth)
+                              OAuthConnectionInfo(config: cfgNow, desktop: true)
+                            else ...[
+                              // 2) Provider type
+                              row(
+                                l10n.providerDetailPageProviderTypeTitle,
+                                _ProviderTypeDropdown(
+                                  value: kindNow,
+                                  onChanged: (k) async {
                                     final old = spWatch.getProviderConfig(
                                       widget.providerKey,
                                       defaultName: widget.displayName,
                                     );
                                     await spWatch.setProviderConfig(
                                       widget.providerKey,
-                                      old.copyWith(multiKeyEnabled: v),
+                                      old.copyWith(providerType: k),
                                     );
                                   },
                                 ),
                               ),
-                            ),
-                            const SizedBox(height: 4),
-                            // 4) Response (OpenAI) or Vertex (Google). Hide for Claude, with animation.
-                            AnimatedSwitcher(
-                              duration: const Duration(milliseconds: 180),
-                              switchInCurve: Curves.easeOutCubic,
-                              switchOutCurve: Curves.easeInCubic,
-                              child: () {
-                                if (kindNow == ProviderKind.openai) {
-                                  return KeyedSubtree(
-                                    key: const ValueKey('openai-resp'),
-                                    child: row(
-                                      l10n.providerDetailPageResponseApiTitle,
-                                      Align(
-                                        alignment: Alignment.centerRight,
-                                        child: IosSwitch(
-                                          value: respNow,
-                                          onChanged: (v) async {
-                                            final old = spWatch
-                                                .getProviderConfig(
-                                                  widget.providerKey,
-                                                  defaultName:
-                                                      widget.displayName,
-                                                );
-                                            await spWatch.setProviderConfig(
-                                              widget.providerKey,
-                                              old.copyWith(useResponseApi: v),
-                                            );
-                                          },
-                                        ),
-                                      ),
-                                    ),
-                                  );
-                                }
-                                if (kindNow == ProviderKind.google) {
-                                  return KeyedSubtree(
-                                    key: const ValueKey('google-vertex'),
-                                    child: row(
-                                      l10n.providerDetailPageVertexAiTitle,
-                                      Align(
-                                        alignment: Alignment.centerRight,
-                                        child: IosSwitch(
-                                          value: vertexNow,
-                                          onChanged: (v) async {
-                                            final old = spWatch
-                                                .getProviderConfig(
-                                                  widget.providerKey,
-                                                  defaultName:
-                                                      widget.displayName,
-                                                );
-                                            await spWatch.setProviderConfig(
-                                              widget.providerKey,
-                                              old.copyWith(vertexAI: v),
-                                            );
-                                          },
-                                        ),
-                                      ),
-                                    ),
-                                  );
-                                }
-                                return const SizedBox.shrink(
-                                  key: ValueKey('none'),
-                                );
-                              }(),
-                            ),
-                            const SizedBox(height: 4),
-                            if (kindNow == ProviderKind.openai) ...[
+                              const SizedBox(height: 4),
+                              // 3) Multi-Key
                               row(
-                                l10n.providerDetailPageBalanceInfo,
+                                l10n.providerDetailPageMultiKeyModeTitle,
                                 Align(
                                   alignment: Alignment.centerRight,
                                   child: IosSwitch(
-                                    value: balanceEnabledNow,
+                                    value: multiNow,
                                     onChanged: (v) async {
                                       final old = spWatch.getProviderConfig(
                                         widget.providerKey,
@@ -2835,226 +3048,123 @@ class _DesktopProviderDetailPaneState
                                       );
                                       await spWatch.setProviderConfig(
                                         widget.providerKey,
-                                        old.copyWith(balanceEnabled: v),
+                                        old.copyWith(multiKeyEnabled: v),
                                       );
-                                      ProviderBalanceBadge.clearCacheFor(
-                                        widget.providerKey,
-                                      );
-                                      if (mounted) setState(() {});
                                     },
                                   ),
                                 ),
                               ),
-                              AnimatedCrossFade(
-                                firstChild: const SizedBox.shrink(),
-                                secondChild: Padding(
-                                  padding: const EdgeInsets.only(top: 8),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.stretch,
-                                    children: [
-                                      row(
-                                        l10n.providerDetailPageBalanceApiPathLabel,
-                                        TextField(
-                                          controller: _balanceApiPathCtrl,
-                                          style: TextStyle(fontSize: 13),
-                                          decoration: _proxyInputDecoration(
-                                            ctx,
-                                          ),
-                                          onChanged: (_) async {
-                                            if (_balanceApiPathCtrl
-                                                .value
-                                                .composing
-                                                .isValid) {
-                                              return;
-                                            }
-                                            final old = spWatch
-                                                .getProviderConfig(
-                                                  widget.providerKey,
-                                                  defaultName:
-                                                      widget.displayName,
-                                                );
-                                            await spWatch.setProviderConfig(
-                                              widget.providerKey,
-                                              old.copyWith(
-                                                balanceApiPath:
-                                                    _balanceApiPathCtrl.text
-                                                        .trim(),
-                                              ),
-                                            );
-                                            ProviderBalanceBadge.clearCacheFor(
-                                              widget.providerKey,
-                                            );
-                                          },
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      row(
-                                        l10n.providerDetailPageBalanceResultPathLabel,
-                                        TextField(
-                                          controller: _balanceResultPathCtrl,
-                                          style: TextStyle(fontSize: 13),
-                                          decoration: _proxyInputDecoration(
-                                            ctx,
-                                          ),
-                                          onChanged: (_) async {
-                                            if (_balanceResultPathCtrl
-                                                .value
-                                                .composing
-                                                .isValid) {
-                                              return;
-                                            }
-                                            final old = spWatch
-                                                .getProviderConfig(
-                                                  widget.providerKey,
-                                                  defaultName:
-                                                      widget.displayName,
-                                                );
-                                            await spWatch.setProviderConfig(
-                                              widget.providerKey,
-                                              old.copyWith(
-                                                balanceResultPath:
-                                                    _balanceResultPathCtrl.text
-                                                        .trim(),
-                                              ),
-                                            );
-                                            ProviderBalanceBadge.clearCacheFor(
-                                              widget.providerKey,
-                                            );
-                                          },
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      row(
-                                        l10n.providerDetailPageBalanceTitle,
-                                        Row(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.end,
-                                          children: [
-                                            Flexible(
-                                              child: Align(
-                                                alignment:
-                                                    Alignment.centerRight,
-                                                child: ConstrainedBox(
-                                                  constraints:
-                                                      const BoxConstraints(
-                                                        minWidth: 72,
-                                                        maxWidth: 120,
-                                                      ),
-                                                  child: ProviderBalanceBadge(
-                                                    providerKey:
-                                                        widget.providerKey,
-                                                    displayName:
+                              const SizedBox(height: 4),
+                              // 4) Response (OpenAI) or Vertex (Google). Hide for Claude, with animation.
+                              AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 180),
+                                switchInCurve: Curves.easeOutCubic,
+                                switchOutCurve: Curves.easeInCubic,
+                                child: () {
+                                  if (kindNow == ProviderKind.openai) {
+                                    return KeyedSubtree(
+                                      key: const ValueKey('openai-resp'),
+                                      child: row(
+                                        l10n.providerDetailPageResponseApiTitle,
+                                        Align(
+                                          alignment: Alignment.centerRight,
+                                          child: IosSwitch(
+                                            value: respNow,
+                                            onChanged: (v) async {
+                                              final old = spWatch
+                                                  .getProviderConfig(
+                                                    widget.providerKey,
+                                                    defaultName:
                                                         widget.displayName,
-                                                    color: cs.primary,
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                            const SizedBox(width: 6),
-                                            Tooltip(
-                                              message: l10n
-                                                  .providerDetailPageBalanceResetDefaultsTooltip,
-                                              child: _IconBtn(
-                                                icon: lucide.Lucide.RotateCcw,
-                                                color: cs.onSurface.withValues(
-                                                  alpha: 0.78,
-                                                ),
-                                                onTap: () async {
-                                                  _syncControllerText(
-                                                    _balanceApiPathCtrl,
-                                                    balanceDefaults
-                                                            .balanceApiPath ??
-                                                        '',
                                                   );
-                                                  _syncControllerText(
-                                                    _balanceResultPathCtrl,
-                                                    balanceDefaults
-                                                            .balanceResultPath ??
-                                                        '',
-                                                  );
-                                                  final old = spWatch
-                                                      .getProviderConfig(
-                                                        widget.providerKey,
-                                                        defaultName:
-                                                            widget.displayName,
-                                                      );
-                                                  await spWatch.setProviderConfig(
-                                                    widget.providerKey,
-                                                    old.copyWith(
-                                                      balanceEnabled:
-                                                          balanceDefaults
-                                                              .balanceEnabled ??
-                                                          false,
-                                                      balanceApiPath:
-                                                          _balanceApiPathCtrl
-                                                              .text
-                                                              .trim(),
-                                                      balanceResultPath:
-                                                          _balanceResultPathCtrl
-                                                              .text
-                                                              .trim(),
-                                                    ),
-                                                  );
-                                                  ProviderBalanceBadge.clearCacheFor(
-                                                    widget.providerKey,
-                                                  );
-                                                  if (mounted) setState(() {});
-                                                },
-                                              ),
-                                            ),
-                                            const SizedBox(width: 4),
-                                            Tooltip(
-                                              message: _balanceLoading
-                                                  ? l10n.providerDetailPageBalanceQuerying
-                                                  : l10n.providerDetailPageBalanceQueryButton,
-                                              child: _IconBtn(
-                                                icon: _balanceLoading
-                                                    ? lucide.Lucide.Loader
-                                                    : lucide
-                                                          .Lucide
-                                                          .RefreshCcwDot,
-                                                color: cs.primary,
-                                                onTap: () =>
-                                                    _queryProviderBalance(
-                                                      context,
-                                                    ),
-                                              ),
-                                            ),
-                                          ],
+                                              await spWatch.setProviderConfig(
+                                                widget.providerKey,
+                                                old.copyWith(useResponseApi: v),
+                                              );
+                                            },
+                                          ),
                                         ),
+                                      ),
+                                    );
+                                  }
+                                  if (kindNow == ProviderKind.google) {
+                                    return KeyedSubtree(
+                                      key: const ValueKey('google-vertex'),
+                                      child: row(
+                                        l10n.providerDetailPageVertexAiTitle,
+                                        Align(
+                                          alignment: Alignment.centerRight,
+                                          child: IosSwitch(
+                                            value: vertexNow,
+                                            onChanged: (v) async {
+                                              final old = spWatch
+                                                  .getProviderConfig(
+                                                    widget.providerKey,
+                                                    defaultName:
+                                                        widget.displayName,
+                                                  );
+                                              await spWatch.setProviderConfig(
+                                                widget.providerKey,
+                                                old.copyWith(vertexAI: v),
+                                              );
+                                            },
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                  return const SizedBox.shrink(
+                                    key: ValueKey('none'),
+                                  );
+                                }(),
+                              ),
+                              const SizedBox(height: 4),
+                              if (kindNow == ProviderKind.openai) ...[
+                                row(
+                                  l10n.providerDetailPagePromptCacheKeyTitle,
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    children: [
+                                      Tooltip(
+                                        message: l10n
+                                            .providerDetailPagePromptCacheKeyHelp,
+                                        child: Icon(
+                                          LucideIcons.circleHelp,
+                                          size: 16,
+                                          color: cs.onSurface.withValues(
+                                            alpha: 0.6,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      IosSwitch(
+                                        value: cfgNow.promptCacheKeyEnabled,
+                                        semanticLabel: l10n
+                                            .providerDetailPagePromptCacheKeyTitle,
+                                        onChanged: (value) async {
+                                          final current = spWatch
+                                              .getProviderConfig(
+                                                widget.providerKey,
+                                                defaultName: widget.displayName,
+                                              );
+                                          await spWatch.setProviderConfig(
+                                            widget.providerKey,
+                                            current.copyWith(
+                                              promptCacheKeyEnabled: value,
+                                            ),
+                                          );
+                                        },
                                       ),
                                     ],
                                   ),
                                 ),
-                                crossFadeState: balanceEnabledNow
-                                    ? CrossFadeState.showSecond
-                                    : CrossFadeState.showFirst,
-                                duration: const Duration(milliseconds: 180),
-                                sizeCurve: Curves.easeOutCubic,
-                              ),
-                            ],
-                            const SizedBox(height: 4),
-                            if (_isAihubmix(cfgNow))
-                              row(
-                                l10n.providerDetailPageAihubmixAppCodeLabel,
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.end,
-                                  children: [
-                                    Tooltip(
-                                      message: l10n
-                                          .providerDetailPageAihubmixAppCodeHelp,
-                                      child: Icon(
-                                        Icons.help_outline,
-                                        size: 16,
-                                        color: cs.onSurface.withValues(
-                                          alpha: 0.6,
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    IosSwitch(
-                                      value: aihubmixAppCodeEnabled,
+                                const SizedBox(height: 4),
+                                row(
+                                  l10n.providerDetailPageBalanceInfo,
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: IosSwitch(
+                                      value: balanceEnabledNow,
                                       onChanged: (v) async {
                                         final old = spWatch.getProviderConfig(
                                           widget.providerKey,
@@ -3062,122 +3172,350 @@ class _DesktopProviderDetailPaneState
                                         );
                                         await spWatch.setProviderConfig(
                                           widget.providerKey,
-                                          old.copyWith(
-                                            aihubmixAppCodeEnabled: v,
-                                          ),
+                                          old.copyWith(balanceEnabled: v),
                                         );
+                                        ProviderBalanceBadge.clearCacheFor(
+                                          widget.providerKey,
+                                        );
+                                        if (mounted) setState(() {});
                                       },
                                     ),
-                                  ],
+                                  ),
                                 ),
-                              ),
-                            if (supportsClaudePromptCaching) ...[
-                              const SizedBox(height: 4),
-                              row(
-                                l10n.providerDetailPageClaudePromptCachingTitle,
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.end,
-                                  children: [
-                                    Tooltip(
-                                      message: l10n
-                                          .providerDetailPageClaudePromptCachingHelp,
-                                      child: Icon(
-                                        Icons.help_outline,
-                                        size: 16,
-                                        color: cs.onSurface.withValues(
-                                          alpha: 0.6,
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    IosSwitch(
-                                      value: claudePromptCachingEnabled,
-                                      semanticLabel: l10n
-                                          .providerDetailPageClaudePromptCachingTitle,
-                                      onChanged: (v) async {
-                                        final old = spWatch.getProviderConfig(
-                                          widget.providerKey,
-                                          defaultName: widget.displayName,
-                                        );
-                                        await spWatch.setProviderConfig(
-                                          widget.providerKey,
-                                          old.copyWith(
-                                            claudePromptCachingEnabled: v,
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              AnimatedCrossFade(
-                                firstChild: const SizedBox.shrink(),
-                                secondChild: Padding(
-                                  padding: const EdgeInsets.only(top: 8),
-                                  child: row(
-                                    l10n.providerDetailPageClaudePromptCachingTtlTitle,
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.end,
+                                AnimatedCrossFade(
+                                  firstChild: const SizedBox.shrink(),
+                                  secondChild: Padding(
+                                    padding: const EdgeInsets.only(top: 8),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
                                       children: [
-                                        Tooltip(
-                                          message: l10n
-                                              .providerDetailPageClaudePromptCachingTtlHelp,
-                                          child: Icon(
-                                            Icons.help_outline,
-                                            size: 16,
-                                            color: cs.onSurface.withValues(
-                                              alpha: 0.6,
+                                        row(
+                                          l10n.providerDetailPageBalanceApiPathLabel,
+                                          TextField(
+                                            controller: _balanceApiPathCtrl,
+                                            style: TextStyle(fontSize: 13),
+                                            decoration: _proxyInputDecoration(
+                                              ctx,
                                             ),
+                                            onChanged: (_) async {
+                                              if (_balanceApiPathCtrl
+                                                  .value
+                                                  .composing
+                                                  .isValid) {
+                                                return;
+                                              }
+                                              final old = spWatch
+                                                  .getProviderConfig(
+                                                    widget.providerKey,
+                                                    defaultName:
+                                                        widget.displayName,
+                                                  );
+                                              await spWatch.setProviderConfig(
+                                                widget.providerKey,
+                                                old.copyWith(
+                                                  balanceApiPath:
+                                                      _balanceApiPathCtrl.text
+                                                          .trim(),
+                                                ),
+                                              );
+                                              ProviderBalanceBadge.clearCacheFor(
+                                                widget.providerKey,
+                                              );
+                                            },
                                           ),
                                         ),
-                                        const SizedBox(width: 8),
-                                        DesktopSelectDropdown<String>(
-                                          value: claudePromptCachingTtl,
-                                          minWidth: 136,
-                                          options: [
-                                            DesktopSelectOption(
-                                              value: ProviderConfig
-                                                  .claudePromptCachingTtl5m,
-                                              label: l10n
-                                                  .providerDetailPageClaudePromptCachingTtl5m,
+                                        const SizedBox(height: 4),
+                                        row(
+                                          l10n.providerDetailPageBalanceResultPathLabel,
+                                          TextField(
+                                            controller: _balanceResultPathCtrl,
+                                            style: TextStyle(fontSize: 13),
+                                            decoration: _proxyInputDecoration(
+                                              ctx,
                                             ),
-                                            DesktopSelectOption(
-                                              value: ProviderConfig
-                                                  .claudePromptCachingTtl1h,
-                                              label: l10n
-                                                  .providerDetailPageClaudePromptCachingTtl1h,
-                                            ),
-                                          ],
-                                          triggerFillColor:
-                                              Theme.of(ctx).brightness ==
-                                                  Brightness.dark
-                                              ? Colors.white10
-                                              : const Color(0xFFF7F7F9),
-                                          onSelected: (value) async {
-                                            final old = spWatch
-                                                .getProviderConfig(
-                                                  widget.providerKey,
-                                                  defaultName:
-                                                      widget.displayName,
-                                                );
-                                            await spWatch.setProviderConfig(
-                                              widget.providerKey,
-                                              old.copyWith(
-                                                claudePromptCachingTtl: value,
+                                            onChanged: (_) async {
+                                              if (_balanceResultPathCtrl
+                                                  .value
+                                                  .composing
+                                                  .isValid) {
+                                                return;
+                                              }
+                                              final old = spWatch
+                                                  .getProviderConfig(
+                                                    widget.providerKey,
+                                                    defaultName:
+                                                        widget.displayName,
+                                                  );
+                                              await spWatch.setProviderConfig(
+                                                widget.providerKey,
+                                                old.copyWith(
+                                                  balanceResultPath:
+                                                      _balanceResultPathCtrl
+                                                          .text
+                                                          .trim(),
+                                                ),
+                                              );
+                                              ProviderBalanceBadge.clearCacheFor(
+                                                widget.providerKey,
+                                              );
+                                            },
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        row(
+                                          l10n.providerDetailPageBalanceTitle,
+                                          Row(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.end,
+                                            children: [
+                                              Flexible(
+                                                child: Align(
+                                                  alignment:
+                                                      Alignment.centerRight,
+                                                  child: ConstrainedBox(
+                                                    constraints:
+                                                        const BoxConstraints(
+                                                          minWidth: 72,
+                                                          maxWidth: 120,
+                                                        ),
+                                                    child: ProviderBalanceBadge(
+                                                      providerKey:
+                                                          widget.providerKey,
+                                                      displayName:
+                                                          widget.displayName,
+                                                      color: cs.primary,
+                                                    ),
+                                                  ),
+                                                ),
                                               ),
-                                            );
-                                          },
+                                              const SizedBox(width: 6),
+                                              Tooltip(
+                                                message: l10n
+                                                    .providerDetailPageBalanceResetDefaultsTooltip,
+                                                child: _IconBtn(
+                                                  icon: lucide.Lucide.RotateCcw,
+                                                  color: cs.onSurface
+                                                      .withValues(alpha: 0.78),
+                                                  onTap: () async {
+                                                    _syncControllerText(
+                                                      _balanceApiPathCtrl,
+                                                      balanceDefaults
+                                                              .balanceApiPath ??
+                                                          '',
+                                                    );
+                                                    _syncControllerText(
+                                                      _balanceResultPathCtrl,
+                                                      balanceDefaults
+                                                              .balanceResultPath ??
+                                                          '',
+                                                    );
+                                                    final old = spWatch
+                                                        .getProviderConfig(
+                                                          widget.providerKey,
+                                                          defaultName: widget
+                                                              .displayName,
+                                                        );
+                                                    await spWatch.setProviderConfig(
+                                                      widget.providerKey,
+                                                      old.copyWith(
+                                                        balanceEnabled:
+                                                            balanceDefaults
+                                                                .balanceEnabled ??
+                                                            false,
+                                                        balanceApiPath:
+                                                            _balanceApiPathCtrl
+                                                                .text
+                                                                .trim(),
+                                                        balanceResultPath:
+                                                            _balanceResultPathCtrl
+                                                                .text
+                                                                .trim(),
+                                                      ),
+                                                    );
+                                                    ProviderBalanceBadge.clearCacheFor(
+                                                      widget.providerKey,
+                                                    );
+                                                    if (mounted) {
+                                                      setState(() {});
+                                                    }
+                                                  },
+                                                ),
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Tooltip(
+                                                message: _balanceLoading
+                                                    ? l10n.providerDetailPageBalanceQuerying
+                                                    : l10n.providerDetailPageBalanceQueryButton,
+                                                child: _IconBtn(
+                                                  icon: _balanceLoading
+                                                      ? lucide.Lucide.Loader
+                                                      : lucide
+                                                            .Lucide
+                                                            .RefreshCcwDot,
+                                                  color: cs.primary,
+                                                  onTap: () =>
+                                                      _queryProviderBalance(
+                                                        context,
+                                                      ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
                                         ),
                                       ],
                                     ),
                                   ),
+                                  crossFadeState: balanceEnabledNow
+                                      ? CrossFadeState.showSecond
+                                      : CrossFadeState.showFirst,
+                                  duration: const Duration(milliseconds: 180),
+                                  sizeCurve: Curves.easeOutCubic,
                                 ),
-                                crossFadeState: claudePromptCachingEnabled
-                                    ? CrossFadeState.showSecond
-                                    : CrossFadeState.showFirst,
-                                duration: const Duration(milliseconds: 180),
-                                sizeCurve: Curves.easeOutCubic,
-                              ),
+                              ],
+                              const SizedBox(height: 4),
+                              if (_isAihubmix(cfgNow))
+                                row(
+                                  l10n.providerDetailPageAihubmixAppCodeLabel,
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    children: [
+                                      Tooltip(
+                                        message: l10n
+                                            .providerDetailPageAihubmixAppCodeHelp,
+                                        child: Icon(
+                                          Icons.help_outline,
+                                          size: 16,
+                                          color: cs.onSurface.withValues(
+                                            alpha: 0.6,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      IosSwitch(
+                                        value: aihubmixAppCodeEnabled,
+                                        onChanged: (v) async {
+                                          final old = spWatch.getProviderConfig(
+                                            widget.providerKey,
+                                            defaultName: widget.displayName,
+                                          );
+                                          await spWatch.setProviderConfig(
+                                            widget.providerKey,
+                                            old.copyWith(
+                                              aihubmixAppCodeEnabled: v,
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              if (supportsClaudePromptCaching) ...[
+                                const SizedBox(height: 4),
+                                row(
+                                  l10n.providerDetailPageClaudePromptCachingTitle,
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    children: [
+                                      Tooltip(
+                                        message: l10n
+                                            .providerDetailPageClaudePromptCachingHelp,
+                                        child: Icon(
+                                          Icons.help_outline,
+                                          size: 16,
+                                          color: cs.onSurface.withValues(
+                                            alpha: 0.6,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      IosSwitch(
+                                        value: claudePromptCachingEnabled,
+                                        semanticLabel: l10n
+                                            .providerDetailPageClaudePromptCachingTitle,
+                                        onChanged: (v) async {
+                                          final old = spWatch.getProviderConfig(
+                                            widget.providerKey,
+                                            defaultName: widget.displayName,
+                                          );
+                                          await spWatch.setProviderConfig(
+                                            widget.providerKey,
+                                            old.copyWith(
+                                              claudePromptCachingEnabled: v,
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                AnimatedCrossFade(
+                                  firstChild: const SizedBox.shrink(),
+                                  secondChild: Padding(
+                                    padding: const EdgeInsets.only(top: 8),
+                                    child: row(
+                                      l10n.providerDetailPageClaudePromptCachingTtlTitle,
+                                      Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.end,
+                                        children: [
+                                          Tooltip(
+                                            message: l10n
+                                                .providerDetailPageClaudePromptCachingTtlHelp,
+                                            child: Icon(
+                                              Icons.help_outline,
+                                              size: 16,
+                                              color: cs.onSurface.withValues(
+                                                alpha: 0.6,
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          DesktopSelectDropdown<String>(
+                                            value: claudePromptCachingTtl,
+                                            minWidth: 136,
+                                            options: [
+                                              DesktopSelectOption(
+                                                value: ProviderConfig
+                                                    .claudePromptCachingTtl5m,
+                                                label: l10n
+                                                    .providerDetailPageClaudePromptCachingTtl5m,
+                                              ),
+                                              DesktopSelectOption(
+                                                value: ProviderConfig
+                                                    .claudePromptCachingTtl1h,
+                                                label: l10n
+                                                    .providerDetailPageClaudePromptCachingTtl1h,
+                                              ),
+                                            ],
+                                            triggerFillColor:
+                                                ctx.appColors.surfaceFill,
+                                            onSelected: (value) async {
+                                              final old = spWatch
+                                                  .getProviderConfig(
+                                                    widget.providerKey,
+                                                    defaultName:
+                                                        widget.displayName,
+                                                  );
+                                              await spWatch.setProviderConfig(
+                                                widget.providerKey,
+                                                old.copyWith(
+                                                  claudePromptCachingTtl: value,
+                                                ),
+                                              );
+                                            },
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  crossFadeState: claudePromptCachingEnabled
+                                      ? CrossFadeState.showSecond
+                                      : CrossFadeState.showFirst,
+                                  duration: const Duration(milliseconds: 180),
+                                  sizeCurve: Curves.easeOutCubic,
+                                ),
+                              ],
                             ],
                             const SizedBox(height: 4),
                             // 5) Network proxy inline
@@ -3214,10 +3552,7 @@ class _DesktopProviderDetailPaneState
                                         value: proxyTypeNow,
                                         options: proxyTypeOptions,
                                         triggerFillColor:
-                                            Theme.of(ctx).brightness ==
-                                                Brightness.dark
-                                            ? Colors.white10
-                                            : const Color(0xFFF7F7F9),
+                                            ctx.appColors.surfaceFill,
                                         onSelected: (value) async {
                                           final old = spWatch.getProviderConfig(
                                             widget.providerKey,
@@ -3446,6 +3781,34 @@ class _DesktopProviderDetailPaneState
                               duration: const Duration(milliseconds: 180),
                               sizeCurve: Curves.easeOutCubic,
                             ),
+                            const SizedBox(height: 16),
+                            ProviderCustomRequestEditor(
+                              key: ValueKey(
+                                'desktop-provider-custom-request-${widget.providerKey}',
+                              ),
+                              headers: cfgNow.customHeaders,
+                              body: cfgNow.customBody,
+                              onHeadersChanged: (rows) async {
+                                final old = spWatch.getProviderConfig(
+                                  widget.providerKey,
+                                  defaultName: widget.displayName,
+                                );
+                                await spWatch.setProviderConfig(
+                                  widget.providerKey,
+                                  old.copyWith(customHeaders: rows),
+                                );
+                              },
+                              onBodyChanged: (rows) async {
+                                final old = spWatch.getProviderConfig(
+                                  widget.providerKey,
+                                  defaultName: widget.displayName,
+                                );
+                                await spWatch.setProviderConfig(
+                                  widget.providerKey,
+                                  old.copyWith(customBody: rows),
+                                );
+                              },
+                            ),
                           ],
                         ),
                       ),
@@ -3480,7 +3843,7 @@ class _DesktopProviderDetailPaneState
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
-              backgroundColor: cs.surface,
+              backgroundColor: context.overlaySurface,
               title: Text(l10n.sideDrawerImageUrlDialogTitle),
               content: TextField(
                 controller: controller,
@@ -3488,9 +3851,7 @@ class _DesktopProviderDetailPaneState
                 decoration: InputDecoration(
                   hintText: l10n.sideDrawerImageUrlDialogHint,
                   filled: true,
-                  fillColor: Theme.of(ctx2).brightness == Brightness.dark
-                      ? Colors.white10
-                      : const Color(0xFFF2F3F5),
+                  fillColor: ctx2.appColors.surfaceFill,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                     borderSide: const BorderSide(color: Colors.transparent),
@@ -3554,7 +3915,7 @@ class _DesktopProviderDetailPaneState
     String value = '';
     final ok = await showDialog<bool>(
       context: context,
-      barrierColor: Colors.black.withValues(alpha: 0.16),
+      barrierColor: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.16),
       builder: (ctx) {
         final cs = Theme.of(ctx).colorScheme;
         bool valid(String s) => s.trim().isNotEmpty;
@@ -3569,7 +3930,7 @@ class _DesktopProviderDetailPaneState
                 horizontal: 24,
                 vertical: 24,
               ),
-              backgroundColor: cs.surface,
+              backgroundColor: context.overlaySurface,
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 420),
                 child: Column(
@@ -3673,7 +4034,7 @@ class _DesktopProviderDetailPaneState
       context: context,
       builder: (ctx) {
         return AlertDialog(
-          backgroundColor: cs.surface,
+          backgroundColor: context.overlaySurface,
           title: Text(l10n.providerAvatarIconDialogTitle),
           content: SizedBox(
             width: 360,
@@ -3714,9 +4075,9 @@ class _DesktopProviderDetailPaneState
                             aspectRatio: 1,
                             child: Container(
                               decoration: BoxDecoration(
-                                color: isDark
-                                    ? Colors.white10
-                                    : cs.primary.withValues(alpha: 0.1),
+                                color: cs.primary.withValues(
+                                  alpha: isDark ? 0.18 : 0.1,
+                                ),
                                 shape: BoxShape.circle,
                                 border: selected
                                     ? Border.all(color: cs.primary, width: 2)
@@ -3731,8 +4092,8 @@ class _DesktopProviderDetailPaneState
                                         opt.asset,
                                         fit: BoxFit.contain,
                                         colorFilter: needsMono
-                                            ? const ColorFilter.mode(
-                                                Colors.white,
+                                            ? ColorFilter.mode(
+                                                cs.onSurface,
                                                 BlendMode.srcIn,
                                               )
                                             : null,
@@ -3740,7 +4101,7 @@ class _DesktopProviderDetailPaneState
                                     : Image.asset(
                                         opt.asset,
                                         fit: BoxFit.contain,
-                                        color: needsMono ? Colors.white : null,
+                                        color: needsMono ? cs.onSurface : null,
                                         colorBlendMode: needsMono
                                             ? BlendMode.srcIn
                                             : null,
@@ -4205,7 +4566,7 @@ class _DesktopProviderDetailPaneState
         }
 
         return Dialog(
-          backgroundColor: cs.surface,
+          backgroundColor: context.overlaySurface,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
@@ -4475,7 +4836,7 @@ class _DesktopProviderDetailPaneState
   // }
 
   Future<void> _createModel(BuildContext context) async {
-    final res = await showDesktopCreateModelDialog(
+    final res = await showDesktopCreateModelSpecDialog(
       context,
       providerKey: widget.providerKey,
     );
@@ -4549,7 +4910,7 @@ class _DesktopProviderDetailPaneState
             break;
           case _TestState.success:
             message = l10n.providerDetailPageTestSuccessMessage;
-            color = Colors.green;
+            color = context.appColors.success;
             break;
           case _TestState.error:
             message = errorMessage.isNotEmpty ? errorMessage : 'Error';
@@ -4559,7 +4920,7 @@ class _DesktopProviderDetailPaneState
         return StatefulBuilder(
           builder: (ctx, setState) {
             return Dialog(
-              backgroundColor: cs.surface,
+              backgroundColor: context.overlaySurface,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
@@ -4593,9 +4954,7 @@ class _DesktopProviderDetailPaneState
                             vertical: 10,
                           ),
                           decoration: BoxDecoration(
-                            color: Theme.of(ctx).brightness == Brightness.dark
-                                ? Colors.white10
-                                : const Color(0xFFF7F7F9),
+                            color: ctx.appColors.surfaceFill,
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
                               color: cs.outlineVariant.withValues(alpha: 0.12),
@@ -4715,6 +5074,7 @@ class _DesktopProviderDetailPaneState
   Future<void> _clearAssistantSelectionsForModels(
     Set<String> modelIds,
     AssistantProvider assistantProvider,
+    ChatService chatService,
   ) async {
     if (modelIds.isEmpty) return;
     try {
@@ -4726,6 +5086,13 @@ class _DesktopProviderDetailPaneState
             assistant.copyWith(clearChatModel: true),
           );
         }
+      }
+      // Conversations can pin a model too.
+      for (final modelId in modelIds) {
+        await chatService.clearConversationModelOverrides(
+          providerKey: widget.providerKey,
+          modelId: modelId,
+        );
       }
     } catch (e, st) {
       FlutterLogger.log(
@@ -4788,7 +5155,7 @@ class _DesktopProviderDetailPaneState
       context: context,
       barrierDismissible: true,
       builder: (ctx) => Dialog(
-        backgroundColor: cs.surface,
+        backgroundColor: context.overlaySurface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
         child: ConstrainedBox(
@@ -4864,11 +5231,16 @@ class _DesktopProviderDetailPaneState
 
     final sp = context.read<SettingsProvider>();
     final assistantProvider = context.read<AssistantProvider>();
+    final chatService = context.read<ChatService>();
     final deletedCount = await sp.deleteModels(
       widget.providerKey,
       modelsToDelete,
     );
-    await _clearAssistantSelectionsForModels(modelsToDelete, assistantProvider);
+    await _clearAssistantSelectionsForModels(
+      modelsToDelete,
+      assistantProvider,
+      chatService,
+    );
     if (!mounted) return;
     setState(() {
       _selectedModels.clear();
@@ -4907,7 +5279,7 @@ class _DesktopProviderDetailPaneState
       context: context,
       barrierDismissible: true,
       builder: (ctx) => Dialog(
-        backgroundColor: cs.surface,
+        backgroundColor: context.overlaySurface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
         child: ConstrainedBox(
@@ -4982,8 +5354,13 @@ class _DesktopProviderDetailPaneState
     if (!mounted) return;
     final modelsToDelete = Set<String>.from(cfg.models);
     final assistantProvider = context.read<AssistantProvider>();
+    final chatService = context.read<ChatService>();
     await sp.deleteModels(widget.providerKey, modelsToDelete);
-    await _clearAssistantSelectionsForModels(modelsToDelete, assistantProvider);
+    await _clearAssistantSelectionsForModels(
+      modelsToDelete,
+      assistantProvider,
+      chatService,
+    );
     if (!mounted) return;
     setState(() {
       _selectedModels.clear();
@@ -5097,18 +5474,11 @@ class _ProviderTypeDropdownState extends State<_ProviderTypeDropdown> {
     _entry = OverlayEntry(
       builder: (ctx) {
         final cs = Theme.of(ctx).colorScheme;
-        final isDark = Theme.of(ctx).brightness == Brightness.dark;
         final content = Material(
           color: Colors.transparent,
           child: Container(
             decoration: BoxDecoration(
-              color:
-                  (Provider.of<SettingsProvider>(
-                    ctx,
-                    listen: false,
-                  ).usePureBackground)
-                  ? (isDark ? Colors.black : Colors.white)
-                  : (isDark ? const Color(0xFF1C1C1E) : Colors.white),
+              color: ctx.appColors.surfaceCard,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
                 color: cs.outlineVariant.withValues(alpha: 0.12),
@@ -5116,7 +5486,7 @@ class _ProviderTypeDropdownState extends State<_ProviderTypeDropdown> {
               ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.05),
+                  color: cs.shadow.withValues(alpha: 0.05),
                   blurRadius: 12,
                   offset: const Offset(0, 6),
                 ),
@@ -5234,7 +5604,6 @@ class _StrategyDropdownState extends State<_StrategyDropdown> {
     _entry = OverlayEntry(
       builder: (ctx) {
         final cs = Theme.of(ctx).colorScheme;
-        final isDark = Theme.of(ctx).brightness == Brightness.dark;
         return Stack(
           children: [
             Positioned.fill(
@@ -5256,13 +5625,7 @@ class _StrategyDropdownState extends State<_StrategyDropdown> {
                     maxWidth: triggerW,
                   ),
                   decoration: BoxDecoration(
-                    color:
-                        (Provider.of<SettingsProvider>(
-                          ctx,
-                          listen: false,
-                        ).usePureBackground)
-                        ? (isDark ? Colors.black : Colors.white)
-                        : (isDark ? const Color(0xFF1C1C1E) : Colors.white),
+                    color: ctx.appColors.surfaceCard,
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
                       color: cs.outlineVariant.withValues(alpha: 0.12),
@@ -5270,7 +5633,7 @@ class _StrategyDropdownState extends State<_StrategyDropdown> {
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.05),
+                        color: cs.shadow.withValues(alpha: 0.05),
                         blurRadius: 12,
                         offset: const Offset(0, 6),
                       ),
@@ -5348,10 +5711,7 @@ class _GreyCapsule extends StatelessWidget {
   final String label;
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = isDark
-        ? Colors.white.withValues(alpha: 0.06)
-        : const Color(0xFFF2F3F5);
+    final bg = context.appColors.surfaceFill;
     final fg = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.85);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -5394,9 +5754,7 @@ class _IconBtnState extends State<_IconBtn> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = _hover
-        ? (isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.05))
+        ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
         : Colors.transparent;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -5433,7 +5791,7 @@ class _IconTextBtn extends StatefulWidget {
   });
   final IconData icon;
   final String label;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   final Color? color;
   @override
   State<_IconTextBtn> createState() => _IconTextBtnState();
@@ -5445,15 +5803,16 @@ class _IconTextBtnState extends State<_IconTextBtn> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = _hover
-        ? (isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.05))
+    final enabled = widget.onTap != null;
+    final foreground =
+        widget.color ?? cs.onSurface.withValues(alpha: enabled ? 1 : .4);
+    final bg = _hover && enabled
+        ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
         : Colors.transparent;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
-      cursor: SystemMouseCursors.click,
+      cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
       child: GestureDetector(
         onTap: widget.onTap,
         child: Container(
@@ -5466,14 +5825,11 @@ class _IconTextBtnState extends State<_IconTextBtn> {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(widget.icon, size: 16, color: widget.color ?? cs.onSurface),
+              Icon(widget.icon, size: 16, color: foreground),
               const SizedBox(width: 8),
               Text(
                 widget.label,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: widget.color ?? cs.onSurface,
-                ),
+                style: TextStyle(fontSize: 13, color: foreground),
               ),
             ],
           ),
@@ -5503,7 +5859,7 @@ class _DesktopProviderGroupsDialogState
     final controller = TextEditingController(text: initialText);
     final ok = await showDialog<bool>(
       context: context,
-      barrierColor: Colors.black.withValues(alpha: 0.12),
+      barrierColor: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.12),
       builder: (ctx) => AlertDialog(
         title: Text(title),
         content: TextField(
@@ -5570,7 +5926,7 @@ class _DesktopProviderGroupsDialogState
     final l10n = AppLocalizations.of(context)!;
     final ok = await showDialog<bool>(
       context: context,
-      barrierColor: Colors.black.withValues(alpha: 0.12),
+      barrierColor: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.12),
       builder: (ctx) => AlertDialog(
         title: Text(l10n.providerGroupsDeleteConfirmTitle),
         content: Text(l10n.providerGroupsDeleteConfirmContent),
@@ -5583,7 +5939,7 @@ class _DesktopProviderGroupsDialogState
             onPressed: () => Navigator.of(ctx).pop(true),
             child: Text(
               l10n.providerGroupsDeleteConfirmOk,
-              style: TextStyle(color: Colors.red),
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
           ),
         ],
@@ -5635,7 +5991,7 @@ class _DesktopProviderGroupsDialogState
     ];
 
     return Dialog(
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       child: ConstrainedBox(
@@ -5764,7 +6120,7 @@ class _DesktopProviderGroupCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = isDark ? Colors.white10 : const Color(0xFFF7F7F9);
+    final bg = context.appColors.surfaceFill;
     final borderColor = cs.outlineVariant.withValues(
       alpha: isDark ? 0.12 : 0.10,
     );
@@ -5852,9 +6208,7 @@ class _DesktopDragHandleState extends State<_DesktopDragHandle> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = _hover
-        ? (isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.05))
+        ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
         : Colors.transparent;
     return MouseRegion(
       cursor: SystemMouseCursors.grab,
@@ -5894,6 +6248,7 @@ class _DesktopProviderShareDialog extends StatefulWidget {
 class _DesktopProviderShareDialogState
     extends State<_DesktopProviderShareDialog> {
   late final String _code;
+  late final bool _isOAuth;
   final GlobalKey _qrKey = GlobalKey();
   bool _copyingQr = false;
 
@@ -5908,6 +6263,7 @@ class _DesktopProviderShareDialogState
           defaultName: widget.displayName,
         );
     _code = encodeProviderConfig(cfg);
+    _isOAuth = cfg.isOAuth;
   }
 
   Future<void> _copyText() async {
@@ -5985,7 +6341,7 @@ class _DesktopProviderShareDialogState
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final l10n = AppLocalizations.of(context)!;
     return Dialog(
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       child: ConstrainedBox(
@@ -6022,38 +6378,38 @@ class _DesktopProviderShareDialogState
                 ),
               ),
               const SizedBox(height: 12),
-              Center(
-                child: RepaintBoundary(
-                  key: _qrKey,
-                  child: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: cs.outlineVariant.withValues(alpha: 0.2),
+              if (!_isOAuth)
+                Center(
+                  child: RepaintBoundary(
+                    key: _qrKey,
+                    child: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors
+                            .white, // color-gate: ignore (QR scannability)
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: cs.outlineVariant.withValues(alpha: 0.2),
+                        ),
                       ),
-                    ),
-                    child: SizedBox.square(
-                      dimension: 180,
-                      child: PrettyQrView.data(
-                        data: _code,
-                        errorCorrectLevel: QrErrorCorrectLevel.M,
-                        decoration: const PrettyQrDecoration(
-                          shape: PrettyQrSmoothSymbol(roundFactor: 1),
+                      child: SizedBox.square(
+                        dimension: 180,
+                        child: PrettyQrView.data(
+                          data: _code,
+                          errorCorrectLevel: QrErrorCorrectLevel.M,
+                          decoration: const PrettyQrDecoration(
+                            shape: PrettyQrSmoothSymbol(roundFactor: 1),
+                          ),
                         ),
                       ),
                     ),
                   ),
                 ),
-              ),
               const SizedBox(height: 12),
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: isDark
-                      ? Colors.white.withValues(alpha: 0.04)
-                      : Colors.black.withValues(alpha: 0.03),
+                  color: cs.onSurface.withValues(alpha: isDark ? 0.04 : 0.03),
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(
                     color: cs.outlineVariant.withValues(alpha: 0.25),
@@ -6084,18 +6440,19 @@ class _DesktopProviderShareDialogState
                     onTap: _copyText,
                   ),
                   const SizedBox(width: 10),
-                  _DialogActionButton(
-                    icon: _copyingQr
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CupertinoActivityIndicator(radius: 8),
-                          )
-                        : const Icon(Icons.qr_code_2, size: 18),
-                    label: l10n.desktopProviderShareCopyQr,
-                    filled: true,
-                    onTap: _copyingQr ? null : _copyQr,
-                  ),
+                  if (!_isOAuth)
+                    _DialogActionButton(
+                      icon: _copyingQr
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CupertinoActivityIndicator(radius: 8),
+                            )
+                          : const Icon(Icons.qr_code_2, size: 18),
+                      label: l10n.desktopProviderShareCopyQr,
+                      filled: true,
+                      onTap: _copyingQr ? null : _copyQr,
+                    ),
                 ],
               ),
             ],
@@ -6133,7 +6490,7 @@ class _DialogActionButtonState extends State<_DialogActionButton> {
     final enabled = widget.onTap != null;
     final baseBg = widget.filled ? cs.primary : Colors.transparent;
     final hoverOverlay = widget.filled
-        ? Colors.white.withValues(alpha: isDark ? 0.08 : 0.10)
+        ? cs.onPrimary.withValues(alpha: isDark ? 0.08 : 0.10)
         : cs.primary.withValues(alpha: isDark ? 0.12 : 0.10);
     final bg = Color.alphaBlend(
       (_hover ? hoverOverlay : Colors.transparent),
@@ -6220,6 +6577,9 @@ class _BrandCircle extends StatelessWidget {
         width: size * 0.62,
         height: size * 0.62,
         fit: BoxFit.contain,
+        colorFilter: isDark && BrandAssets.assetNeedsDarkInvert(asset)
+            ? ColorFilter.mode(cs.onSurface, BlendMode.srcIn)
+            : null,
       );
     } else {
       inner = Image.asset(
@@ -6233,7 +6593,7 @@ class _BrandCircle extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: isDark ? Colors.white10 : cs.primary.withValues(alpha: 0.10),
+        color: cs.primary.withValues(alpha: isDark ? 0.18 : 0.10),
         shape: BoxShape.circle,
       ),
       alignment: Alignment.center,
@@ -6247,6 +6607,7 @@ class _ProviderListRow extends StatefulWidget {
     required this.name,
     required this.keyName,
     required this.enabled,
+    this.needsLogin = false,
     required this.selected,
     required this.background,
     required this.onTap,
@@ -6257,6 +6618,7 @@ class _ProviderListRow extends StatefulWidget {
   final String name;
   final String keyName;
   final bool enabled;
+  final bool needsLogin;
   final bool selected;
   final Color background;
   final VoidCallback onTap;
@@ -6271,10 +6633,10 @@ class _ProviderListRowState extends State<_ProviderListRow> {
   bool _hover = false;
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final hoverBg = _hover && !widget.selected
-        ? Theme.of(context).brightness == Brightness.dark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.04)
+        ? cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.04)
         : Colors.transparent;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -6345,20 +6707,31 @@ class _ProviderListRowState extends State<_ProviderListRow> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
-                  color: (widget.enabled ? Colors.green : Colors.orange)
-                      .withValues(alpha: 0.12),
+                  color:
+                      (widget.needsLogin
+                              ? Theme.of(context).colorScheme.error
+                              : widget.enabled
+                              ? context.appColors.success
+                              : context.appColors.warning)
+                          .withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(999),
                   // No border for left list status
                 ),
                 child: Text(
-                  widget.enabled
+                  widget.needsLogin
+                      ? AppLocalizations.of(context)!.oauthNeedsLogin
+                      : widget.enabled
                       ? AppLocalizations.of(context)!.providersPageEnabledStatus
                       : AppLocalizations.of(
                           context,
                         )!.providersPageDisabledStatus,
                   style: TextStyle(
                     fontSize: 11,
-                    color: widget.enabled ? Colors.green : Colors.orange,
+                    color: widget.needsLogin
+                        ? Theme.of(context).colorScheme.error
+                        : widget.enabled
+                        ? context.appColors.success
+                        : context.appColors.warning,
                     fontWeight: AppFontWeights.emphasis,
                   ),
                 ),
@@ -6391,12 +6764,8 @@ class _AddFullWidthButtonState extends State<_AddFullWidthButton> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final baseBg = isDark
-        ? Colors.white.withValues(alpha: 0.06)
-        : Colors.black.withValues(alpha: 0.04);
-    final hoverBg = isDark
-        ? Colors.white.withValues(alpha: 0.10)
-        : Colors.black.withValues(alpha: 0.06);
+    final baseBg = cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.04);
+    final hoverBg = cs.onSurface.withValues(alpha: isDark ? 0.10 : 0.06);
     final bg = _hover ? hoverBg : baseBg;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -6453,17 +6822,12 @@ class _DesktopIosSectionCard extends StatelessWidget {
     final cs = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
     final Color base = cs.surface;
-    final Color bg = isDark
-        ? Color.lerp(base, Colors.white, 0.06)!
-        : const Color(0xFFF7F7F9);
+    final Color bg = Color.lerp(base, cs.onSurface, isDark ? 0.06 : 0.04)!;
     return Container(
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: cs.outlineVariant.withValues(alpha: isDark ? 0.08 : 0.06),
-          width: 0.6,
-        ),
+        border: Border.all(color: context.appColors.hairline, width: 0.6),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(children: children),
@@ -6504,7 +6868,7 @@ class _DesktopKeyRow extends StatelessWidget {
     Color statusColor(ApiKeyStatus st) {
       switch (st) {
         case ApiKeyStatus.active:
-          return Colors.green;
+          return context.appColors.success;
         case ApiKeyStatus.disabled:
           return cs.onSurface.withValues(alpha: 0.6);
         case ApiKeyStatus.error:
@@ -6669,8 +7033,8 @@ class _ModelGroupAccordionState extends State<_ModelGroupAccordion> {
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   decoration: BoxDecoration(
                     color: Theme.of(context).brightness == Brightness.dark
-                        ? Colors.white.withValues(alpha: 0.03)
-                        : Colors.black.withValues(alpha: 0.02),
+                        ? cs.onSurface.withValues(alpha: 0.03)
+                        : cs.onSurface.withValues(alpha: 0.02),
                     borderRadius: const BorderRadius.only(
                       topLeft: Radius.circular(12),
                       topRight: Radius.circular(12),
@@ -6771,44 +7135,20 @@ class _ModelRow extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final sp = context.watch<SettingsProvider>();
     final cfg = sp.getProviderConfig(providerKey);
-    ModelInfo infer(String id) =>
-        ModelRegistry.infer(ModelInfo(id: id, displayName: id));
-    // Resolve upstream/api model id for inference + capsules
-    String baseId = modelId;
-    final rawOv = cfg.modelOverrides[modelId];
-    final Map<String, dynamic>? ov = rawOv is Map
-        ? {for (final e in rawOv.entries) e.key.toString(): e.value}
-        : null;
-    if (ov != null) {
-      final apiId = (ov['apiModelId'] ?? ov['api_model_id'])?.toString().trim();
-      if (apiId != null && apiId.isNotEmpty) {
-        baseId = apiId;
-      }
-    }
-
-    ModelInfo effective() {
-      final base = infer(baseId);
-      if (ov == null) return base;
-      return ModelOverrideResolver.applyModelOverride(base, ov);
-    }
-
-    final info = effective();
-    // Display label: prefer override name, then upstream model id, then logical key
-    String displayName = modelId;
-    if (ov != null) {
-      final overrideName = ov['name']?.toString().trim();
-      if (overrideName != null && overrideName.isNotEmpty) {
-        displayName = overrideName;
-      } else {
-        displayName = baseId;
-      }
-    } else {
-      displayName = baseId;
-    }
+    final resolved = ModelSpecResolver.instance.resolve(cfg, modelId);
+    final info = resolved.spec;
+    final baseId = info.upstreamId;
+    final displayName = resolved.override.displayName ?? baseId;
 
     return GestureDetector(
       onTap: isSelectionMode
           ? () => onSelectionChanged?.call(!isSelected)
+          : cfg.isOAuth
+          ? () => showDesktopModelSpecEditDialog(
+              context,
+              providerKey: providerKey,
+              modelKey: modelId,
+            )
           : null,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -6871,53 +7211,69 @@ class _ModelRow extends StatelessWidget {
                         ? lucide.Lucide.CheckCircle
                         : lucide.Lucide.XCircle,
                     size: 16,
-                    color: detectionResult! ? Colors.green : cs.error,
+                    color: detectionResult!
+                        ? context.appColors.success
+                        : cs.error,
                   ),
                 ),
               ),
               const SizedBox(width: 8),
             ],
-            if (!isSelectionMode) ...[
-              ModelCapsulesRow(model: info),
-              const SizedBox(width: 8),
-              _IconBtn(
-                icon: lucide.Lucide.Settings2,
-                onTap: () async {
-                  await showDesktopModelEditDialog(
-                    context,
-                    providerKey: providerKey,
-                    modelId: modelId,
-                  );
-                },
-              ),
-              const SizedBox(width: 4),
-              _IconBtn(
-                icon: lucide.Lucide.Minus,
-                onTap: () async {
-                  final sp = context.read<SettingsProvider>();
-                  final ap = context.read<AssistantProvider>();
-                  final old = sp.getProviderConfig(providerKey);
-                  final list = List<String>.from(old.models)
-                    ..removeWhere((e) => e == modelId);
-                  await sp.setProviderConfig(
-                    providerKey,
-                    old.copyWith(models: list),
-                  );
-                  // Clear global and assistant-level model selections that reference the deleted model
-                  await sp.clearSelectionsForModel(providerKey, modelId);
-                  try {
-                    for (final a in ap.assistants) {
-                      if (a.chatModelProvider == providerKey &&
-                          a.chatModelId == modelId) {
-                        await ap.updateAssistant(
-                          a.copyWith(clearChatModel: true),
+            if (!isSelectionMode)
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ModelCapsulesRow(model: info, alignment: WrapAlignment.end),
+                  const SizedBox(width: 8),
+                  _IconBtn(
+                    key: ValueKey('desktop-provider-model-settings-$modelId'),
+                    icon: lucide.Lucide.Settings2,
+                    onTap: () async {
+                      await showDesktopModelSpecEditDialog(
+                        context,
+                        providerKey: providerKey,
+                        modelKey: modelId,
+                      );
+                    },
+                  ),
+                  if (!cfg.isOAuth) ...[
+                    const SizedBox(width: 4),
+                    _IconBtn(
+                      key: ValueKey('desktop-provider-model-remove-$modelId'),
+                      icon: lucide.Lucide.Minus,
+                      onTap: () async {
+                        final sp = context.read<SettingsProvider>();
+                        final ap = context.read<AssistantProvider>();
+                        final chatService = context.read<ChatService>();
+                        final old = sp.getProviderConfig(providerKey);
+                        final list = List<String>.from(old.models)
+                          ..removeWhere((e) => e == modelId);
+                        await sp.setProviderConfig(
+                          providerKey,
+                          old.copyWith(models: list),
                         );
-                      }
-                    }
-                  } catch (_) {}
-                },
+                        // Clear global and assistant-level model selections that reference the deleted model
+                        await sp.clearSelectionsForModel(providerKey, modelId);
+                        try {
+                          for (final a in ap.assistants) {
+                            if (a.chatModelProvider == providerKey &&
+                                a.chatModelId == modelId) {
+                              await ap.updateAssistant(
+                                a.copyWith(clearChatModel: true),
+                              );
+                            }
+                          }
+                          // Conversations can pin a model too.
+                          await chatService.clearConversationModelOverrides(
+                            providerKey: providerKey,
+                            modelId: modelId,
+                          );
+                        } catch (_) {}
+                      },
+                    ),
+                  ],
+                ],
               ),
-            ],
           ],
         ),
       ),
@@ -6944,9 +7300,9 @@ class _CardPressState extends State<_CardPress> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final overlay = _pressed
-        ? (isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.04))
+        ? (Theme.of(
+            context,
+          ).colorScheme.onSurface.withValues(alpha: isDark ? 0.06 : 0.04))
         : Colors.transparent;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,

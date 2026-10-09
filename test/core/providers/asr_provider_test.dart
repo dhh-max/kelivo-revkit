@@ -3,11 +3,11 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/core/providers/asr_provider.dart';
-import 'package:solab/core/services/asr/asr_audio_capture.dart';
-import 'package:solab/core/services/asr/asr_service_options.dart';
-import 'package:solab/core/services/asr/cloud_asr_service.dart';
-import 'package:solab/core/services/asr/system_asr_service.dart';
+import 'package:Kelivo/core/providers/asr_provider.dart';
+import 'package:Kelivo/core/services/asr/asr_audio_capture.dart';
+import 'package:Kelivo/core/services/asr/asr_service_options.dart';
+import 'package:Kelivo/core/services/asr/cloud_asr_service.dart';
+import 'package:Kelivo/core/services/asr/system_asr_service.dart';
 
 void main() {
   test('unconfigured services stay hidden', () async {
@@ -44,6 +44,40 @@ void main() {
     expect(capture.stopped, isTrue);
   });
 
+  for (final sampleRate in [16000, 8000]) {
+    test('Qwen Audio streams and finishes at $sampleRate Hz', () async {
+      final capture = _FakeAudioCapture();
+      final session = _FakeCloudSession(finalTranscript: 'hello world');
+      final options = QwenAudioAsrOptions(
+        apiKey: 'test-key',
+        sampleRate: sampleRate,
+      );
+      final provider = AsrProvider(
+        audioCaptureFactory: () => capture,
+        cloudSessionStarter: (service) async {
+          expect(service, same(options));
+          return session;
+        },
+      );
+      addTearDown(provider.dispose);
+
+      await provider.start(options);
+      expect(provider.state, AsrSessionState.listening);
+      expect(capture.sampleRate, sampleRate);
+
+      final pcm = _pcm16(6000);
+      capture.add(pcm);
+      session.emitPartial('hello');
+      await Future<void>.delayed(Duration.zero);
+      expect(provider.transcript, 'hello');
+
+      expect(await provider.finish(), 'hello world');
+      expect(session.receivedAudio, [pcm]);
+      expect(capture.stopped, isTrue);
+      expect(provider.state, AsrSessionState.idle);
+    });
+  }
+
   test('captures audio at each cloud provider sample rate', () async {
     final captures = <_FakeAudioCapture>[];
     final provider = AsrProvider(
@@ -64,6 +98,224 @@ void main() {
     expect(captures.last.sampleRate, 8000);
     await provider.cancel();
   });
+
+  test('runs downloaded local models only after capture stops', () async {
+    final capture = _FakeAudioCapture();
+    Uint8List? transcribedAudio;
+    final provider = AsrProvider(
+      audioCaptureFactory: () => capture,
+      localModelInstalledChecker: (_) async => true,
+      localTranscriber: (options, pcm16) async {
+        transcribedAudio = pcm16;
+        return '本地识别';
+      },
+    );
+    addTearDown(provider.dispose);
+    final options = SherpaOnnxAsrOptions(modelId: 'local-model');
+
+    await provider.refreshAvailability(options);
+    expect(provider.canUse(options), isTrue);
+    await provider.start(options);
+    final chunk = _pcm16(4000);
+    capture.add(chunk);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(await provider.finish(), '本地识别');
+    expect(transcribedAudio, chunk);
+    expect(provider.state, AsrSessionState.idle);
+  });
+
+  test('records without a recognizer and finishes as 16 kHz WAV', () async {
+    final capture = _FakeAudioCapture();
+    final provider = AsrProvider(audioCaptureFactory: () => capture);
+    addTearDown(provider.dispose);
+
+    await provider.start(null);
+    expect(provider.state, AsrSessionState.listening);
+    expect(capture.sampleRate, 16000);
+    final first = _pcm16(4000);
+    final second = _pcm16(2000);
+    capture.add(first);
+    capture.add(second);
+    await Future<void>.delayed(Duration.zero);
+
+    final wav = await provider.finishAudio();
+    expect(
+      wav,
+      pcm16MonoToWav(
+        Uint8List.fromList([...first, ...second]),
+        sampleRate: 16000,
+      ),
+    );
+    expect(capture.stopped, isTrue);
+    expect(provider.state, AsrSessionState.idle);
+    expect(provider.activeService, isNull);
+  });
+
+  test('finishing a cloud session as audio drops its transcript', () async {
+    final capture = _FakeAudioCapture();
+    final session = _FakeCloudSession(finalTranscript: 'unused');
+    final provider = AsrProvider(
+      audioCaptureFactory: () => capture,
+      cloudSessionStarter: (_) async => session,
+    );
+    addTearDown(provider.dispose);
+
+    await provider.start(
+      QwenAudioAsrOptions(apiKey: 'test-key', sampleRate: 8000),
+    );
+    final chunk = _pcm16(6000);
+    capture.add(chunk);
+    session.emitPartial('partial');
+    await Future<void>.delayed(Duration.zero);
+
+    final wav = await provider.finishAudio();
+    expect(wav, pcm16MonoToWav(chunk, sampleRate: 8000));
+    expect(provider.transcript, isEmpty);
+    expect(session.cancelled, isTrue);
+    expect(provider.state, AsrSessionState.idle);
+    expect(provider.error, isNull);
+  });
+
+  test('a cancelled audio finish never takes the next recording', () async {
+    final captures = <_FakeAudioCapture>[];
+    final provider = AsrProvider(
+      audioCaptureFactory: () {
+        final capture = _FakeAudioCapture();
+        captures.add(capture);
+        return capture;
+      },
+    );
+    addTearDown(provider.dispose);
+
+    await provider.start(null);
+    captures.first.stopGate = Completer<void>();
+    final stale = provider.finishAudio();
+    await Future<void>.delayed(Duration.zero);
+    await provider.cancel();
+    await provider.start(null);
+    final chunk = Uint8List(16000);
+    captures.last.add(chunk);
+    await Future<void>.delayed(Duration.zero);
+    captures.first.stopGate!.complete();
+
+    await expectLater(stale, throwsStateError);
+    expect(
+      await provider.finishAudio(),
+      pcm16MonoToWav(chunk, sampleRate: 16000),
+    );
+  });
+
+  test('finish waits for every queued cloud write of its recording', () async {
+    final capture = _FakeAudioCapture();
+    final session = _FakeCloudSession(finalTranscript: 'both chunks')
+      ..firstWriteGate = Completer<void>();
+    final provider = AsrProvider(
+      audioCaptureFactory: () => capture,
+      cloudSessionStarter: (_) async => session,
+    );
+    addTearDown(provider.dispose);
+
+    await provider.start(MimoAsrOptions(apiKey: 'test-key'));
+    final first = _pcm16(1000);
+    final second = _pcm16(2000);
+    capture.add(first);
+    capture.add(second);
+    await Future<void>.delayed(Duration.zero);
+    var finished = false;
+    final result = provider.finish().whenComplete(() => finished = true);
+    await Future<void>.delayed(Duration.zero);
+    expect(finished, isFalse);
+
+    session.firstWriteGate!.complete();
+    expect(await result, 'both chunks');
+    expect(session.receivedAudio, [first, second]);
+  });
+
+  test(
+    'a failed start cleaning up late leaves the next session alone',
+    () async {
+      final denied = _FakeAudioCapture(permission: Future.value(false))
+        ..disposeGate = Completer<void>();
+      final granted = _FakeAudioCapture();
+      final captures = [denied, granted];
+      final provider = AsrProvider(
+        audioCaptureFactory: () => captures.removeAt(0),
+      );
+      addTearDown(provider.dispose);
+
+      final failed = provider.start(null);
+      await Future<void>.delayed(Duration.zero);
+      expect(provider.state, AsrSessionState.error);
+      await provider.start(null);
+      denied.disposeGate!.complete();
+      await expectLater(failed, throwsStateError);
+
+      expect(provider.state, AsrSessionState.listening);
+      expect(provider.error, isNull);
+    },
+  );
+
+  test('a new recording waits for the previous cleanup to settle', () async {
+    final captures = <_FakeAudioCapture>[];
+    final provider = AsrProvider(
+      audioCaptureFactory: () {
+        final capture = _FakeAudioCapture();
+        captures.add(capture);
+        return capture;
+      },
+    );
+    addTearDown(provider.dispose);
+
+    await provider.start(null);
+    captures.first.disposeGate = Completer<void>();
+    final stale = provider.finishAudio();
+    await Future<void>.delayed(Duration.zero);
+    // A second ending while the first cleans up must not settle early.
+    await provider.cancel();
+    expect(provider.isActive, isTrue);
+    await expectLater(provider.start(null), throwsStateError);
+
+    captures.first.disposeGate!.complete();
+    await stale;
+    expect(provider.state, AsrSessionState.idle);
+
+    await provider.start(null);
+    final chunk = Uint8List(16000);
+    captures.last.add(chunk);
+    await Future<void>.delayed(Duration.zero);
+    expect(
+      await provider.finishAudio(),
+      pcm16MonoToWav(chunk, sampleRate: 16000),
+    );
+  });
+
+  test(
+    'a cancelled local transcription never reaches the next session',
+    () async {
+      final pending = Completer<String>();
+      var calls = 0;
+      final provider = AsrProvider(
+        audioCaptureFactory: _FakeAudioCapture.new,
+        localModelInstalledChecker: (_) async => true,
+        localTranscriber: (_, _) =>
+            calls++ == 0 ? pending.future : Future.value(''),
+      );
+      addTearDown(provider.dispose);
+      final options = SherpaOnnxAsrOptions(modelId: 'local-model');
+
+      await provider.start(options);
+      final stale = provider.finish();
+      await Future<void>.delayed(Duration.zero);
+      await provider.cancel();
+      await provider.start(options);
+      pending.complete('old words');
+
+      expect(await stale, isEmpty);
+      expect(provider.transcript, isEmpty);
+      expect(provider.state, AsrSessionState.listening);
+    },
+  );
 
   test('cancel discards partial text and closes remote work', () async {
     final capture = _FakeAudioCapture();
@@ -286,6 +538,8 @@ final class _FakeAudioCapture implements AsrAudioCapture {
   bool stopped = false;
   bool cancelled = false;
   int startCalls = 0;
+  Completer<void>? stopGate;
+  Completer<void>? disposeGate;
   int? sampleRate;
 
   void add(Uint8List chunk) => _controller.add(chunk);
@@ -303,7 +557,8 @@ final class _FakeAudioCapture implements AsrAudioCapture {
   @override
   Future<void> stop() async {
     stopped = true;
-    await _controller.close();
+    await stopGate?.future;
+    if (!_controller.isClosed) await _controller.close();
   }
 
   @override
@@ -314,6 +569,7 @@ final class _FakeAudioCapture implements AsrAudioCapture {
 
   @override
   Future<void> dispose() async {
+    await disposeGate?.future;
     if (!_controller.isClosed) await _controller.close();
   }
 }
@@ -326,6 +582,7 @@ final class _FakeCloudSession implements CloudAsrSession {
       StreamController<String>.broadcast();
   final List<Uint8List> receivedAudio = <Uint8List>[];
   bool cancelled = false;
+  Completer<void>? firstWriteGate;
 
   void emitPartial(String value) => _partial.add(value);
 
@@ -334,6 +591,7 @@ final class _FakeCloudSession implements CloudAsrSession {
 
   @override
   Future<void> addPcm16(Uint8List chunk) async {
+    if (receivedAudio.isEmpty) await firstWriteGate?.future;
     receivedAudio.add(Uint8List.fromList(chunk));
   }
 

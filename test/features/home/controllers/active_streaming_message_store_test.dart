@@ -1,5 +1,5 @@
-import 'package:solab/core/models/chat_message.dart';
-import 'package:solab/features/home/controllers/active_streaming_message_store.dart';
+import 'package:Kelivo/core/models/chat_message.dart';
+import 'package:Kelivo/features/home/controllers/active_streaming_message_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 ChatMessage _message({

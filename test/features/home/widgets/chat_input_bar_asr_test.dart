@@ -4,14 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
-import 'package:solab/core/models/chat_input_data.dart';
-import 'package:solab/core/providers/asr_provider.dart';
-import 'package:solab/core/providers/assistant_provider.dart';
-import 'package:solab/core/providers/settings_provider.dart';
-import 'package:solab/core/services/asr/asr_service_options.dart';
-import 'package:solab/core/services/asr/system_asr_service.dart';
-import 'package:solab/features/home/widgets/chat_input_bar.dart';
-import 'package:solab/l10n/app_localizations.dart';
+import 'package:Kelivo/core/models/chat_input_data.dart';
+import 'package:Kelivo/core/providers/asr_provider.dart';
+import 'package:Kelivo/core/providers/assistant_provider.dart';
+import 'package:Kelivo/core/providers/settings_provider.dart';
+import 'package:Kelivo/core/services/asr/asr_service_options.dart';
+import 'package:Kelivo/core/services/asr/system_asr_service.dart';
+import 'package:Kelivo/features/home/widgets/chat_input_bar.dart';
+import 'package:Kelivo/l10n/app_localizations.dart';
 
 void main() {
   Widget harness({

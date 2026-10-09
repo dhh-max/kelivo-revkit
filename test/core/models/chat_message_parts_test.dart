@@ -1,10 +1,27 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/core/models/chat_message.dart';
-import 'package:solab/core/models/message_part.dart';
+import 'package:Kelivo/core/models/chat_message.dart';
+import 'package:Kelivo/core/models/message_part.dart';
 
 void main() {
   group('ChatMessage.parts as source of truth', () {
+    test('derived body is retained and copies derive from their own parts', () {
+      final parts = <MessagePart>[
+        TextPart('first ' * 100),
+        const TextPart('last'),
+      ];
+      final message = ChatMessage(
+        role: 'assistant',
+        conversationId: 'c1',
+        parts: parts,
+      );
+      final body = message.content;
+      parts.clear();
+      expect(message.content, same(body));
+      final changed = message.copyWith(content: 'updated');
+      expect(changed.content, 'updated');
+      expect(message.content, body);
+    });
     test(
       'content-only constructor yields single TextPart and identical content',
       () {

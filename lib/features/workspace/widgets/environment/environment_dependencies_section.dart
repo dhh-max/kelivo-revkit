@@ -3,20 +3,20 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
-import 'package:solab/core/models/environment_state.dart';
-import 'package:solab/core/providers/environment_provider.dart';
-import 'package:solab/core/services/sandbox/environment_dependencies.dart';
-import 'package:solab/core/services/sandbox/mirror_service.dart';
-import 'package:solab/features/workspace/widgets/environment/environment_chrome.dart';
-import 'package:solab/features/workspace/widgets/environment/environment_dialogs.dart';
-import 'package:solab/features/workspace/widgets/environment/environment_labels.dart';
-import 'package:solab/icons/lucide_adapter.dart';
-import 'package:solab/l10n/app_localizations.dart';
-import 'package:solab/shared/widgets/ios_settings_rows.dart';
-import 'package:solab/shared/widgets/ios_tactile.dart';
-import 'package:solab/shared/widgets/ios_tile_button.dart';
-import 'package:solab/shared/widgets/section_card.dart';
-import 'package:solab/shared/widgets/snackbar.dart';
+import 'package:Kelivo/core/models/environment_state.dart';
+import 'package:Kelivo/core/providers/environment_provider.dart';
+import 'package:Kelivo/core/services/sandbox/environment_dependencies.dart';
+import 'package:Kelivo/core/services/sandbox/mirror_service.dart';
+import 'package:Kelivo/features/workspace/widgets/environment/environment_chrome.dart';
+import 'package:Kelivo/features/workspace/widgets/environment/environment_dialogs.dart';
+import 'package:Kelivo/features/workspace/widgets/environment/environment_labels.dart';
+import 'package:Kelivo/icons/lucide_adapter.dart';
+import 'package:Kelivo/l10n/app_localizations.dart';
+import 'package:Kelivo/shared/widgets/ios_settings_rows.dart';
+import 'package:Kelivo/shared/widgets/ios_tactile.dart';
+import 'package:Kelivo/shared/widgets/ios_tile_button.dart';
+import 'package:Kelivo/shared/widgets/section_card.dart';
+import 'package:Kelivo/shared/widgets/snackbar.dart';
 
 String _title(AppLocalizations l10n, EnvironmentDependency dependency) =>
     switch (dependency) {

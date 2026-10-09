@@ -1,8 +1,8 @@
 import 'dart:convert';
 
-import 'package:solab/core/services/api/providers/google/google_decoder.dart';
-import 'package:solab/core/services/api/stream/sse_event.dart';
-import 'package:solab/core/services/api/stream/stream_chunk.dart';
+import 'package:Kelivo/core/services/api/providers/google/google_decoder.dart';
+import 'package:Kelivo/core/services/api/stream/sse_event.dart';
+import 'package:Kelivo/core/services/api/stream/stream_chunk.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 SseEvent _event(Map<String, dynamic> data) {
@@ -26,6 +26,44 @@ Map<String, dynamic> _candidate({
 }
 
 void main() {
+  test('leading empty STOP cannot finish later text without a new STOP', () {
+    final decoder = GoogleStreamDecoder();
+    for (var i = 0; i < 2; i++) {
+      final result = decoder.accept(_event(_candidate(finishReason: 'STOP')));
+      expect(decoder.finishReason, 'STOP');
+      expect(result.completed, isFalse);
+      expect(decoder.canFinishNow, isFalse);
+    }
+
+    for (final text in ['Hello', ' world', '!']) {
+      final result = decoder.accept(
+        _event(
+          _candidate(
+            parts: [
+              {'text': text},
+            ],
+          ),
+        ),
+      );
+      expect(result.chunks.whereType<TextDelta>().single.text, text);
+      expect(result.completed, isFalse);
+      expect(decoder.canFinishNow, isFalse);
+    }
+
+    final done = decoder.accept(_event(_candidate(finishReason: 'STOP')));
+    expect(done.completed, isTrue);
+    expect(decoder.canFinishNow, isTrue);
+  });
+
+  test('empty non-STOP finish keeps its existing completion behavior', () {
+    final decoder = GoogleStreamDecoder();
+    final result = decoder.accept(
+      _event(_candidate(finishReason: 'MAX_TOKENS')),
+    );
+    expect(decoder.finishReason, 'MAX_TOKENS');
+    expect(result.completed, isTrue);
+  });
+
   test('streams text and reasoning without emitting Finish', () {
     final decoder = GoogleStreamDecoder();
     final first = decoder.accept(
@@ -388,7 +426,7 @@ void main() {
   });
 
   test(
-    'usage across rounds is cumulative and intra-round usageMetadata does not inflate',
+    'usage keeps the last round and intra-round usageMetadata does not inflate',
     () {
       final first = GoogleStreamDecoder();
       final partial = first.accept(
@@ -430,13 +468,13 @@ void main() {
         }),
       );
 
-      expect(second.usage!.promptTokens, 400);
-      expect(second.usage!.completionTokens, 60);
-      expect(second.usage!.totalTokens, 460);
+      expect(second.usage!.promptTokens, 300);
+      expect(second.usage!.completionTokens, 40);
+      expect(second.usage!.totalTokens, 340);
       final streamed = follow.chunks.whereType<Usage>().single.usage;
-      expect(streamed.promptTokens, 400);
-      expect(streamed.completionTokens, 60);
-      expect(streamed.totalTokens, 460);
+      expect(streamed.promptTokens, 300);
+      expect(streamed.completionTokens, 40);
+      expect(streamed.totalTokens, 340);
     },
   );
 
@@ -467,5 +505,26 @@ void main() {
     expect(second.usage!.completionTokens, 20);
     expect(second.usage!.totalTokens, 120);
     expect(silent.chunks.whereType<Usage>(), isEmpty);
+  });
+
+  test('usage maps thoughts and cached content tokens', () {
+    final decoder = GoogleStreamDecoder();
+    decoder.accept(
+      _event(<String, dynamic>{
+        'usageMetadata': <String, dynamic>{
+          'promptTokenCount': 80,
+          'candidatesTokenCount': 12,
+          'thoughtsTokenCount': 9,
+          'cachedContentTokenCount': 4,
+          'totalTokenCount': 101,
+        },
+      }),
+    );
+
+    expect(decoder.usage!.promptTokens, 80);
+    expect(decoder.usage!.completionTokens, 21);
+    expect(decoder.usage!.reasoningTokens, 9);
+    expect(decoder.usage!.cachedTokens, 4);
+    expect(decoder.usage!.totalTokens, 101);
   });
 }

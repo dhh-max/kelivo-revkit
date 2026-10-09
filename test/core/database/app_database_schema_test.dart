@@ -2,13 +2,13 @@ import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/core/database/app_database.dart';
+import 'package:Kelivo/core/database/app_database.dart';
 
 void main() {
   driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
 
-  test('current schema version is 8 (rule subscription tables added)', () {
-    expect(AppDatabase.currentSchemaVersion, 8);
+  test('current schema version is 10 (upstream 1.2.6 additions merged)', () {
+    expect(AppDatabase.currentSchemaVersion, 10);
   });
 
   test(

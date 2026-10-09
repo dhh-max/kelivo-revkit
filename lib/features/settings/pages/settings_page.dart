@@ -1,3 +1,6 @@
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+import '../../scheduled_tasks/pages/scheduled_tasks_page.dart';
 import 'package:flutter/material.dart';
 import '../../../l10n/app_localizations.dart';
 import 'package:provider/provider.dart';
@@ -6,28 +9,36 @@ import '../../../core/providers/settings_provider.dart';
 import '../../model/pages/default_model_page.dart';
 import '../../provider/pages/providers_page.dart';
 import 'display_settings_page.dart';
-import '../../local_models/pages/local_models_page.dart';
+import 'mobile_background_settings_page.dart';
+import 'settings_search_page.dart';
+import '../widgets/settings_search_entry.dart';
 import '../../mcp/pages/mcp_page.dart';
+import '../../workspace/pages/skills_page.dart';
+import '../../workspace/pages/workspace_settings_page.dart';
 import '../../assistant/pages/assistant_settings_page.dart';
 import 'about_page.dart';
+import 'memory_settings_page.dart';
+import 'subagent_settings_page.dart';
+import '../../workflow/pages/workflow_list_page.dart';
 import 'tts_services_page.dart';
+import 'tool_schema_settings_page.dart';
 import 'log_viewer_page.dart';
 import '../../search/pages/search_services_page.dart';
 import '../../backup/pages/backup_page.dart';
 import '../../quick_phrase/pages/quick_phrases_page.dart';
-import '../../custom_prompt/pages/custom_prompts_page.dart';
-import '../../device_path/pages/device_path_browser_page.dart';
 import '../../instruction_injection/pages/instruction_injection_page.dart';
-import '../../solab_apk/pages/solab_apk_page.dart';
 import '../../world_book/pages/world_book_page.dart';
-import 'memory_settings_page.dart';
+import '../../../shared/widgets/section_card.dart';
 import 'network_proxy_page.dart';
+import 'phone_control_settings_page.dart';
+import '../../home/services/local_tools_service.dart';
 import 'storage_space_page.dart';
 import '../../stats/pages/stats_page.dart';
 import '../../../core/services/storage/storage_usage_service.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../../../core/services/haptics.dart';
 import 'package:Kelivo/theme/app_font_weights.dart';
+import 'package:Kelivo/theme/app_semantic_colors.dart';
+import '../widgets/android_background_chat_sheet.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
@@ -39,6 +50,7 @@ class SettingsPage extends StatelessWidget {
     final settings = context.watch<SettingsProvider>();
 
     String modeLabel(ThemeMode m) {
+      final l10n = AppLocalizations.of(context)!;
       switch (m) {
         case ThemeMode.dark:
           return l10n.settingsPageDarkMode;
@@ -53,7 +65,7 @@ class SettingsPage extends StatelessWidget {
       final settingsProvider = context.read<SettingsProvider>();
       final selected = await showModalBottomSheet<ThemeMode>(
         context: context,
-        backgroundColor: cs.surface,
+        backgroundColor: context.overlaySurface,
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
         ),
@@ -121,8 +133,12 @@ class SettingsPage extends StatelessWidget {
         ),
         title: Text(l10n.settingsPageTitle),
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+      body: SettingsSearchList(
+        onSearch: (origin) => showMobileSettingsSearch(
+          context,
+          origin: origin,
+          onColorMode: pickThemeMode,
+        ),
         children: [
           if (!settings.hasAnyActiveModel)
             Material(
@@ -154,7 +170,7 @@ class SettingsPage extends StatelessWidget {
 
           // 通用设置：使用iOS风格分组卡片，黑色（中性）图标与标题，无描述
           header(l10n.settingsPageGeneralSection, first: true),
-          _iosSectionCard(
+          SectionCard(
             children: [
               _iosNavRow(
                 context,
@@ -193,8 +209,126 @@ class SettingsPage extends StatelessWidget {
           ),
 
           const SizedBox(height: 12),
+          header(l10n.settingsPageBackgroundSection),
+          SectionCard(
+            children: [
+              if (defaultTargetPlatform == TargetPlatform.android) ...[
+                _iosNavRow(
+                  context,
+                  icon: Lucide.Monitor,
+                  label: l10n.displaySettingsPageAndroidBackgroundChatTitle,
+                  detailBuilder: (ctx) {
+                    final sp = ctx.watch<SettingsProvider>();
+                    final cs2 = Theme.of(ctx).colorScheme;
+                    final text = switch (sp.androidBackgroundChatMode) {
+                      AndroidBackgroundChatMode.off =>
+                        l10n.androidBackgroundStatusOff,
+                      AndroidBackgroundChatMode.on =>
+                        l10n.androidBackgroundStatusOn,
+                      AndroidBackgroundChatMode.onNotify =>
+                        l10n.androidBackgroundStatusOther,
+                    };
+                    return Text(
+                      text,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      softWrap: false,
+                      style: TextStyle(
+                        color: cs2.onSurface.withValues(alpha: 0.6),
+                        fontSize: 13,
+                      ),
+                    );
+                  },
+                  onTap: () => showAndroidBackgroundChatSheet(context),
+                ),
+              ],
+              if (defaultTargetPlatform == TargetPlatform.android ||
+                  defaultTargetPlatform == TargetPlatform.iOS) ...[
+                _iosNavRow(
+                  context,
+                  icon: Lucide.Activity,
+                  label: l10n.backgroundSettingsTitle,
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const MobileBackgroundSettingsPage(),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+
+          // 自研逆向工作台独立成区：紧跟「后台与保活」，与上游工作区分开命名。
+          // 用户 2026-10-04：「APK 工作台改名为工作区或者是工作台」+「点进去直接打开
+          // 工作区与环境，上边是环境、下边是工作区」——所以这里只留**一个**入口，
+          // 名字叫「工作台」，点进去就是那个合并页（APK 专属设置在页内往下走）。
+          header(l10n.settingsPageWorkspaceSection),
+          SectionCard(
+            children: [
+              _iosNavRow(
+                context,
+                icon: Lucide.package2,
+                label: '工作台',
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const WorkspaceSettingsPage(),
+                    ),
+                  );
+                },
+              ),
+              // 工作相关的能力统一收进「工作台」卡片（用户 2026-10-03：
+              // 别散在下方「模型与服务」里，看起来乱）。
+              _iosDivider(context),
+              _iosNavRow(
+                context,
+                icon: Lucide.WandSparkles,
+                label: l10n.settingsPageSkills,
+                onTap: () {
+                  Navigator.of(
+                    context,
+                  ).push(MaterialPageRoute(builder: (_) => const SkillsPage()));
+                },
+              ),
+              _iosDivider(context),
+              _iosNavRow(
+                context,
+                icon: Lucide.Bot,
+                label: l10n.settingsPageSubagents,
+                onTap: () => SubagentsSettingsPage.open(context),
+              ),
+              _iosDivider(context),
+              _iosNavRow(
+                context,
+                icon: Lucide.Workflow,
+                label: l10n.workflowTitle,
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const WorkflowListPage(),
+                    ),
+                  );
+                },
+              ),
+              if (defaultTargetPlatform == TargetPlatform.android) ...[
+                _iosDivider(context),
+                _iosNavRow(
+                  context,
+                  icon: LucideIcons.clock,
+                  label: l10n.scheduledTasksTitle,
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const ScheduledTasksPage(),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+
+          const SizedBox(height: 12),
           header(l10n.settingsPageModelsServicesSection),
-          _iosSectionCard(
+          SectionCard(
             children: [
               _iosNavRow(
                 context,
@@ -214,17 +348,6 @@ class SettingsPage extends StatelessWidget {
                 onTap: () {
                   Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const ProvidersPage()),
-                  );
-                },
-              ),
-              _iosDivider(context),
-              _iosNavRow(
-                context,
-                icon: Lucide.Server,
-                label: '本地模型',
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const LocalModelsPage()),
                   );
                 },
               ),
@@ -288,6 +411,15 @@ class SettingsPage extends StatelessWidget {
                 },
               ),
               _iosDivider(context),
+              if (DeviceLocalTools.phoneControlSupported) ...[
+                _iosNavRow(
+                  context,
+                  icon: Lucide.Smartphone,
+                  label: l10n.phoneControlTitle,
+                  onTap: () => PhoneControlSettingsPage.open(context),
+                ),
+                _iosDivider(context),
+              ],
               _iosNavRow(
                 context,
                 icon: Lucide.Zap,
@@ -295,17 +427,6 @@ class SettingsPage extends StatelessWidget {
                 onTap: () {
                   Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const QuickPhrasesPage()),
-                  );
-                },
-              ),
-              _iosDivider(context),
-              _iosNavRow(
-                context,
-                icon: Lucide.BookOpen,
-                label: 'Prompts',
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const CustomPromptsPage()),
                   );
                 },
               ),
@@ -333,22 +454,12 @@ class SettingsPage extends StatelessWidget {
                   );
                 },
               ),
-              _iosDivider(context),
-              _iosNavRow(
-                context,
-                icon: Lucide.Package,
-                label: 'APK 工作台',
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const SoLabApkPage()),
-                  );
-                },
-              ),
             ],
           ),
+
           const SizedBox(height: 12),
           header(l10n.settingsPageDataSection),
-          _iosSectionCard(
+          SectionCard(
             children: [
               _iosNavRow(
                 context,
@@ -372,25 +483,12 @@ class SettingsPage extends StatelessWidget {
                   );
                 },
               ),
-              _iosDivider(context),
-              _iosNavRow(
-                context,
-                icon: Lucide.FolderTree,
-                label: 'Device Paths',
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const DevicePathBrowserPage(),
-                    ),
-                  );
-                },
-              ),
             ],
           ),
 
           const SizedBox(height: 12),
           header(l10n.settingsPageAboutSection),
-          _iosSectionCard(
+          SectionCard(
             children: [
               _iosNavRow(
                 context,
@@ -413,19 +511,9 @@ class SettingsPage extends StatelessWidget {
                   ).push(MaterialPageRoute(builder: (_) => const StatsPage()));
                 },
               ),
-              _iosDivider(context),
-              _iosNavRow(
-                context,
-                icon: Lucide.Library,
-                label: l10n.settingsPageDocs,
-                onTap: () async {
-                  final uri = Uri.parse('https://github.com/dhh-max/kelivo-revkit');
-                  if (!await launchUrl(uri, mode: LaunchMode.platformDefault)) {
-                    await launchUrl(uri, mode: LaunchMode.externalApplication);
-                  }
-                },
-              ),
-              if (settings.requestLogEnabled || settings.flutterLogEnabled) ...[
+              if (settings.requestLogEnabled ||
+                  settings.flutterLogEnabled ||
+                  settings.contextLogEnabled) ...[
                 _iosDivider(context),
                 _iosNavRow(
                   context,
@@ -438,6 +526,19 @@ class SettingsPage extends StatelessWidget {
                   },
                 ),
               ],
+              _iosDivider(context),
+              _iosNavRow(
+                context,
+                icon: Lucide.Wrench,
+                label: l10n.toolSchemaSettingsPageTitle,
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const ToolSchemaSettingsPage(),
+                    ),
+                  );
+                },
+              ),
               // _iosDivider(context),
               // _iosNavRow(
               //   context,
@@ -476,35 +577,6 @@ class SettingsPage extends StatelessWidget {
 
 // --- iOS-style widgets for Settings page ---
 
-Widget _iosSectionCard({required List<Widget> children}) {
-  return Builder(
-    builder: (context) {
-      final theme = Theme.of(context);
-      final cs = theme.colorScheme;
-      final isDark = theme.brightness == Brightness.dark;
-      // Light: white with slight transparency; Dark: subtle translucent dark
-      final Color bg = isDark
-          ? Colors.white10
-          : Colors.white.withValues(alpha: 0.96);
-      return Container(
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: cs.outlineVariant.withValues(alpha: isDark ? 0.08 : 0.06),
-            width: 0.6,
-          ),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Column(children: children),
-        ),
-      );
-    },
-  );
-}
-
 Widget _iosDivider(BuildContext context) {
   final cs = Theme.of(context).colorScheme;
   // Restore previous visual: align with icon slot (36) + gap (12) + padding (12)
@@ -529,9 +601,9 @@ class _AnimatedPressColor extends StatelessWidget {
   final Widget Function(Color color) builder;
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cs = Theme.of(context).colorScheme;
     final target = pressed
-        ? (Color.lerp(base, isDark ? Colors.black : Colors.white, 0.55) ?? base)
+        ? (Color.lerp(base, cs.surface, 0.55) ?? base)
         : base;
     return TweenAnimationBuilder<Color?>(
       tween: ColorTween(end: target),
@@ -584,9 +656,7 @@ class _ChatStorageSummaryState extends State<_ChatStorageSummary> {
         if (snapshot.connectionState != ConnectionState.done) {
           return Text(l10n.settingsPageCalculating, style: style);
         }
-        final count = data?.totalFiles ?? 0;
-        final size = _fmtBytes(data?.totalBytes ?? 0);
-        return Text(l10n.settingsPageFilesCount(count, size), style: style);
+        return Text(_fmtBytes(data?.totalBytes ?? 0), style: style);
       },
     );
   }
@@ -771,9 +841,7 @@ Widget _sheetOption(
     builder: (pressed) {
       final base = cs.onSurface;
       final bgTarget = pressed
-          ? (isDark
-                ? Colors.white.withValues(alpha: 0.06)
-                : Colors.black.withValues(alpha: 0.05))
+          ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
           : Colors.transparent;
       return _AnimatedPressColor(
         pressed: pressed,
@@ -810,3 +878,6 @@ Widget _sheetDivider(BuildContext context) {
     color: cs.outlineVariant.withValues(alpha: 0.18),
   );
 }
+
+/// 设置分区卡片（SoLab 自研的薄包装；上游直接内联 SettingsSectionCard）。
+/// 本 fork 的设置页统一走这个助手，便于一处调整圆角/描边。

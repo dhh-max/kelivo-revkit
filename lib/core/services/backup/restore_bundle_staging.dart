@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:ffi';
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
@@ -10,6 +9,9 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
 import '../../database/app_database.dart';
+import '../../database/backup_portability.dart';
+import '../../database/extension_entity_store.dart';
+import '../../database/schema_migrations.dart';
 import '../../database/business_repository.dart';
 import '../../database/business_restore_service.dart';
 import '../../database/chat_database_repository.dart';
@@ -63,7 +65,20 @@ final class RestoreBundleStaging {
   static const workspaceRootName = RestoreWorkspaceLock.workspaceRootName;
   static const _backupFormat = 'kelivo-backup';
   static const _backupFormatVersion = 2;
-  static const _assetRoots = ['upload', 'images', 'avatars', 'fonts'];
+
+  /// Mirrors DataSync's constant of the same name. Duplicated rather than
+  /// imported, as _backupFormatVersion above already is, because DataSync
+  /// depends on this file.
+  static const _minimumReadableFormatKey = 'minimumReadableFormatVersion';
+  static const _assetRoots = [
+    'upload',
+    'images',
+    'avatars',
+    'fonts',
+    'skills',
+    'workspaces',
+    'sessions',
+  ];
   static const _databaseEntry = 'database/kelivo.db';
   static const _maximumManifestBytes = 16 * 1024 * 1024;
   // Settings contain structured preferences, never chat rows or binary assets.
@@ -100,6 +115,7 @@ final class RestoreBundleStaging {
     required Directory extractedDirectory,
     required bool includeChats,
     required bool includeFiles,
+    bool useExistingLocalAttachments = false,
     bool? sourceIncludesChats,
     bool? sourceIncludesFiles,
     required String sourceManifestSha256,
@@ -236,12 +252,19 @@ final class RestoreBundleStaging {
 
       final databaseInfo = await _replaceCandidateBusinessSettings(
         databaseFile: stagedDatabaseFile,
+        // Startup recovery must not open the missing or damaged live database.
+        deviceDatabasePath: useExistingLocalAttachments
+            ? null
+            : p.join(appDataDirectory.path, AppDatabase.databaseFileName),
         settings: settings,
         entityRowIds: businessEntityRowIds,
         preserveExplicitEmptyInstructionList: businessEntityRowIds == null,
         expectedDatabaseInfo: declaredDatabaseInfo,
         durability: resolvedDurability,
         recomputeAttachmentsUnavailable: !includeFiles,
+        localSnapshotAppDataPath: useExistingLocalAttachments
+            ? appDataDirectory.path
+            : null,
         onProgress: onProgress,
         cancelToken: cancelToken,
       );
@@ -300,6 +323,11 @@ final class RestoreBundleStaging {
       manifest['includeFiles'] = includeFiles;
       manifest.remove('secretsIncluded');
       manifest.remove('businessEntityRowIds');
+      // A forward-compatibility declaration describes the SOURCE archive. The
+      // candidate is only ever read back by this same build, so it carries no
+      // declaration -- matching how the database block below is rebuilt rather
+      // than copied.
+      manifest.remove(_minimumReadableFormatKey);
       manifest['database'] = {
         'entry': _databaseEntry,
         'schemaVersion': databaseInfo.schemaVersion,
@@ -455,6 +483,7 @@ final class RestoreBundleStaging {
       manifest['database'],
       includeChats: true,
       payloadKind: 'sqlite',
+      requireCurrentSchema: true,
     );
 
     return ValidatedRestoreCandidate(
@@ -877,34 +906,40 @@ final class RestoreBundleStaging {
 
   static Future<ChatDatabaseSnapshotInfo> _replaceCandidateBusinessSettings({
     required File databaseFile,
+    required String? deviceDatabasePath,
     required Map<String, dynamic> settings,
     required Map<String, Object?>? entityRowIds,
     required bool preserveExplicitEmptyInstructionList,
     required ChatDatabaseSnapshotInfo expectedDatabaseInfo,
     required RestoreDurability durability,
     required bool recomputeAttachmentsUnavailable,
+    String? localSnapshotAppDataPath,
     BackupProgressSink? onProgress,
     BackupCancelToken? cancelToken,
   }) async {
     final databaseInfo =
-        await runBackupIsolate<ChatDatabaseSnapshotInfo, _CandidateDbIsolateArgs>(
+        await runBackupIsolate<
+          ChatDatabaseSnapshotInfo,
+          _CandidateDbIsolateArgs
+        >(
           body: _prepareCandidateDatabaseInIsolate,
           payload: _CandidateDbIsolateArgs(
             databasePath: databaseFile.path,
+            deviceDatabasePath: deviceDatabasePath,
             settings: settings,
             entityRowIds: entityRowIds,
             preserveExplicitEmptyInstructionList:
                 preserveExplicitEmptyInstructionList,
             expectedDatabaseInfo: expectedDatabaseInfo,
             recomputeAttachmentsUnavailable: recomputeAttachmentsUnavailable,
+            localSnapshotAppDataPath: localSnapshotAppDataPath,
             stallMs: debugCandidateDbStallMs,
             hangSeconds: debugCandidateDbHangSeconds,
           ),
           cancelToken: cancelToken,
           onProgress: onProgress,
           timeout: debugIsolateTimeout,
-          killGrace:
-              debugIsolateKillGrace ?? const Duration(seconds: 3),
+          killGrace: debugIsolateKillGrace ?? const Duration(seconds: 3),
           isolateExitDeadline:
               debugIsolateExitDeadline ?? const Duration(seconds: 2),
         );
@@ -928,7 +963,7 @@ final class RestoreBundleStaging {
     );
     ctx.throwIfCancelled();
     if (args.hangSeconds > 0) {
-      _nativeSleepSeconds(args.hangSeconds);
+      debugNativeSleepIgnoringKill(args.hangSeconds);
     }
     if (args.stallMs > 0) {
       final until = DateTime.now().add(Duration(milliseconds: args.stallMs));
@@ -960,10 +995,7 @@ final class RestoreBundleStaging {
       includeFiles: candidate.includeFiles,
     );
     ctx.throwIfCancelled();
-    await _validateCandidateEntries(
-      candidateDirectory,
-      candidate.entries,
-    );
+    await _validateCandidateEntries(candidateDirectory, candidate.entries);
     ctx.throwIfCancelled();
     return candidate;
   }
@@ -982,7 +1014,7 @@ final class RestoreBundleStaging {
     );
     ctx.throwIfCancelled();
     if (args.hangSeconds > 0) {
-      _nativeSleepSeconds(args.hangSeconds);
+      debugNativeSleepIgnoringKill(args.hangSeconds);
     }
     if (args.stallMs > 0) {
       final until = DateTime.now().add(Duration(milliseconds: args.stallMs));
@@ -991,19 +1023,65 @@ final class RestoreBundleStaging {
       }
     }
     final databaseFile = File(args.databasePath);
+    // A backup authored by an older build carries an older schema. Bring the
+    // staged copy forward first: everything below — the snapshot validators,
+    // the business overwrite, the candidate manifest — only ever describes the
+    // current schema. The staged copy is disposable and the source archive is
+    // itself the backup, so no extra copy is taken.
+    final stagedSchemaVersion = SchemaMigrations.readSchemaVersion(
+      databaseFile,
+    );
+    if (SchemaMigrations.needsUpgrade(stagedSchemaVersion)) {
+      await SchemaMigrations.upgradeFileInPlace(databaseFile);
+      await ChatDatabaseRepository.normalizeSnapshotJournal(databaseFile);
+    }
     final sourceDatabaseInfo =
         await ChatDatabaseRepository.inspectPreparedSnapshot(databaseFile);
-    if (sourceDatabaseInfo != args.expectedDatabaseInfo) {
+    // The declared info records the schema the backup was AUTHORED at, which
+    // legitimately differs from the migrated one. Row counts are the invariant:
+    // a migration must never add or drop rows.
+    if (sourceDatabaseInfo.conversationCount !=
+            args.expectedDatabaseInfo.conversationCount ||
+        sourceDatabaseInfo.messageCount !=
+            args.expectedDatabaseInfo.messageCount) {
       throw const FormatException('restore_staging_database');
     }
     final database = AppDatabase.open(file: databaseFile);
     try {
+      await BackupPortability.sanitizeDatabase(database);
       await BusinessRestoreService(BusinessRepository(database)).overwrite(
         args.settings,
         entityRowIds: args.entityRowIds,
         preserveExplicitEmptyInstructionList:
             args.preserveExplicitEmptyInstructionList,
       );
+      final devicePath = args.deviceDatabasePath;
+      if (devicePath != null && await File(devicePath).exists()) {
+        final localDatabase = AppDatabase.open(file: File(devicePath));
+        try {
+          final local = await BusinessRepository(localDatabase).readSnapshot();
+          await BusinessRepository(database).transformSnapshot(
+            (incoming) =>
+                BackupPortability.preserveDeviceState(incoming, local),
+            writeReceipt: true,
+          );
+          final mounts = await ExtensionEntityStore(
+            localDatabase,
+          ).listByKind('externalMounts');
+          final targetStore = ExtensionEntityStore(database);
+          for (final mount in mounts) {
+            await targetStore.upsert(
+              mount.kind,
+              mount.id,
+              mount.payload,
+              sortOrder: mount.sortOrder,
+              ownerId: mount.ownerId,
+            );
+          }
+        } finally {
+          await localDatabase.close();
+        }
+      }
     } finally {
       await database.close();
     }
@@ -1017,22 +1095,13 @@ final class RestoreBundleStaging {
       await ChatDatabaseRepository.recomputeAttachmentAvailabilityOnDatabaseFile(
         databaseFile: databaseFile,
         filesRestored: false,
+        localSnapshotAppDataDirectory: args.localSnapshotAppDataPath == null
+            ? null
+            : Directory(args.localSnapshotAppDataPath!),
       );
     }
     ctx.throwIfCancelled();
     return databaseInfo;
-  }
-
-  static void _nativeSleepSeconds(int seconds) {
-    if (Platform.isWindows) {
-      DynamicLibrary.open('kernel32.dll')
-          .lookupFunction<Void Function(Uint32), void Function(int)>('Sleep')
-          .call(seconds * 1000);
-      return;
-    }
-    DynamicLibrary.process()
-        .lookupFunction<Int32 Function(Uint32), int Function(int)>('sleep')
-        .call(seconds);
   }
 
   static Map<String, Object?>? _parseBusinessEntityRowIds(
@@ -1056,10 +1125,17 @@ final class RestoreBundleStaging {
     return Map<String, Object?>.unmodifiable(result);
   }
 
+  /// Parses a manifest's `database` block.
+  ///
+  /// [requireCurrentSchema] separates the two manifests this handles: a source
+  /// manifest records the schema the backup was AUTHORED at, which may be any
+  /// published version, while a staged candidate's manifest is written after
+  /// the snapshot was migrated and must record the current schema exactly.
   static ChatDatabaseSnapshotInfo? _parseDatabaseInfo(
     dynamic rawDatabase, {
     required bool includeChats,
     required String payloadKind,
+    bool requireCurrentSchema = false,
   }) {
     if (!includeChats) {
       if (payloadKind != 'settings-only' || rawDatabase != null) {
@@ -1082,11 +1158,20 @@ final class RestoreBundleStaging {
     final schemaVersion = database['schemaVersion'];
     final conversationCount = database['conversationCount'];
     final messageCount = database['messageCount'];
-    if (database.length != expectedKeys.length ||
-        !database.keys.toSet().containsAll(expectedKeys) ||
+    // A source manifest may also carry the forward-compatibility declaration;
+    // the staged candidate never needs it, because it is only ever read back
+    // by this same build.
+    const optionalKeys = {SchemaMigrations.minimumReadableManifestKey};
+    final presentKeys = database.keys.toSet();
+    if (!presentKeys.containsAll(expectedKeys) ||
+        !presentKeys.difference(expectedKeys).every(optionalKeys.contains) ||
         database['entry'] != _databaseEntry ||
         schemaVersion is! int ||
-        schemaVersion < 0 ||
+        // A source manifest can legitimately name a schema this build has
+        // never heard of; only the staged candidate must be current.
+        (requireCurrentSchema
+            ? schemaVersion != AppDatabase.currentSchemaVersion
+            : schemaVersion < 1) ||
         conversationCount is! int ||
         conversationCount < 0 ||
         messageCount is! int ||
@@ -1292,21 +1377,25 @@ final class _ValidateCandidateArgs {
 final class _CandidateDbIsolateArgs {
   const _CandidateDbIsolateArgs({
     required this.databasePath,
+    required this.deviceDatabasePath,
     required this.settings,
     required this.entityRowIds,
     required this.preserveExplicitEmptyInstructionList,
     required this.expectedDatabaseInfo,
     required this.recomputeAttachmentsUnavailable,
+    required this.localSnapshotAppDataPath,
     required this.stallMs,
     required this.hangSeconds,
   });
 
   final String databasePath;
+  final String? deviceDatabasePath;
   final Map<String, dynamic> settings;
   final Map<String, Object?>? entityRowIds;
   final bool preserveExplicitEmptyInstructionList;
   final ChatDatabaseSnapshotInfo expectedDatabaseInfo;
   final bool recomputeAttachmentsUnavailable;
+  final String? localSnapshotAppDataPath;
   final int stallMs;
   final int hangSeconds;
 }

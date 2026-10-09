@@ -1,17 +1,23 @@
+import 'package:Kelivo/features/chat/utils/prompt_injection_selection.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/providers/world_book_provider.dart';
-import '../../../core/services/haptics.dart';
+import 'package:Kelivo/shared/services/haptics.dart';
 import '../../../icons/lucide_adapter.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/ios_tactile.dart';
 import '../../../theme/app_font_weights.dart';
 
 class WorldBookSheet extends StatelessWidget {
-  const WorldBookSheet({super.key, required this.assistantId});
+  const WorldBookSheet({
+    super.key,
+    required this.assistantId,
+    this.conversationId,
+  });
 
   final String? assistantId;
+  final String? conversationId;
 
   @override
   Widget build(BuildContext context) {
@@ -27,12 +33,18 @@ class WorldBookSheet extends StatelessWidget {
           final cs = Theme.of(ctx).colorScheme;
           final provider = ctx.watch<WorldBookProvider>();
           final books = provider.books;
-          final activeIds = provider.activeBookIdsFor(assistantId).toSet();
+          final activeIds = promptSelectionIds(
+            ctx,
+            kind: PromptSelectionKind.worldBook,
+            assistantId: assistantId,
+            conversationId: conversationId,
+          ).toSet();
 
           return Column(
             children: [
               _SheetTopBar(
-                title: l10n.worldBookTitle,
+                title:
+                    '${l10n.worldBookTitle} (${books.where((book) => book.enabled && activeIds.contains(book.id)).length}/${books.length})',
                 onBack: () => Navigator.of(ctx).maybePop(),
               ),
               Expanded(
@@ -40,6 +52,17 @@ class WorldBookSheet extends StatelessWidget {
                   controller: controller,
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
                   children: [
+                    if (conversationId != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: Text(
+                          l10n.conversationPromptScope,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: cs.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
                     if (books.isEmpty)
                       Padding(
                         padding: const EdgeInsets.only(top: 32, bottom: 24),
@@ -66,21 +89,27 @@ class WorldBookSheet extends StatelessWidget {
                                 label: book.name.trim().isEmpty
                                     ? l10n.worldBookUnnamed
                                     : book.name.trim(),
-                                subtitle: book.description.trim().isEmpty
-                                    ? null
-                                    : book.description.trim(),
+                                subtitle: [
+                                  l10n.worldBookEnabledCount(
+                                    book.enabledEntryCount,
+                                    book.entries.length,
+                                  ),
+                                  if (book.description.trim().isNotEmpty)
+                                    book.description.trim(),
+                                ].join(' · '),
                                 selected: selected,
                                 disabled: disabled,
                                 onTap: !canTap
                                     ? null
                                     : () async {
                                         Haptics.light();
-                                        await rowCtx
-                                            .read<WorldBookProvider>()
-                                            .toggleActiveBookId(
-                                              book.id,
-                                              assistantId: assistantId,
-                                            );
+                                        await togglePromptSelection(
+                                          rowCtx,
+                                          book.id,
+                                          kind: PromptSelectionKind.worldBook,
+                                          assistantId: assistantId,
+                                          conversationId: conversationId,
+                                        );
                                       },
                               );
                             },
@@ -239,6 +268,7 @@ class _SelectableRow extends StatelessWidget {
 Future<void> showWorldBookSheet(
   BuildContext context, {
   required String? assistantId,
+  String? conversationId,
 }) async {
   final provider = context.read<WorldBookProvider>();
   await provider.initialize();
@@ -251,6 +281,9 @@ Future<void> showWorldBookSheet(
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
     ),
-    builder: (_) => WorldBookSheet(assistantId: assistantId),
+    builder: (_) => WorldBookSheet(
+      assistantId: assistantId,
+      conversationId: conversationId,
+    ),
   );
 }

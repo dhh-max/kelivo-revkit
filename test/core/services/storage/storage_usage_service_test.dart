@@ -6,10 +6,10 @@ import 'package:path_provider_platform_interface/path_provider_platform_interfac
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 
-import 'package:solab/core/database/app_database.dart';
-import 'package:solab/core/database/chat_database_repository.dart';
-import 'package:solab/core/services/backup/restore_workspace_lock.dart';
-import 'package:solab/core/services/storage/storage_usage_service.dart';
+import 'package:Kelivo/core/database/app_database.dart';
+import 'package:Kelivo/core/database/chat_database_repository.dart';
+import 'package:Kelivo/core/services/backup/restore_workspace_lock.dart';
+import 'package:Kelivo/core/services/storage/storage_usage_service.dart';
 
 class _FakePathProviderPlatform extends PathProviderPlatform {
   _FakePathProviderPlatform(this.path);
@@ -283,11 +283,17 @@ void main() {
     );
     expect(other.stats.bytes, 144);
     expect(other.stats.fileCount, 4);
+    // 根级未识别文件（settings.json）现在逐个展示在末尾（黑盒明细）
     expect(other.subcategories.map((subcategory) => subcategory.id), [
       'fonts',
       'local_models',
       'app',
+      'settings.json',
     ]);
+    final settingsSub = other.subcategories
+        .singleWhere((subcategory) => subcategory.id == 'settings.json');
+    expect(settingsSub.stats.bytes, 8);
+    expect(settingsSub.path, p.join(tempDir.path, 'settings.json'));
     expect(
       other.subcategories
           .singleWhere((subcategory) => subcategory.id == 'fonts')
@@ -319,6 +325,114 @@ void main() {
     );
   });
 
+  test('clearFonts deletes managed font files only', () async {
+    await _writeSizedFile(tempDir, p.join('fonts', 'Custom.ttf'), 40);
+    await _writeSizedFile(tempDir, p.join('fonts', 'nested', 'Extra.otf'), 12);
+    await _writeSizedFile(tempDir, 'settings.json', 8);
+    await _writeSizedFile(
+      tempDir,
+      p.join('asr_models', 'paraformer', 'model.int8.onnx'),
+      80,
+    );
+
+    await StorageUsageService.clearFonts();
+
+    expect(
+      await File(p.join(tempDir.path, 'fonts', 'Custom.ttf')).exists(),
+      isFalse,
+    );
+    expect(
+      await File(p.join(tempDir.path, 'fonts', 'nested', 'Extra.otf')).exists(),
+      isFalse,
+    );
+    expect(await File(p.join(tempDir.path, 'settings.json')).exists(), isTrue);
+    expect(
+      await File(
+        p.join(tempDir.path, 'asr_models', 'paraformer', 'model.int8.onnx'),
+      ).exists(),
+      isTrue,
+    );
+
+    final report = await StorageUsageService.computeReport();
+    final other = report.categories.singleWhere(
+      (category) => category.key == StorageUsageCategoryKey.other,
+    );
+    expect(
+      other.subcategories.where((subcategory) => subcategory.id == 'fonts'),
+      isEmpty,
+    );
+    expect(
+      other.subcategories
+          .singleWhere((subcategory) => subcategory.id == 'local_models')
+          .stats
+          .bytes,
+      80,
+    );
+  });
+
+  test('clearLocalModels deletes downloaded ASR models only', () async {
+    await _writeSizedFile(tempDir, p.join('fonts', 'Custom.ttf'), 40);
+    await _writeSizedFile(
+      tempDir,
+      p.join('asr_models', 'paraformer-zh-small-2024-03-09', 'model.int8.onnx'),
+      80,
+    );
+    await _writeSizedFile(
+      tempDir,
+      p.join('asr_models', '.downloads', 'partial.tar.bz2.part'),
+      16,
+    );
+    await _writeSizedFile(tempDir, 'settings.json', 8);
+
+    await StorageUsageService.clearLocalModels();
+
+    expect(
+      await File(
+        p.join(
+          tempDir.path,
+          'asr_models',
+          'paraformer-zh-small-2024-03-09',
+          'model.int8.onnx',
+        ),
+      ).exists(),
+      isFalse,
+    );
+    expect(
+      await File(
+        p.join(
+          tempDir.path,
+          'asr_models',
+          '.downloads',
+          'partial.tar.bz2.part',
+        ),
+      ).exists(),
+      isFalse,
+    );
+    expect(
+      await File(p.join(tempDir.path, 'fonts', 'Custom.ttf')).exists(),
+      isTrue,
+    );
+    expect(await File(p.join(tempDir.path, 'settings.json')).exists(), isTrue);
+
+    final report = await StorageUsageService.computeReport();
+    final other = report.categories.singleWhere(
+      (category) => category.key == StorageUsageCategoryKey.other,
+    );
+    expect(
+      other.subcategories.where(
+        (subcategory) => subcategory.id == 'local_models',
+      ),
+      isEmpty,
+    );
+    expect(
+      other.subcategories
+          .singleWhere((subcategory) => subcategory.id == 'fonts')
+          .stats
+          .bytes,
+      40,
+    );
+  });
+
   test(
     'image entries distinguish user uploads from assistant images',
     () async {
@@ -336,4 +450,71 @@ void main() {
       expect(sources['assistant.png'], StorageFileSource.assistant);
     },
   );
+
+  group('SoLab 分析产物扫描与清理（工作目录 SoLab/ 下）', () {
+    test('blutter 索引与 dexio 缓存计入缓存分类的独立可清理子项', () async {
+      await _writeSizedFile(
+        tempDir,
+        p.join('SoLab', 'blutter', 'v1', 'job1', 'pp.txt'),
+        300,
+      );
+      await _writeSizedFile(
+        tempDir,
+        p.join('SoLab', 'cache', 'dexio', 'sha1', 'classes.dex'),
+        120,
+      );
+
+      final report = await StorageUsageService.computeReport(
+        analysisWorkDir: tempDir.path,
+      );
+      final cache = report.categories.singleWhere(
+        (category) => category.key == StorageUsageCategoryKey.cache,
+      );
+      final blutter = cache.subcategories.singleWhere(
+        (subcategory) => subcategory.id == 'analysis_blutter',
+      );
+      final dexio = cache.subcategories.singleWhere(
+        (subcategory) => subcategory.id == 'analysis_dexio',
+      );
+
+      expect(blutter.stats.bytes, 300);
+      expect(dexio.stats.bytes, 120);
+      // 可清理空间必须包含分析数据（此前隐身进「其他」不可清理）
+      expect(report.clearable.bytes, 420);
+      // 不提供 workDir 时维持旧行为（不计入）
+      final legacy = await StorageUsageService.computeReport();
+      final legacyCache = legacy.categories.singleWhere(
+        (category) => category.key == StorageUsageCategoryKey.cache,
+      );
+      expect(legacyCache.stats.bytes, 0);
+    });
+
+    test('clearAnalysisData 按目标清理且不动其他文件', () async {
+      final keep = File(p.join(tempDir.path, 'SoLab', 'blutter', 'v1', 'keep.json'));
+      await keep.parent.create(recursive: true);
+      await keep.writeAsString('{}');
+      final dexFile = File(
+        p.join(tempDir.path, 'SoLab', 'cache', 'dexio', 'sha', 'classes.dex'),
+      );
+      await dexFile.parent.create(recursive: true);
+      await dexFile.writeAsBytes(const [1, 2, 3]);
+      final unrelated = File(p.join(tempDir.path, '原始.apk'));
+      await unrelated.writeAsBytes(const [9]);
+
+      await StorageUsageService.clearAnalysisData(
+        analysisWorkDir: tempDir.path,
+        which: 'dexio',
+      );
+      expect(await dexFile.exists(), isFalse);
+      expect(await keep.exists(), isTrue, reason: 'blutter 目录不受 dexio 清理影响');
+      expect(await unrelated.exists(), isTrue, reason: '工作目录其他文件不动');
+
+      await StorageUsageService.clearAnalysisData(
+        analysisWorkDir: tempDir.path,
+        which: 'all',
+      );
+      expect(await keep.exists(), isFalse);
+      expect(await unrelated.exists(), isTrue);
+    });
+  });
 }

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import 'package:solab/l10n/app_localizations.dart';
-import 'package:solab/shared/widgets/snackbar.dart';
+import 'package:Kelivo/l10n/app_localizations.dart';
+import 'package:Kelivo/shared/widgets/snackbar.dart';
 
 /// App-shell hooks for workspace screens.
 ///

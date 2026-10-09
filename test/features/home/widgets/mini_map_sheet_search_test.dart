@@ -3,12 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/core/database/chat_database_repository.dart';
-import 'package:solab/core/models/chat_message.dart';
-import 'package:solab/features/home/widgets/mini_map_sheet.dart';
-import 'package:solab/icons/lucide_adapter.dart';
-import 'package:solab/l10n/app_localizations.dart';
-import 'package:solab/theme/app_semantic_colors.dart';
+import 'package:Kelivo/core/database/chat_database_repository.dart';
+import 'package:Kelivo/core/models/chat_message.dart';
+import 'package:Kelivo/features/home/widgets/mini_map_sheet.dart';
+import 'package:Kelivo/icons/lucide_adapter.dart';
+import 'package:Kelivo/l10n/app_localizations.dart';
+import 'package:Kelivo/theme/app_semantic_colors.dart';
 
 void main() {
   final messages = [

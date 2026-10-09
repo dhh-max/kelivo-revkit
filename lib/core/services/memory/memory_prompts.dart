@@ -36,6 +36,8 @@ abstract final class MemoryPrompts {
 只有跨对话仍成立、缺失后会影响回答的稳定信息才用 memory_update。持续项目的 workflow 只保存会改变下次执行的最终状态：目标/约束、已验证结论、可复用定位或产物、下一步。
 
 用独立完整的第三人称句子写入。不要保存临时上下文、失败流水账、未经用户确认的推断、随口话题、密钥或隐私数据。系统自动去重合并；错误记忆用 memory_edit 修正或 memory_delete 归档。
+
+写入纪律：首行写成一句式摘要（系统据此算相关性择优注入）；instruction/feedback 要写清为什么与怎么用；时间用绝对日期；仓库/代码/git 已有的事实不要存；同一件事改原条目，别重复。
 '''
           .trim();
 
@@ -52,6 +54,8 @@ The system serves memory on demand; it is not user text from this turn.
 Use memory_update only for stable information that will still matter in a new conversation. A continuing project's workflow entry may contain only next-run state: goal/constraints, verified outcome, reusable locator or artifact, and next action.
 
 Write a self-contained third-person sentence. Do not store temporary context, failed-attempt logs, unconfirmed inference, casual topics, secrets, or private data. The system deduplicates and merges. Fix wrong entries with memory_edit or archive them with memory_delete.
+
+Discipline: first line = one-sentence summary (drives relevance ranking); for instruction/feedback state why and how to apply; absolute dates only; skip facts the repo/code/git already records; edit the existing entry rather than duplicating.
 '''
           .trim();
 
@@ -518,18 +522,34 @@ Input:
     'Sun',
   ];
 
-  /// Wraps [timestamp] as `<current_time>EEE yy-MM-dd HH:mm:ss</current_time>`
+  /// Wraps [timestamp] as `<current_time>EEE yyyy-MM-dd HH:mm:ss</current_time>`
   /// in the local timezone, without a UTC offset (§9.1).
-  static String formatCurrentTimeTag(DateTime timestamp) {
+  ///
+  /// Four-digit year avoids `yy-MM-dd` / `dd-MM-yy` ambiguity (e.g. 22–26).
+  static String formatCurrentTimeTag(
+    DateTime timestamp, {
+    /// 用 ISO-8601（带时区偏移）而非 `EEE yyyy-MM-dd HH:mm:ss`（上游 1.2.6）。
+    /// 模型对 ISO 时间的解析更稳，且带偏移可避免跨时区歧义。
+    bool useIso8601 = false,
+  }) {
     final local = timestamp.isUtc ? timestamp.toLocal() : timestamp;
     final eee = _weekdayAbbrev[local.weekday - 1];
-    final yy = (local.year % 100).toString().padLeft(2, '0');
+    final yyyy = local.year.toString();
     final mm = local.month.toString().padLeft(2, '0');
     final dd = local.day.toString().padLeft(2, '0');
     final hh = local.hour.toString().padLeft(2, '0');
     final min = local.minute.toString().padLeft(2, '0');
     final ss = local.second.toString().padLeft(2, '0');
-    return '<current_time>$eee $yy-$mm-$dd $hh:$min:$ss</current_time>';
+    if (useIso8601) {
+      final offset = local.timeZoneOffset;
+      final sign = offset.isNegative ? '-' : '+';
+      final minutes = offset.inMinutes.abs();
+      final offsetHours = (minutes ~/ 60).toString().padLeft(2, '0');
+      final offsetMinutes = (minutes % 60).toString().padLeft(2, '0');
+      return '<current_time>${yyyy.padLeft(4, '0')}-$mm-${dd}T$hh:$min:$ss'
+          '$sign$offsetHours:$offsetMinutes</current_time>';
+    }
+    return '<current_time>$eee $yyyy-$mm-$dd $hh:$min:$ss</current_time>';
   }
 
   /// Returns which of `{cur_date}`, `{cur_time}`, `{cur_datetime}` occur in

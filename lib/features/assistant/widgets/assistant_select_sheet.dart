@@ -9,7 +9,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../../core/providers/assistant_provider.dart';
 import '../../../core/models/assistant.dart';
 import '../../../shared/widgets/ios_tactile.dart';
-import '../../../core/services/haptics.dart';
+import 'package:Kelivo/shared/services/haptics.dart';
 import '../../../shared/widgets/emoji_text.dart';
 import '../../../utils/avatar_cache.dart';
 import '../../../utils/sandbox_path_resolver.dart';
@@ -95,7 +95,7 @@ Future<String?> showAssistantMoveSelector(
     context: context,
     barrierDismissible: true,
     barrierLabel: 'assistant-move-selector',
-    barrierColor: Colors.black.withValues(alpha: 0.15),
+    barrierColor: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.15),
     pageBuilder: (ctx, _, __) {
       final l10n = AppLocalizations.of(ctx)!;
       final cs = Theme.of(ctx).colorScheme;
@@ -122,7 +122,7 @@ Future<String?> showAssistantMoveSelector(
                       borderRadius: BorderRadius.circular(14),
                       side: BorderSide(
                         color: isDark
-                            ? Colors.white.withValues(alpha: 0.08)
+                            ? cs.onSurface.withValues(alpha: 0.08)
                             : cs.outlineVariant.withValues(alpha: 0.2),
                       ),
                     ),
@@ -329,9 +329,7 @@ class _SmallIconBtn2State extends State<_SmallIconBtn2> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = _hover
-        ? (isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.05))
+        ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
         : Colors.transparent;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -368,9 +366,9 @@ class _DeskAssistantRowState extends State<_DeskAssistantRow> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = _hover
-        ? (isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.05))
+        ? (Theme.of(
+            context,
+          ).colorScheme.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
         : Colors.transparent;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),

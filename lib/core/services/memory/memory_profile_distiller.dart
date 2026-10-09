@@ -1,4 +1,6 @@
-import 'dart:convert';
+import 'memory_json_utils.dart';
+
+import '../../database/chat_database_repository.dart';
 import '../../models/memory_entry.dart';
 import '../../models/user_profile_field.dart';
 import 'memory_block_builder.dart';
@@ -9,6 +11,7 @@ import 'memory_trace.dart';
 /// One distilled profile field from Distiller JSON (§12.7).
 class MemoryDistilledField {
   const MemoryDistilledField({required this.key, required this.value});
+
   final String key;
   final String value;
 }
@@ -16,21 +19,29 @@ class MemoryDistilledField {
 /// Distiller parse outcome. [ok] false means unparseable JSON.
 class MemoryDistillParseResult {
   const MemoryDistillParseResult._({required this.ok, required this.fields});
+
   factory MemoryDistillParseResult.ok(List<MemoryDistilledField> fields) =>
       MemoryDistillParseResult._(ok: true, fields: fields);
+
   factory MemoryDistillParseResult.malformed() =>
       const MemoryDistillParseResult._(
         ok: false,
         fields: <MemoryDistilledField>[],
       );
+
   final bool ok;
   final List<MemoryDistilledField> fields;
 }
 
 /// Profile Distiller (§12.7).
 class MemoryProfileDistiller {
-  MemoryProfileDistiller({required this.repository});
+  MemoryProfileDistiller({
+    required this.repository,
+    required this.chatRepository,
+  });
+
   final MemoryRepository repository;
+  final ChatDatabaseRepository chatRepository;
 
   static String resolveTemplate({
     required MemoryPromptLang lang,
@@ -63,6 +74,7 @@ class MemoryProfileDistiller {
         .replaceAll('{{identityEntries}}', identityEntries);
   }
 
+  /// Format identity memories for `{{identityEntries}}`.
   static String formatIdentityEntries(List<MemoryEntry> entries) {
     if (entries.isEmpty) return '';
     final buf = StringBuffer();
@@ -72,30 +84,16 @@ class MemoryProfileDistiller {
     return buf.toString().trimRight();
   }
 
-  static Object? extractJsonObject(String response) {
-    var text = response.trim();
-    final fence = RegExp(
-      r'```(?:json)?\s*([\s\S]*?)```',
-      caseSensitive: false,
-    ).firstMatch(text);
-    if (fence != null) {
-      text = fence.group(1)!.trim();
-    }
-    final start = text.indexOf('{');
-    final end = text.lastIndexOf('}');
-    if (start < 0 || end <= start) return null;
-    try {
-      return jsonDecode(text.substring(start, end + 1));
-    } catch (_) {
-      return null;
-    }
-  }
+  /// Extract a JSON object from model output (prose / fences tolerated).
+  static Object? extractJsonObject(String response) =>
+      MemoryJsonUtils.extractJson(response);
 
   static MemoryDistillParseResult parse(String response) {
     final decoded = extractJsonObject(response);
     if (decoded is! Map) return MemoryDistillParseResult.malformed();
     final rawFields = decoded['fields'];
     if (rawFields is! List) return MemoryDistillParseResult.malformed();
+
     final fields = <MemoryDistilledField>[];
     for (final item in rawFields) {
       if (item is! Map) continue;
@@ -104,11 +102,19 @@ class MemoryProfileDistiller {
       final value = (map['value'] ?? '').toString().trim();
       if (key.isEmpty || value.isEmpty) continue;
       if (!UserProfileField.isValidKey(key)) continue;
+      // Distiller never clears (§12.7); empty already skipped.
       fields.add(MemoryDistilledField(key: key, value: value));
     }
     return MemoryDistillParseResult.ok(fields);
   }
 
+  /// Run Distiller after identity NEW/MERGE/CONFLICT. Returns false on LLM/parse
+  /// failure (caller still advances watermark per §12.8).
+  ///
+  /// 只吃**全局**身份记忆（[MemoryEntry.projectId] 为 null）：画像字段是全局的
+  /// （每个工作区都会注入），用带工作区标记的身份记忆蒸馏会把某个项目的身份写
+  /// 成全项目可见的画像字段——跨项目泄漏。项目内的身份记忆仍留在项目里可见，
+  /// 只是不参与全局画像。
   Future<bool> run({
     required MemoryPromptLang lang,
     required String? assistantId,
@@ -117,15 +123,16 @@ class MemoryProfileDistiller {
     String? overrideEn,
     MemoryTraceStep? traceStep,
   }) async {
-    final identity = await repository.queryVisibleMemories(
+    final identity = (await chatRepository.queryVisibleMemories(
       assistantId: assistantId,
       type: MemoryType.identity,
-    );
+    )).where((entry) => entry.projectId == null).toList(growable: false);
     if (identity.isEmpty) {
       traceStep?.parsedResult = 'no_identity_entries';
       return true;
     }
-    final profile = await repository.readProfileFields();
+
+    final profile = await chatRepository.readProfileFields();
     final profileBlock = MemoryBlockBuilder.buildProfileBlock(
       fields: profile,
       lang: lang,
@@ -137,6 +144,7 @@ class MemoryProfileDistiller {
       overrideZh: overrideZh,
       overrideEn: overrideEn,
     );
+
     traceStep?.appendPrompt(prompt);
     final String raw;
     try {
@@ -146,6 +154,7 @@ class MemoryProfileDistiller {
       return false;
     }
     traceStep?.appendResponse(raw);
+
     final parsed = parse(raw);
     if (!parsed.ok) {
       traceStep?.parsedResult = 'malformed';
@@ -156,6 +165,7 @@ class MemoryProfileDistiller {
         for (final f in parsed.fields) {'key': f.key, 'value': f.value},
       ],
     });
+
     for (final field in parsed.fields) {
       try {
         String? before;
@@ -178,7 +188,9 @@ class MemoryProfileDistiller {
             after: field.value,
           ),
         );
-      } catch (_) {}
+      } catch (_) {
+        // Illegal keys already filtered; ignore write races.
+      }
     }
     return true;
   }

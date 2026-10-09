@@ -5,7 +5,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 // ignore: depend_on_referenced_packages
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 
-import 'package:solab/core/services/chat/chat_service.dart';
+import 'package:Kelivo/core/services/chat/chat_service.dart';
 
 class _FakePathProviderPlatform extends PathProviderPlatform {
   _FakePathProviderPlatform(this.path);
@@ -116,6 +116,87 @@ void main() {
       );
     },
   );
+
+  test('重启后 token 字段仍在：缓存命中不会归零（2026-10-03 真机）', () async {
+    final writer = createService();
+    await writer.init();
+    final conversation = await writer.createConversation(title: 'cache');
+    await writer.addMessage(
+      conversationId: conversation.id,
+      role: 'user',
+      content: 'hi',
+    );
+    final reply = await writer.addMessage(
+      conversationId: conversation.id,
+      role: 'assistant',
+      content: 'hello',
+    );
+    // 真实回写路径：静默 checkpoint 带 usage（流式收尾即此路径）。
+    await writer.updateStreamingCheckpointSilent(
+      reply.copyWith(
+        promptTokens: 1000,
+        completionTokens: 100,
+        cachedTokens: 960,
+        totalTokens: 1100,
+        isStreaming: false,
+      ),
+      const [],
+    );
+
+    final reader = createService();
+    await reader.init();
+    final page = await reader.loadTimelinePage(conversation.id);
+    expect(page, isNotNull);
+    final loaded = page!.slots
+        .map((slot) => slot.message)
+        .lastWhere((message) => message.role == 'assistant');
+    expect(
+      loaded.promptTokens,
+      1000,
+      reason: '重开后 promptTokens 必须还在（否则缓存命中统计归零）',
+    );
+    expect(loaded.cachedTokens, 960, reason: '重开后 cachedTokens 必须还在');
+  });
+
+  test('迟到的无 usage 全量写不许擦掉已存 token（重开归零根因）', () async {
+    final writer = createService();
+    await writer.init();
+    final conversation = await writer.createConversation(title: 'merge');
+    await writer.addMessage(
+      conversationId: conversation.id,
+      role: 'user',
+      content: 'hi',
+    );
+    final reply = await writer.addMessage(
+      conversationId: conversation.id,
+      role: 'assistant',
+      content: 'hello',
+    );
+    await writer.updateStreamingCheckpointSilent(
+      reply.copyWith(
+        promptTokens: 1000,
+        completionTokens: 100,
+        cachedTokens: 960,
+        totalTokens: 1100,
+        isStreaming: false,
+      ),
+      const [],
+    );
+    // 模拟一次不带 usage 的后续全量写（内容更新但 token 参数缺省）。
+    await writer.updateStreamingCheckpointSilent(
+      reply.copyWith(content: 'hello (edited)', isStreaming: false),
+      const [],
+    );
+
+    final reader = createService();
+    await reader.init();
+    final page = await reader.loadTimelinePage(conversation.id);
+    final loaded = page!.slots
+        .map((slot) => slot.message)
+        .lastWhere((message) => message.role == 'assistant');
+    expect(loaded.promptTokens, 1000, reason: 'null 不许覆盖已存 promptTokens');
+    expect(loaded.cachedTokens, 960, reason: 'null 不许覆盖已存 cachedTokens');
+  });
 
   test('loadMessages backfills the order skeleton', () async {
     final (service, conversationId, ids) = await seedRestartedService();

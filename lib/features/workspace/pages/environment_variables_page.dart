@@ -2,19 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
-import 'package:solab/core/models/environment_variable.dart';
-import 'package:solab/core/providers/environment_provider.dart';
-import 'package:solab/features/settings/widgets/custom_theme_widgets.dart';
-import 'package:solab/features/workspace/workspace_layout.dart';
-import 'package:solab/icons/lucide_adapter.dart';
-import 'package:solab/l10n/app_localizations.dart';
-import 'package:solab/shared/widgets/form_sheet.dart';
-import 'package:solab/shared/widgets/ios_form_text_field.dart';
-import 'package:solab/shared/widgets/ios_settings_rows.dart';
-import 'package:solab/shared/widgets/ios_tactile.dart';
-import 'package:solab/shared/widgets/ios_tile_button.dart';
-import 'package:solab/shared/widgets/section_card.dart';
-import 'package:solab/shared/widgets/snackbar.dart';
+import 'package:Kelivo/core/models/environment_variable.dart';
+import 'package:Kelivo/core/providers/environment_provider.dart';
+import 'package:Kelivo/features/settings/widgets/custom_theme_widgets.dart';
+import 'package:Kelivo/features/workspace/workspace_layout.dart';
+import 'package:Kelivo/icons/lucide_adapter.dart';
+import 'package:Kelivo/l10n/app_localizations.dart';
+import 'package:Kelivo/shared/widgets/form_sheet.dart';
+import 'package:Kelivo/shared/widgets/ios_form_text_field.dart';
+import 'package:Kelivo/shared/widgets/ios_settings_rows.dart';
+import 'package:Kelivo/shared/widgets/ios_tactile.dart';
+import 'package:Kelivo/shared/widgets/ios_tile_button.dart';
+import 'package:Kelivo/shared/widgets/section_card.dart';
+import 'package:Kelivo/shared/widgets/snackbar.dart';
 
 Future<void> openEnvironmentVariablesPage(BuildContext context) {
   final provider = context.read<EnvironmentProvider>();

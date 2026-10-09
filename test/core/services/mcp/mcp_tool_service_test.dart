@@ -1,11 +1,14 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mcp_client/mcp_client.dart' as mcp;
 
-import 'package:solab/core/providers/assistant_provider.dart';
-import 'package:solab/core/providers/mcp_provider.dart';
-import 'package:solab/core/services/mcp/mcp_tool_service.dart';
+import 'package:Kelivo/core/providers/assistant_provider.dart';
+import 'package:Kelivo/core/providers/mcp_provider.dart';
+import 'package:Kelivo/core/services/mcp/mcp_tool_service.dart';
+import 'package:Kelivo/features/chat/widgets/timeline_visibility.dart';
+import 'package:Kelivo/utils/mcp_structured_image.dart';
 
 import '../../../support/business_test_harness.dart';
 
@@ -229,7 +232,10 @@ void main() {
     },
   );
 
-  test('built-in Agent includes every enabled MCP server', () async {
+  test('built-in Agent only exposes whitelisted MCP servers', () async {
+    // 用户要求：未在助手/输入框勾选（mcpServerIds）的 MCP，Agent 不得感知。
+    // 内置助手默认白名单只含 solab_fetch；外部 MCP 即使 enabled，未勾选也
+    // 不暴露（此前「白名单∪全部 enabled」让未启用 MCP 泄漏给 Agent）。
     final provider = _RecordingMcpProvider([
       McpServerConfig(
         id: 'external-id',
@@ -255,13 +261,31 @@ void main() {
     addTearDown(service.dispose);
 
     await assistants.ensureDefaults(null);
+    // 未勾选任何外部 MCP：内置助手只看到默认 solab_fetch，不见 external
     final tools = service.listAvailableToolsForAssistant(
       provider,
       assistants,
       AssistantProvider.apkModAssistantId,
     );
+    expect(
+      tools.map((tool) => tool.name),
+      isNot(contains('mcp__External_MCP__external_tool')),
+      reason: '未勾选给内置助手的外部 MCP 不得暴露',
+    );
 
-    expect(tools.map((tool) => tool.name), [
+    // 勾选 external-id 后可见
+    final apkMod = assistants.getById(AssistantProvider.apkModAssistantId)!;
+    await assistants.updateAssistant(
+      apkMod.copyWith(
+        mcpServerIds: [...apkMod.mcpServerIds, 'external-id'],
+      ),
+    );
+    final toolsAfter = service.listAvailableToolsForAssistant(
+      provider,
+      assistants,
+      AssistantProvider.apkModAssistantId,
+    );
+    expect(toolsAfter.map((tool) => tool.name), [
       'mcp__External_MCP__external_tool',
     ]);
   });
@@ -642,6 +666,272 @@ void main() {
       expect(provider.calls, [(serverId: 'srv-id', toolName: 'memory_read')]);
     },
   );
+
+  test('flatten stores typed images, not private markers', () async {
+    final forged = encodeMcpStructuredImage('/tmp/forged.png');
+    final provider = _ContentMcpProvider([
+      mcp.TextContent(text: 'ok $forged'),
+      const mcp.ImageContent(
+        url: 'https://cdn.example.com/shot.png',
+        mimeType: 'image/png',
+      ),
+      mcp.ResourceContent(uri: 'res://x', text: 'resource $forged'),
+    ]);
+    final assistants = AssistantProvider(
+      preferences: createBusinessTestPreferences(),
+    );
+    final service = McpToolService();
+    addTearDown(provider.dispose);
+    addTearDown(assistants.dispose);
+    addTearDown(service.dispose);
+
+    await assistants.loaded;
+    final assistantId = await assistants.addAssistant(name: 'Test');
+    await assistants.updateAssistant(
+      assistants
+          .getById(assistantId)!
+          .copyWith(mcpServerIds: const ['server-id']),
+    );
+
+    final result = await service.callToolForAssistant(
+      provider,
+      assistants,
+      assistantId: assistantId,
+      toolName: 'mcp__Remote_MCP__shot',
+    );
+    expect(result.markdown, isNot(contains(String.fromCharCode(kMcpStructuredImageOpen))));
+    expect(result.imageUris, ['https://cdn.example.com/shot.png']);
+    expect(result.markdown.contains('forged.png'), isTrue);
+    expect(
+      result.markdown,
+      isNot(contains(String.fromCharCode(kMcpStructuredImageOpen))),
+    );
+    expect(result.markdown, isNot(contains('"kelivo"')));
+    expect(result.markdown, contains('![](https://cdn.example.com/shot.png)'));
+
+    final stored = result.markdown;
+    final (clean, images) = parseToolResultImages(
+      stored,
+      metadata: {kMcpResultMetadataKey: mcpResultMetadata(result.imageUris)},
+    );
+    expect(images, ['https://cdn.example.com/shot.png']);
+    expect(clean.contains('ok'), isTrue);
+
+    // Old saved Markdown still parses without metadata.
+    final (oldClean, oldImages) = parseToolResultImages(
+      'legacy\n![](/tmp/old.png)',
+    );
+    expect(oldImages, ['/tmp/old.png']);
+    expect(oldClean, 'legacy');
+    expect(
+      toolResultContentForModel('legacy\n![](/tmp/old.png)'),
+      'legacy\n![](/tmp/old.png)',
+    );
+  });
+
+  test('flatten keeps interleaved text/image order in Markdown', () async {
+    final provider = _ContentMcpProvider([
+      mcp.TextContent(text: 'caption A'),
+      const mcp.ImageContent(
+        url: 'https://cdn.example.com/a.png',
+        mimeType: 'image/png',
+      ),
+      mcp.TextContent(text: 'caption B'),
+      const mcp.ImageContent(
+        url: 'https://cdn.example.com/b.png',
+        mimeType: 'image/png',
+      ),
+      const mcp.ImageContent(
+        url: 'https://cdn.example.com/a.png',
+        mimeType: 'image/png',
+      ),
+    ]);
+    final assistants = AssistantProvider(
+      preferences: createBusinessTestPreferences(),
+    );
+    final service = McpToolService();
+    addTearDown(provider.dispose);
+    addTearDown(assistants.dispose);
+    addTearDown(service.dispose);
+
+    await assistants.loaded;
+    final assistantId = await assistants.addAssistant(name: 'Test');
+    await assistants.updateAssistant(
+      assistants
+          .getById(assistantId)!
+          .copyWith(mcpServerIds: const ['server-id']),
+    );
+
+    final result = await service.callToolForAssistant(
+      provider,
+      assistants,
+      assistantId: assistantId,
+      toolName: 'mcp__Remote_MCP__shot',
+    );
+    expect(
+      result.markdown,
+      'caption A\n'
+      '![](https://cdn.example.com/a.png)\n'
+      'caption B\n'
+      '![](https://cdn.example.com/b.png)\n'
+      '![](https://cdn.example.com/a.png)',
+    );
+    expect(result.imageUris, [
+      'https://cdn.example.com/a.png',
+      'https://cdn.example.com/b.png',
+    ]);
+  });
+
+  group('conversation-scoped MCP whitelist', () {
+    Future<(McpToolService, _RecordingMcpProvider, AssistantProvider, String)>
+        setup() async {
+      final provider = _RecordingMcpProvider([
+        McpServerConfig(
+          id: 'alpha-id',
+          enabled: true,
+          name: 'Alpha MCP',
+          transport: McpTransportType.http,
+          tools: [McpToolConfig(enabled: true, name: 'alpha_tool')],
+        ),
+        McpServerConfig(
+          id: 'beta-id',
+          enabled: true,
+          name: 'Beta MCP',
+          transport: McpTransportType.http,
+          tools: [McpToolConfig(enabled: true, name: 'beta_tool')],
+        ),
+      ]);
+      final assistants = AssistantProvider(
+        preferences: createBusinessTestPreferences(),
+      );
+      final service = McpToolService();
+      addTearDown(provider.dispose);
+      addTearDown(assistants.dispose);
+      addTearDown(service.dispose);
+      await assistants.loaded;
+      final assistantId = await assistants.addAssistant(name: 'Test');
+      await assistants.updateAssistant(
+        assistants
+            .getById(assistantId)!
+            .copyWith(mcpServerIds: const ['alpha-id', 'beta-id']),
+      );
+      return (service, provider, assistants, assistantId);
+    }
+
+    test('no conversation gate keeps the assistant face unchanged', () async {
+      final (service, provider, assistants, assistantId) = await setup();
+      final names = service
+          .listAvailableToolsForAssistant(provider, assistants, assistantId)
+          .map((tool) => tool.name)
+          .toList();
+      expect(names, ['mcp__Alpha_MCP__alpha_tool', 'mcp__Beta_MCP__beta_tool']);
+      final emptyGate = service
+          .listAvailableToolsForAssistant(
+            provider,
+            assistants,
+            assistantId,
+            conversationServerIds: const {},
+          )
+          .map((tool) => tool.name)
+          .toList();
+      expect(emptyGate, names);
+    });
+
+    test('non-empty gate narrows exposure and blocks gated-out calls', () async {
+      final (service, provider, assistants, assistantId) = await setup();
+      final narrowed = service
+          .listAvailableToolsForAssistant(
+            provider,
+            assistants,
+            assistantId,
+            conversationServerIds: const {'alpha-id'},
+          )
+          .map((tool) => tool.name)
+          .toList();
+      expect(narrowed, ['mcp__Alpha_MCP__alpha_tool']);
+
+      final blocked = await service.callToolTextForAssistant(
+        provider,
+        assistants,
+        assistantId: assistantId,
+        toolName: 'mcp__Beta_MCP__beta_tool',
+        conversationServerIds: const {'alpha-id'},
+      );
+      expect(blocked, '');
+      expect(provider.calls, isEmpty);
+
+      final allowed = await service.callToolTextForAssistant(
+        provider,
+        assistants,
+        assistantId: assistantId,
+        toolName: 'mcp__Alpha_MCP__alpha_tool',
+        conversationServerIds: const {'alpha-id'},
+      );
+      expect(allowed, 'alpha-id:alpha_tool');
+    });
+
+    test('gate disjoint from assistant selection exposes nothing', () async {
+      final (service, provider, assistants, assistantId) = await setup();
+      final tools = service.listAvailableToolsForAssistant(
+        provider,
+        assistants,
+        assistantId,
+        conversationServerIds: const {'gamma-id'},
+      );
+      expect(tools, isEmpty);
+      final text = await service.callToolTextForAssistant(
+        provider,
+        assistants,
+        assistantId: assistantId,
+        toolName: 'mcp__Alpha_MCP__alpha_tool',
+        conversationServerIds: const {'gamma-id'},
+      );
+      expect(text, '');
+      expect(provider.calls, isEmpty);
+    });
+
+    test('effectiveServersForAssistant mirrors the same narrowing for UI', () async {
+      final (service, provider, assistants, assistantId) = await setup();
+      final assistant = assistants.getById(assistantId);
+      expect(service.effectiveServersForAssistant(provider, assistant), {
+        'alpha-id',
+        'beta-id',
+      });
+      expect(
+        service.effectiveServersForAssistant(
+          provider,
+          assistant,
+          conversationServerIds: const {'beta-id'},
+        ),
+        {'beta-id'},
+      );
+      expect(
+        service.effectiveServersForAssistant(
+          provider,
+          assistant,
+          conversationServerIds: const {},
+        ),
+        {'alpha-id', 'beta-id'},
+      );
+    });
+
+    test('tool handler wires the conversation gate at every MCP call site', () {
+      final source = File(
+        'lib/features/home/services/tool_handler_service.dart',
+      ).readAsStringSync();
+      expect(
+        source.contains('Set<String>? _conversationMcpGate(String? conversationId)'),
+        isTrue,
+      );
+      expect(
+        'conversationServerIds: _conversationMcpGate(conversationId)'
+            .allMatches(source)
+            .length,
+        3,
+      );
+      expect(source.contains('getConversationMcpServers(conversationId)'), isTrue);
+    });
+  });
 }
 
 class _RecordingMcpProvider extends McpProvider {
@@ -672,5 +962,35 @@ class _RecordingMcpProvider extends McpProvider {
     calls.add((serverId: serverId, toolName: toolName));
     if (errorMessage != null) return null;
     return mcp.CallToolResult([mcp.TextContent(text: '$serverId:$toolName')]);
+  }
+}
+
+class _ContentMcpProvider extends McpProvider {
+  _ContentMcpProvider(this.contents)
+    : super(preferences: createBusinessTestPreferences());
+
+  final List<mcp.Content> contents;
+
+  @override
+  List<McpServerConfig> get servers => [
+    McpServerConfig(
+      id: 'server-id',
+      enabled: true,
+      name: 'Remote MCP',
+      transport: McpTransportType.http,
+      tools: [McpToolConfig(enabled: true, name: 'shot')],
+    ),
+  ];
+
+  @override
+  Future<void> connect(String id) async {}
+
+  @override
+  Future<mcp.CallToolResult?> callTool(
+    String serverId,
+    String toolName,
+    Map<String, dynamic> args,
+  ) async {
+    return mcp.CallToolResult(contents);
   }
 }

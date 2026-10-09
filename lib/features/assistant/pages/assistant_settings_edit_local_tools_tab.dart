@@ -6,7 +6,6 @@ class _LocalToolsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
     final ap = context.watch<AssistantProvider>();
     final assistant = ap.getById(assistantId)!;
     final timeEnabled = assistant.localToolIds.contains(
@@ -24,19 +23,29 @@ class _LocalToolsTab extends StatelessWidget {
     final calculateEnabled = assistant.localToolIds.contains(
       LocalToolNames.calculate,
     );
+    final screenTimeEnabled = assistant.localToolIds.contains(
+      LocalToolNames.screenTime,
+    );
+    final calendarQueryEnabled = assistant.localToolIds.contains(
+      LocalToolNames.calendarQuery,
+    );
+    final calendarCreateEnabled = assistant.localToolIds.contains(
+      LocalToolNames.calendarCreate,
+    );
+    final locationEnabled = assistant.localToolIds.contains(
+      LocalToolNames.currentLocation,
+    );
 
-    Future<void> updateTool(String toolId, bool value) {
-      final ids = assistant.localToolIds.toSet();
-      if (value) {
-        ids.add(toolId);
-      } else {
-        ids.remove(toolId);
-      }
-      return context.read<AssistantProvider>().updateAssistant(
-        assistant.copyWith(localToolIds: ids.toList(growable: false)),
+    final l10n = AppLocalizations.of(context)!;
+
+    Future<void> toggleTool(String toolId, bool value) {
+      return setLocalToolEnabled(
+        context,
+        assistant: assistant,
+        toolId: toolId,
+        value: value,
       );
     }
-
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
       children: [
@@ -47,7 +56,7 @@ class _LocalToolsTab extends StatelessWidget {
               title: l10n.assistantEditLocalToolTimeInfoTitle,
               subtitle: l10n.assistantEditLocalToolTimeInfoSubtitle,
               enabled: timeEnabled,
-              onChanged: (value) => updateTool(LocalToolNames.timeInfo, value),
+              onChanged: (value) => toggleTool(LocalToolNames.timeInfo, value),
             ),
             _iosDivider(context),
             _LocalToolRow(
@@ -55,7 +64,7 @@ class _LocalToolsTab extends StatelessWidget {
               title: l10n.assistantEditLocalToolClipboardTitle,
               subtitle: l10n.assistantEditLocalToolClipboardSubtitle,
               enabled: clipboardEnabled,
-              onChanged: (value) => updateTool(LocalToolNames.clipboard, value),
+              onChanged: (value) => toggleTool(LocalToolNames.clipboard, value),
             ),
             _iosDivider(context),
             _LocalToolRow(
@@ -64,7 +73,7 @@ class _LocalToolsTab extends StatelessWidget {
               subtitle: l10n.assistantEditLocalToolTextToSpeechSubtitle,
               enabled: textToSpeechEnabled,
               onChanged: (value) =>
-                  updateTool(LocalToolNames.textToSpeech, value),
+                  toggleTool(LocalToolNames.textToSpeech, value),
             ),
             _iosDivider(context),
             _LocalToolRow(
@@ -72,7 +81,7 @@ class _LocalToolsTab extends StatelessWidget {
               title: l10n.assistantEditLocalToolAskUserTitle,
               subtitle: l10n.assistantEditLocalToolAskUserSubtitle,
               enabled: askUserEnabled,
-              onChanged: (value) => updateTool(LocalToolNames.askUser, value),
+              onChanged: (value) => toggleTool(LocalToolNames.askUser, value),
             ),
             _iosDivider(context),
             _LocalToolRow(
@@ -80,12 +89,150 @@ class _LocalToolsTab extends StatelessWidget {
               title: l10n.assistantEditLocalToolCalculateTitle,
               subtitle: l10n.assistantEditLocalToolCalculateSubtitle,
               enabled: calculateEnabled,
-              onChanged: (value) => updateTool(LocalToolNames.calculate, value),
+              onChanged: (value) => toggleTool(LocalToolNames.calculate, value),
             ),
+            if (DeviceLocalTools.screenTimeSupported) ...[
+              _iosDivider(context),
+              _LocalToolRow(
+                icon: Lucide.Smartphone,
+                title: l10n.assistantEditLocalToolScreenTimeTitle,
+                subtitle: l10n.assistantEditLocalToolScreenTimeSubtitle,
+                enabled: screenTimeEnabled,
+                onChanged: (value) =>
+                    toggleTool(LocalToolNames.screenTime, value),
+              ),
+            ],
+            if (DeviceLocalTools.calendarSupported) ...[
+              _iosDivider(context),
+              _LocalToolRow(
+                icon: Lucide.Calendar,
+                title: l10n.assistantEditLocalToolCalendarQueryTitle,
+                subtitle: l10n.assistantEditLocalToolCalendarQuerySubtitle,
+                enabled: calendarQueryEnabled,
+                onChanged: (value) =>
+                    toggleTool(LocalToolNames.calendarQuery, value),
+              ),
+              _iosDivider(context),
+              _LocalToolRow(
+                icon: Lucide.CalendarPlus,
+                title: l10n.assistantEditLocalToolCalendarCreateTitle,
+                subtitle: l10n.assistantEditLocalToolCalendarCreateSubtitle,
+                enabled: calendarCreateEnabled,
+                onChanged: (value) =>
+                    toggleTool(LocalToolNames.calendarCreate, value),
+              ),
+            ],
+            // 定位（上游）：仅设备支持时显示。此前遗漏该行，用户无法
+            // 单独开关「当前位置」，只能靠设备工具整体默认。
+            if (DeviceLocalTools.locationSupported) ...[
+              _iosDivider(context),
+              _LocalToolRow(
+                icon: Lucide.MapPin,
+                title: l10n.assistantEditLocalToolLocationTitle,
+                subtitle: l10n.assistantEditLocalToolLocationSubtitle,
+                enabled: locationEnabled,
+                onChanged: (value) =>
+                    toggleTool(LocalToolNames.currentLocation, value),
+              ),
+            ],
+            // SoLab APK 本地工具（本地二改）：上游基础工具之外的扩展开关。
+            for (final entry in kLocalToolUiMetadata.entries)
+              if (!const [
+                LocalToolNames.timeInfo,
+                LocalToolNames.clipboard,
+                LocalToolNames.textToSpeech,
+                LocalToolNames.askUser,
+                LocalToolNames.calculate,
+                LocalToolNames.screenTime,
+                LocalToolNames.calendarQuery,
+                LocalToolNames.calendarCreate,
+                // 技能/知识读取器不是工具：不在此列开关，统一在「技能」页查看
+                // （模型侧照常可调用，默认在启用集内）。
+                LocalToolNames.apkSkill,
+                LocalToolNames.apkKnowledge,
+                LocalToolNames.installedSkills,
+              ].contains(entry.key)) ...[
+                _iosDivider(context),
+                _LocalToolRow(
+                  icon: _iconForTool(entry.key),
+                  title: entry.value.title,
+                  subtitle: entry.value.subtitle,
+                  enabled: assistant.localToolIds.contains(entry.key),
+                  onChanged: (value) => toggleTool(entry.key, value),
+                ),
+              ],
           ],
         ),
       ],
     );
+  }
+
+  IconData _iconForTool(String toolId) {
+    switch (toolId) {
+      case LocalToolNames.timeInfo:
+        return Lucide.clock;
+      case LocalToolNames.clipboard:
+        return Lucide.Clipboard;
+      case LocalToolNames.textToSpeech:
+        return Lucide.Volume2;
+      case LocalToolNames.askUser:
+        return Lucide.MessageCircleQuestionMark;
+      case LocalToolNames.calculate:
+        return Lucide.Calculator;
+      case LocalToolNames.apkReport:
+        return Lucide.FileText;
+      case LocalToolNames.apkSkill:
+      case LocalToolNames.apkKnowledge:
+        return Lucide.BookOpen;
+      case LocalToolNames.installedSkills:
+        return Lucide.Sparkles;
+      case LocalToolNames.agentRuntimeGuide:
+        return Lucide.ListOrdered;
+      case LocalToolNames.apkProjectInfo:
+      case LocalToolNames.apkRecordPatchVerification:
+        return Lucide.Shield;
+      case LocalToolNames.apkRules:
+        return Lucide.Database;
+      case LocalToolNames.apkPatchDex:
+      case LocalToolNames.apkPatchManifest:
+        return Lucide.Wrench;
+      case LocalToolNames.apkAnalyzeWorkspace:
+        return Lucide.Search;
+      case LocalToolNames.apkToolMap:
+        return Lucide.ListOrdered;
+      case LocalToolNames.dexXref:
+        return Lucide.Link2;
+      case LocalToolNames.apkPatchMemory:
+      case LocalToolNames.apkSavePatchMemory:
+        return Lucide.History;
+      case LocalToolNames.apkNoteRead:
+      case LocalToolNames.apkNoteWrite:
+        return Lucide.NotebookTabs;
+      case LocalToolNames.apkListWorkspace:
+        return Lucide.Folder;
+      case LocalToolNames.apkListBuilds:
+        return Lucide.FolderOpen;
+      case LocalToolNames.jadxDecompile:
+      case LocalToolNames.apkRebuild:
+        return Lucide.FileCode2;
+      case LocalToolNames.apkSign:
+        return Lucide.PenLine;
+      case LocalToolNames.dexSearch:
+      case LocalToolNames.stringScan:
+        return Lucide.ScanSearch;
+      case LocalToolNames.classOutline:
+        return Lucide.ListTree;
+      case LocalToolNames.smaliRead:
+        return Lucide.FileText;
+      case LocalToolNames.soAnalyze:
+        return Lucide.Cpu;
+      case LocalToolNames.file:
+        return Lucide.Files;
+      case LocalToolNames.routeTask:
+        return Lucide.Workflow;
+      default:
+        return Lucide.Wrench;
+    }
   }
 }
 

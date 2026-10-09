@@ -1,27 +1,22 @@
-/// Zhipu GLM-OCR Layout Parsing
-///
-/// Official GLM-OCR uses `/layout_parsing` with `{model, file}`, not Chat Completions.
-/// This module provides the standalone request/response handling for that endpoint.
-///
-/// When integrated as part of chat_api_service.dart, it can access _apiModelId,
-/// _apiKeyForRequest, _customHeaders etc. directly.
-/// For now, it accepts ProviderConfig and modelId from the caller.
-library;
-
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:http/http.dart' as http;
+
 import '../../../models/token_usage.dart';
-import '../../model_override_payload_parser.dart';
 import '../../../providers/settings_provider.dart';
+import '../chat_api_helpers.dart';
+import '../stream/stream_chunk.dart';
+import '../stream/stream_chunk_emit.dart';
+import '../stream/stream_chunk_ids.dart';
 
 const String officialGlmOcrModelId = 'glm-ocr';
 
-/// Check if this provider/config combination should use Zhipu layout parsing.
+/// Official GLM-OCR uses `/layout_parsing` with `{model, file}`, not Chat Completions.
 bool shouldUseZhipuLayoutParsing(ProviderConfig config, String modelId) {
   return isOfficialZhipuHost(config) &&
-      isOfficialGlmOcrModel(_apiModelIdSafe(config, modelId));
+      isOfficialGlmOcrModel(apiModelId(config, modelId));
 }
 
 bool isOfficialZhipuHost(ProviderConfig config) {
@@ -33,43 +28,7 @@ bool isOfficialGlmOcrModel(String modelId) {
   return modelId.trim().toLowerCase() == officialGlmOcrModelId;
 }
 
-String _apiModelIdSafe(ProviderConfig config, String modelId) {
-  final ov = config.modelOverrides[modelId];
-  if (ov != null && ov.apiModelId != null && ov.apiModelId!.isNotEmpty) {
-    return ov.apiModelId!;
-  }
-  return modelId;
-}
-
-String _apiKeyForRequestSafe(ProviderConfig config, String modelId) {
-  final ov = config.modelOverrides[modelId];
-  if (ov != null && ov.apiKey != null && ov.apiKey!.isNotEmpty) {
-    return ov.apiKey!;
-  }
-  final apiKey = config.apiKey;
-  return apiKey.isNotEmpty ? apiKey : 'sk-no-key';
-}
-
-Map<String, String> _customHeadersSafe(
-  ProviderConfig config,
-  String modelId, {
-  Map<String, String>? baseHeaders,
-  Map<String, String>? assistantHeaders,
-}) {
-  final headers = <String, String>{...?baseHeaders};
-  final ov = config.modelOverrides[modelId];
-  if (ov != null) {
-    final customHeaders = ModelOverridePayloadParser.customHeaders(ov);
-    headers.addAll(customHeaders);
-  }
-  if (assistantHeaders != null) {
-    headers.addAll(assistantHeaders);
-  }
-  return headers;
-}
-
-/// Send a Zhipu layout parsing request and return the result as a stream.
-Stream<({String text, TokenUsage? usage})> sendZhipuLayoutParsingStream(
+Stream<StreamChunk> sendZhipuLayoutParsingStream(
   http.Client client,
   ProviderConfig config,
   String modelId,
@@ -84,11 +43,11 @@ Stream<({String text, TokenUsage? usage})> sendZhipuLayoutParsingStream(
   final body = <String, dynamic>{'model': officialGlmOcrModelId, 'file': file};
   final response = await client.post(
     _layoutParsingUrl(config),
-    headers: _customHeadersSafe(
+    headers: customHeaders(
       config,
       modelId,
       baseHeaders: <String, String>{
-        'Authorization': 'Bearer ${_apiKeyForRequestSafe(config, modelId)}',
+        'Authorization': 'Bearer ${apiKeyForRequest(config, modelId)}',
         'Content-Type': 'application/json',
       },
       assistantHeaders: extraHeaders,
@@ -96,9 +55,14 @@ Stream<({String text, TokenUsage? usage})> sendZhipuLayoutParsingStream(
     body: jsonEncode(body),
   );
   final decoded = _decodeLayoutParsingResponse(response);
-  final text = _mdResultsFromResponse(decoded);
+  final ids = StreamChunkIds('finish');
+  yield* emitText(_mdResultsFromResponse(decoded), ids: ids);
   final usage = _usageFromResponse(decoded);
-  yield (text: text, usage: usage);
+  yield* emitFinish(
+    ids: ids,
+    usage: usage,
+    totalTokens: usage?.totalTokens ?? 0,
+  );
 }
 
 Uri _layoutParsingUrl(ProviderConfig config) {
@@ -160,25 +124,7 @@ Future<String?> _encodeLayoutParsingFile(String source) async {
       trimmed.startsWith('data:')) {
     return trimmed;
   }
-  // Try to encode as base64 data URL
-  try {
-    final file = File(trimmed);
-    if (await file.exists()) {
-      final bytes = await file.readAsBytes();
-      final base64Str = base64Encode(bytes);
-      final ext = trimmed.split('.').last.toLowerCase();
-      final mime = switch (ext) {
-        'jpg' || 'jpeg' => 'image/jpeg',
-        'png' => 'image/png',
-        'gif' => 'image/gif',
-        'webp' => 'image/webp',
-        'pdf' => 'application/pdf',
-        _ => 'application/octet-stream',
-      };
-      return 'data:$mime;base64,$base64Str';
-    }
-  } catch (_) {}
-  return null;
+  return tryEncodeBase64DataUrl(trimmed);
 }
 
 Map<String, dynamic> _decodeLayoutParsingResponse(http.Response response) {

@@ -3,11 +3,12 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
-import '../models/backup.dart';
-import '../database/business_repository.dart';
 import '../database/business_preferences.dart';
+import '../database/business_repository.dart';
+import '../models/backup.dart';
 import '../services/chat/chat_service.dart';
 import '../services/backup/backup_cancel_token.dart';
+import '../services/backup/backup_task_progress.dart';
 import '../services/backup/data_sync.dart';
 
 class BackupProvider extends ChangeNotifier {
@@ -15,30 +16,28 @@ class BackupProvider extends ChangeNotifier {
   WebDavConfig _cfg;
   bool _busy = false;
   String? _message;
-  BackupCancelToken? _activeCancelToken;
+
   BackupProvider({
     required ChatService chatService,
-    BusinessRepository? businessRepository,
-    BusinessPreferences? businessPreferences,
+    required BusinessRepository businessRepository,
+    required BusinessPreferences businessPreferences,
     WebDavConfig? initialConfig,
   }) : _dataSync = DataSync(
          chatService: chatService,
-         businessRepository: businessRepository!,
+         businessRepository: businessRepository,
          businessPreferences: businessPreferences,
        ),
        _cfg = initialConfig ?? const WebDavConfig();
+
   WebDavConfig get config => _cfg;
   bool get busy => _busy;
   String? get message => _message;
-  /// Whether a backup/restore is currently cancellable.
-  bool get canCancel => _activeCancelToken != null && !_activeCancelToken!.isCancelled;
+  int get skippedConversations =>
+      _dataSync.lastMergeReport?.skippedConversations ?? 0;
+
   void updateConfig(WebDavConfig cfg) {
     _cfg = cfg;
     notifyListeners();
-  }
-  /// Request cancellation of the active backup/restore operation.
-  void cancelActiveOperation() {
-    _activeCancelToken?.cancel();
   }
 
   Future<void> test() async {
@@ -56,21 +55,27 @@ class BackupProvider extends ChangeNotifier {
     }
   }
 
-  Future<bool> backup() async {
+  Future<bool> backup({
+    BackupProgressSink? onProgress,
+    BackupCancelToken? cancelToken,
+  }) async {
     _busy = true;
     _message = null;
-    _activeCancelToken = BackupCancelToken();
     notifyListeners();
     try {
-      await _dataSync.backupToWebDav(_cfg);
+      await _dataSync.backupToWebDav(
+        _cfg,
+        onProgress: onProgress,
+        cancelToken: cancelToken,
+      );
       _message = 'Backup uploaded';
       return true;
     } catch (e) {
+      if (e is BackupCancelledException) rethrow;
       _message = e.toString();
       return false;
     } finally {
       _busy = false;
-      _activeCancelToken = null;
       notifyListeners();
     }
   }
@@ -78,25 +83,43 @@ class BackupProvider extends ChangeNotifier {
   Future<void> restoreFromItem(
     BackupFileItem item, {
     RestoreMode mode = RestoreMode.overwrite,
+    BackupProgressSink? onProgress,
+    BackupCancelToken? cancelToken,
+    bool allowUnverifiedForwardCompatible = false,
+    ForwardCompatibilityPrompt? onForwardCompatibility,
   }) async {
     _busy = true;
     _message = null;
-    _activeCancelToken = BackupCancelToken();
     notifyListeners();
     try {
-      await _dataSync.restoreFromWebDav(_cfg, item, mode: mode);
+      await _dataSync.restoreFromWebDav(
+        _cfg,
+        item,
+        mode: mode,
+        onProgress: onProgress,
+        cancelToken: cancelToken,
+        allowUnverifiedForwardCompatible: allowUnverifiedForwardCompatible,
+        onForwardCompatibility: onForwardCompatibility,
+      );
       _message = 'Restored';
     } catch (e) {
       _message = e.toString();
+      rethrow;
     } finally {
       _busy = false;
-      _activeCancelToken = null;
       notifyListeners();
     }
   }
 
-  Future<List<BackupFileItem>> listRemote() async {
-    return _dataSync.listBackupFiles(_cfg);
+  Future<List<BackupFileItem>> listRemote({
+    BackupProgressSink? onProgress,
+    BackupCancelToken? cancelToken,
+  }) async {
+    return _dataSync.listBackupFiles(
+      _cfg,
+      onProgress: onProgress,
+      cancelToken: cancelToken,
+    );
   }
 
   Future<List<BackupFileItem>> deleteAndReload(BackupFileItem item) async {
@@ -104,9 +127,29 @@ class BackupProvider extends ChangeNotifier {
     return _dataSync.listBackupFiles(_cfg);
   }
 
-  Future<File> exportToFile() => _dataSync.exportToFile(_cfg);
+  Future<File> exportToFile({
+    BackupProgressSink? onProgress,
+    BackupCancelToken? cancelToken,
+  }) => _dataSync.exportToFile(
+    _cfg,
+    onProgress: onProgress,
+    cancelToken: cancelToken,
+  );
+
   Future<void> restoreFromLocalFile(
     File file, {
     RestoreMode mode = RestoreMode.overwrite,
-  }) => _dataSync.restoreFromLocalFile(file, _cfg, mode: mode);
+    BackupProgressSink? onProgress,
+    BackupCancelToken? cancelToken,
+    bool allowUnverifiedForwardCompatible = false,
+    ForwardCompatibilityPrompt? onForwardCompatibility,
+  }) => _dataSync.restoreFromLocalFile(
+    file,
+    _cfg,
+    mode: mode,
+    onProgress: onProgress,
+    cancelToken: cancelToken,
+    allowUnverifiedForwardCompatible: allowUnverifiedForwardCompatible,
+    onForwardCompatibility: onForwardCompatibility,
+  );
 }

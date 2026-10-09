@@ -1,14 +1,14 @@
 import 'dart:convert';
 
-import 'package:solab/core/database/app_database.dart';
-import 'package:solab/core/database/business_preferences.dart';
-import 'package:solab/core/database/business_repository.dart';
-import 'package:solab/core/models/memory_entry.dart';
-import 'package:solab/core/services/memory/memory_block_builder.dart';
-import 'package:solab/core/services/memory/memory_repository.dart';
-import 'package:solab/features/solab_apk/services/apk_patch_memory_service.dart';
-import 'package:solab/features/solab_apk/services/apk_patch_note_service.dart';
-import 'package:solab/features/solab_apk/services/apk_memory_distill_service.dart';
+import 'package:Kelivo/core/database/app_database.dart';
+import 'package:Kelivo/core/database/business_preferences.dart';
+import 'package:Kelivo/core/database/business_repository.dart';
+import 'package:Kelivo/core/models/memory_entry.dart';
+import 'package:Kelivo/core/services/memory/memory_block_builder.dart';
+import 'package:Kelivo/core/services/memory/memory_repository.dart';
+import 'package:Kelivo/features/solab_apk/services/apk_patch_memory_service.dart';
+import 'package:Kelivo/features/solab_apk/services/apk_patch_note_service.dart';
+import 'package:Kelivo/features/solab_apk/services/apk_memory_distill_service.dart';
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';

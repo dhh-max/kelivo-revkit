@@ -1,9 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:solab/core/models/message_part.dart';
-import 'package:solab/core/providers/settings_provider.dart';
-import 'package:solab/core/services/api/chat_api_service.dart';
+import 'package:Kelivo/core/models/message_part.dart';
+import 'package:Kelivo/core/providers/settings_provider.dart';
+import 'package:Kelivo/core/services/api/chat_api_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 ProviderConfig _openAIConfig(String baseUrl) {

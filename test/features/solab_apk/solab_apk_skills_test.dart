@@ -2,10 +2,10 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/core/models/assistant.dart';
-import 'package:solab/core/services/local_tools/local_tool_names.dart';
-import 'package:solab/features/solab_apk/services/solab_apk_skills.dart';
-import 'package:solab/features/home/services/local_tools_service.dart';
+import 'package:Kelivo/core/models/assistant.dart';
+import 'package:Kelivo/core/services/local_tools/local_tool_names.dart';
+import 'package:Kelivo/features/solab_apk/services/solab_apk_skills.dart';
+import 'package:Kelivo/features/home/services/local_tools_service.dart';
 
 void main() {
   test('reverse playbook exposes mapped rules and verification boundaries', () {

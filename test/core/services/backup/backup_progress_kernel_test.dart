@@ -4,9 +4,27 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/core/services/backup/backup_cancel_token.dart';
-import 'package:solab/core/services/backup/backup_isolate_runner.dart';
-import 'package:solab/core/services/backup/backup_task_progress.dart';
+import 'package:Kelivo/core/services/backup/backup_cancel_token.dart';
+import 'package:Kelivo/core/services/backup/backup_isolate_runner.dart';
+import 'package:Kelivo/core/services/backup/backup_task_progress.dart';
+
+/// 删除测试写的 marker 文件，容错 Windows 上仍未释放的句柄。
+///
+/// isolate 在 `finally` 里写这些文件，用例结束时它可能还没退出，删除会抛
+/// `PathAccessException`（errno 32）。清理失败只意味着临时文件留给系统回收，
+/// 不影响任何断言，所以不当作测试失败。
+Future<void> _deleteMarkerBestEffort(File file) async {
+  for (var attempt = 0; attempt < 20; attempt++) {
+    if (!await file.exists()) return;
+    try {
+      await file.delete();
+      return;
+    } on PathAccessException {
+      if (attempt == 19) return;
+      await Future<void>.delayed(const Duration(milliseconds: 25));
+    }
+  }
+}
 
 void main() {
   group('BackupProgress', () {
@@ -361,9 +379,9 @@ void main() {
         );
         if (closedMarker.existsSync()) closedMarker.deleteSync();
         final resumedMarker = File('${closedMarker.path}.resumed');
-        addTearDown(() {
-          if (closedMarker.existsSync()) closedMarker.deleteSync();
-          if (resumedMarker.existsSync()) resumedMarker.deleteSync();
+        addTearDown(() async {
+          await _deleteMarkerBestEffort(closedMarker);
+          await _deleteMarkerBestEffort(resumedMarker);
         });
 
         debugOnInterruptSqliteHandle = (_) {};
@@ -427,9 +445,7 @@ void main() {
           '${Directory.systemTemp.path}/kelivo_sqlite_closed_${DateTime.now().microsecondsSinceEpoch}.marker',
         );
         if (closedMarker.existsSync()) closedMarker.deleteSync();
-        addTearDown(() {
-          if (closedMarker.existsSync()) closedMarker.deleteSync();
-        });
+        addTearDown(() => _deleteMarkerBestEffort(closedMarker));
 
         final interrupted = <int>[];
         debugOnInterruptSqliteHandle = (address) {

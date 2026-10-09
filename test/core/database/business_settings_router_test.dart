@@ -2,9 +2,9 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/core/database/business_data.dart';
-import 'package:solab/core/database/business_settings_router.dart';
-import 'package:solab/core/models/assistant_memory.dart';
+import 'package:Kelivo/core/database/business_data.dart';
+import 'package:Kelivo/core/database/business_settings_router.dart';
+import 'package:Kelivo/core/models/assistant_memory.dart';
 
 Map<String, Object?> _completeEntityRowIds({
   String? sourceKey,
@@ -52,12 +52,20 @@ void main() {
           BusinessKeyDisposition.localOnly,
         );
         expect(
+          BusinessKeyRegistry.classify('linux_hide_title_bar_v1'),
+          BusinessKeyDisposition.localOnly,
+        );
+        expect(
           BusinessKeyRegistry.classify('pinned_chat_ids'),
           BusinessKeyDisposition.discarded,
         );
         expect(
           BusinessKeyRegistry.classify('plugin_future_key_v1'),
           BusinessKeyDisposition.unknownPreference,
+        );
+        expect(
+          BusinessKeyRegistry.classify('reasoning_choice_by_model_v1'),
+          BusinessKeyDisposition.preference,
         );
       },
     );
@@ -89,7 +97,8 @@ void main() {
           'providers_order_v1': <String>['first', 'orphan'],
           'theme_mode_v1': 'dark',
           'use_dynamic_color_v1': false,
-          'thinking_budget_v1': 4096,
+          'reasoning_choice_by_model_v1':
+              '{"OpenAI::gpt-test":{"level":"high","budgetTokens":32000}}',
           'tts_speech_rate_v1': 0.75,
           'pinned_models_v1': jsonEncode(['first/model-a']),
           'plugin_future_key_v1': <String>['one', 'two'],
@@ -591,6 +600,18 @@ void main() {
 
     test('accepts representative runtime payloads for every entity kind', () {
       final snapshot = BusinessSettingsRouter.normalizeAndRoute({
+        'workspaces_v1': jsonEncode([
+          {'id': 'workspace-1', 'name': 'Project'},
+        ]),
+        'skills_v1': jsonEncode([
+          {
+            'id': 'skill-1',
+            'source': 'file',
+            'enabled': false,
+            'installedAt': '2026-09-08T00:00:00Z',
+            'updatedAt': '2026-09-08T00:00:00Z',
+          },
+        ]),
         'assistants_v1': jsonEncode([
           {
             'id': 'assistant-1',
@@ -702,6 +723,24 @@ void main() {
       );
     });
 
+    test('preserves optional boolean provider prompt cache key settings', () {
+      for (final fields in <Map<String, Object?>>[
+        {},
+        {'promptCacheKeyEnabled': null},
+        {'promptCacheKeyEnabled': false},
+        {'promptCacheKeyEnabled': true},
+      ]) {
+        final provider = {'id': 'provider-1', ...fields};
+        final snapshot = BusinessSettingsRouter.normalizeAndRoute({
+          'provider_configs_v1': jsonEncode({'provider-1': provider}),
+        });
+        final exported = BusinessSettingsRouter.exportSnapshot(snapshot);
+        final providers =
+            jsonDecode(exported['provider_configs_v1']! as String) as Map;
+        expect(providers['provider-1'], provider);
+      }
+    });
+
     test('rejects entity fields that runtime models cannot decode', () {
       final invalidBySourceKey = <String, Object>{
         'assistants_v1': [
@@ -747,6 +786,42 @@ void main() {
       }
     });
 
+    test('accepts every memory_entry type the schema CHECK allows', () {
+      // 回归锁：schema 9 给 memory_entry_rows.type CHECK 加了 apk_failure，
+      // 但 business_settings_router 的内存校验白名单曾漏加——一旦 apk_failure
+      // 记忆落库，任何 provider load（含 MCP connect 前的 preferences.load）
+      // 都抛 FormatException('memory_entries_v1')，内置 fetch 与外部 MCP
+      // 全部连不上。此处锁定白名单与 CHECK 一致（7 值）。
+      const allTypes = <String>[
+        'identity',
+        'workflow',
+        'voice',
+        'instruction',
+        'apk_patch',
+        'apk_note',
+        'apk_failure',
+      ];
+      for (final type in allTypes) {
+        final snapshot = BusinessSettingsRouter.normalizeAndRoute({
+          'memory_entries_v1': jsonEncode([
+            {
+              'id': 'mem_$type',
+              'scope': 'global',
+              'type': type,
+              'content': 'content for $type',
+              'createdAt': 1786012880106000,
+              'updatedAt': 1786012880106000,
+            },
+          ]),
+        });
+        expect(
+          snapshot.entities[BusinessEntityKind.memoryEntry],
+          hasLength(1),
+          reason: 'type $type should be accepted',
+        );
+      }
+    });
+
     test('rejects a search service without its required type', () {
       expect(
         () => BusinessSettingsRouter.normalizeAndRoute({
@@ -761,6 +836,38 @@ void main() {
             'search_services_v1',
           ),
         ),
+      );
+    });
+
+    test('accepts and preserves Kagi search credentials', () {
+      final snapshot = BusinessSettingsRouter.normalizeAndRoute({
+        'search_services_v1': jsonEncode([
+          {
+            'id': 'kagi-1',
+            'type': 'kagi',
+            'apiKey': 'primary-key',
+            'apiKeys': ['backup-key'],
+          },
+        ]),
+      });
+
+      final exported = BusinessSettingsRouter.exportSnapshot(snapshot);
+      expect(jsonDecode(exported['search_services_v1']! as String), [
+        {
+          'id': 'kagi-1',
+          'type': 'kagi',
+          'apiKey': 'primary-key',
+          'apiKeys': ['backup-key'],
+        },
+      ]);
+
+      expect(
+        () => BusinessSettingsRouter.normalizeAndRoute({
+          'search_services_v1': jsonEncode([
+            {'id': 'kagi-invalid', 'type': 'kagi', 'apiKey': 123},
+          ]),
+        }),
+        throwsA(isA<FormatException>()),
       );
     });
 
@@ -818,5 +925,26 @@ void main() {
         );
       }
     });
+  });
+
+  test('应用自有 Store 的键必须登记为 localOnly（重启不再被清理）', () {
+    // 2026-10-05 数据事故回归锁：这些键由各自 Store 直接读写插件 prefs，
+    // 不登记会被启动清理删掉（工作流/目标/待办/子代理/专家团/运行时绑定）。
+    for (final key in <String>[
+      'workflows_v1',
+      'subagents_v1',
+      'subagent_teams_v1',
+      'session_todos_v1',
+      'session_mode_v1',
+      'session_goals_v1',
+      'runtime_scope_task_v1',
+      'api_install_session_id_v1',
+    ]) {
+      expect(
+        BusinessKeyRegistry.classify(key),
+        BusinessKeyDisposition.localOnly,
+        reason: '$key 未登记 localOnly 就会被启动迁移清理',
+      );
+    }
   });
 }

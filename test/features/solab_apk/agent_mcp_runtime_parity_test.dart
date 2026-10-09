@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/core/providers/assistant_provider.dart';
-import 'package:solab/core/services/local_tools/local_tool_names.dart';
-import 'package:solab/core/services/mcp_server/mcp_http_server.dart';
-import 'package:solab/features/solab_apk/services/apk_agent_policy.dart';
+import 'package:Kelivo/core/providers/assistant_provider.dart';
+import 'package:Kelivo/core/services/local_tools/local_tool_names.dart';
+import 'package:Kelivo/core/services/mcp_server/mcp_http_server.dart';
+import 'package:Kelivo/features/solab_apk/services/apk_agent_policy.dart';
 
 void main() {
   test('Agent 与 MCP 原样复用同一判断和结果预算契约', () {

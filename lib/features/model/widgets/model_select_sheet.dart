@@ -7,25 +7,41 @@ import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import '../../../core/providers/settings_provider.dart';
 import '../../../core/providers/model_provider.dart';
 import '../../../core/providers/assistant_provider.dart';
+import '../../../core/services/chat/chat_service.dart';
 import '../../../icons/lucide_adapter.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'model_detail_sheet.dart';
+import '../../../desktop/model_spec_edit_dialog.dart';
+import '../../../shared/responsive/screen_type_helper.dart';
+import '../pages/model_spec_edit_page.dart';
 import '../../provider/pages/provider_detail_page.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../utils/brand_assets.dart';
 import '../../../utils/provider_grouping_logic.dart';
 import '../../../shared/widgets/ios_tactile.dart';
 import '../../../shared/widgets/model_tag_wrap.dart';
-import '../../../desktop/desktop_home_page.dart' show DesktopHomePage;
+import '../../home/controllers/home_page_controller.dart';
+import '../../home/utils/model_display_helper.dart';
 import '../../provider/widgets/provider_avatar.dart';
 import '../../provider/widgets/provider_balance_badge.dart';
-import '../../../core/services/model_override_resolver.dart';
+import '../../../core/services/model_spec/model_spec_resolver.dart';
 import '../../../theme/app_font_weights.dart';
+import 'package:Kelivo/shared/widgets/section_card.dart';
+import 'package:Kelivo/theme/app_semantic_colors.dart';
 
 class ModelSelection {
   final String providerKey;
   final String modelId;
-  ModelSelection(this.providerKey, this.modelId);
+  const ModelSelection(this.providerKey, this.modelId);
+
+  /// "Clear the override and follow the tier above" — the assistant's model,
+  /// then the global default.
+  ///
+  /// A real model always has a non-empty provider key and id, so empty strings
+  /// are a safe sentinel. Only a picker opened with `allowInherit: true` can
+  /// return this.
+  const ModelSelection.inherit() : providerKey = '', modelId = '';
+
+  bool get isInherit => providerKey.isEmpty || modelId.isEmpty;
 }
 
 // Prevent re-entrant model selector dialogs
@@ -33,12 +49,11 @@ bool _modelSelectorOpen = false;
 
 // Data class for compute function
 class _ModelProcessingData {
-  final Map<String, dynamic> providerConfigs;
+  final Map<String, ProviderConfig> providerConfigs;
   final Set<String> pinnedModels;
   final String currentModelKey;
   final List<String> providersOrder;
   final String? limitProviderKey;
-  final bool disableResolverPlatformLogging;
 
   _ModelProcessingData({
     required this.providerConfigs,
@@ -46,7 +61,6 @@ class _ModelProcessingData {
     required this.currentModelKey,
     required this.providersOrder,
     this.limitProviderKey,
-    required this.disableResolverPlatformLogging,
   });
 }
 
@@ -86,12 +100,7 @@ List<String> _buildDisplayProvidersOrder(
   );
 }
 
-// Static function for compute - must be top-level
 _ModelProcessingResult _processModelsInBackground(_ModelProcessingData data) {
-  if (data.disableResolverPlatformLogging) {
-    ModelOverrideResolver.setPlatformLoggingEnabled(false);
-    ModelOverrideResolver.setUnknownValueLoggingEnabled(false);
-  }
   final providers = data.limitProviderKey == null
       ? data.providerConfigs
       : {
@@ -100,55 +109,25 @@ _ModelProcessingResult _processModelsInBackground(_ModelProcessingData data) {
                 data.providerConfigs[data.limitProviderKey]!,
         };
 
-  // Build data map: providerKey -> (displayName, models)
   final Map<String, _ProviderGroup> groups = {};
 
   providers.forEach((key, cfg) {
-    // Skip disabled providers entirely so they can't be selected
-    if (!(cfg['enabled'] as bool)) return;
-    final models = cfg['models'] as List<dynamic>? ?? [];
-    if (models.isEmpty) return;
+    if (!cfg.enabled) return;
+    if (cfg.models.isEmpty) return;
 
-    final name = (cfg['name'] as String?) ?? '';
-    final overrides =
-        (cfg['overrides'] as Map?)?.map((k, v) => MapEntry(k.toString(), v)) ??
-        const <String, dynamic>{};
+    final name = cfg.name;
     final list = <_ModelItem>[
-      for (final id in models)
+      for (final mid in cfg.models)
         () {
-          final String mid = id.toString();
-          final rawOv = overrides[mid];
-          final Map<String, dynamic>? ov = rawOv is Map
-              ? {for (final e in rawOv.entries) e.key.toString(): e.value}
-              : null;
-          // Use upstream/api model id for inference when available so that
-          // brand assets and default capabilities stay accurate even when the
-          // logical key is a custom alias.
-          String baseId = mid;
-          if (ov != null) {
-            final raw = (ov['apiModelId'] ?? ov['api_model_id'])
-                ?.toString()
-                .trim();
-            if (raw != null && raw.isNotEmpty) baseId = raw;
-          }
-          ModelInfo base = ModelRegistry.infer(
-            ModelInfo(id: baseId, displayName: baseId),
-          );
-          if (ov != null) {
-            base = ModelOverrideResolver.applyModelOverride(
-              base,
-              ov,
-              applyDisplayName: true,
-            );
-          }
+          final spec = ModelSpecResolver.instance.spec(cfg, mid);
           return _ModelItem(
             providerKey: key,
             providerName: name.isNotEmpty ? name : key,
             id: mid,
-            info: base,
+            info: spec,
             pinned: data.pinnedModels.contains('$key::$mid'),
             selected: data.currentModelKey == '$key::$mid',
-            asset: _assetForNameStatic(baseId),
+            asset: _assetForNameStatic(spec.upstreamId),
           );
         }(),
     ];
@@ -169,14 +148,19 @@ _ModelProcessingResult _processModelsInBackground(_ModelProcessingData data) {
     if (g == null) continue;
     final found = g.items.firstWhere(
       (e) => e.id == mid,
-      orElse: () => _ModelItem(
-        providerKey: pk,
-        providerName: g.name,
-        id: mid,
-        info: ModelRegistry.infer(ModelInfo(id: mid, displayName: mid)),
-        pinned: true,
-        selected: data.currentModelKey == '$pk::$mid',
-      ),
+      orElse: () {
+        final cfg = data.providerConfigs[pk];
+        return _ModelItem(
+          providerKey: pk,
+          providerName: g.name,
+          id: mid,
+          info: cfg == null
+              ? ModelSpec(id: mid, displayName: mid)
+              : ModelSpecResolver.instance.spec(cfg, mid),
+          pinned: true,
+          selected: data.currentModelKey == '$pk::$mid',
+        );
+      },
     );
     favItems.add(found.copyWith(pinned: true));
   }
@@ -197,11 +181,20 @@ _ModelProcessingResult _processModelsInBackground(_ModelProcessingData data) {
   );
 }
 
+/// Opens the model picker and returns the chosen model.
+///
+/// With [allowInherit] the sheet shows a "follow the tier above" BUTTON at the
+/// top, labelled [inheritLabel]; pressing it returns [ModelSelection.inherit].
+/// It carries no selected state — [initialProviderKey] and [initialModelId]
+/// should name the model actually in effect, so the checkmark answers "which
+/// model is this using?" whether or not an override is set.
 Future<ModelSelection?> showModelSelector(
   BuildContext context, {
   String? limitProviderKey,
   String? initialProviderKey,
   String? initialModelId,
+  bool allowInherit = false,
+  String? inheritLabel,
 }) async {
   if (_modelSelectorOpen) return null;
   _modelSelectorOpen = true;
@@ -216,13 +209,14 @@ Future<ModelSelection?> showModelSelector(
         limitProviderKey: limitProviderKey,
         initialProviderKey: initialProviderKey,
         initialModelId: initialModelId,
+        allowInherit: allowInherit,
+        inheritLabel: inheritLabel,
       );
     }
-    final cs = Theme.of(context).colorScheme;
     return await showModalBottomSheet<ModelSelection>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -230,6 +224,8 @@ Future<ModelSelection?> showModelSelector(
         limitProviderKey: limitProviderKey,
         initialProviderKey: initialProviderKey,
         initialModelId: initialModelId,
+        allowInherit: allowInherit,
+        inheritLabel: inheritLabel,
       ),
     );
   } finally {
@@ -237,30 +233,106 @@ Future<ModelSelection?> showModelSelector(
   }
 }
 
+/// Opens a configured background model, or the model the current chat actually
+/// uses when that background task is set to follow the chat.
+Future<ModelSelection?> showModelSelectorWithCurrentChatFallback(
+  BuildContext context, {
+  String? initialProviderKey,
+  String? initialModelId,
+}) {
+  if (initialProviderKey != null && initialModelId != null) {
+    return showModelSelector(
+      context,
+      initialProviderKey: initialProviderKey,
+      initialModelId: initialModelId,
+    );
+  }
+
+  final settings = context.read<SettingsProvider>();
+  final chats = context.read<ChatService>();
+  final conversationId = chats.currentConversationId;
+  final conversation = conversationId == null
+      ? null
+      : chats.getConversation(conversationId);
+  final assistants = context.read<AssistantProvider>();
+  final assistantId = conversation?.assistantId;
+  final assistant = assistantId != null
+      ? assistants.getById(assistantId)
+      : assistants.currentAssistant;
+  final current = resolveChatModel(
+    settings,
+    conversation: conversation,
+    assistant: assistant,
+  );
+  return showModelSelector(
+    context,
+    initialProviderKey: current.providerKey,
+    initialModelId: current.modelId,
+  );
+}
+
+/// Opens the model picker from the chat UI and pins the choice to the current
+/// conversation.
+///
+/// The chat page deliberately writes conversation scope only: picking a model
+/// here used to rewrite the assistant's default, which changed every other
+/// conversation under that assistant. The assistant's default is edited in
+/// assistant settings and the app-wide default in the default-model page; both
+/// call [showModelSelector] directly.
+///
+/// When the conversation is pinned to a model, the sheet also shows a "follow
+/// assistant" button that clears the pin so the conversation resolves through
+/// assistant -> global default again. It is an action, never an option: the
+/// checkmark always stays on the model actually in use, so opening the sheet
+/// answers "what am I talking to right now?" before anything else.
+///
+/// With [SettingsProvider.perChatModelEnabled] off the pick lands on the
+/// current assistant instead, so every chat under it follows the last model
+/// chosen. There is no pin to undo then, so the "follow assistant" action is
+/// hidden.
 Future<void> showModelSelectSheet(
   BuildContext context, {
-  bool updateAssistant = true,
+  required HomePageController controller,
 }) async {
-  final assistantProvider = context.read<AssistantProvider>();
   final settings = context.read<SettingsProvider>();
-  final sel = await showModelSelector(context);
-  if (sel != null) {
-    if (updateAssistant) {
-      // Update assistant's model instead of global default
-      final assistant = assistantProvider.currentAssistant;
-      if (assistant != null) {
-        await assistantProvider.updateAssistant(
-          assistant.copyWith(
-            chatModelProvider: sel.providerKey,
-            chatModelId: sel.modelId,
-          ),
-        );
-      }
-    } else {
-      // Only update global default when explicitly requested (e.g., from settings)
-      await settings.setCurrentModel(sel.providerKey, sel.modelId);
-    }
+  final assistantProvider = context.read<AssistantProvider>();
+  final assistant = assistantProvider.currentAssistant;
+  final perChat = settings.perChatModelEnabled;
+  final conversation = controller.currentConversation;
+  final resolved = resolveChatModel(
+    settings,
+    conversation: conversation,
+    assistant: assistant,
+  );
+
+  final sel = await showModelSelector(
+    context,
+    // The model this chat actually sends with, whichever layer it came from.
+    initialProviderKey: resolved.providerKey,
+    initialModelId: resolved.modelId,
+    // Nothing to undo when the conversation is already following.
+    allowInherit:
+        perChat &&
+        conversation?.chatModelProvider != null &&
+        conversation?.chatModelId != null,
+  );
+  if (sel == null) return;
+
+  if (!perChat) {
+    if (assistant == null) return;
+    await assistantProvider.updateAssistant(
+      assistant.copyWith(
+        chatModelProvider: sel.providerKey,
+        chatModelId: sel.modelId,
+      ),
+    );
+    return;
   }
+
+  await controller.setConversationModel(
+    providerKey: sel.isInherit ? null : sel.providerKey,
+    modelId: sel.isInherit ? null : sel.modelId,
+  );
 }
 
 class _ModelSelectSheet extends StatefulWidget {
@@ -268,10 +340,14 @@ class _ModelSelectSheet extends StatefulWidget {
     this.limitProviderKey,
     this.initialProviderKey,
     this.initialModelId,
+    this.allowInherit = false,
+    this.inheritLabel,
   });
   final String? limitProviderKey;
   final String? initialProviderKey;
   final String? initialModelId;
+  final bool allowInherit;
+  final String? inheritLabel;
   @override
   State<_ModelSelectSheet> createState() => _ModelSelectSheetState();
 }
@@ -317,30 +393,9 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
   List<String> _orderedKeys = [];
   bool _autoScrolled = false; // ensure we only auto-scroll once per open
 
-  dynamic _sanitizeJsonValue(dynamic value) {
-    if (value == null || value is num || value is bool || value is String) {
-      return value;
-    }
-    if (value is Map) {
-      return {
-        for (final entry in value.entries)
-          entry.key.toString(): _sanitizeJsonValue(entry.value),
-      };
-    }
-    if (value is Iterable) {
-      return [for (final item in value) _sanitizeJsonValue(item)];
-    }
-    return value.toString();
-  }
-
-  Map<String, dynamic> _sanitizeOverrides(Map<String, dynamic> overrides) {
-    return {
-      for (final entry in overrides.entries)
-        entry.key.toString(): _sanitizeJsonValue(entry.value),
-    };
-  }
-
-  Map<String, dynamic> _buildProviderConfigsPayload(SettingsProvider settings) {
+  Map<String, ProviderConfig> _providerConfigsForPicker(
+    SettingsProvider settings,
+  ) {
     final keys = <String>{
       ...settings.providersOrder.where((e) => e.trim().isNotEmpty),
       ...settings.providerConfigs.keys.where((e) => e.trim().isNotEmpty),
@@ -349,17 +404,10 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
         widget.limitProviderKey!.trim().isNotEmpty) {
       keys.add(widget.limitProviderKey!);
     }
-    final out = <String, dynamic>{};
-    for (final key in keys) {
-      final cfg = settings.getProviderConfig(key, defaultName: key);
-      out[key] = {
-        'enabled': cfg.enabled,
-        'name': cfg.name,
-        'models': cfg.models,
-        'overrides': _sanitizeOverrides(cfg.modelOverrides),
-      };
-    }
-    return out;
+    return {
+      for (final key in keys)
+        key: settings.getProviderConfig(key, defaultName: key),
+    };
   }
 
   String _currentModelKey(
@@ -397,11 +445,10 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
     try {
       final settings = context.read<SettingsProvider>();
       final assistantProvider = context.read<AssistantProvider>();
-      final providerConfigs = _buildProviderConfigsPayload(settings);
+      final providerConfigs = _providerConfigsForPicker(settings);
 
       final currentKey = _currentModelKey(settings, assistantProvider);
 
-      // Prepare data for background processing
       final processingData = _ModelProcessingData(
         providerConfigs: providerConfigs,
         pinnedModels: settings.pinnedModels,
@@ -411,11 +458,9 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
           providerConfigs.keys,
         ),
         limitProviderKey: widget.limitProviderKey,
-        disableResolverPlatformLogging: true,
       );
 
-      // Process in background isolate
-      final result = await compute(_processModelsInBackground, processingData);
+      final result = _processModelsInBackground(processingData);
 
       if (mounted) {
         setState(() {
@@ -456,7 +501,7 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
   void _loadModelsSynchronously() {
     final settings = context.read<SettingsProvider>();
     final assistantProvider = context.read<AssistantProvider>();
-    final providerConfigs = _buildProviderConfigsPayload(settings);
+    final providerConfigs = _providerConfigsForPicker(settings);
 
     final currentKey = _currentModelKey(settings, assistantProvider);
 
@@ -469,7 +514,6 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
         providerConfigs.keys,
       ),
       limitProviderKey: widget.limitProviderKey,
-      disableResolverPlatformLogging: false,
     );
 
     final result = _processModelsInBackground(processingData);
@@ -800,8 +844,9 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
               children: [
                 // Fixed header section with rounded corners
                 Container(
+                  key: const ValueKey('model-selector-header'),
                   decoration: BoxDecoration(
-                    color: cs.surface,
+                    color: context.overlaySurface,
                     borderRadius: const BorderRadius.vertical(
                       top: Radius.circular(20),
                     ),
@@ -845,12 +890,7 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
                             _lastQuery = q;
                           },
                           // Ensure high-contrast input text in both themes
-                          style: TextStyle(
-                            color:
-                                Theme.of(context).brightness == Brightness.dark
-                                ? Colors.white
-                                : Colors.black87,
-                          ),
+                          style: TextStyle(color: cs.onSurface),
                           cursorColor: cs.primary,
                           decoration: InputDecoration(
                             hintText: l10n.modelSelectSheetSearchHint,
@@ -898,10 +938,7 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
                               vertical: 12,
                             ),
                             filled: true,
-                            fillColor:
-                                Theme.of(context).brightness == Brightness.dark
-                                ? Colors.white.withValues(alpha: 0.10)
-                                : Colors.white.withValues(alpha: 0.64),
+                            fillColor: context.appColors.surfaceFill,
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(14),
                               borderSide: BorderSide(
@@ -937,7 +974,9 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
                 // Scrollable content
                 Expanded(
                   child: Container(
-                    color: cs.surface, // Ensure background color continuity
+                    key: const ValueKey('model-selector-list'),
+                    // Ensure background color continuity
+                    color: context.overlaySurface,
                     child: _isLoading
                         ? const Center(child: CircularProgressIndicator())
                         : _buildContent(context),
@@ -945,7 +984,9 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
                 ),
                 // Fixed bottom tabs
                 Container(
-                  color: cs.surface, // Ensure background color continuity
+                  key: const ValueKey('model-selector-bottom-tabs'),
+                  // Ensure background color continuity
+                  color: context.overlaySurface,
                   child: _buildBottomTabs(context),
                 ),
               ],
@@ -967,8 +1008,19 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
 
     final Set<String> favMatchedKeys = <String>{};
 
+    // Offered above everything else, and only when not searching: it is an
+    // action, not a search result.
+    if (widget.allowInherit && query.isEmpty) {
+      _rows.add(
+        _InheritRow(
+          widget.inheritLabel ?? l10n.modelSelectSheetFollowAssistant,
+        ),
+      );
+    }
+
     if (widget.limitProviderKey == null) {
-      final pinned = context.watch<SettingsProvider>().pinnedModels;
+      final settings = context.watch<SettingsProvider>();
+      final pinned = settings.pinnedModels;
       if (pinned.isNotEmpty) {
         final favs = <_ModelItem>[];
         for (final k in pinned) {
@@ -984,7 +1036,10 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
               providerKey: pk,
               providerName: g.name,
               id: mid,
-              info: ModelRegistry.infer(ModelInfo(id: mid, displayName: mid)),
+              info: ModelSpecResolver.instance.spec(
+                settings.getProviderConfig(pk),
+                mid,
+              ),
               pinned: true,
               selected: false,
             ),
@@ -1053,7 +1108,9 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
               padding: const EdgeInsets.only(bottom: 12),
               itemBuilder: (context, index) {
                 final row = _rows[index];
-                if (row is _HeaderRow) {
+                if (row is _InheritRow) {
+                  return _inheritTile(context, row);
+                } else if (row is _HeaderRow) {
                   return _sectionHeader(
                     context,
                     row.title,
@@ -1076,7 +1133,7 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
                 right: 0,
                 child: ColoredBox(
                   key: const ValueKey('model-selector-top-seam-cover'),
-                  color: Theme.of(context).colorScheme.surface,
+                  color: context.overlaySurface,
                   child: const SizedBox(height: 1),
                 ),
               ),
@@ -1142,7 +1199,7 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
       right: 0,
       child: DecoratedBox(
         key: const ValueKey('model-selector-sticky-provider'),
-        decoration: BoxDecoration(color: cs.surface),
+        decoration: BoxDecoration(color: context.overlaySurface),
         child: SizedBox(
           height: _stickyProviderHeaderHeight + 1,
           child: ClipRect(
@@ -1250,6 +1307,56 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
     );
   }
 
+  /// Renders the "follow the tier above" row, styled like a model tile so it
+  /// reads as one of the choices.
+  /// Styled as a button rather than a list row: an outlined, accent-tinted
+  /// strip with no checkmark, so it never competes with the model rows for
+  /// "which one am I on".
+  Widget _inheritTile(BuildContext context, _InheritRow row) {
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
+      child: RepaintBoundary(
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: cs.primary.withValues(alpha: 0.32)),
+          ),
+          child: IosCardPress(
+            baseColor: cs.primary.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(14),
+            pressedBlendStrength: 0.10,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            onTap: () =>
+                Navigator.of(context).pop(const ModelSelection.inherit()),
+            child: SizedBox(
+              width: double.infinity,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Lucide.RotateCcw, size: 18, color: cs.primary),
+                  const SizedBox(width: 10),
+                  Flexible(
+                    child: Text(
+                      row.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: cs.primary,
+                        fontWeight: AppFontWeights.semibold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _modelTile(
     BuildContext context,
     _ModelItem m, {
@@ -1263,7 +1370,7 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
         ? (isDark
               ? cs.primary.withValues(alpha: 0.12)
               : cs.primary.withValues(alpha: 0.08))
-        : cs.surface;
+        : sheetTileColor(context);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       child: RepaintBoundary(
@@ -1275,11 +1382,19 @@ class _ModelSelectSheetState extends State<_ModelSelectSheet> {
           onTap: () =>
               Navigator.of(context).pop(ModelSelection(m.providerKey, m.id)),
           onLongPress: () async {
-            await showModelDetailSheet(
-              context,
-              providerKey: m.providerKey,
-              modelId: m.id,
-            );
+            if (ResponsiveHelper.isDesktop(context)) {
+              await showDesktopModelSpecEditDialog(
+                context,
+                providerKey: m.providerKey,
+                modelKey: m.id,
+              );
+            } else {
+              await showModelSpecEditPage(
+                context,
+                providerKey: m.providerKey,
+                modelKey: m.id,
+              );
+            }
             if (mounted) {
               _isLoading = true;
               setState(() {});
@@ -1484,10 +1599,8 @@ class _ProviderChipState extends State<_ProviderChip> {
         ? (isDark
               ? cs.primary.withValues(alpha: 0.08)
               : cs.primary.withValues(alpha: 0.05))
-        : cs.surface;
-    final Color overlay = isDark
-        ? Colors.white.withValues(alpha: 0.06)
-        : Colors.black.withValues(alpha: 0.05);
+        : sheetTileColor(context);
+    final Color overlay = cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05);
     final Color bg = _pressed ? Color.alphaBlend(overlay, baseBg) : baseBg;
     // Slightly stronger border when selected; keep label color unchanged for subtlety
     final Color borderColor =
@@ -1544,7 +1657,7 @@ class _ModelItem {
   final String providerKey;
   final String providerName;
   final String id;
-  final ModelInfo info;
+  final ModelSpec info;
   final bool pinned;
   final bool selected;
   final String? asset; // pre-resolved avatar asset for performance
@@ -1585,6 +1698,15 @@ class _ModelRow extends _ListRow {
   _ModelRow(this.item, {this.showProviderLabel = false});
 }
 
+/// The "follow the tier above" row. Selecting it clears the override rather
+/// than picking a model.
+/// The "follow assistant" action. Deliberately not selectable: it undoes a pin
+/// rather than being one of the things you can pick.
+class _InheritRow extends _ListRow {
+  final String label;
+  _InheritRow(this.label);
+}
+
 // Reuse badges and avatars similar to provider detail
 class _BrandAvatar extends StatelessWidget {
   const _BrandAvatar({required this.name, this.size = 20, this.assetOverride});
@@ -1600,10 +1722,10 @@ class _BrandAvatar extends StatelessWidget {
     Widget inner;
     if (asset != null) {
       if (asset.endsWith('.svg')) {
-        final isColorful = asset.contains('color');
         final dark = Theme.of(context).brightness == Brightness.dark;
-        final ColorFilter? tint = (dark && !isColorful)
-            ? const ColorFilter.mode(Colors.white, BlendMode.srcIn)
+        final ColorFilter? tint =
+            (dark && BrandAssets.assetNeedsDarkInvert(asset))
+            ? ColorFilter.mode(cs.onSurface, BlendMode.srcIn)
             : null;
         inner = SvgPicture.asset(
           asset,
@@ -1633,7 +1755,7 @@ class _BrandAvatar extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: isDark ? Colors.white10 : cs.primary.withValues(alpha: 0.1),
+        color: cs.primary.withValues(alpha: isDark ? 0.18 : 0.1),
         shape: BoxShape.circle,
       ),
       alignment: Alignment.center,
@@ -1649,16 +1771,20 @@ Future<ModelSelection?> _showDesktopModelSelector(
   String? limitProviderKey,
   String? initialProviderKey,
   String? initialModelId,
+  bool allowInherit = false,
+  String? inheritLabel,
 }) async {
   return showGeneralDialog<ModelSelection>(
     context: context,
     barrierDismissible: true,
     barrierLabel: 'model-select-desktop',
-    barrierColor: Colors.black.withValues(alpha: 0.25),
+    barrierColor: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.25),
     pageBuilder: (ctx, _, __) => _DesktopModelSelectDialogBody(
       limitProviderKey: limitProviderKey,
       initialProviderKey: initialProviderKey,
       initialModelId: initialModelId,
+      allowInherit: allowInherit,
+      inheritLabel: inheritLabel,
     ),
     transitionBuilder: (ctx, anim, _, child) {
       final curved = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
@@ -1678,10 +1804,14 @@ class _DesktopModelSelectDialogBody extends StatefulWidget {
     this.limitProviderKey,
     this.initialProviderKey,
     this.initialModelId,
+    this.allowInherit = false,
+    this.inheritLabel,
   });
   final String? limitProviderKey;
   final String? initialProviderKey;
   final String? initialModelId;
+  final bool allowInherit;
+  final String? inheritLabel;
   @override
   State<_DesktopModelSelectDialogBody> createState() =>
       _DesktopModelSelectDialogBodyState();
@@ -1721,30 +1851,9 @@ class _DesktopModelSelectDialogBodyState
     super.dispose();
   }
 
-  dynamic _sanitizeJsonValue(dynamic value) {
-    if (value == null || value is num || value is bool || value is String) {
-      return value;
-    }
-    if (value is Map) {
-      return {
-        for (final entry in value.entries)
-          entry.key.toString(): _sanitizeJsonValue(entry.value),
-      };
-    }
-    if (value is Iterable) {
-      return [for (final item in value) _sanitizeJsonValue(item)];
-    }
-    return value.toString();
-  }
-
-  Map<String, dynamic> _sanitizeOverrides(Map<String, dynamic> overrides) {
-    return {
-      for (final entry in overrides.entries)
-        entry.key.toString(): _sanitizeJsonValue(entry.value),
-    };
-  }
-
-  Map<String, dynamic> _buildProviderConfigsPayload(SettingsProvider settings) {
+  Map<String, ProviderConfig> _providerConfigsForPicker(
+    SettingsProvider settings,
+  ) {
     final keys = <String>{
       ...settings.providersOrder.where((e) => e.trim().isNotEmpty),
       ...settings.providerConfigs.keys.where((e) => e.trim().isNotEmpty),
@@ -1753,17 +1862,10 @@ class _DesktopModelSelectDialogBodyState
         widget.limitProviderKey!.trim().isNotEmpty) {
       keys.add(widget.limitProviderKey!);
     }
-    final out = <String, dynamic>{};
-    for (final key in keys) {
-      final cfg = settings.getProviderConfig(key, defaultName: key);
-      out[key] = {
-        'enabled': cfg.enabled,
-        'name': cfg.name,
-        'models': cfg.models,
-        'overrides': _sanitizeOverrides(cfg.modelOverrides),
-      };
-    }
-    return out;
+    return {
+      for (final key in keys)
+        key: settings.getProviderConfig(key, defaultName: key),
+    };
   }
 
   String _currentModelKey(
@@ -1786,7 +1888,7 @@ class _DesktopModelSelectDialogBodyState
   Future<void> _loadModels() async {
     final settings = context.read<SettingsProvider>();
     final assistantProvider = context.read<AssistantProvider>();
-    final providerConfigs = _buildProviderConfigsPayload(settings);
+    final providerConfigs = _providerConfigsForPicker(settings);
     final currentKey = _currentModelKey(settings, assistantProvider);
 
     final data = _ModelProcessingData(
@@ -1798,7 +1900,6 @@ class _DesktopModelSelectDialogBodyState
         providerConfigs.keys,
       ),
       limitProviderKey: widget.limitProviderKey,
-      disableResolverPlatformLogging: false,
     );
     // Synchronous processing is fast enough here
     final result = _processModelsInBackground(data);
@@ -1856,6 +1957,16 @@ class _DesktopModelSelectDialogBodyState
 
     final Set<String> favMatchedKeys = <String>{};
 
+    // Offered above everything else, and only when not searching: it is an
+    // action, not a search result.
+    if (widget.allowInherit && query.isEmpty) {
+      _rows.add(
+        _InheritRow(
+          widget.inheritLabel ?? l10n.modelSelectSheetFollowAssistant,
+        ),
+      );
+    }
+
     if (widget.limitProviderKey == null) {
       final pinned = settings.pinnedModels;
       if (pinned.isNotEmpty) {
@@ -1873,7 +1984,10 @@ class _DesktopModelSelectDialogBodyState
               providerKey: pk,
               providerName: g.name,
               id: mid,
-              info: ModelRegistry.infer(ModelInfo(id: mid, displayName: mid)),
+              info: ModelSpecResolver.instance.spec(
+                settings.getProviderConfig(pk),
+                mid,
+              ),
               pinned: true,
               selected: false,
             ),
@@ -1945,13 +2059,13 @@ class _DesktopModelSelectDialogBodyState
           maxHeight: 560,
         ),
         child: Material(
-          color: cs.surface,
+          color: context.overlaySurface,
           elevation: 0,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
             side: BorderSide(
               color: isDark
-                  ? Colors.white.withValues(alpha: 0.08)
+                  ? cs.onSurface.withValues(alpha: 0.08)
                   : cs.outlineVariant.withValues(alpha: 0.25),
               width: 1,
             ),
@@ -1964,7 +2078,7 @@ class _DesktopModelSelectDialogBodyState
                 // Body
                 Expanded(
                   child: Container(
-                    color: cs.surface,
+                    color: context.overlaySurface,
                     child: Column(
                       children: [
                         Padding(
@@ -1978,9 +2092,7 @@ class _DesktopModelSelectDialogBodyState
                               hintText: l10n.modelSelectSheetSearchHint,
                               isDense: true,
                               filled: true,
-                              fillColor: isDark
-                                  ? Colors.white10
-                                  : const Color(0xFFF2F3F5),
+                              fillColor: context.appColors.surfaceFill,
                               prefixIcon: Icon(
                                 Lucide.Search,
                                 size: 16,
@@ -2073,7 +2185,9 @@ class _DesktopModelSelectDialogBodyState
       padding: const EdgeInsets.fromLTRB(8, 0, 8, 10),
       itemBuilder: (context, index) {
         final row = _rows[index];
-        if (row is _HeaderRow) {
+        if (row is _InheritRow) {
+          return _desktopInheritTile(context, row);
+        } else if (row is _HeaderRow) {
           if (row.isFavorites) {
             return _favoritesHeader(context, row.title);
           }
@@ -2154,6 +2268,47 @@ class _DesktopModelSelectDialogBodyState
     }
   }
 
+  /// Desktop twin of [_ModelSelectSheetState._inheritTile].
+  Widget _desktopInheritTile(BuildContext context, _InheritRow row) {
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 2, 4, 6),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: cs.primary.withValues(alpha: 0.32)),
+        ),
+        child: IosCardPress(
+          baseColor: cs.primary.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(14),
+          pressedBlendStrength: 0.10,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+          onTap: () =>
+              Navigator.of(context).pop(const ModelSelection.inherit()),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Lucide.RotateCcw, size: 14, color: cs.primary),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  row.label,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    color: cs.primary,
+                    fontWeight: AppFontWeights.semibold,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _desktopModelTile(
     BuildContext context,
     _ModelItem m, {
@@ -2166,7 +2321,7 @@ class _DesktopModelSelectDialogBodyState
         ? (isDark
               ? cs.primary.withValues(alpha: 0.12)
               : cs.primary.withValues(alpha: 0.08))
-        : cs.surface;
+        : sheetTileColor(context);
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
@@ -2201,39 +2356,48 @@ class _DesktopModelSelectDialogBodyState
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            const SizedBox(width: 6),
-            ModelCapsulesRow(
-              model: m.info,
-              pillPadding: const EdgeInsets.symmetric(
-                horizontal: 5,
-                vertical: 2,
-              ),
-              bgOpacityDark: 0.18,
-              bgOpacityLight: 0.14,
-              borderOpacity: 0.22,
-              itemSpacing: 4,
-            ),
-            const SizedBox(width: 4),
-            Builder(
-              builder: (context) {
-                final pinnedNow = context.select<SettingsProvider, bool>(
-                  (s) => s.isModelPinned(m.providerKey, m.id),
-                );
-                final icon = pinnedNow ? Icons.favorite : Icons.favorite_border;
-                return Tooltip(
-                  message: l10n.modelSelectSheetFavoriteTooltip,
-                  child: IosIconButton(
-                    icon: icon,
-                    size: 16,
-                    color: cs.primary,
-                    onTap: () => context
-                        .read<SettingsProvider>()
-                        .togglePinModel(m.providerKey, m.id),
-                    padding: const EdgeInsets.all(3),
-                    minSize: 26,
+            const SizedBox(width: 8),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ModelCapsulesRow(
+                  model: m.info,
+                  alignment: WrapAlignment.end,
+                  pillPadding: const EdgeInsets.symmetric(
+                    horizontal: 5,
+                    vertical: 2,
                   ),
-                );
-              },
+                  bgOpacityDark: 0.18,
+                  bgOpacityLight: 0.14,
+                  borderOpacity: 0.22,
+                  itemSpacing: 4,
+                ),
+                const SizedBox(width: 4),
+                Builder(
+                  builder: (context) {
+                    final pinnedNow = context.select<SettingsProvider, bool>(
+                      (s) => s.isModelPinned(m.providerKey, m.id),
+                    );
+                    final icon = pinnedNow
+                        ? Icons.favorite
+                        : Icons.favorite_border;
+                    return IosIconButton(
+                      key: ValueKey(
+                        'desktop-model-favorite-${m.providerKey}::${m.id}',
+                      ),
+                      icon: icon,
+                      size: 16,
+                      color: cs.primary,
+                      tooltip: l10n.modelSelectSheetFavoriteTooltip,
+                      onTap: () => context
+                          .read<SettingsProvider>()
+                          .togglePinModel(m.providerKey, m.id),
+                      padding: const EdgeInsets.all(3),
+                      minSize: 26,
+                    );
+                  },
+                ),
+              ],
             ),
           ],
         ),
@@ -2314,10 +2478,8 @@ class _DesktopModelSelectDialogBodyState
                   Future.microtask(() {
                     nav.push(
                       PageRouteBuilder(
-                        pageBuilder: (_, __, ___) => DesktopHomePage(
-                          initialTabIndex: 3,
-                          initialProviderKey: providerKey,
-                        ),
+                        // 桌面首页随桌面栈裁剪（Android 端产品）。
+                        pageBuilder: (_, __, ___) => const SizedBox.shrink(),
                         transitionDuration: const Duration(milliseconds: 220),
                         reverseTransitionDuration: const Duration(
                           milliseconds: 200,

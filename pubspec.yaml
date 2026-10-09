@@ -1,5 +1,5 @@
 name: Kelivo
-description: "An LLM chat client."
+description: "SoLab"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -16,8 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 2.0.0+4100
-
+version: 2.5.1+4207
 environment:
   sdk: ^3.12.1
   flutter: ">=3.44.1"
@@ -32,32 +31,26 @@ dependencies:
   flutter:
     sdk: flutter
   logging: ^1.2.0
-  # BitsDojo Window for Windows
-  bitsdojo_window: ^0.1.6
-  window_manager: ^0.5.1
-  screen_retriever: ^0.2.0
-  tray_manager:
-    path: ./dependencies/tray_manager/packages/tray_manager
-  desktop_drop: ^0.7.1
-  hotkey_manager: ^0.2.3
 
   # Localizations for Chinese/English UI strings
   flutter_localizations:
     sdk: flutter
   provider: ^6.0.5
   dynamic_color: ^1.8.1
+  material_color_utilities: ^0.13.0
   lucide_icons_flutter: ^3.1.13
   shared_preferences: ^2.2.3
   image_picker: 1.1.2
   image_cropper: ^12.2.1
   flutter_svg: ^2.2.1
   http: ^1.5.0
+  cupertino_http: ^3.0.2
   crypto: ^3.0.3
-  dio: ^5.9.0
-  ddgs: ^0.3.2
+  hashlib: ^2.4.2
+  ffi: ^2.2.0
+  dio: 5.9.2
   socks5_proxy: ^2.1.1
   jose: ^0.3.4
-  reorderable_grid_view: ^2.2.8
   flutter_slidable: ^3.0.1
   hive: ^2.2.3
   hive_flutter: ^1.1.0
@@ -72,12 +65,10 @@ dependencies:
   file_picker: ^10.3.10
   archive: ^4.0.9
   xml: ^6.5.0
-  yaml: ^3.1.3
   open_filex: ^4.5.0
   easy_image_viewer: ^1.4.6
   share_plus: ^11.1.0
   pretty_qr_code: ^3.5.0
-  mobile_scanner: ^7.0.1
   mcp_client: # ^1.0.2
     path: ./dependencies/mcp_client
   flutter_highlight: ^0.7.0
@@ -86,50 +77,64 @@ dependencies:
   syncfusion_flutter_sliders: ^31.2.5
   syncfusion_flutter_pdf: ^31.2.5
   audioplayers: ^6.5.1
+  record: ^7.1.1
+  # 本地 ASR（上游 1.2.7 的 sherpa 离线识别）。版本与上游对齐，勿单独升。
+  sherpa_onnx: 1.12.20
+  speech_to_text: ^7.4.0
   html: ^0.15.6
   html2md: ^1.2.10
   http_parser: ^4.1.2
   animations: ^2.0.11
   flutter_animate: ^4.5.2
   webview_flutter: ^4.13.1
-  webview_flutter_wkwebview: ^3.25.1
   webview_windows: ^0.4.0
   flutter_math_fork: ^0.7.4
   scrollable_positioned_list: ^0.3.8
-  scrollview_observer: ^1.26.0
+  super_sliver_list: ^0.4.1
   image_gallery_saver_plus: ^4.0.1
   haptic_feedback: ^0.6.4+3
   system_fonts: ^1.0.1
-  google_fonts: ^6.3.2
   super_clipboard: ^0.9.1
   permission_handler: ^12.0.3
   flutter_tts:
     path: ./dependencies/flutter_tts
-  flutter_background: ^1.3.0+1
   flutter_local_notifications: ^17.2.3
   image: ^4.8.0
   downsize:
     path: ./dependencies/downsize
   math_expressions: ^2.6.2
-  encrypt: "5.0.1"
-  file_selector: ^0.9.5
+  yaml: ^3.1.3
 
-  # The following adds the Cupertino Icons font to your application.
-  # Use with the CupertinoIcons class for iOS style icons.
-  cupertino_icons: ^1.0.8
   restart_app: ^1.8.3
   drift: ^2.34.0
   sqlite3: ^3.3.3
-  record: ^7.1.1
-  sherpa_onnx: 1.12.20
-  speech_to_text: ^7.4.0
-  material_color_utilities: ^0.13.0
-  cupertino_http: ^3.0.2
-  ffi: ^2.2.0
-  llama_flutter_android: ^0.2.6
-  super_sliver_list: ^0.4.1
   reel_text: ^0.4.3
   wakelock_plus: ^1.3.3
+  diffutil_dart: ^5.0.0
+  glob: ^2.2.0
+  terminal_view: # ^0.2.1
+    path: ./dependencies/terminal_view
+  vyuh_node_flow: ^0.31.0
+
+  # ---- Kelivo RevKit 新增依赖 ----
+  bitsdojo_window: ^0.1.6
+  window_manager: ^0.5.1
+  screen_retriever: ^0.2.0
+  tray_manager:
+    path: ./dependencies/tray_manager/packages/tray_manager
+  desktop_drop: ^0.7.1
+  hotkey_manager: ^0.2.3
+  ddgs: ^0.3.2
+  reorderable_grid_view: ^2.2.8
+  mobile_scanner: ^7.0.1
+  scrollview_observer: ^1.26.0
+  webview_flutter_wkwebview: ^3.25.1
+  google_fonts: ^6.3.2
+  flutter_background: ^1.3.0+1
+  encrypt: "5.0.1"
+  file_selector: ^0.9.5
+  cupertino_icons: ^1.0.8
+  llama_flutter_android: ^0.2.6
 
 dev_dependencies:
   flutter_test:
@@ -148,18 +153,12 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^5.0.0
+  fake_async: ^1.3.3
 
 dependency_overrides:
   # Prevent the location from being accessed continuously on Windows
   permission_handler_windows:
     path: ./dependencies/flutter-permission-handler/permission_handler_windows
-  # Keep sherpa's federated native packages aligned with the Dart API. Their
-  # caret constraints otherwise resolve newer binaries (macOS 13.4/15.5).
-  sherpa_onnx_android: 1.12.20
-  sherpa_onnx_ios: 1.12.20
-  sherpa_onnx_linux: 1.12.20
-  sherpa_onnx_macos: 1.12.20
-  sherpa_onnx_windows: 1.12.20
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -180,13 +179,29 @@ flutter:
   # To add assets to your application, add an assets section, like this:
   assets:
     - assets/icons/
+    # 大肥鱼逐帧动画（源：QCYTSN/dsh-dafeiyu，MIT）。注意 Flutter 的目录
+    # 资源条目**只含该层文件、不递归**，每个动作目录都要单独列出来。
+    - assets/pet/
+    - assets/pet/idle/
+    - assets/pet/thinking/
+    - assets/pet/success/
+    - assets/pet/error/
+    - assets/pet/dragging/
+    - assets/pet/dragging_release/
+    - assets/pet/poke/
+    - assets/pet/eat_token/
     - assets/app_icon.png
     - assets/app_icon.ico
     - assets/icon_mac.png
+    - assets/relay_logos/
     - assets/mermaid.min.js
     - assets/html/mark.html
-    - assets/relay_logos/
-    # APK 逆向工具包（内置 Operit 侧 3 个工具包 + 角色卡 PNG + 安装说明，2026-10-09 内置）
+    - assets/licenses/
+    - assets/skills/skill-creator/
+    - assets/model_catalog/models_dev.json
+    # APK 逆向工具包 bundle：3 个 Operit 侧 .js 工具包 + 角色卡 PNG + 安装说明，
+    # 作为内置资源随 App 分发。用户可在 App 内查看/导出到 /sdcard/Download/。
+    # 来源：APK逆向工具.zip（2026-10-02 版本）
     - assets/apk_tools/
   #   - images/a_dot_ham.jpeg
 
@@ -223,10 +238,10 @@ flutter:
 
 flutter_launcher_icons:
   android: true
-  ios: true
-  image_path: assets/app_icon_foreground.png
+  ios: false
+  image_path: assets/app_icon.png
   adaptive_icon_background: "#FFFFFF"
-  adaptive_icon_foreground: assets/app_icon_foreground.png
+  adaptive_icon_foreground: assets/app_icon.png
   remove_alpha_ios: true
 
 flutter_native_splash:

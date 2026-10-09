@@ -1,5 +1,5 @@
-import 'package:solab/core/services/mcp/mcp_oauth_callback_io.dart'
-    show createAndroidMcpOAuthCallbackForTesting;
+import 'package:Kelivo/core/services/auth/oauth_callback_io.dart'
+    show createAndroidOAuthCallbackForTesting;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -9,7 +9,7 @@ void main() {
   test('Android OAuth uses a native custom-scheme callback', () async {
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-    const channel = MethodChannel('app.mcp_oauth');
+    const channel = MethodChannel('app.oauth');
     MethodCall? authenticationCall;
     var cancelCalls = 0;
     messenger.setMockMethodCallHandler(channel, (call) async {
@@ -27,7 +27,7 @@ void main() {
       messenger.setMockMethodCallHandler(channel, null);
     });
 
-    final callback = createAndroidMcpOAuthCallbackForTesting(
+    final callback = createAndroidOAuthCallbackForTesting(
       Uri.parse('https://auth.example.com'),
     );
     var fallbackLauncherCalled = false;
@@ -41,7 +41,7 @@ void main() {
     );
     await callback.close();
 
-    expect(callback.redirectUri.scheme, 'zhou.solab');
+    expect(callback.redirectUri.scheme, 'psyche.kelivo');
     expect(callback.redirectUri.host, 'mcp-oauth-callback');
     expect(callback.redirectUri.pathSegments, hasLength(1));
     expect(callback.redirectUri.hasQuery, isFalse);

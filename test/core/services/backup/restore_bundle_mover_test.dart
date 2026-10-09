@@ -5,14 +5,15 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
-import 'package:solab/core/database/chat_database_repository.dart';
-import 'package:solab/core/models/conversation.dart';
-import 'package:solab/core/services/backup/restore_bundle_mover.dart';
-import 'package:solab/core/services/backup/restore_bundle_staging.dart';
-import 'package:solab/core/services/backup/restore_durability.dart';
-import 'package:solab/core/services/backup/restore_previous_builder.dart';
-import 'package:solab/core/services/backup/restore_previous_store.dart';
-import 'package:solab/core/services/backup/restore_receipt.dart';
+import 'package:Kelivo/core/database/chat_database_repository.dart';
+import 'package:Kelivo/core/models/conversation.dart';
+import 'package:Kelivo/core/services/backup/restore_bundle_mover.dart';
+import 'package:Kelivo/core/services/backup/restore_bundle_staging.dart';
+import 'package:Kelivo/core/services/backup/restore_durability.dart';
+import 'package:Kelivo/core/services/backup/restore_previous_builder.dart';
+import 'package:Kelivo/core/services/backup/restore_previous_plan.dart';
+import 'package:Kelivo/core/services/backup/restore_previous_store.dart';
+import 'package:Kelivo/core/services/backup/restore_receipt.dart';
 
 const _runId = '0123456789abcdef0123456789abcdef';
 const _candidateHash =
@@ -317,7 +318,7 @@ Future<_CutoverFixture> _prepareCutoverFixture({
     candidateDatabase,
   );
   final databaseDescriptor = await _manifestDescriptor(candidateDatabase);
-  for (final root in const ['upload', 'images', 'avatars', 'fonts']) {
+  for (final root in RestorePreviousAssetsPlan.rootNames) {
     await Directory(p.join(candidateDirectory.path, root)).create();
   }
   final newUpload = File(p.join(candidateDirectory.path, 'upload', 'new'));

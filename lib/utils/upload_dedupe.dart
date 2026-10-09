@@ -25,10 +25,24 @@ class UploadDedupe {
   /// a freshly created path, so a name that gets deleted and later reused does
   /// not inherit a stale mark.
   static final Set<String> _shared = <String>{};
+  static final Set<String> _deleting = <String>{};
 
   /// Whether anything besides its creator may be pointing at [path]. A caller
   /// that wants to clean up its own copy has to leave shared files alone.
   static bool isShared(String path) => _shared.contains(_key(path));
+
+  /// Removes an unclaimed upload without racing a new dedupe reader. The
+  /// deletion claim and readers' shared marks happen before any await.
+  static Future<void> deleteIfUnshared(String path) async {
+    final key = _key(path);
+    if (_shared.contains(key) || !_deleting.add(key)) return;
+    try {
+      final file = File(path);
+      if (await file.exists()) await file.delete();
+    } finally {
+      _deleting.remove(key);
+    }
+  }
 
   /// Returns the path of a stored file that carries exactly [bytes] and was
   /// saved under [fileName] (or a versioned variant such as "notes(1).txt"),
@@ -42,10 +56,38 @@ class UploadDedupe {
     Uint8List bytes,
     String fileName,
   ) async {
-    if (!await dir.exists()) return null;
+    final candidates = await _sameNameAndSize(dir, bytes.length, fileName);
+    if (candidates.isEmpty) return null;
+    return _firstWithDigest(candidates, await _digestOfBytes(bytes));
+  }
 
-    // Only same-named, same-sized files can match. Collecting them first keeps
-    // the common "nothing alike is stored" case free of any hashing.
+  /// [findIdentical] for a file that was hashed as it streamed to disk, so its
+  /// bytes are no longer in memory. [exclude] is the caller's own copy.
+  static Future<String?> findIdenticalDigest(
+    Directory dir,
+    int size,
+    List<int> digest,
+    String fileName, {
+    String? exclude,
+  }) async {
+    final candidates = await _sameNameAndSize(dir, size, fileName);
+    if (exclude != null) {
+      final key = _key(exclude);
+      candidates.removeWhere((file) => _key(file.path) == key);
+    }
+    if (candidates.isEmpty) return null;
+    return _firstWithDigest(candidates, digest);
+  }
+
+  /// Only same-named, same-sized files can match. Collecting them first keeps
+  /// the common "nothing alike is stored" case free of any hashing.
+  static Future<List<File>> _sameNameAndSize(
+    Directory dir,
+    int size,
+    String fileName,
+  ) async {
+    if (!await dir.exists()) return <File>[];
+
     final files = <File>[];
     final storedNames = <String>{};
     try {
@@ -68,16 +110,21 @@ class UploadDedupe {
       if (!matchesName) continue;
       try {
         final stat = await file.stat();
-        if (stat.size != bytes.length) continue;
+        if (stat.size != size) continue;
       } catch (_) {
         continue;
       }
       candidates.add(file);
     }
-    if (candidates.isEmpty) return null;
+    return candidates;
+  }
 
-    final digest = await _digestOfBytes(bytes);
+  static Future<String?> _firstWithDigest(
+    List<File> candidates,
+    List<int> digest,
+  ) async {
     for (final candidate in candidates) {
+      if (_deleting.contains(_key(candidate.path))) continue;
       // Marked before the read, not after: a concurrent import must not delete
       // this file out from under the stream we are about to open.
       _shared.add(_key(candidate.path));

@@ -1,13 +1,19 @@
-import 'dart:convert';
+import 'memory_audit.dart';
+import 'memory_quality.dart';
+import 'memory_json_utils.dart';
+
+import '../../database/chat_database_repository.dart';
 import '../../models/assistant.dart';
 import '../../models/memory_entry.dart';
-import 'memory_json_utils.dart';
 import 'memory_prompts.dart';
 import 'memory_repository.dart';
 import 'memory_tokenizer.dart';
+import 'memory_tools.dart';
 import 'memory_trace.dart';
+
 /// Smart Add action (§12.6).
 enum SmartAddAction { neu, merge, conflict, skip }
+
 /// Parsed / resolved decision for one candidate item.
 class SmartAddDecision {
   const SmartAddDecision({
@@ -17,12 +23,14 @@ class SmartAddDecision {
     this.relatedIds = const <String>[],
     this.degraded = false,
   });
+
   final SmartAddAction action;
   final String? targetId;
   final String? mergedContent;
   final List<String> relatedIds;
   final bool degraded;
 }
+
 /// Result of applying one Smart Add decision.
 class SmartAddResult {
   const SmartAddResult({
@@ -36,6 +44,7 @@ class SmartAddResult {
   final String? id;
   final String? content;
   final String? reason;
+
   Map<String, dynamic> toToolJson() {
     switch (action) {
       case SmartAddAction.skip:
@@ -58,6 +67,7 @@ class SmartAddResult {
     }
   }
 }
+
 /// Input item for Smart Add (from Extract or `memory_update`).
 class SmartAddItem {
   const SmartAddItem({
@@ -66,17 +76,26 @@ class SmartAddItem {
     required this.scope,
     this.assistantId,
   });
+
   final MemoryType type;
   final String content;
   final MemoryScope scope;
   final String? assistantId;
 }
+
 /// Smart Add: candidate retrieval, LLM judge, NEW/MERGE/CONFLICT/SKIP (§12.6).
 class MemorySmartAdd {
-  MemorySmartAdd({required this.repository});
+  MemorySmartAdd({required this.repository, required this.chatRepository});
+
   final MemoryRepository repository;
+  final ChatDatabaseRepository chatRepository;
 
   static const int candidateLimit = 5;
+  static const _singleProjectRuleZh =
+      '\n\n系统硬约束：同一个 APP、软件或项目只能保留一条同类型长期记忆；命中同一项目时必须 MERGE，禁止 NEW。';
+  static const _singleProjectRuleEn =
+      '\n\nSystem constraint: keep only one long-term memory of the same type per app, software product, or project; when the same project is found, MERGE and never choose NEW.';
+
   static String resolvePerItemTemplate({
     required MemoryPromptLang lang,
     String? overrideZh,
@@ -91,6 +110,7 @@ class MemorySmartAdd {
     if (o != null && o.isNotEmpty) return o;
     return MemoryPrompts.smartAddEn;
   }
+
   static String resolveBatchTemplate({
     required MemoryPromptLang lang,
     String? overrideZh,
@@ -105,6 +125,7 @@ class MemorySmartAdd {
     if (o != null && o.isNotEmpty) return o;
     return MemoryPrompts.smartAddBatchEn;
   }
+
   static String buildPerItemPrompt({
     required MemoryPromptLang lang,
     required MemoryType type,
@@ -113,14 +134,16 @@ class MemorySmartAdd {
     String? overrideZh,
     String? overrideEn,
   }) {
-    return resolvePerItemTemplate(
-          lang: lang,
-          overrideZh: overrideZh,
-          overrideEn: overrideEn,
-        )
-        .replaceAll('{{type}}', MemoryEntry.typeToString(type))
-        .replaceAll('{{newInfo}}', newInfo)
-        .replaceAll('{{entriesText}}', entriesText);
+    final prompt =
+        resolvePerItemTemplate(
+              lang: lang,
+              overrideZh: overrideZh,
+              overrideEn: overrideEn,
+            )
+            .replaceAll('{{type}}', MemoryEntry.typeToString(type))
+            .replaceAll('{{newInfo}}', newInfo)
+            .replaceAll('{{entriesText}}', entriesText);
+    return '$prompt${lang == MemoryPromptLang.zh ? _singleProjectRuleZh : _singleProjectRuleEn}';
   }
 
   static String buildBatchPrompt({
@@ -130,14 +153,17 @@ class MemorySmartAdd {
     String? overrideZh,
     String? overrideEn,
   }) {
-    return resolveBatchTemplate(
-          lang: lang,
-          overrideZh: overrideZh,
-          overrideEn: overrideEn,
-        )
-        .replaceAll('{{itemsText}}', itemsText)
-        .replaceAll('{{entriesText}}', entriesText);
+    final prompt =
+        resolveBatchTemplate(
+              lang: lang,
+              overrideZh: overrideZh,
+              overrideEn: overrideEn,
+            )
+            .replaceAll('{{itemsText}}', itemsText)
+            .replaceAll('{{entriesText}}', entriesText);
+    return '$prompt${lang == MemoryPromptLang.zh ? _singleProjectRuleZh : _singleProjectRuleEn}';
   }
+
   static String formatEntriesPerItem(List<MemoryEntry> entries) {
     if (entries.isEmpty) return '';
     final buf = StringBuffer();
@@ -146,6 +172,7 @@ class MemorySmartAdd {
     }
     return buf.toString().trimRight();
   }
+
   static String formatEntriesBatched(List<MemoryEntry> entries) {
     if (entries.isEmpty) return '';
     final buf = StringBuffer();
@@ -154,6 +181,7 @@ class MemorySmartAdd {
     }
     return buf.toString().trimRight();
   }
+
   static String formatItemsText(List<SmartAddItem> items) {
     final buf = StringBuffer();
     for (var i = 0; i < items.length; i++) {
@@ -164,6 +192,7 @@ class MemorySmartAdd {
     }
     return buf.toString().trimRight();
   }
+
   /// Candidate retrieval (§12.6): OR + hits, pad to 5 with recent same-type.
   Future<List<MemoryEntry>> candidatesFor({
     required String? assistantId,
@@ -172,11 +201,12 @@ class MemorySmartAdd {
   }) async {
     final tokens = MemoryTokenizer.tokenize(newInfo);
     final escaped = [for (final t in tokens) MemoryTokenizer.escapeLike(t)];
+
     var base = <MemoryEntry>[];
     if (escaped.isNotEmpty) {
       // Copy: search may return an unmodifiable const empty list.
       base = List<MemoryEntry>.of(
-        await repository.searchMemories(
+        await chatRepository.searchMemories(
           assistantId: assistantId,
           tokens: escaped,
           type: type,
@@ -185,10 +215,11 @@ class MemorySmartAdd {
         ),
       );
     }
+
     if (base.length >= candidateLimit) return base;
 
     final recent = List<MemoryEntry>.of(
-      await repository.queryVisibleMemories(
+      await chatRepository.queryVisibleMemories(
         assistantId: assistantId,
         type: type,
       ),
@@ -207,8 +238,10 @@ class MemorySmartAdd {
     }
     return base;
   }
-  /// Extract JSON from LLM response. Delegates to [MemoryJsonUtils] (SoLab v2 fusion).
-  static Object? extractJson(String response) => MemoryJsonUtils.extractJson(response);
+
+  static Object? extractJson(String response) =>
+      MemoryJsonUtils.extractJson(response);
+
   static SmartAddAction? _parseAction(dynamic raw) {
     final s = raw?.toString().trim().toUpperCase();
     switch (s) {
@@ -224,11 +257,17 @@ class MemorySmartAdd {
         return null;
     }
   }
+
   /// Validate / degrade one decision against [candidateIds] (§12.6).
+  ///
+  /// [mergeableIds] defaults to [candidateIds]. MERGE/CONFLICT targets must be
+  /// in that set so an assistant-scoped item cannot rewrite a global entry.
+  /// [relatedIds] still filter against the full [candidateIds].
   static SmartAddDecision normalizeDecision(
     SmartAddDecision decision,
-    Set<String> candidateIds,
-  ) {
+    Set<String> candidateIds, {
+    Set<String>? mergeableIds,
+  }) {
     var action = decision.action;
     var targetId = decision.targetId;
     var merged = decision.mergedContent;
@@ -236,8 +275,10 @@ class MemorySmartAdd {
       for (final id in decision.relatedIds)
         if (candidateIds.contains(id)) id,
     ];
+    final mergeTargets = mergeableIds ?? candidateIds;
+
     if (action == SmartAddAction.merge || action == SmartAddAction.conflict) {
-      if (targetId == null || !candidateIds.contains(targetId)) {
+      if (targetId == null || !mergeTargets.contains(targetId)) {
         action = SmartAddAction.neu;
         targetId = null;
         merged = null;
@@ -260,6 +301,7 @@ class MemorySmartAdd {
       degraded: decision.degraded,
     );
   }
+
   /// Parse a per-item JSON response. Null → caller should degrade.
   static SmartAddDecision? parsePerItem(String response) {
     final decoded = extractJson(response);
@@ -285,12 +327,14 @@ class MemorySmartAdd {
       relatedIds: related,
     );
   }
+
   /// Parse batched JSON. Missing indexes are left null for degrade.
   static List<SmartAddDecision?>? parseBatch(String response, int count) {
     final decoded = extractJson(response);
     if (decoded is! Map) return null;
     final results = decoded['results'];
     if (results is! List) return null;
+
     final byIndex = <int, SmartAddDecision>{};
     for (final item in results) {
       if (item is! Map) continue;
@@ -318,6 +362,7 @@ class MemorySmartAdd {
         relatedIds: related,
       );
     }
+
     return [for (var i = 1; i <= count; i++) byIndex[i]];
   }
 
@@ -327,7 +372,7 @@ class MemorySmartAdd {
     required MemoryType type,
     required String content,
   }) async {
-    final exact = await repository.findExactMemory(
+    final exact = await chatRepository.findExactMemory(
       assistantId: visibilityAssistantId,
       type: type,
       contentNormalized: MemoryEntry.normalizeContent(content),
@@ -341,24 +386,75 @@ class MemorySmartAdd {
     }
     return const SmartAddDecision(action: SmartAddAction.neu, degraded: true);
   }
+
+  SmartAddDecision? _deterministicProjectMerge(
+    SmartAddItem item,
+    List<MemoryEntry> candidates,
+  ) {
+    if (item.type != MemoryType.workflow ||
+        !RegExp(
+          r'\bapp\b|software|project|软件|项目|应用',
+          caseSensitive: false,
+        ).hasMatch(item.content)) {
+      return null;
+    }
+    const ignored = <String>{
+      'app',
+      'software',
+      'project',
+      'memory',
+      'workflow',
+    };
+    final tokens = RegExp(r'[A-Za-z][A-Za-z0-9_.-]{3,}')
+        .allMatches(item.content)
+        .map((m) => m.group(0)!.toLowerCase())
+        .where((token) => !ignored.contains(token))
+        .toSet();
+    if (tokens.isEmpty) return null;
+    final matching = candidates.where((entry) {
+      if (entry.scope != item.scope || entry.assistantId != item.assistantId) {
+        return false;
+      }
+      final old = entry.content.toLowerCase();
+      return tokens.any(old.contains);
+    }).toList();
+    if (matching.length != 1) return null;
+    final target = matching.single;
+    final merged = target.content.contains(item.content)
+        ? target.content
+        : '${target.content.trim()}\n${item.content.trim()}';
+    return SmartAddDecision(
+      action: SmartAddAction.merge,
+      targetId: target.id,
+      mergedContent: merged,
+      degraded: true,
+    );
+  }
+
   /// Read an entry's current content, for trace before/after values only.
   Future<String?> _contentBefore(String? id) async {
     if (id == null) return null;
     try {
-      final found = await repository.memoriesByIds([id]);
+      final found = await chatRepository.memoriesByIds([id]);
       return found.isEmpty ? null : found.first.content;
     } catch (_) {
       return null;
     }
   }
+
   Future<SmartAddResult> applyDecision({
     required SmartAddItem item,
     required SmartAddDecision decision,
     required Set<String> candidateIds,
     required MemorySource source,
     MemoryTraceStep? traceStep,
+    Set<String>? mergeableIds,
   }) async {
-    final normalized = normalizeDecision(decision, candidateIds);
+    final normalized = normalizeDecision(
+      decision,
+      candidateIds,
+      mergeableIds: mergeableIds,
+    );
     final typeLabel = MemoryEntry.typeToString(item.type);
     switch (normalized.action) {
       case SmartAddAction.skip:
@@ -368,7 +464,8 @@ class MemorySmartAdd {
           reason: normalized.degraded ? 'duplicate' : null,
         );
       case SmartAddAction.neu:
-        final created = await repository.create(
+        final created = await _createGuarded(
+          repository,
           scope: item.scope,
           assistantId: item.scope == MemoryScope.assistant
               ? item.assistantId
@@ -377,6 +474,7 @@ class MemorySmartAdd {
           content: item.content,
           source: source,
         );
+        if (created == null) return _skipOutcome();
         for (final rid in normalized.relatedIds) {
           await repository.linkBidirectional(created.id, rid);
         }
@@ -428,7 +526,8 @@ class MemorySmartAdd {
         final oldId = normalized.targetId!;
         final before = traceStep == null ? null : await _contentBefore(oldId);
         await repository.archive(oldId);
-        final created = await repository.create(
+        final created = await _createGuarded(
+          repository,
           scope: item.scope,
           assistantId: item.scope == MemoryScope.assistant
               ? item.assistantId
@@ -437,6 +536,7 @@ class MemorySmartAdd {
           content: item.content,
           source: source,
         );
+        if (created == null) return _skipOutcome();
         await repository.linkBidirectional(created.id, oldId);
         for (final rid in normalized.relatedIds) {
           if (rid == oldId) continue;
@@ -466,6 +566,7 @@ class MemorySmartAdd {
         );
     }
   }
+
   /// Run Smart Add for a single item (`memory_update` / perItem mode).
   Future<SmartAddResult> addOne({
     required SmartAddItem item,
@@ -478,7 +579,7 @@ class MemorySmartAdd {
     MemoryTraceStep? traceStep,
   }) async {
     // Fast path: exact duplicate (§12.6).
-    final exact = await repository.findExactMemory(
+    final exact = await chatRepository.findExactMemory(
       assistantId: visibilityAssistantId,
       type: item.type,
       contentNormalized: MemoryEntry.normalizeContent(item.content),
@@ -490,20 +591,42 @@ class MemorySmartAdd {
         reason: 'duplicate',
       );
     }
+
     final candidates = await candidatesFor(
       assistantId: visibilityAssistantId,
       type: item.type,
       newInfo: item.content,
     );
     final candidateIds = {for (final e in candidates) e.id};
+    final mergeableIds = {
+      for (final e in candidates)
+        if (e.scope == item.scope && e.assistantId == item.assistantId) e.id,
+    };
+
+    // 没有任何候选条目：MERGE/CONFLICT/SKIP 都无处可依（精确重复上面已排除），
+    // 结论必然是 NEW——省掉这趟 LLM 往返与降级查询（与 addMany 同口径）。
+    if (candidates.isEmpty) {
+      traceStep?.appendPrompt('<no candidate entries: NEW decided locally>');
+      traceStep?.appendResponse('<local decision: all NEW>');
+      return applyDecision(
+        item: item,
+        decision: const SmartAddDecision(action: SmartAddAction.neu),
+        candidateIds: candidateIds,
+        mergeableIds: mergeableIds,
+        source: source,
+        traceStep: traceStep,
+      );
+    }
 
     SmartAddDecision decision;
     if (llmCall == null) {
-      decision = await degradeDecision(
-        visibilityAssistantId: visibilityAssistantId,
-        type: item.type,
-        content: item.content,
-      );
+      decision =
+          _deterministicProjectMerge(item, candidates) ??
+          await degradeDecision(
+            visibilityAssistantId: visibilityAssistantId,
+            type: item.type,
+            content: item.content,
+          );
     } else {
       final prompt = buildPerItemPrompt(
         lang: lang,
@@ -520,6 +643,7 @@ class MemorySmartAdd {
         final parsed = parsePerItem(raw);
         decision =
             parsed ??
+            _deterministicProjectMerge(item, candidates) ??
             await degradeDecision(
               visibilityAssistantId: visibilityAssistantId,
               type: item.type,
@@ -527,21 +651,26 @@ class MemorySmartAdd {
             );
       } catch (e) {
         traceStep?.appendResponse('<request failed> $e');
-        decision = await degradeDecision(
-          visibilityAssistantId: visibilityAssistantId,
-          type: item.type,
-          content: item.content,
-        );
+        decision =
+            _deterministicProjectMerge(item, candidates) ??
+            await degradeDecision(
+              visibilityAssistantId: visibilityAssistantId,
+              type: item.type,
+              content: item.content,
+            );
       }
     }
+
     return applyDecision(
       item: item,
       decision: decision,
       candidateIds: candidateIds,
+      mergeableIds: mergeableIds,
       source: source,
       traceStep: traceStep,
     );
   }
+
   /// Run Smart Add for multiple items (batched or perItem).
   ///
   /// Returns results in the same order as [items], plus whether any identity
@@ -562,6 +691,7 @@ class MemorySmartAdd {
     if (items.isEmpty) {
       return (results: <SmartAddResult>[], identityChanged: false);
     }
+
     if (mode == MemorySmartAddMode.perItem || llmCall == null) {
       final results = <SmartAddResult>[];
       var identityChanged = false;
@@ -586,16 +716,38 @@ class MemorySmartAdd {
       }
       return (results: results, identityChanged: identityChanged);
     }
+
     // Batched path
     final perItemCandidates = <List<MemoryEntry>>[];
     final union = <String, MemoryEntry>{};
     final decisions = <SmartAddDecision?>[];
-    for (final item in items) {
-      final exact = await repository.findExactMemory(
-        assistantId: visibilityAssistantId,
-        type: item.type,
-        contentNormalized: MemoryEntry.normalizeContent(item.content),
-      );
+
+    // 候选查询并行（每项两条 SQL；过去串行 await，10 项要排 20 次）。
+    // 都是只读查询，互不依赖。
+    final lookups = await Future.wait<
+      ({MemoryEntry? exact, List<MemoryEntry> candidates})
+    >([
+      for (final item in items)
+        () async {
+          final exact = await chatRepository.findExactMemory(
+            assistantId: visibilityAssistantId,
+            type: item.type,
+            contentNormalized: MemoryEntry.normalizeContent(item.content),
+          );
+          if (exact != null) {
+            return (exact: exact, candidates: const <MemoryEntry>[]);
+          }
+          final cands = await candidatesFor(
+            assistantId: visibilityAssistantId,
+            type: item.type,
+            newInfo: item.content,
+          );
+          return (exact: null, candidates: cands);
+        }(),
+    ]);
+
+    for (final lookup in lookups) {
+      final exact = lookup.exact;
       if (exact != null) {
         perItemCandidates.add(const []);
         decisions.add(
@@ -603,17 +755,26 @@ class MemorySmartAdd {
         );
         continue;
       }
-      final cands = await candidatesFor(
-        assistantId: visibilityAssistantId,
-        type: item.type,
-        newInfo: item.content,
-      );
+      final cands = lookup.candidates;
       perItemCandidates.add(cands);
       for (final e in cands) {
         union[e.id] = e;
       }
       decisions.add(null); // to fill from LLM
     }
+
+    // 没有任何候选条目（记忆库为空/该类型还没条目）时，批量判定必然全是 NEW：
+    // MERGE/CONFLICT/SKIP 都需要引用一条已有记忆，而候选集是空的。
+    // 直接跳过这次 LLM 往返（真实体验：冷启动期每个窗口都在这里白等一轮）。
+    if (union.isEmpty && decisions.any((d) => d == null)) {
+      for (var i = 0; i < decisions.length; i++) {
+        decisions[i] ??= const SmartAddDecision(action: SmartAddAction.neu);
+      }
+      // trace 仍要能看到这一段为什么没有 LLM 往返。
+      traceStep?.appendPrompt('<no candidate entries: NEW decided locally>');
+      traceStep?.appendResponse('<local decision: all NEW>');
+    }
+
     final needLlm = decisions.any((d) => d == null);
     List<SmartAddDecision?>? batchParsed;
     if (needLlm) {
@@ -674,11 +835,16 @@ class MemorySmartAdd {
         }
       }
     }
+
     final results = <SmartAddResult>[];
     var identityChanged = false;
     for (var i = 0; i < items.length; i++) {
       final item = items[i];
       final candidateIds = {for (final e in perItemCandidates[i]) e.id};
+      final mergeableIds = {
+        for (final e in perItemCandidates[i])
+          if (e.scope == item.scope && e.assistantId == item.assistantId) e.id,
+      };
       // Also allow relatedIds / targetId from the union for batched mode
       // (entriesText is the union). §12.6: relatedIds not in *candidate set*
       // for that item — use per-item candidates.
@@ -693,6 +859,7 @@ class MemorySmartAdd {
         item: item,
         decision: decision,
         candidateIds: candidateIds,
+        mergeableIds: mergeableIds,
         source: source,
         traceStep: traceStep,
       );
@@ -706,22 +873,42 @@ class MemorySmartAdd {
     }
     return (results: results, identityChanged: identityChanged);
   }
+
   /// Resolve write scope for an Extract item under [policy].
   static MemoryScope resolveScopeForExtracted({
     required MemoryWriteScope policy,
     required String? scopeAttr,
   }) {
-    switch (policy) {
-      case MemoryWriteScope.alwaysGlobal:
-        return MemoryScope.global;
-      case MemoryWriteScope.alwaysAssistant:
-        return MemoryScope.assistant;
-      case MemoryWriteScope.toolDefaultGlobal:
-        if (scopeAttr == 'assistant') return MemoryScope.assistant;
-        return MemoryScope.global;
-      case MemoryWriteScope.toolDefaultAssistant:
-        if (scopeAttr == 'global') return MemoryScope.global;
-        return MemoryScope.assistant;
-    }
+    return MemoryTools.resolveWriteScope(policy, scopeAttr);
   }
 }
+
+/// 带质量闸门的创建：MemoryQualityException → null（跳过，不打断流水线）。
+Future<MemoryEntry?> _createGuarded(
+  MemoryRepository repository, {
+  required MemoryScope scope,
+  String? assistantId,
+  required MemoryType type,
+  required String content,
+  required MemorySource source,
+}) async {
+  // AI 入口质量闸门：长度/噪音/垃圾过滤（MemoryQuality），拒绝→跳过不写入
+  if (MemoryQuality.validate(content) != null) return null;
+  // 安全审计：命中指令注入/凭据/不可见控制字符同样跳过（记忆会注入回上下文）。
+  if (MemoryAudit.inspect(content).blocked) return null;
+  try {
+    return await repository.create(
+      scope: scope,
+      assistantId: assistantId,
+      type: type,
+      content: content,
+      source: source,
+    );
+  } on MemoryQualityException {
+    return null;
+  }
+}
+
+/// 质量拒绝时的统一跳过结果。
+SmartAddResult _skipOutcome() =>
+    SmartAddResult(action: SmartAddAction.skip, reason: 'quality_rejected');

@@ -1,6 +1,7 @@
 # Miscellaneous
 *.class
 *.log
+_tmp_*
 *.pyc
 *.swp
 .DS_Store
@@ -12,15 +13,6 @@
 .svn/
 .swiftpm/
 migrate_working_dir/
-WORKSPACE_CURRENT.md
-
-# Local build/runtime caches kept out of source control
-.android-build-cache/
-.gradle-home/
-.gradle-java-tmp/
-android-sdk-ascii/
-*.apk
-*.aab
 
 # IntelliJ related
 *.iml
@@ -42,11 +34,6 @@ android-sdk-ascii/
 .pub-cache/
 .pub/
 /build/
-/android/.gradle/
-/android/.kotlin/
-/android/build/
-/android/local.properties
-/android/key.properties
 
 # Symbolication related
 app.*.symbols
@@ -59,9 +46,10 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
-# Flutter application lockfile should be versioned. If it is currently untracked,
-# add it deliberately after dependency state is verified.
-!pubspec.lock
+# Termux PRoot / talloc / shmem ELFs fetched by tool/fetch_proot.sh
+android/app/src/main/jniLibs/**/*.so
+
+pubspec.lock
 /linux/flutter/generated_plugin_registrant.cc
 /windows/flutter/generated_plugin_registrant.cc
 /linux/flutter/generated_plugin_registrant.h
@@ -79,6 +67,45 @@ internationalization.md
 /.agent/
 /.agents/
 /skills-lock.json
+/.scratch/
+# Toolchain / agent runtime traces
+.mimosa/
+# Local release artifacts copied into the repo root
+/dist/
+android/kotlin_compile_log.txt
+/.grok/
+android/.kotlin/
 
-# Build tools and binaries
-tools/
+# SoLab 只维护 Android，忽略上游带入的其它平台脚手架
+/ios/
+/linux/
+/macos/
+/windows/
+
+# 本机同步进来的原生资产（jniLibs 195MB / assets 15MB / libs jar）：上游同样不入库，
+# 由 tools/sync_from_kelivo.ps1 单向同步，属于构建产物而非源码。
+/android/app/src/main/jniLibs/
+/android/app/src/main/assets/
+/android/app/src/main/libs/
+/android/bootstrap-demo/
+
+# Local iOS profiling tools and device measurements
+/docs/performance/ios-device-*/
+/tool/ios_performance/
+
+# Gradle 工程级构建输出（android/build、android/app/build）
+/android/build/
+/android/.gradle/
+
+# 同步/复测临时物与构建中间件（2026-09-24 清理）
+_inspect_tmp/
+__pycache__/
+*.pyc
+android/.cxx/
+android/app/.cxx/
+*.log
+
+# 本机环境适配：cargo 直连（覆盖 git 全局里指向本机代理的 http.proxy）。
+# 代理不可用时 cargo 会卡在依赖下载，构建脚本无法完成。
+.cargo/
+_tmp/

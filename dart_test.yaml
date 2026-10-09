@@ -1,0 +1,11 @@
+# 测试全局配置（用户 2026-10-04 反复遇到「跑测试卡超长时间」的根治项之一）。
+#
+# 根因：`flutter_test` 的 `pumpAndSettle()` 自带 **10 分钟**默认超时
+# （packages/flutter_test/lib/src/widget_tester.dart:
+#  `Duration timeout = const Duration(minutes: 10)`）。只要用例「永远 settle 不了」
+# ——不定进度条（CircularProgressIndicator/LinearProgressIndicator）、聚焦中的输入框
+# 闪烁光标、`flutter_animate().repeat()`——它不会立刻失败，而是先卡满 10 分钟。
+#
+# 这里给全仓测试一个默认上限：卡住就快速失败，并且直接指出是哪个用例。
+# 需要更长的用例可以在 testWidgets(timeout:) 里单独放宽。
+timeout: 60s

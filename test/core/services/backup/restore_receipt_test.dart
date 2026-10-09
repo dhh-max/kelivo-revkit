@@ -6,11 +6,12 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
-import 'package:solab/core/database/chat_database_repository.dart';
-import 'package:solab/core/models/conversation.dart';
-import 'package:solab/core/services/backup/restore_bundle_staging.dart';
-import 'package:solab/core/services/backup/restore_receipt.dart';
-import 'package:solab/core/services/backup/restore_workspace_lock.dart';
+import 'package:Kelivo/core/database/chat_database_repository.dart';
+import 'package:Kelivo/core/models/conversation.dart';
+import 'package:Kelivo/core/services/backup/restore_bundle_staging.dart';
+import 'package:Kelivo/core/services/backup/restore_previous_plan.dart';
+import 'package:Kelivo/core/services/backup/restore_receipt.dart';
+import 'package:Kelivo/core/services/backup/restore_workspace_lock.dart';
 
 String _hash(String character) => List.filled(64, character).join();
 const _runId = '0123456789abcdef0123456789abcdef';
@@ -233,7 +234,7 @@ void main() {
 
     test('rejects candidate components not selected by the receipt', () async {
       final candidate = Directory(p.join(store.runDirectory.path, 'candidate'));
-      for (final rootName in const ['upload', 'images', 'avatars', 'fonts']) {
+      for (final rootName in RestorePreviousAssetsPlan.rootNames) {
         await Directory(p.join(candidate.path, rootName)).create();
       }
       final asset = File(p.join(candidate.path, 'upload', 'extra.txt'));

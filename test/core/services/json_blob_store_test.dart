@@ -1,15 +1,15 @@
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/core/database/app_database.dart';
-import 'package:solab/core/database/business_data.dart';
-import 'package:solab/core/database/business_preferences.dart';
-import 'package:solab/core/database/business_repository.dart';
-import 'package:solab/core/models/instruction_injection.dart';
-import 'package:solab/core/models/quick_phrase.dart';
-import 'package:solab/core/services/instruction_injection_store.dart';
-import 'package:solab/core/services/memory_store.dart';
-import 'package:solab/core/services/quick_phrase_store.dart';
+import 'package:Kelivo/core/database/app_database.dart';
+import 'package:Kelivo/core/database/business_data.dart';
+import 'package:Kelivo/core/database/business_preferences.dart';
+import 'package:Kelivo/core/database/business_repository.dart';
+import 'package:Kelivo/core/models/instruction_injection.dart';
+import 'package:Kelivo/core/models/quick_phrase.dart';
+import 'package:Kelivo/core/services/instruction_injection_store.dart';
+import 'package:Kelivo/core/services/memory_store.dart';
+import 'package:Kelivo/core/services/quick_phrase_store.dart';
 
 void main() {
   late AppDatabase database;

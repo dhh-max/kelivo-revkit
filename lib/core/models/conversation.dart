@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:hive/hive.dart';
 import 'package:uuid/uuid.dart';
 
@@ -59,6 +61,22 @@ class Conversation extends HiveObject {
   @HiveField(14)
   int lastMemoryExtractedOrder;
 
+  // Per-conversation model override. null means inherit: the assistant's model
+  // first, then the global default. Both are set or both are null.
+  //
+  // NOTE: conversation.g.dart is intentionally stale (it stops at field 12) and
+  // must not be regenerated. The adapter is only read by the legacy
+  // Hive-to-SQLite migration, whose source data predates these fields.
+  @HiveField(15)
+  String? chatModelProvider;
+
+  @HiveField(16)
+  String? chatModelId;
+
+  // Drift-only feature bag (workspace binding, …). Not a Hive field — the
+  // legacy adapter must stay frozen, and Hive source data predates extras.
+  final Map<String, dynamic> extras;
+
   Conversation({
     String? id,
     required this.title,
@@ -75,6 +93,9 @@ class Conversation extends HiveObject {
     List<String>? chatSuggestions,
     this.injectedMemoryHash,
     int? lastMemoryExtractedOrder,
+    this.chatModelProvider,
+    this.chatModelId,
+    this.extras = const <String, dynamic>{},
   }) : id = id ?? const Uuid().v4(),
        createdAt = createdAt ?? DateTime.now(),
        updatedAt = updatedAt ?? DateTime.now(),
@@ -102,8 +123,12 @@ class Conversation extends HiveObject {
     List<String>? chatSuggestions,
     String? injectedMemoryHash,
     int? lastMemoryExtractedOrder,
+    String? chatModelProvider,
+    String? chatModelId,
+    Map<String, dynamic>? extras,
     bool clearSummary = false,
     bool clearInjectedMemoryHash = false,
+    bool clearChatModel = false,
   }) {
     return Conversation(
       id: id ?? this.id,
@@ -125,6 +150,11 @@ class Conversation extends HiveObject {
           : (injectedMemoryHash ?? this.injectedMemoryHash),
       lastMemoryExtractedOrder:
           lastMemoryExtractedOrder ?? this.lastMemoryExtractedOrder,
+      chatModelProvider: clearChatModel
+          ? null
+          : (chatModelProvider ?? this.chatModelProvider),
+      chatModelId: clearChatModel ? null : (chatModelId ?? this.chatModelId),
+      extras: extras ?? this.extras,
     );
   }
 
@@ -145,6 +175,9 @@ class Conversation extends HiveObject {
       'chatSuggestions': chatSuggestions,
       'injectedMemoryHash': injectedMemoryHash,
       'lastMemoryExtractedOrder': lastMemoryExtractedOrder,
+      'chatModelProvider': chatModelProvider,
+      'chatModelId': chatModelId,
+      'extras': extras,
     };
   }
 
@@ -173,6 +206,27 @@ class Conversation extends HiveObject {
           const <String>[],
       injectedMemoryHash: json['injectedMemoryHash'] as String?,
       lastMemoryExtractedOrder: json['lastMemoryExtractedOrder'] as int? ?? -1,
+      chatModelProvider: json['chatModelProvider'] as String?,
+      chatModelId: json['chatModelId'] as String?,
+      extras: decodeExtras(json['extras']),
     );
+  }
+
+  /// Decodes conversation extras from a JSON map, JSON string, or junk.
+  /// Malformed input and `'{}'` become an empty map.
+  static Map<String, dynamic> decodeExtras(Object? raw) {
+    if (raw == null) return const <String, dynamic>{};
+    if (raw is String) {
+      if (raw.isEmpty || raw == '{}') return const <String, dynamic>{};
+      try {
+        return decodeExtras(jsonDecode(raw));
+      } catch (_) {
+        return const <String, dynamic>{};
+      }
+    }
+    if (raw is Map) {
+      return raw.map((key, value) => MapEntry(key.toString(), value));
+    }
+    return const <String, dynamic>{};
   }
 }

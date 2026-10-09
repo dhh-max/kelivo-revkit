@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import '../../../core/services/mcp/stdio_arguments.dart';
+import '../../../shared/widgets/ios_form_text_field.dart';
+import 'mcp_environment_picker.dart';
+import 'mcp_workspace_binding_field.dart';
 import 'package:provider/provider.dart';
 import '../../../core/providers/settings_provider.dart';
 import 'dart:math' as math;
-import 'package:permission_handler/permission_handler.dart';
-import '../../../core/services/haptics.dart';
+import 'package:Kelivo/shared/services/haptics.dart';
 import '../../../icons/lucide_adapter.dart';
 import '../../../core/providers/mcp_provider.dart';
 import '../../../l10n/app_localizations.dart';
@@ -11,6 +14,7 @@ import '../../../shared/widgets/snackbar.dart';
 import '../../../shared/widgets/ios_switch.dart';
 import '../../../shared/widgets/ios_tile_button.dart';
 import '../../../theme/app_font_weights.dart';
+import 'package:Kelivo/theme/app_semantic_colors.dart';
 
 class _HeaderEntry {
   final TextEditingController key;
@@ -54,15 +58,15 @@ class _McpServerEditSheetState extends State<_McpServerEditSheet>
 
   bool _enabled = true;
   final _nameCtrl = TextEditingController();
-  final _githubTokenCtrl = TextEditingController();
-  final _imagesApiUrlCtrl = TextEditingController();
-  final _imagesApiKeyCtrl = TextEditingController();
   McpTransportType _transport = McpTransportType.http;
   final _urlCtrl = TextEditingController();
+  final _cmdCtrl = TextEditingController();
+  final _argsCtrl = TextEditingController();
+  String? _argsError;
+  final _cwdCtrl = TextEditingController();
+  String? _workspaceId;
+  final List<_HeaderEntry> _env = [];
   final List<_HeaderEntry> _headers = [];
-  bool _githubTokenObscured = true;
-  bool _imagesApiKeyObscured = true;
-  PermissionStatus? _filePermissionStatus;
 
   @override
   void initState() {
@@ -73,18 +77,20 @@ class _McpServerEditSheetState extends State<_McpServerEditSheet>
       final server = context.read<McpProvider>().getById(widget.serverId!)!;
       _enabled = server.enabled;
       _nameCtrl.text = server.name;
-      if (context.read<McpProvider>().isBuiltinGithubServer(server)) {
-        _githubTokenCtrl.text = context.read<McpProvider>().githubToken;
-      }
-      if (context.read<McpProvider>().isBuiltinImagesServer(server)) {
-        _imagesApiUrlCtrl.text = context.read<McpProvider>().imagesApiBaseUrl;
-        _imagesApiKeyCtrl.text = context.read<McpProvider>().imagesApiKey;
-      }
-      if (context.read<McpProvider>().isBuiltinFilesServer(server)) {
-        _refreshFilePermissionStatus();
-      }
       _transport = server.transport;
       _urlCtrl.text = server.url;
+      _cmdCtrl.text = server.command ?? '';
+      _argsCtrl.text = StdioArguments.format(server.args);
+      _cwdCtrl.text = server.workingDirectory ?? '';
+      _workspaceId = server.workspaceId;
+      server.env.forEach(
+        (k, v) => _env.add(
+          _HeaderEntry(
+            TextEditingController(text: k),
+            TextEditingController(text: v),
+          ),
+        ),
+      );
       server.headers.forEach((k, v) {
         _headers.add(
           _HeaderEntry(
@@ -100,30 +106,18 @@ class _McpServerEditSheetState extends State<_McpServerEditSheet>
     if (mounted) setState(() {});
   }
 
-  Future<void> _refreshFilePermissionStatus() async {
-    final status = await Permission.manageExternalStorage.status;
-    if (!mounted) return;
-    setState(() => _filePermissionStatus = status);
-  }
-
-  Future<void> _requestFilePermission() async {
-    final status = await Permission.manageExternalStorage.request();
-    if (!mounted) return;
-    setState(() => _filePermissionStatus = status);
-    if (!status.isGranted) {
-      await openAppSettings();
-    }
-  }
-
   @override
   void dispose() {
     _tab?.removeListener(_onTabChanged);
     _tab?.dispose();
     _nameCtrl.dispose();
-    _githubTokenCtrl.dispose();
-    _imagesApiUrlCtrl.dispose();
-    _imagesApiKeyCtrl.dispose();
     _urlCtrl.dispose();
+    _cmdCtrl.dispose();
+    _argsCtrl.dispose();
+    _cwdCtrl.dispose();
+    for (final entry in _env) {
+      entry.dispose();
+    }
     for (final h in _headers) {
       h.dispose();
     }
@@ -155,7 +149,7 @@ class _McpServerEditSheetState extends State<_McpServerEditSheet>
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       decoration: BoxDecoration(
-        color: isDark ? Colors.white10 : Colors.white.withValues(alpha: 0.96),
+        color: context.appColors.surfaceCard,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: cs.outlineVariant.withValues(alpha: isDark ? 0.08 : 0.06),
@@ -185,71 +179,40 @@ class _McpServerEditSheetState extends State<_McpServerEditSheet>
     required String label,
     required TextEditingController controller,
     String? hint,
-    bool obscureText = false,
-    Widget? suffixIcon,
+    int maxLines = 1,
+    bool literalInput = false,
   }) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cs = Theme.of(context).colorScheme;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            color: cs.onSurface.withValues(alpha: 0.8),
-          ),
-        ),
-        const SizedBox(height: 6),
-        TextField(
-          controller: controller,
-          obscureText: obscureText,
-          enableSuggestions: !obscureText,
-          autocorrect: !obscureText,
-          decoration: InputDecoration(
-            hintText: hint,
-            filled: true,
-            // Match provider sheet input background
-            fillColor: isDark ? Colors.white10 : Colors.white,
-            // Match provider sheet border styles
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(
-                color: cs.outlineVariant.withValues(alpha: 0.4),
-              ),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(
-                color: cs.outlineVariant.withValues(alpha: 0.4),
-              ),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: cs.primary.withValues(alpha: 0.5)),
-            ),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 12,
-            ),
-            suffixIcon: suffixIcon,
-          ),
-        ),
-      ],
+    return IosFormTextField(
+      label: label,
+      controller: controller,
+      hintText: hint,
+      inlineLabel: false,
+      maxLines: maxLines,
+      minLines: 1,
+      outerPadding: EdgeInsets.zero,
+      autocorrect: !literalInput,
+      enableSuggestions: !literalInput,
     );
   }
 
   // Segmented choice bar (like top tabs), used for transport type
   Widget _transportPicker() {
-    final labels = ['Streamable HTTP', 'SSE'];
-    final idx = _transport == McpTransportType.http ? 0 : 1;
+    final types = [
+      McpTransportType.http,
+      McpTransportType.sse,
+      if (context.watch<McpProvider>().supportsStdio) McpTransportType.stdio,
+    ];
     return _SegChoiceBar(
-      labels: labels,
-      selectedIndex: idx,
-      onSelected: (i) => setState(
-        () =>
-            _transport = i == 0 ? McpTransportType.http : McpTransportType.sse,
-      ),
+      labels: [
+        for (final type in types)
+          switch (type) {
+            McpTransportType.http => 'HTTP',
+            McpTransportType.sse => 'SSE',
+            _ => AppLocalizations.of(context)!.mcpTransportOptionStdio,
+          },
+      ],
+      selectedIndex: types.indexOf(_transport),
+      onSelected: (i) => setState(() => _transport = types[i]),
     );
   }
 
@@ -257,18 +220,6 @@ class _McpServerEditSheetState extends State<_McpServerEditSheet>
     final l10n = AppLocalizations.of(context)!;
     final cs = Theme.of(context).colorScheme;
     final isBuiltin = isEdit && _transport == McpTransportType.inmemory;
-    final server = isEdit
-        ? context.read<McpProvider>().getById(widget.serverId!)
-        : null;
-    final isBuiltinGithub =
-        server != null &&
-        context.read<McpProvider>().isBuiltinGithubServer(server);
-    final isBuiltinFiles =
-        server != null &&
-        context.read<McpProvider>().isBuiltinFilesServer(server);
-    final isBuiltinImages =
-        server != null &&
-        context.read<McpProvider>().isBuiltinImagesServer(server);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -306,9 +257,6 @@ class _McpServerEditSheetState extends State<_McpServerEditSheet>
                   ],
                 ),
               ),
-              if (isBuiltinGithub) _builtinGithubSettings(),
-              if (isBuiltinFiles) _builtinFilesSettings(),
-              if (isBuiltinImages) _builtinImagesSettings(),
             ],
           )
         else ...[
@@ -325,297 +273,126 @@ class _McpServerEditSheetState extends State<_McpServerEditSheet>
           const SizedBox(height: 6),
           _transportPicker(),
           const SizedBox(height: 10),
-          if (_transport == McpTransportType.sse) ...[
-            Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Text(
-                l10n.mcpServerEditSheetSseRetryHint,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: cs.onSurface.withValues(alpha: 0.7),
-                ),
+          if (_transport == McpTransportType.stdio) ...[
+            McpWorkspaceBindingField(
+              workspaceId: _workspaceId,
+              onChanged: (id) => setState(() => _workspaceId = id),
+            ),
+            _inputRow(
+              label: l10n.mcpServerEditSheetStdioCommandLabel,
+              controller: _cmdCtrl,
+              literalInput: true,
+              hint: 'npx',
+            ),
+            const SizedBox(height: 10),
+            _argumentsEditor(),
+            const SizedBox(height: 10),
+            _inputRow(
+              label: l10n.mcpServerEditSheetStdioWorkingDirectoryLabel,
+              controller: _cwdCtrl,
+              literalInput: true,
+              hint: _workspaceId == null ? '/root' : '/workspace',
+            ),
+            const SizedBox(height: 16),
+            Text(l10n.mcpServerEditSheetStdioEnvironmentTitle),
+            const SizedBox(height: 8),
+            Text(
+              l10n.mcpEnvironmentHint,
+              style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+            ),
+            const SizedBox(height: 8),
+            _headersEditor(entries: _env, isStdio: true),
+            const SizedBox(height: 8),
+            IosTileButton(
+              icon: Lucide.Download,
+              label: l10n.mcpImportEnvironment,
+              onTap: _importEnvironment,
+            ),
+          ] else ...[
+            _inputRow(
+              label: l10n.mcpServerEditSheetUrlLabel,
+              controller: _urlCtrl,
+              hint: _transport == McpTransportType.sse
+                  ? 'http://localhost:3000/sse'
+                  : 'http://localhost:3000',
+            ),
+            const SizedBox(height: 16),
+            Text(
+              l10n.mcpServerEditSheetCustomHeadersTitle,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: AppFontWeights.semibold,
               ),
             ),
+            const SizedBox(height: 8),
+            _headersEditor(entries: _headers),
           ],
-          _inputRow(
-            label: l10n.mcpServerEditSheetUrlLabel,
-            controller: _urlCtrl,
-            hint: _transport == McpTransportType.sse
-                ? 'http://localhost:3000/sse'
-                : 'http://localhost:3000',
-          ),
-          const SizedBox(height: 16),
-          Text(
-            l10n.mcpServerEditSheetCustomHeadersTitle,
-            style: TextStyle(fontSize: 13, fontWeight: AppFontWeights.semibold),
-          ),
-          const SizedBox(height: 8),
-          _headersEditor(),
         ],
       ],
     );
   }
 
-  Widget _builtinSectionHeader({
-    required IconData icon,
-    required String title,
-    String? status,
-    Color? statusColor,
-  }) {
-    final cs = Theme.of(context).colorScheme;
-    return Row(
+  Widget _argumentsEditor() {
+    final l10n = AppLocalizations.of(context)!;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 16, color: cs.primary),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            title,
-            style: TextStyle(fontSize: 13, fontWeight: AppFontWeights.medium),
+        _inputRow(
+          label: l10n.mcpServerEditSheetStdioArgumentsLabel,
+          controller: _argsCtrl,
+          hint: '-y @modelcontextprotocol/server-filesystem',
+          maxLines: 4,
+          literalInput: true,
+        ),
+        const SizedBox(height: 6),
+        Text(
+          _argsError ?? l10n.mcpArgumentsHint,
+          style: TextStyle(
+            fontSize: 12,
+            color: _argsError == null
+                ? Theme.of(context).colorScheme.onSurfaceVariant
+                : Theme.of(context).colorScheme.error,
           ),
         ),
-        if (status != null)
-          Text(
-            status,
-            style: TextStyle(
-              fontSize: 12,
-              color: statusColor ?? cs.onSurface.withValues(alpha: 0.55),
-              fontWeight: AppFontWeights.medium,
-            ),
-          ),
       ],
     );
   }
 
-  Widget _builtinGithubSettings() {
-    final cs = Theme.of(context).colorScheme;
-    final mcp = context.read<McpProvider>();
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _builtinSectionHeader(
-            icon: Lucide.KeyRound,
-            title: 'GitHub Token',
-            status: mcp.hasGithubToken ? '已配置' : '未配置',
-            statusColor: mcp.hasGithubToken
-                ? Colors.green
-                : cs.onSurface.withValues(alpha: 0.55),
-          ),
-          const SizedBox(height: 8),
-          _inputRow(
-            label: '访问令牌',
-            controller: _githubTokenCtrl,
-            hint: 'ghp_... / github_pat_...',
-            obscureText: _githubTokenObscured,
-            suffixIcon: IconButton(
-              tooltip: _githubTokenObscured ? '显示 Token' : '隐藏 Token',
-              icon: Icon(
-                _githubTokenObscured ? Lucide.Eye : Lucide.EyeOff,
-                size: 18,
-              ),
-              onPressed: () =>
-                  setState(() => _githubTokenObscured = !_githubTokenObscured),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '用于 @kelivo/github 请求认证；留空保存会清除 Token。',
-                  style: TextStyle(
-                    fontSize: 12,
-                    height: 1.35,
-                    color: cs.onSurface.withValues(alpha: 0.58),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              TextButton(
-                onPressed: () => setState(_githubTokenCtrl.clear),
-                child: const Text('清除'),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _builtinImagesSettings() {
-    final cs = Theme.of(context).colorScheme;
-    final mcp = context.read<McpProvider>();
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _builtinSectionHeader(
-            icon: Lucide.Image,
-            title: '图片生成配置',
-            status: mcp.hasImagesConfig ? '已配置' : '未配置',
-            statusColor: mcp.hasImagesConfig
-                ? Colors.green
-                : cs.onSurface.withValues(alpha: 0.55),
-          ),
-          const SizedBox(height: 8),
-          _inputRow(
-            label: 'API URL',
-            controller: _imagesApiUrlCtrl,
-            hint: 'https://api.openai.com/v1',
-          ),
-          const SizedBox(height: 10),
-          _inputRow(
-            label: 'API Key',
-            controller: _imagesApiKeyCtrl,
-            hint: 'sk-... / provider key',
-            obscureText: _imagesApiKeyObscured,
-            suffixIcon: IconButton(
-              tooltip: _imagesApiKeyObscured ? '显示 Key' : '隐藏 Key',
-              icon: Icon(
-                _imagesApiKeyObscured ? Lucide.Eye : Lucide.EyeOff,
-                size: 18,
-              ),
-              onPressed: () => setState(
-                () => _imagesApiKeyObscured = !_imagesApiKeyObscured,
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '用于 @kelivo/images 生成图片；助手将从这里读取 URL 和 Key，不再通过对话收集。',
-                  style: TextStyle(
-                    fontSize: 12,
-                    height: 1.35,
-                    color: cs.onSurface.withValues(alpha: 0.58),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              TextButton(
-                onPressed: () => setState(_imagesApiKeyCtrl.clear),
-                child: const Text('清除 Key'),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _builtinFilesSettings() {
-    final cs = Theme.of(context).colorScheme;
-    final isGranted = _filePermissionStatus?.isGranted == true;
-
-    Widget step(String title, String body) {
-      return Padding(
-        padding: const EdgeInsets.only(top: 8),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 5,
-              height: 5,
-              margin: const EdgeInsets.only(top: 7, right: 8),
-              decoration: BoxDecoration(
-                color: cs.primary.withValues(alpha: 0.65),
-                shape: BoxShape.circle,
-              ),
-            ),
-            Expanded(
-              child: RichText(
-                text: TextSpan(
-                  style: TextStyle(
-                    fontSize: 12,
-                    height: 1.35,
-                    color: cs.onSurface.withValues(alpha: 0.64),
-                  ),
-                  children: [
-                    TextSpan(
-                      text: '$title：',
-                      style: TextStyle(
-                        fontWeight: AppFontWeights.medium,
-                        color: cs.onSurface.withValues(alpha: 0.78),
-                      ),
-                    ),
-                    TextSpan(text: body),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
+  Future<void> _importEnvironment() async {
+    final variable = await pickMcpEnvironmentVariable(context);
+    if (variable == null || !mounted) return;
+    setState(() {
+      final index = _env.indexWhere(
+        (entry) => entry.key.text.trim() == variable.name,
       );
-    }
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _builtinSectionHeader(
-            icon: isGranted ? Lucide.CheckCircle : Lucide.Folder,
-            title: '文件权限引导',
-            status: isGranted ? '已授权' : '未授权',
-            statusColor: isGranted
-                ? Colors.green
-                : cs.onSurface.withValues(alpha: 0.55),
+      if (index < 0) {
+        _env.add(
+          _HeaderEntry(
+            TextEditingController(text: variable.name),
+            TextEditingController(text: variable.value),
           ),
-          const SizedBox(height: 8),
-          Text(
-            isGranted
-                ? '@kelivo/files 已获得所有文件访问权限，可以访问 /storage/emulated/0 下的大多数可见文件。'
-                : 'Android 11+ 需要授予“所有文件访问权限”，@kelivo/files 才能稳定访问手机可见目录。',
-            style: TextStyle(
-              fontSize: 12,
-              height: 1.35,
-              color: cs.onSurface.withValues(alpha: 0.64),
-            ),
-          ),
-          step('默认工作区', '保持 phone_storage，也就是 /storage/emulated/0，除非你明确要求切换。'),
-          step('授权方式', '点击按钮后在系统页面找到 Kelivo，打开“允许管理所有文件”。'),
-          step('能力边界', '这是共享存储权限，不是 root 权限，系统保护目录和其它 App 私有目录仍受限制。'),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: _requestFilePermission,
-                  icon: Icon(isGranted ? Lucide.RefreshCw : Lucide.Settings),
-                  label: Text(isGranted ? '重新检查权限' : '打开权限设置'),
-                ),
-              ),
-              const SizedBox(width: 10),
-              OutlinedButton.icon(
-                onPressed: _refreshFilePermissionStatus,
-                icon: const Icon(Lucide.RotateCw, size: 16),
-                label: const Text('刷新'),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
+        );
+      } else {
+        _env[index].value.text = variable.value;
+      }
+    });
   }
 
-  Widget _headersEditor() {
+  Widget _headersEditor({
+    required List<_HeaderEntry> entries,
+    bool isStdio = false,
+  }) {
     final cs = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context)!;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        for (int i = 0; i < _headers.length; i++) ...[
+        for (int i = 0; i < entries.length; i++) ...[
           Container(
             margin: const EdgeInsets.only(bottom: 10),
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Theme.of(context).brightness == Brightness.dark
-                  ? Colors.white10
-                  : const Color(0xFFF7F7F9),
+              color: context.appColors.surfaceFill,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
                 color: cs.outlineVariant.withValues(alpha: 0.2),
@@ -625,15 +402,25 @@ class _McpServerEditSheetState extends State<_McpServerEditSheet>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _inputRow(
-                  label: l10n.mcpServerEditSheetHeaderNameLabel,
-                  controller: _headers[i].key,
-                  hint: l10n.mcpServerEditSheetHeaderNameHint,
+                  label: (isStdio
+                      ? l10n.mcpServerEditSheetStdioEnvNameLabel
+                      : l10n.mcpServerEditSheetHeaderNameLabel),
+                  controller: entries[i].key,
+                  literalInput: isStdio,
+                  hint: isStdio
+                      ? 'ENV_NAME'
+                      : l10n.mcpServerEditSheetHeaderNameHint,
                 ),
                 const SizedBox(height: 10),
                 _inputRow(
-                  label: l10n.mcpServerEditSheetHeaderValueLabel,
-                  controller: _headers[i].value,
-                  hint: l10n.mcpServerEditSheetHeaderValueHint,
+                  label: (isStdio
+                      ? l10n.mcpServerEditSheetStdioEnvValueLabel
+                      : l10n.mcpServerEditSheetHeaderValueLabel),
+                  controller: entries[i].value,
+                  literalInput: isStdio,
+                  hint: isStdio
+                      ? 'value'
+                      : l10n.mcpServerEditSheetHeaderValueHint,
                 ),
                 Align(
                   alignment: Alignment.centerRight,
@@ -641,7 +428,7 @@ class _McpServerEditSheetState extends State<_McpServerEditSheet>
                     icon: Lucide.Trash,
                     color: cs.error,
                     semanticLabel: l10n.mcpServerEditSheetRemoveHeaderTooltip,
-                    onTap: () => setState(() => _headers.removeAt(i)),
+                    onTap: () => setState(() => entries.removeAt(i).dispose()),
                   ),
                 ),
               ],
@@ -652,11 +439,13 @@ class _McpServerEditSheetState extends State<_McpServerEditSheet>
           alignment: Alignment.centerLeft,
           child: IosTileButton(
             icon: Lucide.Plus,
-            label: l10n.mcpServerEditSheetAddHeader,
+            label: (isStdio
+                ? l10n.mcpServerEditSheetStdioAddEnv
+                : l10n.mcpServerEditSheetAddHeader),
             backgroundColor: cs.primary,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             onTap: () => setState(
-              () => _headers.add(
+              () => entries.add(
                 _HeaderEntry(TextEditingController(), TextEditingController()),
               ),
             ),
@@ -671,20 +460,80 @@ class _McpServerEditSheetState extends State<_McpServerEditSheet>
     // Built-in: only toggle enabled
     if (isEdit && _transport == McpTransportType.inmemory) {
       final old = mcp.getById(widget.serverId!)!;
-      await mcp.updateServer(old.copyWith(enabled: _enabled));
-      if (mcp.isBuiltinGithubServer(old)) {
-        await mcp.updateGithubToken(_githubTokenCtrl.text);
+      await mcp.updateServerMetadata(old.copyWith(enabled: _enabled));
+      if (mounted) Navigator.of(context).pop();
+      return;
+    }
+    final name = _nameCtrl.text.trim().isEmpty ? 'MCP' : _nameCtrl.text.trim();
+    if (_transport == McpTransportType.stdio) {
+      if (!mcp.supportsStdio) {
+        showAppSnackBar(
+          context,
+          message: AppLocalizations.of(context)!.mcpStdioEnvironmentRequired,
+          type: NotificationType.warning,
+        );
+        return;
       }
-      if (mcp.isBuiltinImagesServer(old)) {
-        await mcp.updateImagesConfig(
-          apiBaseUrl: _imagesApiUrlCtrl.text,
-          apiKey: _imagesApiKeyCtrl.text,
+      final cmd = _cmdCtrl.text.trim();
+      if (cmd.isEmpty) {
+        showAppSnackBar(
+          context,
+          message: AppLocalizations.of(
+            context,
+          )!.mcpServerEditSheetStdioCommandRequired,
+          type: NotificationType.warning,
+        );
+        return;
+      }
+      final List<String> args;
+      try {
+        args = StdioArguments.parse(_argsCtrl.text);
+      } on FormatException {
+        setState(
+          () => _argsError = AppLocalizations.of(context)!.mcpArgumentsInvalid,
+        );
+        return;
+      }
+      setState(() => _argsError = null);
+      final env = <String, String>{
+        for (final e in _env)
+          if (e.key.text.trim().isNotEmpty) e.key.text.trim(): e.value.text,
+      };
+      final cwd = _cwdCtrl.text.trim();
+      if (isEdit) {
+        final old = mcp.getById(widget.serverId!)!;
+        final clearing = cwd.isEmpty;
+        await mcp.updateServerMetadata(
+          old.copyWith(
+            enabled: _enabled,
+            name: name,
+            transport: McpTransportType.stdio,
+            url: '',
+            headers: const {},
+            command: cmd,
+            args: args,
+            env: env,
+            workingDirectory: clearing ? null : cwd,
+            clearWorkingDirectory: clearing,
+            workspaceId: _workspaceId,
+            clearWorkspace: _workspaceId == null,
+          ),
+        );
+      } else {
+        await mcp.addServer(
+          enabled: _enabled,
+          name: name,
+          transport: McpTransportType.stdio,
+          command: cmd,
+          args: args,
+          env: env,
+          workingDirectory: cwd.isEmpty ? null : cwd,
+          workspaceId: _workspaceId,
         );
       }
       if (mounted) Navigator.of(context).pop();
       return;
     }
-    final name = _nameCtrl.text.trim().isEmpty ? 'MCP' : _nameCtrl.text.trim();
     final url = _urlCtrl.text.trim();
     if (url.isEmpty) {
       final l10n = AppLocalizations.of(context)!;
@@ -702,13 +551,14 @@ class _McpServerEditSheetState extends State<_McpServerEditSheet>
     };
     if (isEdit) {
       final old = mcp.getById(widget.serverId!)!;
-      await mcp.updateServer(
+      await mcp.updateServerMetadata(
         old.copyWith(
           enabled: _enabled,
           name: name,
           transport: _transport,
           url: url,
           headers: headers,
+          clearWorkspace: true,
         ),
       );
     } else {
@@ -738,7 +588,7 @@ class _McpServerEditSheetState extends State<_McpServerEditSheet>
         ),
         child: DraggableScrollableSheet(
           expand: false,
-          initialChildSize: isEdit ? 0.85 : 0.6,
+          initialChildSize: 0.85,
           maxChildSize: 0.9,
           minChildSize: 0.5,
           builder: (c, controller) => Column(
@@ -854,11 +704,7 @@ class _McpServerEditSheetState extends State<_McpServerEditSheet>
                                       margin: const EdgeInsets.only(bottom: 10),
                                       padding: const EdgeInsets.all(12),
                                       decoration: BoxDecoration(
-                                        color:
-                                            Theme.of(context).brightness ==
-                                                Brightness.dark
-                                            ? Colors.white10
-                                            : const Color(0xFFF7F7F9),
+                                        color: context.appColors.surfaceFill,
                                         borderRadius: BorderRadius.circular(12),
                                         border: Border.all(
                                           color: cs.outlineVariant.withValues(
@@ -1195,8 +1041,8 @@ class _SegChoiceBar extends StatelessWidget {
             segWidth * labels.length + gap * (labels.length - 1);
 
         final Color shellBg = isDark
-            ? Colors.white.withValues(alpha: 0.08)
-            : Colors.white;
+            ? context.appColors.surfaceFill
+            : context.appColors.surfaceCard;
 
         List<Widget> children = [];
         for (int index = 0; index < labels.length; index++) {
@@ -1216,7 +1062,7 @@ class _SegChoiceBar extends StatelessWidget {
                       ? cs.primary
                       : cs.onSurface.withValues(alpha: 0.82);
                   final Color targetTextColor = pressed
-                      ? Color.lerp(baseTextColor, Colors.white, 0.22) ??
+                      ? Color.lerp(baseTextColor, cs.surface, 0.22) ??
                             baseTextColor
                       : baseTextColor;
 
@@ -1318,8 +1164,8 @@ class _SegTabBar extends StatelessWidget {
             segWidth * tabs.length + gap * (tabs.length - 1);
 
         final Color shellBg = isDark
-            ? Colors.white.withValues(alpha: 0.08)
-            : Colors.white;
+            ? context.appColors.surfaceFill
+            : context.appColors.surfaceCard;
 
         List<Widget> children = [];
         for (int index = 0; index < tabs.length; index++) {
@@ -1342,7 +1188,7 @@ class _SegTabBar extends StatelessWidget {
                       ? cs.primary
                       : cs.onSurface.withValues(alpha: 0.82);
                   final Color targetTextColor = pressed
-                      ? Color.lerp(baseTextColor, Colors.white, 0.22) ??
+                      ? Color.lerp(baseTextColor, cs.surface, 0.22) ??
                             baseTextColor
                       : baseTextColor;
 

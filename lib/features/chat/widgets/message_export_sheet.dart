@@ -18,17 +18,19 @@ import 'image_preview_sheet.dart';
 
 import '../../../icons/lucide_adapter.dart';
 import '../../../core/models/chat_message.dart';
+import '../../../core/models/message_part.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/providers/settings_provider.dart';
-import '../../../core/providers/model_provider.dart';
+import '../../../core/services/model_spec/model_spec_resolver.dart';
 import '../../../core/providers/user_provider.dart';
 import '../../../core/providers/assistant_provider.dart';
 import '../../../core/models/assistant.dart';
 import '../../../core/services/chat/chat_service.dart';
+import '../../../utils/mcp_structured_image.dart';
 import '../../../utils/sandbox_path_resolver.dart';
 import '../../../shared/widgets/markdown_with_highlight.dart';
 import '../../../shared/widgets/export_capture_scope.dart';
-import '../../../shared/widgets/mermaid_exporter.dart';
+import '../../../shared/widgets/diagram_exporter.dart';
 import '../../../shared/widgets/snackbar.dart';
 import '../../../shared/widgets/ios_tactile.dart';
 import '../../../shared/widgets/ios_switch.dart';
@@ -55,35 +57,17 @@ String? _modelDisplayNameFromSettings(
   if (msg.role != 'assistant') return null;
   final modelId = msg.modelId;
   if (modelId == null || modelId.isEmpty) return null;
-  String? name;
-  String baseId = modelId;
   final providerId = msg.providerId;
   if (providerId != null && providerId.isNotEmpty) {
     try {
       final cfg = settings.getProviderConfig(providerId);
-      final ov = cfg.modelOverrides[modelId] as Map?;
-      if (ov != null) {
-        final overrideName = (ov['name'] as String?)?.trim();
-        if (overrideName != null && overrideName.isNotEmpty) {
-          name = overrideName;
-        }
-        final apiId = (ov['apiModelId'] ?? ov['api_model_id'])
-            ?.toString()
-            .trim();
-        if (apiId != null && apiId.isNotEmpty) {
-          baseId = apiId;
-        }
-      }
+      final resolved = ModelSpecResolver.instance.resolve(cfg, modelId);
+      return resolved.override.displayName ?? resolved.spec.upstreamId;
     } catch (_) {
-      // ignore lookup issues; fall back to inference below.
+      // ignore lookup issues; fall back to the logical model id.
     }
   }
-
-  final inferred = ModelRegistry.infer(
-    ModelInfo(id: baseId, displayName: baseId),
-  );
-  final fallback = inferred.displayName.trim();
-  return name ?? (fallback.isNotEmpty ? fallback : baseId);
+  return modelId;
 }
 
 String _getRoleNameFromDependencies({
@@ -111,47 +95,151 @@ String _getRoleNameFromDependencies({
   return msg.role;
 }
 
-_Parsed _parseContent(String raw) {
-  // Robustly parse inline attachments in the form [image:...] and [file:path|name|mime]
-  // without requiring escaping backslashes, and guard against malformed tokens.
+/// Build export payload from structured [MessagePart]s.
+///
+/// Text comes from [textOverride] (e.g. thinking-stripped assistant body) or
+/// [ChatMessage.content] (TextPart join). Attachments are taken from ImagePart /
+/// FilePart only — never reconstructed as legacy marker strings.
+_Parsed _exportPartsFromMessage(ChatMessage message, {String? textOverride}) {
   final images = <String>[];
   final docs = <_DocRef>[];
-  final buffer = StringBuffer();
-  int idx = 0;
-  while (idx < raw.length) {
-    // Fast path: only try to parse when current char is '['
-    if (raw.codeUnitAt(idx) == 0x5B /* '[' */ ) {
-      final sub = raw.substring(idx);
-      // [image:...]
-      final mImg = RegExp(r"^\[image:([^\]]+)\]").firstMatch(sub);
-      if (mImg != null) {
-        final p = (mImg.groupCount >= 1 ? mImg.group(1) : null)?.trim();
-        if (p != null && p.isNotEmpty) images.add(p);
-        idx += mImg.group(0)!.length;
-        continue;
-      }
-      // [file:path|name|mime]
-      final mFile = RegExp(
-        r"^\[file:([^|\]]+)\|([^|\]]+)\|([^\]]+)\]",
-      ).firstMatch(sub);
-      if (mFile != null) {
-        final path =
-            (mFile.groupCount >= 1 ? mFile.group(1) : null)?.trim() ?? '';
-        final name =
-            (mFile.groupCount >= 2 ? mFile.group(2) : null)?.trim() ?? 'file';
-        final mime =
-            (mFile.groupCount >= 3 ? mFile.group(3) : null)?.trim() ??
-            'text/plain';
-        docs.add(_DocRef(path: path, fileName: name, mime: mime));
-        idx += mFile.group(0)!.length;
-        continue;
+  for (final part in message.parts) {
+    if (part is ImagePart) {
+      final uri = part.uri.trim();
+      if (uri.isNotEmpty) images.add(uri);
+    } else if (part is FilePart) {
+      docs.add(
+        _DocRef(
+          path: part.uri,
+          fileName: part.name,
+          mime: part.mime ?? 'application/octet-stream',
+        ),
+      );
+    }
+  }
+  final text = (textOverride ?? message.content).trim();
+  return _Parsed(text, images, docs);
+}
+
+Future<void> _writeExportBlocks(
+  StringBuffer buf,
+  ChatMessage message, {
+  required bool includeThinking,
+  required bool includeTools,
+  required String thinkingLabel,
+  required bool markdown,
+  required Future<void> Function(String uri) writeImage,
+}) async {
+  var wroteReasoningPart = false;
+  final hasReasoningPart = message.parts.any((part) => part is ReasoningPart);
+  final stripThink = message.role == 'assistant' && !hasReasoningPart;
+  final joinedText = stripThink ? message.content : '';
+  final thinkRanges = stripThink
+      ? ThinkingTagParser.parseWithRanges(joinedText)
+      : null;
+  var textOffset = 0;
+  for (final part in message.parts) {
+    switch (part) {
+      case TextPart(:final text):
+        final start = textOffset;
+        final end = textOffset + text.length;
+        textOffset = end;
+        final body = thinkRanges == null || thinkRanges.hiddenRanges.isEmpty
+            ? text
+            : ThinkingTagParser.visibleSlice(
+                joinedText,
+                start: start,
+                end: end,
+                hiddenRanges: thinkRanges.hiddenRanges,
+              );
+        if (body.isEmpty) continue;
+        buf.writeln(body);
+        buf.writeln('');
+      case ImagePart(:final uri):
+        final trimmed = uri.trim();
+        if (trimmed.isEmpty) continue;
+        await writeImage(trimmed);
+      case FilePart(:final name, :final mime):
+        if (markdown) {
+          buf.writeln('- $name  `(${mime ?? 'application/octet-stream'})`');
+        } else {
+          buf.writeln('- $name (${mime ?? 'application/octet-stream'})');
+        }
+      case ReasoningPart(:final text):
+        if (!includeThinking || text.trim().isEmpty) continue;
+        wroteReasoningPart = true;
+        buf.writeln('');
+        buf.writeln(markdown ? '**$thinkingLabel**' : '[$thinkingLabel]');
+        buf.writeln('');
+        if (markdown) {
+          buf.writeln('```text');
+          buf.writeln(text.trim());
+          buf.writeln('```');
+        } else {
+          buf.writeln(text.trim());
+        }
+        buf.writeln('');
+      case ToolCallPart(:final payloadJson):
+        if (!includeTools) continue;
+        try {
+          final decoded = jsonDecode(payloadJson);
+          if (decoded is! Map) continue;
+          final name = (decoded['name'] ?? '').toString();
+          final content = toolResultContentForModel(
+            decoded['content']?.toString(),
+          );
+          buf.writeln(name.isEmpty ? '[tool]' : '[$name]');
+          if (content.trim().isNotEmpty) {
+            buf.writeln(content);
+          }
+          buf.writeln('');
+        } catch (_) {}
+      default:
+        break;
+    }
+  }
+  if (includeThinking && !wroteReasoningPart) {
+    final thinkingTexts = thinkRanges != null && thinkRanges.hasThinking
+        ? thinkRanges.thinkingTexts
+        : _thinkingExportDataForMessage(message).thinkingTexts;
+    if (thinkingTexts.isNotEmpty) {
+      final t = thinkingTexts.join('\n\n');
+      if (t.isNotEmpty) {
+        buf.writeln('');
+        buf.writeln(markdown ? '**$thinkingLabel**' : '[$thinkingLabel]');
+        buf.writeln('');
+        if (markdown) {
+          buf.writeln('```text');
+          buf.writeln(t);
+          buf.writeln('```');
+        } else {
+          buf.writeln(t);
+        }
+        buf.writeln('');
       }
     }
-    // Fallback: normal character
-    buffer.write(raw[idx]);
-    idx++;
   }
-  return _Parsed(buffer.toString().trim(), images, docs);
+}
+
+@visibleForTesting
+Future<String> exportMessageBlocksForTesting(
+  ChatMessage message, {
+  required bool showThinkingAndToolCards,
+}) async {
+  final buf = StringBuffer();
+  await _writeExportBlocks(
+    buf,
+    message,
+    includeThinking: showThinkingAndToolCards,
+    includeTools: showThinkingAndToolCards,
+    thinkingLabel: 'Thinking',
+    markdown: false,
+    writeImage: (uri) async {
+      buf.writeln('![image]($uri)');
+      buf.writeln('');
+    },
+  );
+  return buf.toString();
 }
 
 String _softBreakMd(String input) {
@@ -194,6 +282,18 @@ class _ThinkingExportData {
 }
 
 _ThinkingExportData _thinkingExportDataForMessage(ChatMessage message) {
+  final structuredReasoning = [
+    for (final part in message.parts)
+      if (part is ReasoningPart && part.text.trim().isNotEmpty)
+        part.text.trim(),
+  ];
+  if (structuredReasoning.isNotEmpty) {
+    return _ThinkingExportData(
+      cleanedContent: message.content.trim(),
+      thinkingTexts: structuredReasoning,
+    );
+  }
+
   final thinkingTexts = <String>[];
   var cleanedContent = message.content.trim();
 
@@ -215,7 +315,7 @@ _ThinkingExportData _thinkingExportDataForMessage(ChatMessage message) {
 
   // Fall back to <think> tags if segments are not available.
   if (thinkingTexts.isEmpty) {
-    final parsed = ThinkingTagParser.parseLegacyInlineBlocks(message.content);
+    final parsed = ThinkingTagParser.parseWithRanges(message.content);
     cleanedContent = parsed.visibleContent;
     thinkingTexts.addAll(parsed.thinkingTexts);
   }
@@ -230,6 +330,67 @@ _ThinkingExportData _thinkingExportDataForMessage(ChatMessage message) {
     cleanedContent: cleanedContent,
     thinkingTexts: thinkingTexts,
   );
+}
+
+/// Prepare a message for image export.
+///
+/// Inline `<think>` spans are sliced out of each [TextPart] so the widget
+/// body does not repeat text that [exportReasoningPayload] already renders
+/// as a thinking card. [ReasoningPart] / [ToolCallPart] stay when the
+/// toggle is on and are dropped when it is off.
+@visibleForTesting
+ChatMessage messageForThinkingExport(
+  ChatMessage message, {
+  required bool showThinkingAndToolCards,
+}) {
+  if (message.role != 'assistant') {
+    return message;
+  }
+  final hasReasoningPart = message.parts.any((part) => part is ReasoningPart);
+  final kept = [
+    for (final part in message.parts)
+      if (showThinkingAndToolCards ||
+          (part is! ReasoningPart && part is! ToolCallPart))
+        part,
+  ];
+  if (hasReasoningPart) {
+    return showThinkingAndToolCards ? message : message.copyWith(parts: kept);
+  }
+  final joined = message.content;
+  final ranges = ThinkingTagParser.parseWithRanges(joined);
+  if (ranges.hiddenRanges.isEmpty) {
+    return showThinkingAndToolCards ? message : message.copyWith(parts: kept);
+  }
+  return message.copyWith(
+    parts: _partsWithVisibleThinkSlices(
+      kept,
+      joined,
+      ranges,
+      insertReasoningParts: showThinkingAndToolCards,
+    ),
+  );
+}
+
+List<MessagePart> _partsWithVisibleThinkSlices(
+  List<MessagePart> parts,
+  String joined,
+  ThinkingTagParseRanges ranges, {
+  required bool insertReasoningParts,
+}) {
+  final next = <MessagePart>[];
+  ThinkingTagParser.walkSlices(
+    parts,
+    joined,
+    ranges,
+    onVisible: (text) => next.add(TextPart(text)),
+    onThinking: (_, text) {
+      if (insertReasoningParts && text.isNotEmpty) {
+        next.add(ReasoningPart(text));
+      }
+    },
+    onOther: next.add,
+  );
+  return next;
 }
 
 void _addReasoningSegmentTexts(List<String> output, List<dynamic> segments) {
@@ -274,6 +435,9 @@ List<ToolUIPart> _exportToolPartsForMessage(
             content: (e['content']?.toString().isNotEmpty == true)
                 ? e['content'].toString()
                 : null,
+            metadata: e['metadata'] is Map
+                ? Map<String, dynamic>.from(e['metadata'] as Map)
+                : null,
             loading: !(e['content']?.toString().isNotEmpty == true),
           ),
         )
@@ -288,7 +452,7 @@ _ExportReasoningPayload _exportReasoningPayloadForMessage(
   required bool expandThinkingContent,
 }) {
   final segJson = (message.reasoningSegmentsJson ?? '').trim();
-  final segments = <ReasoningSegment>[];
+  var segments = <ReasoningSegment>[];
   List<int>? offsets;
   List<int>? reasoningCounts;
   List<int>? toolCounts;
@@ -298,30 +462,11 @@ _ExportReasoningPayload _exportReasoningPayloadForMessage(
       final decoded = jsonDecode(segJson);
       if (decoded is Map<String, dynamic>) {
         final rawSegments = (decoded['segments'] as List? ?? const <dynamic>[]);
-        final contentSplits = (decoded['contentSplits'] as Map?)
-            ?.cast<String, dynamic>();
-        if (contentSplits != null) {
-          offsets = (contentSplits['offsets'] as List? ?? const <dynamic>[])
-              .map((item) => item as int)
-              .toList();
-          reasoningCounts =
-              (contentSplits['reasoningCounts'] as List? ?? const <dynamic>[])
-                  .map((item) => item as int)
-                  .toList();
-          toolCounts =
-              (contentSplits['toolCounts'] as List? ?? const <dynamic>[])
-                  .map((item) => item as int)
-                  .toList();
-          final normalizedLength = [
-            offsets.length,
-            reasoningCounts.length,
-            toolCounts.length,
-          ].reduce((a, b) => a < b ? a : b);
-          offsets = List<int>.of(offsets.take(normalizedLength));
-          reasoningCounts = List<int>.of(
-            reasoningCounts.take(normalizedLength),
-          );
-          toolCounts = List<int>.of(toolCounts.take(normalizedLength));
+        final parsedSplits = tryParseContentSplits(decoded['contentSplits']);
+        if (parsedSplits != null) {
+          offsets = parsedSplits.offsets;
+          reasoningCounts = parsedSplits.reasoningCounts;
+          toolCounts = parsedSplits.toolCounts;
         }
         for (final item in rawSegments) {
           if (item is! Map) continue;
@@ -380,12 +525,157 @@ _ExportReasoningPayload _exportReasoningPayloadForMessage(
     }
   }
 
+  if (!message.parts.any((part) => part is ReasoningPart)) {
+    segments = _expandSegmentsByLegacyThinkFragments(
+      message,
+      segments,
+      expandThinkingContent: expandThinkingContent,
+    );
+  } else {
+    segments = _alignStructuredReasoningSegments(
+      message,
+      segments,
+      expandThinkingContent: expandThinkingContent,
+    );
+  }
+
   return _ExportReasoningPayload(
     segments: segments,
     contentSplitOffsets: offsets,
     reasoningCountAtSplit: reasoningCounts,
     toolCountAtSplit: toolCounts,
   );
+}
+
+List<ReasoningSegment> _alignStructuredReasoningSegments(
+  ChatMessage message,
+  List<ReasoningSegment> source, {
+  required bool expandThinkingContent,
+}) {
+  final texts = [
+    for (final part in message.parts)
+      if (part is ReasoningPart && part.text.isNotEmpty) part.text,
+  ];
+  if (texts.isEmpty) return source;
+  return [
+    for (var i = 0; i < texts.length; i++)
+      ReasoningSegment(
+        text: texts[i],
+        expanded: i < source.length
+            ? source[i].expanded
+            : expandThinkingContent,
+        loading: false,
+        startAt: i < source.length ? source[i].startAt : null,
+        finishedAt: i < source.length ? source[i].finishedAt : null,
+        toolStartIndex: i < source.length ? source[i].toolStartIndex : 0,
+      ),
+  ];
+}
+
+List<ReasoningSegment> _expandSegmentsByLegacyThinkFragments(
+  ChatMessage message,
+  List<ReasoningSegment> source, {
+  required bool expandThinkingContent,
+}) {
+  final ranges = ThinkingTagParser.parseWithRanges(message.content);
+  if (ranges.hiddenRanges.isEmpty) return source;
+
+  final fragments = <(int, String)>[];
+  ThinkingTagParser.walkSlices(
+    message.parts,
+    message.content,
+    ranges,
+    onVisible: (_) {},
+    onThinking: (rangeIndex, text) {
+      if (text.isNotEmpty) fragments.add((rangeIndex, text));
+    },
+    onOther: (_) {},
+  );
+  if (fragments.isEmpty) return source;
+
+  final byRange = <int, ReasoningSegment>{};
+  var sourceIndex = 0;
+  for (var i = 0; i < ranges.hiddenRanges.length; i++) {
+    final range = ranges.hiddenRanges[i];
+    if (range.bodyEnd <= range.bodyStart) continue;
+    if (sourceIndex < source.length) {
+      byRange[i] = source[sourceIndex++];
+    }
+  }
+
+  return [
+    for (final fragment in fragments)
+      _reasoningSegmentFromSource(
+        byRange[fragment.$1],
+        text: fragment.$2,
+        expandThinkingContent: expandThinkingContent,
+      ),
+  ];
+}
+
+ReasoningSegment _reasoningSegmentFromSource(
+  ReasoningSegment? source, {
+  required String text,
+  required bool expandThinkingContent,
+}) {
+  return ReasoningSegment(
+    text: text,
+    expanded: source?.expanded ?? expandThinkingContent,
+    loading: false,
+    startAt: source?.startAt,
+    finishedAt: source?.finishedAt,
+    toolStartIndex: source?.toolStartIndex ?? 0,
+  );
+}
+
+@visibleForTesting
+List<({bool expanded, DateTime? startAt, DateTime? finishedAt})>
+exportReasoningMetadataForTesting(
+  ChatMessage message, {
+  required bool expandThinkingContent,
+}) {
+  return [
+    for (final segment in _exportReasoningPayloadForMessage(
+      message,
+      expandThinkingContent: expandThinkingContent,
+    ).segments)
+      (
+        expanded: segment.expanded,
+        startAt: segment.startAt,
+        finishedAt: segment.finishedAt,
+      ),
+  ];
+}
+
+@visibleForTesting
+({List<int>? offsets, List<int>? reasoningCounts, List<int>? toolCounts})
+exportContentSplitsForTesting(
+  ChatMessage message, {
+  bool expandThinkingContent = true,
+}) {
+  final payload = _exportReasoningPayloadForMessage(
+    message,
+    expandThinkingContent: expandThinkingContent,
+  );
+  return (
+    offsets: payload.contentSplitOffsets,
+    reasoningCounts: payload.reasoningCountAtSplit,
+    toolCounts: payload.toolCountAtSplit,
+  );
+}
+
+@visibleForTesting
+List<bool> exportReasoningExpandedFlagsForTesting(
+  ChatMessage message, {
+  required bool expandThinkingContent,
+}) {
+  return [
+    for (final item in exportReasoningMetadataForTesting(
+      message,
+      expandThinkingContent: expandThinkingContent,
+    ))
+      item.expanded,
+  ];
 }
 
 Future<void> _saveExportTextWithPicker(
@@ -488,53 +778,31 @@ Future<void> exportChatMessagesMarkdown(
       buf.writeln('> $time · $roleName');
       buf.writeln('');
 
-      final exportData = (msg.role == 'assistant')
-          ? _thinkingExportDataForMessage(msg)
-          : null;
-      final contentForExport = exportData?.cleanedContent ?? msg.content;
-
-      final parsed = _parseContent(contentForExport);
-      if (parsed.text.isNotEmpty) {
-        buf.writeln(parsed.text);
-        buf.writeln('');
-      }
-
-      for (final p in parsed.images) {
-        final fixed = SandboxPathResolver.fix(p);
-        try {
-          final f = File(fixed);
-          if (await f.exists()) {
-            final bytes = await f.readAsBytes();
-            final b64 = base64Encode(bytes);
-            final mime = _guessImageMime(fixed);
-            buf.writeln('![](data:$mime;base64,$b64)');
-          } else {
+      await _writeExportBlocks(
+        buf,
+        msg,
+        includeThinking: includeThinking,
+        includeTools: showThinkingAndToolCards,
+        thinkingLabel: thinkingLabel,
+        markdown: true,
+        writeImage: (imageUri) async {
+          final fixed = SandboxPathResolver.fix(imageUri);
+          try {
+            final f = File(fixed);
+            if (await f.exists()) {
+              final bytes = await f.readAsBytes();
+              final b64 = base64Encode(bytes);
+              final mime = _guessImageMime(fixed);
+              buf.writeln('![](data:$mime;base64,$b64)');
+            } else {
+              buf.writeln('![image]($fixed)');
+            }
+          } catch (_) {
             buf.writeln('![image]($fixed)');
           }
-        } catch (_) {
-          buf.writeln('![image]($fixed)');
-        }
-        buf.writeln('');
-      }
-
-      for (final d in parsed.docs) {
-        buf.writeln('- ${d.fileName}  `(${d.mime})`');
-      }
-
-      if (includeThinking &&
-          exportData != null &&
-          exportData.thinkingTexts.isNotEmpty) {
-        final t = exportData.thinkingTexts.join('\n\n').trim();
-        if (t.isNotEmpty) {
           buf.writeln('');
-          buf.writeln('**$thinkingLabel**');
-          buf.writeln('');
-          buf.writeln('```text');
-          buf.writeln(t);
-          buf.writeln('```');
-          buf.writeln('');
-        }
-      }
+        },
+      );
 
       buf.writeln('\n---\n');
     }
@@ -600,37 +868,24 @@ Future<void> exportChatMessagesTxt(
       buf.writeln('$time · $roleName');
       buf.writeln('');
 
-      final exportData = (msg.role == 'assistant')
-          ? _thinkingExportDataForMessage(msg)
-          : null;
-      final contentForExport = exportData?.cleanedContent ?? msg.content;
-
-      final parsed = _parseContent(contentForExport);
-      if (parsed.text.isNotEmpty) {
-        buf.writeln(parsed.text);
-        buf.writeln('');
-      }
-
-      for (final d in parsed.docs) {
-        buf.writeln('- ${d.fileName} (${d.mime})');
-      }
-
-      if (includeThinking &&
-          exportData != null &&
-          exportData.thinkingTexts.isNotEmpty) {
-        final t = exportData.thinkingTexts.join('\n\n').trim();
-        if (t.isNotEmpty) {
+      await _writeExportBlocks(
+        buf,
+        msg,
+        includeThinking: includeThinking,
+        includeTools: showThinkingAndToolCards,
+        thinkingLabel: thinkingLabel,
+        markdown: false,
+        writeImage: (imageUri) async {
+          buf.writeln(imageUri);
           buf.writeln('');
-          buf.writeln('[$thinkingLabel]');
-          buf.writeln(t);
-          buf.writeln('');
-        }
-      }
+        },
+      );
 
       buf.writeln('\n---\n');
     }
 
     final filename = 'chat-export-${DateTime.now().millisecondsSinceEpoch}.txt';
+    if (!context.mounted) return;
     await _saveExportTextWithPicker(
       context,
       filename: filename,
@@ -693,10 +948,10 @@ Future<File?> _renderAndSaveMessageImage(
   final title =
       chatService.getConversation(message.conversationId)?.title ??
       l10n.messageExportSheetDefaultTitle;
-  // Pre-render mermaid diagrams to images for export
+  // Pre-render Mermaid and SVG diagrams to images for export
   try {
-    final codes = extractMermaidCodes(message.content);
-    await preRenderMermaidCodesForExport(context, codes);
+    final codes = extractDiagramCodes(message.content);
+    await preRenderDiagramCodesForExport(context, codes);
   } catch (_) {}
 
   final bool isDesktop =
@@ -736,13 +991,13 @@ Future<File?> _renderAndSaveChatImage(
   final cs = theme.colorScheme;
   final settings = context.read<SettingsProvider>();
   final l10n = AppLocalizations.of(context)!;
-  // Pre-render all mermaid diagrams found in selected messages
+  // Pre-render all Mermaid and SVG diagrams found in selected messages
   try {
     final codes = messages
-        .map((m) => extractMermaidCodes(m.content))
+        .map((m) => extractDiagramCodes(m.content))
         .expand((e) => e)
         .toList();
-    await preRenderMermaidCodesForExport(context, codes);
+    await preRenderDiagramCodesForExport(context, codes);
   } catch (_) {}
 
   final bool isDesktop =
@@ -2629,10 +2884,10 @@ class _ExportedMessageCard extends StatelessWidget {
     final double containerMargin = isDesktop ? 12.0 : 16.0;
     final double containerPadding = isDesktop ? 12.0 : 16.0;
 
-    final exportThinkingData = _thinkingExportDataForMessage(message);
-    final messageForExport = (!showThinkingAndToolCards && isAssistant)
-        ? message.copyWith(content: exportThinkingData.cleanedContent)
-        : message;
+    final messageForExport = messageForThinkingExport(
+      message,
+      showThinkingAndToolCards: showThinkingAndToolCards,
+    );
     final exportReasoningPayload = showThinkingAndToolCards && isAssistant
         ? _exportReasoningPayloadForMessage(
             message,
@@ -2689,6 +2944,7 @@ class _ExportedMessageCard extends StatelessWidget {
             SizedBox(height: isDesktop ? 10.0 : 12.0),
             ChatMessageWidget(
               message: messageForExport,
+              collapseLongUserText: false,
               modelIcon:
                   (!useAssistAvatar &&
                       message.role == 'assistant' &&
@@ -2720,6 +2976,8 @@ class _ExportedMessageCard extends StatelessWidget {
                   exportReasoningPayload.reasoningCountAtSplit,
               toolCountAtSplit: exportReasoningPayload.toolCountAtSplit,
               hideStreamingIndicator: true,
+              showThinkingCards: true,
+              showToolCards: true,
             ),
             SizedBox(height: isDesktop ? 12.0 : 16.0),
             _ExportDisclaimer(isDesktop: isDesktop),
@@ -2841,10 +3099,10 @@ class _ExportedBubble extends StatelessWidget {
     // Desktop uses smaller font sizes for better proportions
     final double contentFontSize = isDesktop ? 13.0 : 15.7;
 
-    final exportThinkingData = _thinkingExportDataForMessage(message);
-    final messageForExport = (!showThinkingAndToolCards && isAssistant)
-        ? message.copyWith(content: exportThinkingData.cleanedContent)
-        : message;
+    final messageForExport = messageForThinkingExport(
+      message,
+      showThinkingAndToolCards: showThinkingAndToolCards,
+    );
     final exportReasoningPayload = showThinkingAndToolCards && isAssistant
         ? _exportReasoningPayloadForMessage(
             message,
@@ -2859,7 +3117,12 @@ class _ExportedBubble extends StatelessWidget {
         isAssistant && (assistant?.useAssistantAvatar == true);
     final useAssistName = isAssistant && (assistant?.useAssistantName == true);
 
-    final parsed = _parseContent(messageForExport.content);
+    // Keep attachments from the original message parts. copyWith(content:)
+    // rewrites parts to a single TextPart and would drop ImagePart/FilePart.
+    final parsed = _exportPartsFromMessage(
+      message,
+      textOverride: messageForExport.content,
+    );
     final mdText = StringBuffer();
     if (parsed.text.isNotEmpty) mdText.writeln(_softBreakMd(parsed.text));
     for (final p in parsed.images) {
@@ -2910,6 +3173,8 @@ class _ExportedBubble extends StatelessWidget {
             reasoningCountAtSplit: exportReasoningPayload.reasoningCountAtSplit,
             toolCountAtSplit: exportReasoningPayload.toolCountAtSplit,
             hideStreamingIndicator: true,
+            showThinkingCards: true,
+            showToolCards: true,
           ),
         ),
       );
@@ -2974,7 +3239,7 @@ Future<void> _runWithExportingOverlay(
       child: Material(
         color: cs.surface,
         elevation: 6,
-        shadowColor: Colors.black.withValues(alpha: 0.2),
+        shadowColor: cs.shadow.withValues(alpha: 0.2),
         borderRadius: BorderRadius.circular(14),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
@@ -3015,6 +3280,8 @@ class _Parsed {
   _Parsed(this.text, this.images, this.docs);
 }
 
+/// Display-only document ref (fileName/MIME). If future code reads [path],
+/// resolve via [SandboxPathResolver.fix] first — it may be a solab-file URI.
 class _DocRef {
   final String path;
   final String fileName;

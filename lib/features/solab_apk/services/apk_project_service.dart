@@ -1,5 +1,5 @@
-import 'package:solab/core/database/app_database.dart';
-import 'package:solab/core/database/chat_database_repository.dart';
+import 'package:Kelivo/core/database/app_database.dart';
+import 'package:Kelivo/core/database/chat_database_repository.dart';
 import 'package:uuid/uuid.dart';
 
 /// SoLab APK 项目服务：把一次分析结果落为可复用的项目记录。

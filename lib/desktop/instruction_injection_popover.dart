@@ -1,3 +1,4 @@
+import 'package:Kelivo/features/chat/utils/prompt_injection_selection.dart';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -9,12 +10,14 @@ import '../core/providers/instruction_injection_provider.dart';
 import '../icons/lucide_adapter.dart';
 import '../l10n/app_localizations.dart';
 import '../theme/app_font_weights.dart';
+import '../theme/design_tokens.dart';
 
 Future<void> showDesktopInstructionInjectionPopover(
   BuildContext context, {
   required GlobalKey anchorKey,
   required List<InstructionInjection> items,
   String? assistantId,
+  String? conversationId,
 }) async {
   if (items.isEmpty) return;
   final overlay = Overlay.maybeOf(context);
@@ -40,6 +43,7 @@ Future<void> showDesktopInstructionInjectionPopover(
       anchorWidth: size.width,
       items: items,
       assistantId: assistantId,
+      conversationId: conversationId,
       onClose: () {
         try {
           entry.remove();
@@ -56,6 +60,7 @@ class _InstructionInjectionPopover extends StatefulWidget {
     required this.anchorWidth,
     required this.items,
     required this.assistantId,
+    this.conversationId,
     required this.onClose,
   });
 
@@ -63,6 +68,7 @@ class _InstructionInjectionPopover extends StatefulWidget {
   final double anchorWidth;
   final List<InstructionInjection> items;
   final String? assistantId;
+  final String? conversationId;
   final VoidCallback onClose;
 
   @override
@@ -156,6 +162,7 @@ class _InstructionInjectionPopoverState
                         child: _InstructionInjectionList(
                           items: widget.items,
                           assistantId: widget.assistantId,
+                          conversationId: widget.conversationId,
                           onClose: _close,
                         ),
                       ),
@@ -179,26 +186,27 @@ class _GlassPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cs = Theme.of(context).colorScheme;
+    final radius = borderRadius ?? BorderRadius.circular(14);
     return ClipRRect(
-      borderRadius: borderRadius ?? BorderRadius.circular(14),
+      borderRadius: radius,
       child: BackdropFilter(
         filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: (isDark ? Colors.black : Colors.white).withValues(
-              alpha: isDark ? 0.28 : 0.56,
-            ),
+            color: AppOverlayColors.desktopPopoverSurface(cs),
+            borderRadius: radius,
             border: Border(
               top: BorderSide(
-                color: Colors.white.withValues(alpha: isDark ? 0.06 : 0.18),
+                color: cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.12),
                 width: 0.7,
               ),
               left: BorderSide(
-                color: Colors.white.withValues(alpha: isDark ? 0.04 : 0.12),
+                color: cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.12),
                 width: 0.6,
               ),
               right: BorderSide(
-                color: Colors.white.withValues(alpha: isDark ? 0.04 : 0.12),
+                color: cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.12),
                 width: 0.6,
               ),
             ),
@@ -214,10 +222,12 @@ class _InstructionInjectionList extends StatelessWidget {
   const _InstructionInjectionList({
     required this.items,
     required this.assistantId,
+    this.conversationId,
     required this.onClose,
   });
   final List<InstructionInjection> items;
   final String? assistantId;
+  final String? conversationId;
   final VoidCallback onClose;
 
   @override
@@ -229,6 +239,7 @@ class _InstructionInjectionList extends StatelessWidget {
         child: _InstructionInjectionListInner(
           items: items,
           assistantId: assistantId,
+          conversationId: conversationId,
           onClose: onClose,
         ),
       ),
@@ -240,10 +251,12 @@ class _InstructionInjectionListInner extends StatelessWidget {
   const _InstructionInjectionListInner({
     required this.items,
     required this.assistantId,
+    this.conversationId,
     required this.onClose,
   });
   final List<InstructionInjection> items;
   final String? assistantId;
+  final String? conversationId;
   final VoidCallback onClose;
 
   @override
@@ -251,8 +264,14 @@ class _InstructionInjectionListInner extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final cs = Theme.of(context).colorScheme;
     final provider = context.watch<InstructionInjectionProvider>();
+    final items = provider.items;
     final groupUi = context.watch<InstructionInjectionGroupProvider>();
-    final selected = provider.activeIdsFor(assistantId).toSet();
+    final selected = promptSelectionIds(
+      context,
+      kind: PromptSelectionKind.instruction,
+      assistantId: assistantId,
+      conversationId: conversationId,
+    ).toSet();
 
     final Map<String, List<InstructionInjection>> grouped =
         <String, List<InstructionInjection>>{};
@@ -274,6 +293,17 @@ class _InstructionInjectionListInner extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (conversationId != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 2, 8, 6),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  l10n.conversationPromptScope,
+                  style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                ),
+              ),
+            ),
           Padding(
             padding: const EdgeInsets.only(bottom: 1),
             child: _CancelRow(
@@ -281,9 +311,13 @@ class _InstructionInjectionListInner extends StatelessWidget {
               label: l10n.homePageCancel,
               onTap: () async {
                 try {
-                  await context
-                      .read<InstructionInjectionProvider>()
-                      .setActiveIds(const <String>[], assistantId: assistantId);
+                  await setPromptSelection(
+                    context,
+                    const [],
+                    kind: PromptSelectionKind.instruction,
+                    assistantId: assistantId,
+                    conversationId: conversationId,
+                  );
                 } catch (_) {}
                 onClose();
               },
@@ -315,11 +349,12 @@ class _InstructionInjectionListInner extends StatelessWidget {
                     active: selected.contains(p.id),
                     onTap: () async {
                       try {
-                        final prov = context
-                            .read<InstructionInjectionProvider>();
-                        await prov.toggleActiveId(
+                        await togglePromptSelection(
+                          context,
                           p.id,
+                          kind: PromptSelectionKind.instruction,
                           assistantId: assistantId,
+                          conversationId: conversationId,
                         );
                       } catch (_) {}
                     },
@@ -355,9 +390,7 @@ class _GroupHeaderRowState extends State<_GroupHeaderRow> {
     final cs = Theme.of(context).colorScheme;
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final hoverBg = (isDark ? Colors.white : Colors.black).withValues(
-      alpha: isDark ? 0.10 : 0.06,
-    );
+    final hoverBg = cs.onSurface.withValues(alpha: isDark ? 0.10 : 0.06);
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -436,9 +469,7 @@ class _CancelRowState extends State<_CancelRow> {
     final cs = Theme.of(context).colorScheme;
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final hoverBg = (isDark ? Colors.white : Colors.black).withValues(
-      alpha: isDark ? 0.10 : 0.06,
-    );
+    final hoverBg = cs.onSurface.withValues(alpha: isDark ? 0.10 : 0.06);
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
@@ -508,9 +539,7 @@ class _RowItemState extends State<_RowItem> {
     final cs = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
     final baseBg = Colors.transparent;
-    final hoverBg = (isDark ? Colors.white : Colors.black).withValues(
-      alpha: isDark ? 0.12 : 0.10,
-    );
+    final hoverBg = cs.onSurface.withValues(alpha: isDark ? 0.12 : 0.10);
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,

@@ -1,10 +1,10 @@
-import 'package:solab/core/services/haptics.dart';
-import 'package:solab/features/workspace/widgets/skills/skill_import.dart';
-import 'package:solab/features/workspace/widgets/skills/skill_labels.dart';
-import 'package:solab/features/workspace/widgets/skills/skills_pane.dart';
-import 'package:solab/icons/lucide_adapter.dart';
-import 'package:solab/l10n/app_localizations.dart';
-import 'package:solab/shared/widgets/ios_tactile.dart';
+import 'package:Kelivo/core/services/haptics.dart';
+import 'package:Kelivo/features/workspace/widgets/skills/skill_import.dart';
+import 'package:Kelivo/features/workspace/widgets/skills/skill_labels.dart';
+import 'package:Kelivo/features/workspace/widgets/skills/skills_pane.dart';
+import 'package:Kelivo/icons/lucide_adapter.dart';
+import 'package:Kelivo/l10n/app_localizations.dart';
+import 'package:Kelivo/shared/widgets/ios_tactile.dart';
 import 'package:flutter/material.dart';
 
 class SkillsPageDesktopLayout extends StatelessWidget {

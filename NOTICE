@@ -1,0 +1,103 @@
+SoLab notices
+
+SoLab is a modified derivative of Kelivo and is distributed under the GNU Affero
+General Public License v3.0. The complete license for SoLab is in LICENSE.
+
+Third-party components and materials included in this repository. Their
+original licenses continue to apply:
+
+- Kelivo: AGPL-3.0, https://github.com/Chevey339/kelivo
+- SOMCP: AGPL-3.0, https://github.com/bilieebiliee1-design/SOMCP
+  (MCP gateway / reverse-engineer tool aggregation reference)
+- Blutter: MIT, https://github.com/worawit/blutter
+- Blutter Termux runners: MIT, https://github.com/dedshit/blutter-termux
+  (prebuilt libblutter_<dart-version>.so under android/app/src/main/jniLibs/)
+- PPTool-2.0: Apache-2.0, https://github.com/Kirlif/PPTool
+- calculate-mcp: MIT, https://github.com/KonghuanSmart/calculate-mcp
+  (design reference for the value_calc tool surface and its chained-batch
+  execution model; SoLab re-implemented the behaviour, no code was copied)
+- dsh-dafeiyu (desktop-pet sprite frames, assets/pet/): MIT,
+  https://github.com/QCYTSN/dsh-dafeiyu
+  (character from the DeepSeek fan-work "鲸鱼娘·大肥鱼")
+- mermaid.js (assets/mermaid.min.js): MIT,
+  https://github.com/mermaid-js/mermaid
+
+Dart/Flutter package licenses are shown in the app under
+Settings → About → Open-source licenses, together with the license texts
+bundled in assets/licenses/. The bundled texts are:
+  assets/licenses/blutter_mit.txt          MIT (Blutter)
+  assets/licenses/pptool_apache2.txt       Apache-2.0 (PPTool)
+  assets/licenses/xuanxingniehe_gpl3.txt   GPL-3.0 (reference material)
+
+The repository also contains prebuilt native binaries under android/app/libs/
+and android/app/src/main/jniLibs/. Their source, version, checksum, and license
+records must be verified individually before a public binary release.
+
+Historical materials or native binaries without a reproducible public source
+and license record must not be treated as redistributable source material.
+Before a public release, either document their source and license here or remove
+them from the release.
+
+The following sources are documented but do not currently declare a project
+license. Listing a source here does not grant redistribution rights:
+
+- 小奶瓶项目:
+  https://bbs.binmt.cc/thread-171312-1-1.html
+- ApkSignatureKillerEx:
+  https://github.com/L-JINBIN/ApkSignatureKillerEx
+- ApkDataMultiplexing:
+  https://github.com/L-JINBIN/ApkDataMultiplexing
+- Flutter analysis wrapper package com.ayue.flutter:
+  https://bbs.binmt.cc/thread-168571-1-1.html
+
+APK Ad Remover Editor is a historical source reference. Its files are not
+included in this repository.
+
+Known prebuilt component sources and licenses:
+
+- unidbg 0.9.9: Apache-2.0, https://github.com/zhkl0228/unidbg
+  (android/app/libs/unidbg-*.jar; runtime helpers libdisassembler.so and
+  libdemumble.so are loaded by the unidbg emulator)
+- Capstone 3.1.8 bindings/runtime: BSD,
+  https://github.com/zhkl0228/capstone
+  (android/app/libs/capstone-3.1.8-android-patched.jar, libcapstone.so,
+  libblutter_capstone.so)
+- Keystone 0.9.7 bindings/runtime: GPL-2.0,
+  https://github.com/zhkl0228/keystone
+  (android/app/libs/keystone-0.9.7-android-patched.jar, libkeystone.so)
+- Unicorn runtime: GPL-2.0, https://github.com/unicorn-engine/unicorn
+  (libunicorn.so)
+- Rizin runtime: LGPL-3.0/GPL-3.0 components, https://github.com/rizinorg/rizin
+  (librz_*.so)
+- rz-ghidra runtime: LGPL-3.0, https://github.com/rizinorg/rz-ghidra
+  (libcore_ghidra.so, libz_rzghidra.so)
+- Ghidra-derived Sleigh data: Apache-2.0 and secondary licenses,
+  https://github.com/NationalSecurityAgency/ghidra
+  (android/app/src/main/assets/rizin/plugins/rz_ghidra_sleigh/*.sla)
+- LIEF (embedded in librz_native.so): Apache-2.0,
+  https://github.com/lief-project/LIEF
+- LLVM demangler (libdemumble.so) and libc++_shared.so: Apache-2.0 with LLVM
+  exception, https://github.com/llvm/llvm-project
+- ICU (libicudata.so, libicuuc.so — required by the Blutter runners):
+  Unicode License, https://github.com/unicode-org/icu
+- PRoot (libproot_exec.so, libproot_loader.so), libtalloc, libandroid-shmem:
+  GPL-2.0-or-later (Termux packages). See
+  android/app/src/main/jniLibs/NOTICE for versions and SHA-256 records
+  (tool/proot_checksums.txt).
+- 玄星逆核（XuanXing NieHe）derived engine: GPL-3.0 (license text bundled at
+  assets/licenses/xuanxingniehe_gpl3.txt). SoLab's SO engine builds on this
+  reference material (libxanso_native.so, librz_native.so) with the tool
+  organisation and MCP gateway practice reworked.
+
+`android/app/libs/apk-data-multiplexing.jar` comes from
+https://github.com/L-JINBIN/ApkDataMultiplexing. The upstream repository does
+not declare a redistribution license. Do not publish this binary without
+written permission from its author or replacing it with a licensed
+implementation.
+
+The DPatch payload (android/app/src/main/assets/dpatch/pandora_loader.dex and
+libpandora.so) is included unchanged for source-audit and compatibility
+purposes only. It is network-sourced material; no reproducible original URL or
+license record was provided with it. Do not distribute a public binary
+containing it until its copyright holder and redistribution terms have been
+verified, or it has been replaced with a suitably licensed implementation.

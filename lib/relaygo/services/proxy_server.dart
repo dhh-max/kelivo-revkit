@@ -27,13 +27,6 @@ import 'package:Kelivo/relaygo/services/rule_engine.dart';
 import 'package:Kelivo/relaygo/services/update_service.dart';
 import 'package:Kelivo/relaygo/services/upstream_error.dart';
 import 'package:Kelivo/relaygo/utils/usage_parser.dart';
-import 'package:Kelivo/relaygo/services/health_probe.dart';
-import 'package:Kelivo/relaygo/services/webhook_service.dart';
-import 'package:Kelivo/relaygo/services/pricing_service.dart';
-import 'package:Kelivo/relaygo/services/gateway_key_service.dart';
-import 'package:Kelivo/relaygo/services/model_route_service.dart';
-import 'package:Kelivo/relaygo/services/daily_stats_service.dart';
-import 'package:Kelivo/relaygo/services/prometheus_metrics.dart';
 import 'package:Kelivo/relaygo/l10n/app_strings.dart';
 
 /// 单条「提供商 + key」候选
@@ -75,23 +68,6 @@ class ProxyServer {
   /// 在线更新（供 /relay/update/check 接口）
   final UpdateService? updateService;
 
-  /// —— 从 InterGate Python 版移植的服务实例 ——
-
-  /// 价格预估服务
-  late final PricingService _pricingService;
-
-  /// 附加网关密钥管理
-  late final GatewayKeyService _gatewayKeyService;
-
-  /// 模型路由服务
-  late final ModelRouteService _modelRouteService;
-
-  /// 每日统计服务
-  late final DailyStatsService _dailyStatsService;
-
-  /// 进程启动时间（用于计算 uptime）
-  final int _startTimestamp = DateTime.now().millisecondsSinceEpoch;
-
   /// 模型库（供 /v1/models 聚合接口，REQ-003）
   ///
   /// 惰性解析：未显式注入时，直到首次访问才回落到全局 Box，
@@ -110,18 +86,15 @@ class ProxyServer {
   HttpServer? _server;
   bool _running = false;
   bool _virtualBackfillDone = false; // 惰性回填只做一次
+
   /// 告警出口（由 AppState 装配，负责持久化 + Webhook）
   void Function(Alert alert)? onAlert;
+
   // —— 并发控制 ——
   final int _maxConcurrent = Constants.maxConcurrentConnections;
   final int _maxQueued = Constants.maxQueuedConnections;
   int _active = 0;
   final List<Completer<void>> _queue = [];
-  // —— 缓存惰性清理计时器 ——
-  Timer? _cachePurgeTimer;
-  // —— 请求去重：短期窗口内相同请求复用上游响应 ——
-  final Map<String, _DedupEntry> _dedup = {};
-  Timer? _dedupCleanupTimer;
 
   ProxyServer({
     required this.keyManager,
@@ -157,30 +130,6 @@ class ProxyServer {
     this.reportService =
         reportService ?? ReportService(logService, cacheManager: this.cache);
     modelCallTracker = ModelCallTracker(keyManager: keyManager);
-    _pricingService = PricingService();
-    // 从 Hive 加载已持久化的价格覆盖规则
-    final savedPricing = DatabaseHelper.settings.get('pricing_overrides');
-    if (savedPricing is Map) {
-      final overrides = <String, List<double>>{};
-      for (final e in savedPricing.entries) {
-        if (e.value is List && (e.value as List).length >= 2) {
-          overrides[e.key.toString()] = [
-            (e.value as List)[0] as double,
-            (e.value as List)[1] as double,
-          ];
-        }
-      }
-      _pricingService.setOverrides(overrides);
-    }
-    _gatewayKeyService = GatewayKeyService();
-    _modelRouteService = ModelRouteService();
-    _dailyStatsService = DailyStatsService(pricing: _pricingService);
-    // 应用上游连接池配置
-    BaseHttpProvider.configureConnectionPool(
-      maxConnectionsPerHost: settings.upstreamMaxConnections,
-      connectionTimeoutSec: 15,
-      idleTimeoutSec: settings.upstreamMaxKeepalive,
-    );
   }
 
   bool get isRunning => _running;
@@ -204,28 +153,10 @@ class ProxyServer {
     _server = await HttpServer.bind(host, port);
     port = _server!.port; // 记录实际绑定的端口（port:0 时为系统分配的临时端口）
     _running = true;
-    // 设置服务器级别参数
-    _server!.serverHeader = 'RelayGo/${Constants.appVersion}';
-    _server!.autoCompress = false; // 响应体已是上游解压后的，不需要二次压缩
-    _server!.idleTimeout = const Duration(seconds: 120); // 客户端空闲超时
     _server!.listen(_handleRequest, onError: (_) {});
-    // 启动缓存惰性清理定时器
-    _cachePurgeTimer ??= Timer.periodic(
-      const Duration(milliseconds: Constants.cachePurgeIntervalMs),
-      (_) { cache.purgeExpired(); },
-    );
-    // 启动去重窗口清理定时器
-    _dedupCleanupTimer ??= Timer.periodic(
-      const Duration(seconds: 5),
-      (_) => _cleanupDedup(),
-    );
   }
+
   Future<void> stop() async {
-    _cachePurgeTimer?.cancel();
-    _cachePurgeTimer = null;
-    _dedupCleanupTimer?.cancel();
-    _dedupCleanupTimer = null;
-    _dedup.clear();
     await _server?.close(force: true);
     _server = null;
     _running = false;
@@ -304,52 +235,6 @@ class ProxyServer {
         }));
       await request.response.close();
       return;
-    }
-
-    // —— 网关鉴权（从 InterGate 移植）——
-    // 若网关鉴权开关已开启，校验请求携带的网关密钥
-    if (settings.gatewayKeyEnabled) {
-      final authHeader = request.headers.value('authorization') ?? '';
-      String presented = '';
-      if (authHeader.toLowerCase().startsWith('bearer ')) {
-        presented = authHeader.substring(7).trim();
-      } else {
-        for (final h in ['x-api-key', 'x-gateway-key']) {
-          final v = request.headers.value(h);
-          if (v != null && v.isNotEmpty) {
-            presented = v;
-            break;
-          }
-        }
-      }
-      // 校验主网关密钥
-      bool authorized = false;
-      if (settings.gatewayKey.isNotEmpty && presented == settings.gatewayKey) {
-        authorized = true;
-      }
-      // 校验附加网关密钥
-      if (!authorized) {
-        final match = _gatewayKeyService.match(presented);
-        if (match != null) {
-          authorized = true;
-          // 权限校验：readonly 不允许写请求
-          if (match.permission == 'readonly' &&
-              request.method != 'GET' &&
-              request.method != 'HEAD' &&
-              request.method != 'OPTIONS') {
-            await _respondError(request, 403, '只读密钥不允许写请求');
-            return;
-          }
-          // models 权限：检查请求的模型是否在允许列表中
-          if (match.models.isNotEmpty && match.permission == 'models') {
-            // 模型权限检查在读取请求体后进行
-          }
-        }
-      }
-      if (!authorized) {
-        await _respondError(request, 401, '未授权：网关 Key 无效');
-        return;
-      }
     }
 
     // 管理接口（统计 / 版本 / 在线更新 / 报表 / 缓存），不转发到上游
@@ -472,35 +357,6 @@ class ProxyServer {
       }
     }
 
-    // 3.5) 请求去重：同一非流式请求在 deduplicationWindowMs 内复用上次响应
-    if (!payload.stream && request.method != 'GET') {
-      final dedupKey = _buildDedupKey(request.method, path, body);
-      final cached = _dedup[dedupKey];
-      if (cached != null && !cached.isExpired) {
-        request.response.statusCode = cached.statusCode;
-        cached.headers.forEach((name, value) {
-          if (!BaseHttpProvider.skipResponseHeader(name.toLowerCase())) {
-            request.response.headers.set(name, value);
-          }
-        });
-        request.response.headers.set('x-relay-dedup', 'HIT');
-        request.response.add(cached.body);
-        await request.response.close();
-        _recordLog(
-          request,
-          null,
-          cached.provider.isEmpty ? detected : cached.provider,
-          cached.statusCode,
-          stopwatch.elapsedMilliseconds,
-          model: payload.model,
-          requestBytes: body.length,
-          responseBytes: cached.body.length,
-          ruleName: decision?.ruleName,
-          cached: true,
-        );
-        return;
-      }
-    }
     // 4) 候选 key 选择 + 多提供商失败重试
     final forwardResult =
         await _forwardWithFallback(proxyRequest, detected, decision);
@@ -614,44 +470,6 @@ class ProxyServer {
         ruleName: decision?.ruleName,
         error: isError ? 'upstream ${result.statusCode}' : null,
       );
-
-      // —— 每日统计记账（从 InterGate 移植）——
-      _dailyStatsService.record(
-        provider: key.provider,
-        keyId: key.id,
-        model: payload.model,
-        promptTokens: isError ? 0 : usage.promptTokens,
-        completionTokens: isError ? 0 : usage.completionTokens,
-        isError: isError,
-      );
-      // 异步落库，不阻塞响应
-      unawaited(_dailyStatsService.flush());
-
-      // —— 请求去重存储：非流式 2xx 响应且完整捕获时缓存响应 ——
-      if (!isError && !result.streaming &&
-          written.captured.length == written.total &&
-          written.total <= Constants.cacheMaxBodyBytes) {
-        _dedup[_buildDedupKey(request.method, path, body)] = _DedupEntry(
-          timestamp: DateTime.now().millisecondsSinceEpoch,
-          statusCode: result.statusCode,
-          headers: Map<String, String>.from(result.headers),
-          body: List<int>.from(written.captured),
-          provider: key.provider,
-        );
-      }
-
-      // —— Webhook 告警推送（从 InterGate 移植）——
-      if (settings.webhookEnabled && settings.webhookUrl.isNotEmpty && isError) {
-        WebhookService.notifyFireAndForget(
-          url: settings.webhookUrl,
-          title: 'RelayGo 请求异常',
-          content: '模型: ${payload.model}\n状态码: ${result.statusCode}\n'
-              '提供商: ${key.provider}\nKey: ${key.name}\n'
-              '时间: ${DateTime.now().toIso8601String()}',
-          secret: settings.webhookSecret,
-        );
-      }
-
       await request.response.close();
     } catch (e) {
       // 异常时兜底：关闭下游响应、排空上游流，避免连接泄漏
@@ -744,9 +562,6 @@ class ProxyServer {
     if (modelOwner != null && modelOwner != candidates.first) {
       candidates = [modelOwner, ...candidates.where((c) => c != modelOwner)];
     }
-    // 模型路由：若用户为该模型配置了专属 Key 列表，则仅从这些 Key 中筛选候选
-    final routeKeyIds = _modelRouteService.keyIdsFor(proxyRequest.model);
-    final routeActive = routeKeyIds.isNotEmpty;
 
     // 构建候选池：每个候选提供商纳入其全部可用 key（一个 _Pair 对应一个 key），
     // 从而支持「同一提供商多个 key 之间的失败重试切换」（需求 2.2 多提供商/多 key 自动切换）。
@@ -760,10 +575,6 @@ class ProxyServer {
       // 使用「可用」查询：error 且冷却已过期的 key 会自动恢复为 active，
       // 避免 key 因连续失败被标记 error 后永远无法回到候选池（死锁）。
       var keys = keyManager.getUsableByProvider(pname);
-      // 模型路由：仅保留用户指定的 Key ID
-      if (routeActive) {
-        keys = keys.where((k) => routeKeyIds.contains(k.id)).toList();
-      }
       if (keys.isNotEmpty) hadActiveKeys = true;
       if (decision?.group != null && decision!.group!.isNotEmpty) {
         final before = keys.length;
@@ -934,14 +745,6 @@ class ProxyServer {
             await keyManager.updateKey(key);
             _maybeEmitKeyStatusChanged(key, prev);
           }
-          // 指数退避 + 抖动：切换 key 前短暂等待，避免连续快速重试打满上游
-          if (pool.isNotEmpty) {
-            final backoff = (Constants.retryBackoffBaseMs *
-                (1 << (attempts.clamp(0, 4))) +
-                (DateTime.now().millisecondsSinceEpoch % 100))
-                .clamp(0, Constants.retryBackoffMaxMs);
-            await Future<void>.delayed(Duration(milliseconds: backoff));
-          }
           continue;
         }
         // 3xx（非 304）等其余情况：交给下面的统一处理（正常透传）
@@ -957,14 +760,6 @@ class ProxyServer {
         loadBalancer.recordFailure(key);
         await keyManager.updateKey(key);
         _maybeEmitKeyStatusChanged(key, prev);
-        // 指数退避 + 抖动：异常后切换 key 前短暂等待
-        if (pool.isNotEmpty) {
-          final backoff = (Constants.retryBackoffBaseMs *
-              (1 << (attempts.clamp(0, 4))) +
-              (DateTime.now().millisecondsSinceEpoch % 100))
-              .clamp(0, Constants.retryBackoffMaxMs);
-          await Future<void>.delayed(Duration(milliseconds: backoff));
-        }
         continue;
       } finally {
         loadBalancer.decConnection(key.id);
@@ -1092,18 +887,7 @@ class ProxyServer {
     }
     return msg;
   }
-  /// 构建请求去重键（method + path + body hash）
-  String _buildDedupKey(String method, String path, List<int> body) {
-    // 用 body 长度 + 前 64 字节的 hash 做快速指纹，避免对大 body 做完整 hash
-    final sampleLen = body.length < 64 ? body.length : 64;
-    final sample = body.sublist(0, sampleLen);
-    final hash = sample.fold<int>(0, (prev, b) => (prev * 31 + b) & 0x7FFFFFFF);
-    return '$method:$path:${body.length}:$hash';
-  }
-  /// 清理过期的去重条目
-  void _cleanupDedup() {
-    _dedup.removeWhere((_, entry) => entry.isExpired);
-  }
+
   /// 读取请求体（受 [Constants.maxRequestBodyBytes] 约束）
   Future<List<int>> _readBody(HttpRequest request) async {
     final out = <int>[];
@@ -1352,83 +1136,13 @@ class ProxyServer {
             keepAliveEnabled: obj['keep_alive_enabled'] as bool?,
             autoStartOnBoot: obj['auto_start_on_boot'] as bool?,
             ignoreBatteryOptimization: obj['ignore_battery_optimization'] as bool?,
-            gatewayKeyEnabled: obj['gateway_key_enabled'] as bool?,
-            gatewayKey: obj['gateway_key'] as String?,
-            webhookEnabled: obj['webhook_enabled'] as bool?,
-            webhookUrl: obj['webhook_url'] as String?,
-            webhookSecret: obj['webhook_secret'] as String?,
-            upstreamMaxConnections: obj['upstream_max_connections'] != null ? obj['upstream_max_connections'] as int : null,
-            upstreamMaxKeepalive: obj['upstream_max_keepalive'] != null ? obj['upstream_max_keepalive'] as int : null,
-            webEnabled: obj['web_enabled'] as bool?,
-            webPort: obj['web_port'] != null ? obj['web_port'] as int : null,
-            webPassword: obj['web_password'] as String?,
           );
-          // 持久化到 Hive，使设置在重启后仍生效
-          await DatabaseHelper.settings.put('user', newSettings.toJson());
-          // 更新内存中的 settings 引用
-          settings
-            ..port = newSettings.port
-            ..host = newSettings.host
-            ..loadBalanceStrategy = newSettings.loadBalanceStrategy
-            ..language = newSettings.language
-            ..appLockEnabled = newSettings.appLockEnabled
-            ..appLockPin = newSettings.appLockPin
-            ..logRetentionDays = newSettings.logRetentionDays
-            ..maxLogEntries = newSettings.maxLogEntries
-            ..quotaWarnThreshold = newSettings.quotaWarnThreshold
-            ..errorRateThreshold = newSettings.errorRateThreshold
-            ..alertsEnabled = newSettings.alertsEnabled
-            ..rulesEnabled = newSettings.rulesEnabled
-            ..rateLimitEnabled = newSettings.rateLimitEnabled
-            ..upstreamTimeoutSeconds = newSettings.upstreamTimeoutSeconds
-            ..maxRetryKeys = newSettings.maxRetryKeys
-            ..cacheEnabled = newSettings.cacheEnabled
-            ..cacheTtlSeconds = newSettings.cacheTtlSeconds
-            ..cacheMaxEntries = newSettings.cacheMaxEntries
-            ..ipRateLimitPerMinute = newSettings.ipRateLimitPerMinute
-            ..globalRpmLimit = newSettings.globalRpmLimit
-            ..tokenRateLimitPerMinute = newSettings.tokenRateLimitPerMinute
-            ..burstMultiplier = newSettings.burstMultiplier
-            ..adaptiveTpmEnabled = newSettings.adaptiveTpmEnabled
-            ..updateFeedUrl = newSettings.updateFeedUrl
-            ..updateChannel = newSettings.updateChannel
-            ..autoCheckUpdate = newSettings.autoCheckUpdate
-            ..updateGithubRepo = newSettings.updateGithubRepo
-            ..autoSyncModelsOnStartup = newSettings.autoSyncModelsOnStartup
-            ..modelSyncIntervalHours = newSettings.modelSyncIntervalHours
-            ..autoDisableRemovedModels = newSettings.autoDisableRemovedModels
-            ..virtualModelsEnabled = newSettings.virtualModelsEnabled
-            ..keepAliveEnabled = newSettings.keepAliveEnabled
-            ..autoStartOnBoot = newSettings.autoStartOnBoot
-            ..ignoreBatteryOptimization = newSettings.ignoreBatteryOptimization
-            ..adminToken = newSettings.adminToken
-            ..gatewayKeyEnabled = newSettings.gatewayKeyEnabled
-            ..gatewayKey = newSettings.gatewayKey
-            ..webhookEnabled = newSettings.webhookEnabled
-            ..webhookUrl = newSettings.webhookUrl
-            ..webhookSecret = newSettings.webhookSecret
-            ..upstreamMaxConnections = newSettings.upstreamMaxConnections
-            ..upstreamMaxKeepalive = newSettings.upstreamMaxKeepalive
-            ..webEnabled = newSettings.webEnabled
-            ..webPort = newSettings.webPort
-            ..webPassword = newSettings.webPassword;
-          // 同步限流器与缓存
-          rateLimiter
-            ..enabled = settings.rateLimitEnabled
-            ..burstMultiplier = settings.burstMultiplier
-            ..tokensPerMinutePerKey = settings.tokenRateLimitPerMinute
-            ..requestsPerMinutePerIp = settings.ipRateLimitPerMinute
-            ..globalRequestsPerMinute = settings.globalRpmLimit
-            ..adaptiveTpmEnabled = settings.adaptiveTpmEnabled;
-          cache
-            ..enabled = settings.cacheEnabled
-            ..ttl = Duration(seconds: settings.cacheTtlSeconds)
-            ..maxEntries = settings.cacheMaxEntries;
-          await _jsonResponse(request, 200, settings.toMap());
+          await _jsonResponse(request, 200, newSettings.toMap());
           return;
         }
         await _respondError(request, 405, '该接口支持 GET / PUT');
         return;
+
       // — 路由规则管理（GET 列表 / POST 添加 / DELETE 删除）—
       case Constants.rulesPath:
         if (request.method == 'GET') {
@@ -1518,267 +1232,6 @@ class ProxyServer {
           }
         }
         await _jsonResponse(request, 200, {'synced': true, 'results': syncResults});
-        return;
-
-      // — Prometheus 指标（GET，text/plain）—
-      case Constants.metricsPath:
-        final allKeys = keyManager.getAll();
-        final activeKeys = allKeys.where((k) => k.status == KeyStatus.active).toList();
-        final cacheStats = cache.stats.toJson();
-        // 粗估今日数据：从 quotaMonitor 或 logService 获取
-        final today = DateTime.now();
-        final todayLog = logService.recent.where((l) {
-          final logDate = DateTime.fromMillisecondsSinceEpoch(l.timestamp);
-          return logDate.year == today.year &&
-              logDate.month == today.month &&
-              logDate.day == today.day;
-        }).toList();
-        final metricsText = PrometheusMetrics.generate(
-          totalKeys: allKeys.length,
-          activeKeys: activeKeys.length,
-          requestsToday: todayLog.length,
-          errorsToday: todayLog.where((l) => l.statusCode >= 400).length,
-          tokensToday: todayLog.fold(0, (s, l) => s + l.promptTokens + l.completionTokens),
-          modelsCount: modelRepository.getEnabled().length,
-          cacheHits: cacheStats['hits'] as int? ?? 0,
-          cacheMisses: cacheStats['misses'] as int? ?? 0,
-          cacheEntries: cacheStats['entries'] as int? ?? 0,
-          uptimeSeconds: _uptimeSeconds(),
-          perKeyStats: allKeys.map((k) => {
-            'key_id': k.id,
-            'provider': k.provider,
-            'requests_today': k.usedToday,
-            'errors_today': k.failureCount,
-            'tokens_today': k.usedToday,
-          }).toList(),
-        );
-        request.response.statusCode = 200;
-        request.response.headers.contentType = ContentType.parse('text/plain; version=0.0.4; charset=utf-8');
-        request.response.write(metricsText);
-        await request.response.close();
-        return;
-
-      // — 健康探测（GET）—
-      case Constants.healthProbePath:
-        final allKeys = keyManager.getAll();
-        final probe = HealthProbe();
-        try {
-          final results = await probe.probeAll(allKeys);
-          final summ = HealthProbe.summary(results);
-          await _jsonResponse(request, 200, {
-            'status': 'ok',
-            'time': DateTime.now().millisecondsSinceEpoch,
-            'summary': summ,
-            'results': results,
-          });
-        } finally {
-          await probe.aclose();
-        }
-        return;
-
-      // — 附加网关密钥管理（GET 脱敏列表 / PUT 覆盖写入）—
-      case Constants.gatewayKeysPath:
-        if (request.method == 'GET') {
-          final gks = _gatewayKeyService.maskedAll;
-          await _jsonResponse(request, 200, {'keys': gks});
-          return;
-        }
-        if (request.method == 'PUT') {
-          final body = await _readBody(request);
-          final obj = jsonDecode(utf8.decode(body)) as Map<String, dynamic>;
-          final keysList = obj['keys'] as List? ?? [];
-          await _gatewayKeyService.setAllFromJson(keysList);
-          await _jsonResponse(request, 200, {
-            'ok': true,
-            'count': _gatewayKeyService.all.length,
-          });
-          return;
-        }
-        await _respondError(request, 405, '该接口支持 GET / PUT');
-        return;
-
-      // — 模型路由管理（GET / PUT / DELETE）—
-      case Constants.routesPath:
-        if (request.method == 'GET') {
-          await _jsonResponse(request, 200, {
-            'routes': _modelRouteService.getRoutes().map((k, v) => MapEntry(k, v.toJson())),
-          });
-          return;
-        }
-        if (request.method == 'PUT') {
-          final body = await _readBody(request);
-          final obj = jsonDecode(utf8.decode(body)) as Map<String, dynamic>;
-          final model = request.uri.queryParameters['model'] ?? obj['model'] as String? ?? '';
-          if (model.isEmpty) {
-            await _respondError(request, 400, '缺少 model 参数');
-            return;
-          }
-          final keyIds = (obj['key_ids'] as List?)?.map((e) => e.toString()).toList() ?? [];
-          await _modelRouteService.setRoute(
-            model, keyIds,
-            enabled: obj['enabled'] as bool? ?? true,
-            note: obj['note'] as String? ?? '',
-          );
-          await _jsonResponse(request, 200, {'ok': true, 'model': model});
-          return;
-        }
-        if (request.method == 'DELETE') {
-          final model = request.uri.queryParameters['model'];
-          if (model == null || model.isEmpty) {
-            await _respondError(request, 400, '缺少 model 参数');
-            return;
-          }
-          await _modelRouteService.deleteRoute(model);
-          await _jsonResponse(request, 200, {'ok': true, 'model': model});
-          return;
-        }
-        await _respondError(request, 405, '该接口支持 GET / PUT / DELETE');
-        return;
-
-      // — 用量趋势（GET，支持 ?period=24h|7d|30d）—
-      case Constants.trendPath:
-        final period = request.uri.queryParameters['period'] ?? '7d';
-        final days = int.tryParse(request.uri.queryParameters['days'] ?? '') ?? 0;
-        final dailyService = _dailyStatsService;
-        List<Map<String, dynamic>> series;
-        if (period == '24h' && days == 0) {
-          // 按小时趋势：从日志聚合
-          final now = DateTime.now();
-          final hourStart = now.subtract(const Duration(hours: 23));
-          final recentLogs = logService.recent.where((l) {
-            final logTime = DateTime.fromMillisecondsSinceEpoch(l.timestamp);
-            return logTime.isAfter(hourStart);
-          }).toList();
-          final byHour = <int, Map<String, dynamic>>{};
-          for (final l in recentLogs) {
-            final logTime = DateTime.fromMillisecondsSinceEpoch(l.timestamp);
-            final bucket = logTime.hour;
-            final agg = byHour.putIfAbsent(bucket, () => {
-              'requests': 0, 'errors': 0, 'tokens': 0,
-            });
-            agg['requests'] = (agg['requests'] as int) + 1;
-            if (l.statusCode >= 400) agg['errors'] = (agg['errors'] as int) + 1;
-            agg['tokens'] = (agg['tokens'] as int) + l.promptTokens + l.completionTokens;
-          }
-          series = List.generate(24, (i) {
-            final h = (now.hour - 23 + i + 24) % 24;
-            final agg = byHour[h] ?? {'requests': 0, 'errors': 0, 'tokens': 0};
-            return {
-              'date': '${h.toString().padLeft(2, '0')}:00',
-              'label': '${h.toString().padLeft(2, '0')}:00',
-              'requests': agg['requests'],
-              'errors': agg['errors'],
-              'tokens': agg['tokens'],
-              'cost_usd': 0.0,
-            };
-          });
-        } else {
-          final nDays = days > 0 ? days : (period == '30d' ? 30 : 7);
-          series = dailyService.dailyTrend(nDays);
-        }
-        await _jsonResponse(request, 200, {'period': period, 'series': series});
-        return;
-
-      // — 价格管理（GET 内置+覆盖 / PUT 覆盖）—
-      case Constants.pricingPath:
-        if (request.method == 'GET') {
-          await _jsonResponse(request, 200, {
-            'builtin': PricingService.modelPrices.map((k, v) => MapEntry(k, v)),
-            'default': PricingService.defaultPrice,
-            'overrides': _pricingService.overrides.map((k, v) => MapEntry(k, v)),
-          });
-          return;
-        }
-        if (request.method == 'PUT') {
-          final body = await _readBody(request);
-          final obj = jsonDecode(utf8.decode(body)) as Map<String, dynamic>;
-          final rules = obj['rules'] as Map? ?? {};
-          final clean = <String, List<double>>{};
-          for (final e in rules.entries) {
-            final vals = e.value;
-            if (vals is List && vals.length >= 2) {
-              clean[e.key.toString().toLowerCase()] = [
-                (vals[0] as num).toDouble(),
-                (vals[1] as num).toDouble(),
-              ];
-            }
-          }
-          _pricingService.setOverrides(clean);
-          // 持久化价格覆盖规则到 Hive
-          final persistData = <String, dynamic>{};
-          for (final e in clean.entries) {
-            persistData[e.key] = e.value;
-          }
-          await DatabaseHelper.settings.put('pricing_overrides', persistData);
-          await _jsonResponse(request, 200, {'ok': true, 'rules': clean.map((k, v) => MapEntry(k, v))});
-          return;
-        }
-        await _respondError(request, 405, '该接口支持 GET / PUT');
-        return;
-
-      // — Webhook 测试（POST）—
-      case Constants.webhookTestPath:
-        if (request.method != 'POST') {
-          await _respondError(request, 405, '该接口仅支持 POST');
-          return;
-        }
-        final body = await _readBody(request);
-        final obj = jsonDecode(utf8.decode(body)) as Map<String, dynamic>;
-        final url = (obj['url'] as String? ?? '').trim();
-        if (url.isEmpty) {
-          await _jsonResponse(request, 200, {'ok': false, 'error': 'URL 为空'});
-          return;
-        }
-        final ok = await WebhookService.notify(
-          url: url,
-          title: 'RelayGo 测试推送',
-          content: '这是一条来自 RelayGo 网关控制台的测试通知。',
-          secret: (obj['secret'] as String? ?? ''),
-        );
-        await _jsonResponse(request, 200, {
-          'ok': ok,
-          'error': ok ? '' : '推送失败（非 2xx 或网络错误）',
-        });
-        return;
-
-      // — 导出日志 CSV —
-      case Constants.exportLogsPath:
-        final logs = logService.recent.toList().reversed.take(100000).toList();
-        final sb = StringBuffer();
-        sb.writeln('ts,path,method,status,provider,key_id,model,latency_ms,prompt_tokens,completion_tokens,cached,error');
-        for (final l in logs) {
-          sb.writeln([
-            l.timestamp, l.path, l.method, l.statusCode, l.provider,
-            l.keyId, l.model, l.durationMs, l.promptTokens,
-            l.completionTokens, l.cached ? 1 : 0, l.error ?? '',
-          ].map((v) => '"$v"').join(','));
-        }
-        request.response.statusCode = 200;
-        request.response.headers.set('Content-Type', 'text/csv; charset=utf-8');
-        request.response.headers.set('Content-Disposition', 'attachment; filename="logs.csv"');
-        request.response.write(sb.toString());
-        await request.response.close();
-        return;
-
-      // — 导出统计 CSV —
-      case Constants.exportStatsPath:
-        final dailyService = _dailyStatsService;
-        final now = DateTime.now();
-        final start = now.subtract(const Duration(days: 30));
-        final entries = dailyService.range(_dateKey(start), _dateKey(now));
-        final sb = StringBuffer();
-        sb.writeln('date,provider,key_id,requests,errors,prompt_tokens,completion_tokens,cost_usd');
-        for (final e in entries) {
-          sb.writeln([
-            e.date, e.provider, e.keyId, e.requests,
-            e.errors, e.promptTokens, e.completionTokens, e.costUsd,
-          ].map((v) => '"$v"').join(','));
-        }
-        request.response.statusCode = 200;
-        request.response.headers.set('Content-Type', 'text/csv; charset=utf-8');
-        request.response.headers.set('Content-Disposition', 'attachment; filename="stats.csv"');
-        request.response.write(sb.toString());
-        await request.response.close();
         return;
 
       // — 实时状态（默认）—
@@ -2038,18 +1491,6 @@ class ProxyServer {
     }
   }
 
-  /// 计算进程运行时长（秒）
-  double _uptimeSeconds() {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    return ((now - _startTimestamp) / 1000.0).roundToDouble();
-  }
-
-  /// 日期格式化为 yyyy-MM-dd
-  static String _dateKey(DateTime d) =>
-      '${d.year.toString().padLeft(4, '0')}-'
-      '${d.month.toString().padLeft(2, '0')}-'
-      '${d.day.toString().padLeft(2, '0')}';
-
   void _recordLog(
     HttpRequest request,
     ApiKey? key,
@@ -2123,27 +1564,10 @@ class _ForwardFailure {
 
 class _Captured {
   final int total;
-final List<int> captured;
+  final List<int> captured;
   _Captured(this.total, this.captured);
 }
+
 class _ProxyOverload {
   const _ProxyOverload();
-}
-/// 请求去重条目：短时间内相同请求的响应缓存
-class _DedupEntry {
-  final int timestamp;
-  final int statusCode;
-  final Map<String, String> headers;
-  final List<int> body;
-  final String provider;
-  _DedupEntry({
-    required this.timestamp,
-    required this.statusCode,
-    required this.headers,
-    required this.body,
-    required this.provider,
-  });
-  bool get isExpired =>
-      DateTime.now().millisecondsSinceEpoch - timestamp >
-      Constants.deduplicationWindowMs;
 }

@@ -1,5 +1,7 @@
 const String assistantEditTabBasic = 'basic';
 const String assistantEditTabPrompts = 'prompts';
+const String assistantEditTabWorldBook = 'worldBook';
+const String assistantEditTabInstruction = 'instruction';
 const String assistantEditTabMemory = 'memory';
 const String assistantEditTabMcp = 'mcp';
 const String assistantEditTabLocalTools = 'localTools';
@@ -11,13 +13,15 @@ const String assistantEditTabRegex = 'regex';
 const List<String> defaultAssistantEditTabIds = [
   assistantEditTabBasic,
   assistantEditTabPrompts,
+  assistantEditTabWorldBook,
+  assistantEditTabInstruction,
   assistantEditTabMemory,
-  assistantEditTabQuickPhrase,
+  assistantEditTabLocalTools,
   assistantEditTabSkills,
+  assistantEditTabMcp,
+  assistantEditTabQuickPhrase,
   assistantEditTabCustom,
   assistantEditTabRegex,
-  assistantEditTabLocalTools,
-  assistantEditTabMcp,
 ];
 
 List<String> orderAssistantEditTabIds({

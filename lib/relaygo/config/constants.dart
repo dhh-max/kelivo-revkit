@@ -86,15 +86,6 @@ class Constants {
     overviewPath,
     checkAllPath,
     markExhaustedPath,
-    metricsPath,
-    healthProbePath,
-    gatewayKeysPath,
-    routesPath,
-    trendPath,
-    pricingPath,
-    webhookTestPath,
-    exportLogsPath,
-    exportStatsPath,
   ];
 
   // —— 管理接口鉴权 ——
@@ -162,22 +153,6 @@ class Constants {
   static const int defaultTokenRateLimitPerMinute = 0; // 0 = 不限制
   static const double defaultBurstMultiplier = 1.5; // 令牌桶突发容量倍数
   static const String retryAfterHeader = 'retry-after';
-
-  // —— 网关性能优化常量 ——
-  /// 请求去重窗口：同一幂等请求在此时间内的重复直接返回相同结果（毫秒）
-  static const int deduplicationWindowMs = 2000;
-  /// 上游连接空闲超时（与 keepalive 配合，过长导致连接堆积，过短导致重连）
-  static const int upstreamIdleTimeoutMs = 30000;
-  /// 重试退避基数（毫秒），实际退避 = base * 2^attempt + jitter
-  static const int retryBackoffBaseMs = 500;
-  /// 重试退避上限（毫秒）
-  static const int retryBackoffMaxMs = 5000;
-  /// 缓存惰性清理周期（毫秒），默认 60 秒
-  static const int cachePurgeIntervalMs = 60000;
-  /// 内存日志软上限：超过此值时丢弃最旧条目以释放内存
-  static const int logMemoryHardCap = 500;
-  /// 健康分最少样本数（低于此数不启用 smart 策略的健康分排序）
-  static const int minHealthScoreSamples = 10;
 
   // —— TPM 自适应挡板 + 429 等待重试（消除上游限流中断）——
   /// 自适应 TPM 挡板默认开启：结合本地用量与上游 429 反馈，把「学到」的
@@ -266,27 +241,4 @@ class Constants {
 
   // —— Phase 3：统计报表 ——
   static const int reportMaxDays = 90; // 报表最长回溯天数
-
-  // —— 从 InterGate Python 版移植的新功能 ——
-
-  // 新增管理接口路径
-  static const String metricsPath = '/relay/metrics'; // Prometheus 指标
-  static const String healthProbePath = '/relay/health'; // 健康探测
-  static const String gatewayKeysPath = '/relay/gateway-keys'; // 附加网关密钥管理
-  static const String routesPath = '/relay/routes'; // 模型路由管理
-  static const String trendPath = '/relay/trend'; // 用量趋势
-  static const String pricingPath = '/relay/pricing'; // 价格管理
-  static const String webhookTestPath = '/relay/webhook/test'; // Webhook 测试
-  static const String exportLogsPath = '/relay/export/logs'; // 导出日志 CSV
-  static const String exportStatsPath = '/relay/export/stats'; // 导出统计 CSV
-
-  // 上游连接池
-  static const int defaultUpstreamMaxConnections = 100;
-  static const int defaultUpstreamMaxKeepalive = 20;
-
-  // 告警持久化
-  static const int maxPersistedAlerts = 200;
-
-  // Web 控制台默认端口
-  static const int defaultWebPort = 51235;
 }
