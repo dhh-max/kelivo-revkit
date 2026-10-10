@@ -259,8 +259,11 @@ class EnvironmentProvider extends ChangeNotifier {
         await preferences.remove(prootOptionsKey);
       }
     }
+    debugPrint('[EnvProvider._load] stateKey raw present='
+        '${preferences.getString(stateKey) != null}');
     final rawState = preferences.getString(stateKey);
     if (rawState != null && rawState.isNotEmpty) {
+      debugPrint('[EnvProvider._load] rawState=$rawState');
       try {
         _state = EnvironmentState.fromJson(
           jsonDecode(rawState) as Map<String, dynamic>,
