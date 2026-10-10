@@ -8,6 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.Process
 import android.os.StatFs
+import android.util.Log
 import android.view.WindowManager
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.EventChannel
@@ -174,6 +175,12 @@ class WorkspacePlugin(private val context: Context) {
             !talloc.isFile -> "proot dependency missing: ${talloc.absolutePath}"
             else -> "proot dependency missing: ${shmem.absolutePath}"
         }
+        Log.i("WorkspacePlugin", "probe: supported=$supported abi=${runtimeAbi()} " +
+            "nativeLibDir=${nativeLibDir.absolutePath} " +
+            "proot.isFile=${proot.isFile} loader.isFile=${loader.isFile} " +
+            "talloc.isFile=${talloc.isFile} shmem.isFile=${shmem.isFile} " +
+            "nativeLibDir.list=${nativeLibDir.list()?.filter { it.startsWith("libproot") || it.startsWith("libtalloc") || it.startsWith("libshmem") || it.startsWith("libandroid-shmem") }} " +
+            "reason=$reason")
         return hashMapOf(
             "supported" to supported,
             "abi" to runtimeAbi(),
