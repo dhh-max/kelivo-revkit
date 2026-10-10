@@ -110,7 +110,7 @@ jobs:
           echo "✅ 签名配置已写入"
 
       - name: 🏗️ 构建 APK
-        run: flutter build apk --release --split-per-abi --target-platform android-arm64
+        run: flutter build apk --release --split-per-abi
 
       - name: 📦 重命名 APK
         run: |
