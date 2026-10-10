@@ -125,19 +125,7 @@ jobs:
           name: ${{ github.event.inputs.release_tag }}
           files: build/app/outputs/flutter-apk/Kelivo_android_*.apk
 
-      - name: 📤 上传构建产物 (arm64-v8a)
-        uses: actions/upload-artifact@v4
-        with:
-          name: Android-universal
-          path: build/app/outputs/flutter-apk/Kelivo_android_*_universal.apk
-
-      - name: 📤 上传构建产物 (armeabi-v7a)
-        uses: actions/upload-artifact@v4
-        with:
-          name: Android-universal
-          path: build/app/outputs/flutter-apk/Kelivo_android_*_universal.apk
-
-      - name: 📤 上传构建产物 (x86_64)
+      - name: 📤 上传构建产物
         uses: actions/upload-artifact@v4
         with:
           name: Android-universal
