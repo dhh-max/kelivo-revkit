@@ -109,3 +109,6 @@ android/app/.cxx/
 # 代理不可用时 cargo 会卡在依赖下载，构建脚本无法完成。
 .cargo/
 _tmp/
+# proot libraries needed at runtime - not part of the upstream SoLab tarball
+!android/app/src/main/jniLibs/arm64-v8a/libproot_exec.so
+!android/app/src/main/jniLibs/arm64-v8a/libproot_loader.so
