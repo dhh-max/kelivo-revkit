@@ -1,4 +1,4 @@
-import 'package:Kelivo/relaygo/config/constants.dart';
+import 'package:solab/relaygo/config/constants.dart';
 
 /// 用户设置
 class UserSettings {

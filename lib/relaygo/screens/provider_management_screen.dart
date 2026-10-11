@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:Kelivo/relaygo/app.dart';
-import 'package:Kelivo/relaygo/l10n/app_strings.dart';
-import 'package:Kelivo/relaygo/models/provider_definition.dart';
-import 'package:Kelivo/relaygo/database/provider_repository.dart';
+import 'package:solab/relaygo/app.dart';
+import 'package:solab/relaygo/l10n/app_strings.dart';
+import 'package:solab/relaygo/models/provider_definition.dart';
+import 'package:solab/relaygo/database/provider_repository.dart';
 
 /// 提供商管理页面
 ///

@@ -1,5 +1,5 @@
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:Kelivo/relaygo/config/constants.dart';
+import 'package:solab/relaygo/config/constants.dart';
 
 /// 存储结构迁移
 ///

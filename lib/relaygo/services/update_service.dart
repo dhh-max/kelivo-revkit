@@ -5,8 +5,8 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 
-import 'package:Kelivo/relaygo/config/constants.dart';
-import 'package:Kelivo/relaygo/models/app_release.dart';
+import 'package:solab/relaygo/config/constants.dart';
+import 'package:solab/relaygo/models/app_release.dart';
 
 /// 下载进度
 class DownloadProgress {

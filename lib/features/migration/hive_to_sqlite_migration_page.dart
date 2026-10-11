@@ -15,7 +15,7 @@ import '../../shared/widgets/restart_app_action.dart';
 import '../../theme/app_font_weights.dart';
 import '../../utils/platform_utils.dart';
 import 'hive_to_sqlite_migration_service.dart';
-import 'package:Kelivo/theme/app_semantic_colors.dart';
+import 'package:solab/theme/app_semantic_colors.dart';
 
 typedef MobileBackupSaver =
     Future<bool> Function({required String sourcePath, String? fileName});

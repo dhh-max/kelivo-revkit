@@ -1,10 +1,10 @@
-import 'package:Kelivo/relaygo/models/provider_config.dart';
-import 'package:Kelivo/relaygo/services/providers/base_provider.dart';
-import 'package:Kelivo/relaygo/services/providers/openai_provider.dart';
-import 'package:Kelivo/relaygo/services/providers/anthropic_provider.dart';
-import 'package:Kelivo/relaygo/services/providers/google_provider.dart';
-import 'package:Kelivo/relaygo/services/providers/azure_provider.dart';
-import 'package:Kelivo/relaygo/services/providers/custom_provider.dart';
+import 'package:solab/relaygo/models/provider_config.dart';
+import 'package:solab/relaygo/services/providers/base_provider.dart';
+import 'package:solab/relaygo/services/providers/openai_provider.dart';
+import 'package:solab/relaygo/services/providers/anthropic_provider.dart';
+import 'package:solab/relaygo/services/providers/google_provider.dart';
+import 'package:solab/relaygo/services/providers/azure_provider.dart';
+import 'package:solab/relaygo/services/providers/custom_provider.dart';
 
 /// 提供商工厂：根据类型返回对应适配器实例
 ///

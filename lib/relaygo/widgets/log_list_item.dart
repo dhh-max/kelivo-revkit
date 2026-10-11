@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:Kelivo/relaygo/config/theme.dart';
-import 'package:Kelivo/relaygo/models/request_log.dart';
-import 'package:Kelivo/relaygo/utils/formatters.dart';
+import 'package:solab/relaygo/config/theme.dart';
+import 'package:solab/relaygo/models/request_log.dart';
+import 'package:solab/relaygo/utils/formatters.dart';
 
 /// 单条日志卡片（对应设计稿请求日志条目）
 ///

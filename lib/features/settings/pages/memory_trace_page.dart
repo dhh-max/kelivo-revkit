@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:Kelivo/theme/app_font_weights.dart';
-import 'package:Kelivo/theme/app_semantic_colors.dart';
+import 'package:solab/theme/app_font_weights.dart';
+import 'package:solab/theme/app_semantic_colors.dart';
 
 import '../../../core/providers/settings_provider.dart';
 import '../../../core/services/memory/memory_trace.dart';

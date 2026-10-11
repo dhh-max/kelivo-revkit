@@ -526,9 +526,9 @@ class ApkRuleService {
     for (final rule in rules) {
       final current = stats[rule.category] ?? (hits: 0, success: 0, failure: 0);
       stats[rule.category] = (
-        hits: current.hits + rule.hitCount,
-        success: current.success + rule.successCount,
-        failure: current.failure + rule.failureCount,
+        hits: current.hits + (rule.hitCount is int ? rule.hitCount as int : (rule.hitCount as num).toInt()),
+        success: current.success + (rule.successCount is int ? rule.successCount as int : (rule.successCount as num).toInt()),
+        failure: current.failure + (rule.failureCount is int ? rule.failureCount as int : (rule.failureCount as num).toInt()),
       );
     }
     return stats;

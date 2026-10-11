@@ -1,4 +1,4 @@
-import 'package:Kelivo/theme/app_font_weights.dart';
+import 'package:solab/theme/app_font_weights.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:syncfusion_flutter_core/theme.dart';
@@ -9,7 +9,7 @@ import '../../../icons/lucide_adapter.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/ios_switch.dart';
 import '../../../shared/widgets/ios_tactile.dart';
-import 'package:Kelivo/theme/app_semantic_colors.dart';
+import 'package:solab/theme/app_semantic_colors.dart';
 
 class ImageSettingsPage extends StatelessWidget {
   const ImageSettingsPage({super.key});

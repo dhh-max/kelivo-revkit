@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:provider/provider.dart';
-import 'package:Kelivo/relaygo/app.dart';
-import 'package:Kelivo/relaygo/services/cache_manager.dart';
-import 'package:Kelivo/relaygo/services/report_service.dart';
-import 'package:Kelivo/relaygo/utils/formatters.dart';
-import 'package:Kelivo/relaygo/widgets/chart_widgets.dart';
-import 'package:Kelivo/relaygo/l10n/app_strings.dart';
+import 'package:solab/relaygo/app.dart';
+import 'package:solab/relaygo/services/cache_manager.dart';
+import 'package:solab/relaygo/services/report_service.dart';
+import 'package:solab/relaygo/utils/formatters.dart';
+import 'package:solab/relaygo/widgets/chart_widgets.dart';
+import 'package:solab/relaygo/l10n/app_strings.dart';
 
 /// 统计报表页（需求 2.2.7 / Phase 3）
 ///

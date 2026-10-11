@@ -1,5 +1,5 @@
-import 'package:Kelivo/relaygo/config/constants.dart';
-import 'package:Kelivo/relaygo/services/rate_limiter.dart';
+import 'package:solab/relaygo/config/constants.dart';
+import 'package:solab/relaygo/services/rate_limiter.dart';
 
 /// 上游错误的类型，用于决定「是否值得无感切换 key / 等待重试 / 直接透传」。
 ///

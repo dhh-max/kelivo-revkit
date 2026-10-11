@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:Kelivo/theme/app_font_weights.dart';
-import 'package:Kelivo/theme/app_semantic_colors.dart';
+import 'package:solab/theme/app_font_weights.dart';
+import 'package:solab/theme/app_semantic_colors.dart';
 
 import '../../../core/models/memory_entry.dart';
 import '../../../core/models/user_profile_field.dart';

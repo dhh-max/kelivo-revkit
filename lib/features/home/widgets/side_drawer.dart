@@ -15,7 +15,7 @@ import '../../../core/providers/user_provider.dart';
 import '../../settings/pages/settings_page.dart';
 import '../../translate/pages/translate_page.dart';
 import '../../backup/pages/backup_page.dart';
-import 'package:Kelivo/relaygo/screens/home_screen.dart' as relaygo_home;
+import 'package:solab/relaygo/screens/home_screen.dart' as relaygo_home;
 import '../../../core/providers/assistant_provider.dart';
 import '../../../core/providers/update_provider.dart';
 import '../../../core/models/assistant.dart';

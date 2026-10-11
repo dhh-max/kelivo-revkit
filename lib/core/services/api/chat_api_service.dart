@@ -13,7 +13,7 @@ import '../../utils/openai_model_compat.dart';
 import '../network/dio_http_client.dart';
 import 'google_service_account_auth.dart';
 import '../../services/api_key_manager.dart';
-import 'package:Kelivo/secrets/fallback.dart';
+import 'package:solab/secrets/fallback.dart';
 import '../../../utils/markdown_media_sanitizer.dart';
 import '../../../utils/unicode_sanitizer.dart';
 import 'builtin_tools.dart';
@@ -565,6 +565,10 @@ class ChatApiService {
     String? requestId,
     bool allowImagesApiRouting = true,
     bool ocrActive = false,
+    ReasoningRequest reasoning = ReasoningRequest.auto,
+    bool textOnly = false,
+    bool skipImageParsing = false,
+    bool imagesApiRouting = true,
   }) async* {
     final kind = ProviderConfig.classify(
       config.id,
@@ -736,6 +740,7 @@ class ChatApiService {
     Map<String, String>? extraHeaders,
     Map<String, dynamic>? extraBody,
     int? thinkingBudget,
+    ReasoningRequest reasoning = ReasoningRequest.auto,
   }) async {
     final kind = ProviderConfig.classify(
       config.id,

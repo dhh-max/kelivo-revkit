@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:Kelivo/relaygo/app.dart';
-import 'package:Kelivo/relaygo/models/api_key.dart';
-import 'package:Kelivo/relaygo/models/key_test.dart';
-import 'package:Kelivo/relaygo/l10n/app_strings.dart';
+import 'package:solab/relaygo/app.dart';
+import 'package:solab/relaygo/models/api_key.dart';
+import 'package:solab/relaygo/models/key_test.dart';
+import 'package:solab/relaygo/l10n/app_strings.dart';
 
 /// 批量测试 Key 有效性对话框（需求 2.2 / 2.3.2）
 ///

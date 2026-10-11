@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:Kelivo/relaygo/app.dart';
-import 'package:Kelivo/relaygo/config/constants.dart';
-import 'package:Kelivo/relaygo/database/database_helper.dart';
-import 'package:Kelivo/relaygo/utils/encryption.dart';
+import 'package:solab/relaygo/app.dart';
+import 'package:solab/relaygo/config/constants.dart';
+import 'package:solab/relaygo/database/database_helper.dart';
+import 'package:solab/relaygo/utils/encryption.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();

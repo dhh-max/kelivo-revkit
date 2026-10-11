@@ -1,6 +1,6 @@
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:Kelivo/relaygo/database/database_helper.dart';
-import 'package:Kelivo/relaygo/services/pricing_service.dart';
+import 'package:solab/relaygo/database/database_helper.dart';
+import 'package:solab/relaygo/services/pricing_service.dart';
 
 /// 每日统计条目
 class DailyStatEntry {

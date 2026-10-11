@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:Kelivo/relaygo/config/theme.dart';
-import 'package:Kelivo/relaygo/l10n/app_strings.dart';
+import 'package:solab/relaygo/config/theme.dart';
+import 'package:solab/relaygo/l10n/app_strings.dart';
 
 /// 简易横向柱状图（避免引入额外图表依赖）
 class SimpleBarChart extends StatelessWidget {

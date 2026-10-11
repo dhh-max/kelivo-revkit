@@ -2,20 +2,20 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:provider/provider.dart';
-import 'package:Kelivo/relaygo/app.dart';
-import 'package:Kelivo/relaygo/config/constants.dart';
-import 'package:Kelivo/relaygo/config/theme.dart';
-import 'package:Kelivo/relaygo/screens/key_management_screen.dart';
-import 'package:Kelivo/relaygo/screens/log_viewer_screen.dart';
-import 'package:Kelivo/relaygo/screens/settings_screen.dart';
-import 'package:Kelivo/relaygo/screens/rules_screen.dart';
-import 'package:Kelivo/relaygo/screens/alerts_screen.dart';
-import 'package:Kelivo/relaygo/screens/report_screen.dart';
-import 'package:Kelivo/relaygo/screens/model_management_screen.dart';
-import 'package:Kelivo/relaygo/screens/provider_management_screen.dart';
-import 'package:Kelivo/relaygo/screens/free_api_screen.dart';
-import 'package:Kelivo/relaygo/utils/network.dart';
-import 'package:Kelivo/relaygo/l10n/app_strings.dart';
+import 'package:solab/relaygo/app.dart';
+import 'package:solab/relaygo/config/constants.dart';
+import 'package:solab/relaygo/config/theme.dart';
+import 'package:solab/relaygo/screens/key_management_screen.dart';
+import 'package:solab/relaygo/screens/log_viewer_screen.dart';
+import 'package:solab/relaygo/screens/settings_screen.dart';
+import 'package:solab/relaygo/screens/rules_screen.dart';
+import 'package:solab/relaygo/screens/alerts_screen.dart';
+import 'package:solab/relaygo/screens/report_screen.dart';
+import 'package:solab/relaygo/screens/model_management_screen.dart';
+import 'package:solab/relaygo/screens/provider_management_screen.dart';
+import 'package:solab/relaygo/screens/free_api_screen.dart';
+import 'package:solab/relaygo/utils/network.dart';
+import 'package:solab/relaygo/l10n/app_strings.dart';
 
 /// 首页（对应设计稿 HomeScreen）
 ///

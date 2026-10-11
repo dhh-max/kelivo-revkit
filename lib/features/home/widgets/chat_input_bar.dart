@@ -27,7 +27,7 @@ import '../../../shared/widgets/ios_tactile.dart';
 import '../../../utils/app_directories.dart';
 import 'package:super_clipboard/super_clipboard.dart';
 import '../../../desktop/desktop_context_menu.dart';
-import 'package:Kelivo/theme/app_font_weights.dart';
+import 'package:solab/theme/app_font_weights.dart';
 import 'quick_prompt_overlay.dart';
 import '../../../core/providers/custom_prompt_provider.dart';
 

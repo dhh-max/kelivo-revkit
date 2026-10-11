@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:Kelivo/relaygo/l10n/app_strings.dart';
+import 'package:solab/relaygo/l10n/app_strings.dart';
 
 /// 导出 Key 对话框
 ///

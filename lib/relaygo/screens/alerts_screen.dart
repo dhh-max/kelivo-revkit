@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:Kelivo/relaygo/app.dart';
-import 'package:Kelivo/relaygo/l10n/app_strings.dart';
-import 'package:Kelivo/relaygo/models/alert.dart';
-import 'package:Kelivo/relaygo/utils/formatters.dart';
+import 'package:solab/relaygo/app.dart';
+import 'package:solab/relaygo/l10n/app_strings.dart';
+import 'package:solab/relaygo/models/alert.dart';
+import 'package:solab/relaygo/utils/formatters.dart';
 
 /// 告警中心（需求 2.2.2）
 class AlertsScreen extends StatefulWidget {

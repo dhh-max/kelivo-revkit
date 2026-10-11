@@ -1487,15 +1487,17 @@ Future<String> _handleApkSavePatchMemory(
     if (report?['sha256'] != null) 'reportSha256': report!['sha256'],
     'createdAt': DateTime.now().millisecondsSinceEpoch,
   });
-  if (!staged) {
+  if (staged == null) {
     return jsonEncode({
       'error': 'signed_artifact_required',
       'message': '请先生成签名成品，再预存待验证修改记录。',
     });
   }
+  final pendingStatus = staged['status']?.toString();
   return jsonEncode({
     'ok': true,
     'staged': true,
+    'pendingMemoryStatus': pendingStatus,
     'persistedToLongTermMemory': false,
     'message': '修改记录已预存，尚未写入长期记忆。',
     'nextRequiredTool': LocalToolNames.askUser,

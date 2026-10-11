@@ -1,5 +1,5 @@
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:Kelivo/relaygo/database/database_helper.dart';
+import 'package:solab/relaygo/database/database_helper.dart';
 
 /// 附加网关密钥模型
 class GatewayKey {

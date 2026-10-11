@@ -14,7 +14,7 @@ import '../../../theme/app_font_weights.dart';
 import '../../../theme/theme_factory.dart';
 import '../../../utils/brand_assets.dart';
 import 'search_api_keys_page.dart';
-import 'package:Kelivo/theme/app_semantic_colors.dart';
+import 'package:solab/theme/app_semantic_colors.dart';
 
 class SearchServiceEditorResult {
   const SearchServiceEditorResult.saved(this.service) : deleted = false;

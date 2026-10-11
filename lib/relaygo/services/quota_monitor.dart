@@ -1,7 +1,7 @@
-import 'package:Kelivo/relaygo/models/alert.dart';
-import 'package:Kelivo/relaygo/models/api_key.dart';
-import 'package:Kelivo/relaygo/models/user_settings.dart';
-import 'package:Kelivo/relaygo/l10n/app_strings.dart';
+import 'package:solab/relaygo/models/alert.dart';
+import 'package:solab/relaygo/models/api_key.dart';
+import 'package:solab/relaygo/models/user_settings.dart';
+import 'package:solab/relaygo/l10n/app_strings.dart';
 
 /// 告警回调（应用层据此持久化并触发 Webhook）
 typedef AlertEmitter = void Function(Alert alert);

@@ -27,7 +27,7 @@ import '../../stats/pages/stats_page.dart';
 import '../../../core/services/storage/storage_usage_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/services/haptics.dart';
-import 'package:Kelivo/theme/app_font_weights.dart';
+import 'package:solab/theme/app_font_weights.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
@@ -340,7 +340,7 @@ class SettingsPage extends StatelessWidget {
                 label: 'APK 工作台',
                 onTap: () {
                   Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const SoLabApkPage()),
+                    MaterialPageRoute(builder: (_) => const SolabApkPage()),
                   );
                 },
               ),

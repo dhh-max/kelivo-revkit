@@ -1,5 +1,5 @@
-import 'package:Kelivo/relaygo/config/constants.dart';
-import 'package:Kelivo/relaygo/models/api_key.dart';
+import 'package:solab/relaygo/config/constants.dart';
+import 'package:solab/relaygo/models/api_key.dart';
 
 /// 限流判定结果
 class RateLimitResult {

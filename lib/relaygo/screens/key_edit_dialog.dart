@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:Kelivo/relaygo/app.dart';
-import 'package:Kelivo/relaygo/models/api_key.dart';
-import 'package:Kelivo/relaygo/models/provider_definition.dart';
-import 'package:Kelivo/relaygo/utils/encryption.dart';
-import 'package:Kelivo/relaygo/utils/validators.dart';
-import 'package:Kelivo/relaygo/l10n/app_strings.dart';
+import 'package:solab/relaygo/app.dart';
+import 'package:solab/relaygo/models/api_key.dart';
+import 'package:solab/relaygo/models/provider_definition.dart';
+import 'package:solab/relaygo/utils/encryption.dart';
+import 'package:solab/relaygo/utils/validators.dart';
+import 'package:solab/relaygo/l10n/app_strings.dart';
 
 /// 添加 / 编辑 API Key 对话框
 ///

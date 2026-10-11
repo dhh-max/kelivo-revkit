@@ -51,10 +51,10 @@ import 'dart:io'
 import 'core/services/android_background.dart';
 import 'core/services/notification_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:Kelivo/relaygo/database/database_helper.dart' as relaygo_db;
-import 'package:Kelivo/relaygo/app.dart' as relaygo;
-import 'package:Kelivo/relaygo/utils/encryption.dart' as relaygo_enc;
-import 'package:Kelivo/relaygo/config/constants.dart' as relaygo_constants;
+import 'package:solab/relaygo/database/database_helper.dart' as relaygo_db;
+import 'package:solab/relaygo/app.dart' as relaygo;
+import 'package:solab/relaygo/utils/encryption.dart' as relaygo_enc;
+import 'package:solab/relaygo/config/constants.dart' as relaygo_constants;
 
 final RouteObserver<ModalRoute<dynamic>> routeObserver =
     RouteObserver<ModalRoute<dynamic>>();

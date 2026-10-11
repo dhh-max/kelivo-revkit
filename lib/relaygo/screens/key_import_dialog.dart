@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
-import 'package:Kelivo/relaygo/app.dart';
-import 'package:Kelivo/relaygo/l10n/app_strings.dart';
+import 'package:solab/relaygo/app.dart';
+import 'package:solab/relaygo/l10n/app_strings.dart';
 
 /// Key 批量导入对话框
 ///

@@ -2,9 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:Kelivo/relaygo/config/environment.dart';
-import 'package:Kelivo/relaygo/models/api_key.dart';
-import 'package:Kelivo/relaygo/utils/encryption.dart';
+import 'package:solab/relaygo/config/environment.dart';
+import 'package:solab/relaygo/models/api_key.dart';
+import 'package:solab/relaygo/utils/encryption.dart';
 
 /// 网关健康自检：探测各 Key 上游连通性。
 ///

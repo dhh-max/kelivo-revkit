@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:Kelivo/relaygo/app.dart';
-import 'package:Kelivo/relaygo/l10n/app_strings.dart';
-import 'package:Kelivo/relaygo/models/routing_rule.dart';
+import 'package:solab/relaygo/app.dart';
+import 'package:solab/relaygo/l10n/app_strings.dart';
+import 'package:solab/relaygo/models/routing_rule.dart';
 
 /// 路由规则管理页（需求 2.2.3）
 class RulesScreen extends StatelessWidget {

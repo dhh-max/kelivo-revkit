@@ -1,5 +1,5 @@
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:Kelivo/relaygo/models/provider_definition.dart';
+import 'package:solab/relaygo/models/provider_definition.dart';
 
 /// 提供商仓库
 ///

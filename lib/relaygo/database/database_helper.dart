@@ -1,6 +1,6 @@
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:Kelivo/relaygo/config/constants.dart';
-import 'package:Kelivo/relaygo/database/migrations.dart';
+import 'package:solab/relaygo/config/constants.dart';
+import 'package:solab/relaygo/database/migrations.dart';
 
 /// Hive 本地存储封装
 ///

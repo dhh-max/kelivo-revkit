@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import 'package:Kelivo/relaygo/app.dart';
-import 'package:Kelivo/relaygo/config/constants.dart';
-import 'package:Kelivo/relaygo/l10n/app_strings.dart';
-import 'package:Kelivo/relaygo/models/free_provider.dart';
+import 'package:solab/relaygo/app.dart';
+import 'package:solab/relaygo/config/constants.dart';
+import 'package:solab/relaygo/l10n/app_strings.dart';
+import 'package:solab/relaygo/models/free_provider.dart';
 
 /// 免费 API 推荐页（Free LLM API Hub）
 ///

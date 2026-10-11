@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:Kelivo/relaygo/config/theme.dart';
-import 'package:Kelivo/relaygo/models/request_log.dart';
-import 'package:Kelivo/relaygo/utils/formatters.dart';
-import 'package:Kelivo/relaygo/l10n/app_strings.dart';
+import 'package:solab/relaygo/config/theme.dart';
+import 'package:solab/relaygo/models/request_log.dart';
+import 'package:solab/relaygo/utils/formatters.dart';
+import 'package:solab/relaygo/l10n/app_strings.dart';
 
 /// 请求日志详情页
 ///

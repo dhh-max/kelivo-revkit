@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:Kelivo/relaygo/config/constants.dart';
-import 'package:Kelivo/relaygo/config/theme.dart';
-import 'package:Kelivo/relaygo/l10n/app_strings.dart';
+import 'package:solab/relaygo/config/constants.dart';
+import 'package:solab/relaygo/config/theme.dart';
+import 'package:solab/relaygo/l10n/app_strings.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// 开源协议页面

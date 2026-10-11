@@ -65,6 +65,7 @@ class Lucide {
   static const IconData Minus = lucide.LucideIcons.minus;
   static const IconData Type = lucide.LucideIcons.type;
   static const IconData ChevronRight = lucide.LucideIcons.chevronRight;
+  static const IconData Filter = lucide.LucideIcons.filter;
   static const IconData Copy = lucide.LucideIcons.copy;
   static const IconData RefreshCw = lucide.LucideIcons.refreshCw;
   static const IconData Ellipsis = lucide.LucideIcons.ellipsis;

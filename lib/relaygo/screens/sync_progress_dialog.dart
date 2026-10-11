@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:Kelivo/relaygo/app.dart';
-import 'package:Kelivo/relaygo/l10n/app_strings.dart';
-import 'package:Kelivo/relaygo/models/model_sync_exception.dart';
-import 'package:Kelivo/relaygo/models/provider_config.dart';
-import 'package:Kelivo/relaygo/services/model_sync_service.dart';
+import 'package:solab/relaygo/app.dart';
+import 'package:solab/relaygo/l10n/app_strings.dart';
+import 'package:solab/relaygo/models/model_sync_exception.dart';
+import 'package:solab/relaygo/models/provider_config.dart';
+import 'package:solab/relaygo/services/model_sync_service.dart';
 
 /// 模型同步进度对话框
 ///

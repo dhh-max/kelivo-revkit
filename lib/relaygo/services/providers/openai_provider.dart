@@ -1,6 +1,6 @@
-import 'package:Kelivo/relaygo/models/api_key.dart';
-import 'package:Kelivo/relaygo/models/provider_config.dart';
-import 'package:Kelivo/relaygo/services/providers/base_provider.dart';
+import 'package:solab/relaygo/models/api_key.dart';
+import 'package:solab/relaygo/models/provider_config.dart';
+import 'package:solab/relaygo/services/providers/base_provider.dart';
 
 /// OpenAI 适配器
 ///

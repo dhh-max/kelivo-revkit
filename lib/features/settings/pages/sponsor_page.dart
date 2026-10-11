@@ -7,8 +7,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../icons/lucide_adapter.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../core/services/haptics.dart';
-import 'package:Kelivo/theme/app_font_weights.dart';
-import 'package:Kelivo/theme/app_semantic_colors.dart';
+import 'package:solab/theme/app_font_weights.dart';
+import 'package:solab/theme/app_semantic_colors.dart';
 
 class SponsorPage extends StatefulWidget {
   const SponsorPage({super.key});

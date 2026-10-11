@@ -1,5 +1,5 @@
-import 'package:Kelivo/relaygo/models/provider_config.dart';
-import 'package:Kelivo/relaygo/models/key_test.dart';
+import 'package:solab/relaygo/models/provider_config.dart';
+import 'package:solab/relaygo/models/key_test.dart';
 
 /// API Key 状态
 enum KeyStatus { active, inactive, exhausted, error }

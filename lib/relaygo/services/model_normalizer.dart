@@ -1,5 +1,5 @@
-import 'package:Kelivo/relaygo/config/standard_models.dart';
-import 'package:Kelivo/relaygo/models/model_info.dart';
+import 'package:solab/relaygo/config/standard_models.dart';
+import 'package:solab/relaygo/models/model_info.dart';
 
 /// 模型归一化（P0 能力分层）
 ///

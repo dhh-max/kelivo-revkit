@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/services/haptics.dart';
-import 'package:Kelivo/theme/app_font_weights.dart';
+import 'package:solab/theme/app_font_weights.dart';
 
 class IosTileButton extends StatefulWidget {
   const IosTileButton({

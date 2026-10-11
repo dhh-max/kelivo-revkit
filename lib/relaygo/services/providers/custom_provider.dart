@@ -1,8 +1,8 @@
-import 'package:Kelivo/relaygo/models/api_key.dart';
-import 'package:Kelivo/relaygo/models/model_info.dart';
-import 'package:Kelivo/relaygo/models/provider_config.dart';
-import 'package:Kelivo/relaygo/models/key_test.dart';
-import 'package:Kelivo/relaygo/services/providers/base_provider.dart';
+import 'package:solab/relaygo/models/api_key.dart';
+import 'package:solab/relaygo/models/model_info.dart';
+import 'package:solab/relaygo/models/provider_config.dart';
+import 'package:solab/relaygo/models/key_test.dart';
+import 'package:solab/relaygo/services/providers/base_provider.dart';
 
 /// 自定义提供商适配器（OpenAI 兼容接口）
 ///

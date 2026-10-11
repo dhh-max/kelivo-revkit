@@ -1,18 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:Kelivo/relaygo/app.dart';
-import 'package:Kelivo/relaygo/config/theme.dart';
-import 'package:Kelivo/relaygo/models/api_key.dart';
-import 'package:Kelivo/relaygo/models/provider_config.dart';
-import 'package:Kelivo/relaygo/models/key_test.dart';
-import 'package:Kelivo/relaygo/widgets/key_card.dart';
-import 'package:Kelivo/relaygo/widgets/provider_logo.dart';
-import 'package:Kelivo/relaygo/screens/key_edit_dialog.dart';
-import 'package:Kelivo/relaygo/screens/batch_test_dialog.dart';
-import 'package:Kelivo/relaygo/screens/key_import_dialog.dart';
-import 'package:Kelivo/relaygo/screens/key_export_dialog.dart';
-import 'package:Kelivo/relaygo/screens/model_management_screen.dart';
-import 'package:Kelivo/relaygo/l10n/app_strings.dart';
+import 'package:solab/relaygo/app.dart';
+import 'package:solab/relaygo/config/theme.dart';
+import 'package:solab/relaygo/models/api_key.dart';
+import 'package:solab/relaygo/models/provider_config.dart';
+import 'package:solab/relaygo/models/key_test.dart';
+import 'package:solab/relaygo/widgets/key_card.dart';
+import 'package:solab/relaygo/widgets/provider_logo.dart';
+import 'package:solab/relaygo/screens/key_edit_dialog.dart';
+import 'package:solab/relaygo/screens/batch_test_dialog.dart';
+import 'package:solab/relaygo/screens/key_import_dialog.dart';
+import 'package:solab/relaygo/screens/key_export_dialog.dart';
+import 'package:solab/relaygo/screens/model_management_screen.dart';
+import 'package:solab/relaygo/l10n/app_strings.dart';
 
 /// API Keys 管理页（对应设计稿 API Keys 管理）
 ///

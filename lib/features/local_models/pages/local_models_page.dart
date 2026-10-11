@@ -13,7 +13,7 @@ import '../../../icons/lucide_adapter.dart';
 import '../../../core/services/haptics.dart';
 import '../../../shared/widgets/ios_switch.dart';
 import '../../../l10n/app_localizations.dart';
-import 'package:Kelivo/theme/app_font_weights.dart';
+import 'package:solab/theme/app_font_weights.dart';
 import '../models/local_model.dart';
 
 class LocalModelsPage extends StatefulWidget {

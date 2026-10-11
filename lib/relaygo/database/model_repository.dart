@@ -1,6 +1,6 @@
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:Kelivo/relaygo/models/model_info.dart';
-import 'package:Kelivo/relaygo/services/model_normalizer.dart';
+import 'package:solab/relaygo/models/model_info.dart';
+import 'package:solab/relaygo/services/model_normalizer.dart';
 
 /// 模型库仓储：基于 Hive Box（直接存 Map，免 codegen，跨平台一致）
 ///

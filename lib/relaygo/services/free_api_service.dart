@@ -4,8 +4,8 @@ import 'dart:convert';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:http/http.dart' as http;
 
-import 'package:Kelivo/relaygo/config/constants.dart';
-import 'package:Kelivo/relaygo/models/free_provider.dart';
+import 'package:solab/relaygo/config/constants.dart';
+import 'package:solab/relaygo/models/free_provider.dart';
 
 /// 免费 API 推荐数据服务（Free LLM API Hub）
 ///

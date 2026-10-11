@@ -1,13 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:Kelivo/relaygo/config/constants.dart';
-import 'package:Kelivo/relaygo/models/api_key.dart';
-import 'package:Kelivo/relaygo/models/model_info.dart';
-import 'package:Kelivo/relaygo/models/model_sync_exception.dart';
-import 'package:Kelivo/relaygo/models/provider_config.dart';
-import 'package:Kelivo/relaygo/models/key_test.dart';
-import 'package:Kelivo/relaygo/utils/encryption.dart';
+import 'package:solab/relaygo/config/constants.dart';
+import 'package:solab/relaygo/models/api_key.dart';
+import 'package:solab/relaygo/models/model_info.dart';
+import 'package:solab/relaygo/models/model_sync_exception.dart';
+import 'package:solab/relaygo/models/provider_config.dart';
+import 'package:solab/relaygo/models/key_test.dart';
+import 'package:solab/relaygo/utils/encryption.dart';
 
 /// 已解析的代理请求
 ///

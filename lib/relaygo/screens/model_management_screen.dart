@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
-import 'package:Kelivo/relaygo/app.dart';
-import 'package:Kelivo/relaygo/config/theme.dart';
-import 'package:Kelivo/relaygo/l10n/app_strings.dart';
-import 'package:Kelivo/relaygo/models/model_info.dart';
-import 'package:Kelivo/relaygo/models/provider_config.dart';
-import 'package:Kelivo/relaygo/screens/sync_progress_dialog.dart';
+import 'package:solab/relaygo/app.dart';
+import 'package:solab/relaygo/config/theme.dart';
+import 'package:solab/relaygo/l10n/app_strings.dart';
+import 'package:solab/relaygo/models/model_info.dart';
+import 'package:solab/relaygo/models/provider_config.dart';
+import 'package:solab/relaygo/screens/sync_progress_dialog.dart';
 
 /// 模型管理页（REQ-003）
 ///

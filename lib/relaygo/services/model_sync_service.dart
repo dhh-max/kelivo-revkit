@@ -1,13 +1,13 @@
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:Kelivo/relaygo/database/model_repository.dart';
-import 'package:Kelivo/relaygo/models/api_key.dart';
-import 'package:Kelivo/relaygo/models/model_info.dart';
-import 'package:Kelivo/relaygo/models/model_sync_exception.dart';
-import 'package:Kelivo/relaygo/models/provider_config.dart';
-import 'package:Kelivo/relaygo/services/key_manager.dart';
-import 'package:Kelivo/relaygo/services/model_normalizer.dart';
-import 'package:Kelivo/relaygo/services/providers/base_provider.dart';
-import 'package:Kelivo/relaygo/services/providers/provider_factory.dart';
+import 'package:solab/relaygo/database/model_repository.dart';
+import 'package:solab/relaygo/models/api_key.dart';
+import 'package:solab/relaygo/models/model_info.dart';
+import 'package:solab/relaygo/models/model_sync_exception.dart';
+import 'package:solab/relaygo/models/provider_config.dart';
+import 'package:solab/relaygo/services/key_manager.dart';
+import 'package:solab/relaygo/services/model_normalizer.dart';
+import 'package:solab/relaygo/services/providers/base_provider.dart';
+import 'package:solab/relaygo/services/providers/provider_factory.dart';
 
 /// 同步状态
 enum SyncStatus { syncing, completed, failed }

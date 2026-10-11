@@ -1,5 +1,5 @@
-import 'package:Kelivo/relaygo/models/routing_rule.dart';
-import 'package:Kelivo/relaygo/services/providers/base_provider.dart'; // ProxyRequest
+import 'package:solab/relaygo/models/routing_rule.dart';
+import 'package:solab/relaygo/services/providers/base_provider.dart'; // ProxyRequest
 
 /// 规则引擎（需求 2.2.3）
 ///
