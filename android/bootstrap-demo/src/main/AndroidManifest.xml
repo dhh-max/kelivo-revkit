@@ -1,0 +1,16 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application
+        android:name="zhou.kelivo.bootstrapdemo.DemoApplication"
+        android:appComponentFactory="zhou.kelivo.bootstrapdemo.BootstrapFactory"
+        android:label="Kelivo 自研过签 Demo"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <activity
+            android:name="zhou.kelivo.bootstrapdemo.MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
