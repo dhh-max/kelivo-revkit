@@ -14,7 +14,6 @@ import '../services/mcp/kelivo_dex/kelivo_dex_server.dart';
 import '../services/mcp/kelivo_reverse/kelivo_reverse_server.dart';
 import '../services/mcp/kelivo_jadx/kelivo_jadx_server.dart';
 import '../services/mcp/kelivo_memory/kelivo_memory_server.dart';
-import '../services/mcp/kelivo_apk_tools/kelivo_apk_tools_server.dart';
 import '../services/mcp/stdio_command_resolver.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
@@ -448,8 +447,6 @@ class McpProvider extends ChangeNotifier {
   static const String _builtinMemoryId = 'kelivo_memory';
   static const String _builtinJadxName = '@kelivo/jadx';
   static const String _builtinMemoryName = '@kelivo/memory';
-  static const String _builtinApkToolsId = 'kelivo_apk_tools';
-  static const String _builtinApkToolsName = '@kelivo/apk-tools';
   static const Set<String> _builtinFileWriteToolNames = {
     'kelivo_create_directory',
     'kelivo_create_text_file',
@@ -652,11 +649,6 @@ class McpProvider extends ChangeNotifier {
         _builtinServer(_builtinMemoryId, _builtinMemoryName, enabled: false),
       );
     }
-    if (!_hasBuiltinServer(_builtinApkToolsId, _builtinApkToolsName)) {
-      next.add(
-        _builtinServer(_builtinApkToolsId, _builtinApkToolsName, enabled: false),
-      );
-    }
     _servers = next;
   }
 
@@ -691,13 +683,11 @@ class McpProvider extends ChangeNotifier {
     _builtinFetchId, _builtinFilesId, _builtinGithubId, _builtinImagesId,
     _builtinContextId, _builtinSoId, _builtinDexId, _builtinReverseId,
     _builtinJadxId, _builtinMemoryId,
-    _builtinApkToolsId,
   };
   static final Set<String> _builtinServerNames = {
     _builtinFetchName, _builtinFilesName, _builtinGithubName, _builtinImagesName,
     _builtinContextName, _builtinSoName, _builtinDexName, _builtinReverseName,
     _builtinJadxName, _builtinMemoryName,
-    _builtinApkToolsName,
   };
 
   bool _isInmemoryBuiltin(McpServerConfig server) {
@@ -796,8 +786,6 @@ class McpProvider extends ChangeNotifier {
         return KelivoJadxMcpServerEngine();
       case _builtinMemoryId:
         return KelivoMemoryMcpServerEngine();
-      case _builtinApkToolsId:
-        return KelivoApkToolsMcpServerEngine();
       default:
         return KelivoFetchMcpServerEngine();
     }

@@ -340,7 +340,7 @@ class SettingsPage extends StatelessWidget {
                 label: 'APK 工作台',
                 onTap: () {
                   Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const SoLabApkPage()),
+                    MaterialPageRoute(builder: (_) => const SolabApkPage()),
                   );
                 },
               ),
