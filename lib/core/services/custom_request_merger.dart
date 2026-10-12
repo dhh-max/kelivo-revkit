@@ -50,33 +50,58 @@ class CustomRequestMerger {
             : value;
       }
     }
-    merged.addAll(_customBodyFromRows(providerRows));
-    merged.addAll(model);
+    applyBody(
+      merged,
+      ModelOverridePayloadParser.customBodyFromRows(providerRows),
+    );
+    applyBody(merged, model);
     return merged;
   }
 
-static void _addHeadersCaseInsensitive(
-     Map<String, String> target,
-     Map<String, String> layer,
-   ) {
-     for (final entry in layer.entries) {
-       final normalized = entry.key.toLowerCase();
-       target.removeWhere((key, _) => key.toLowerCase() == normalized);
-       target[entry.key] = entry.value;
-     }
-   }
+  /// Reasoning objects whose fields are mutually exclusive (`type: disabled`
+  /// vs `budget_tokens`, `thinkingLevel` vs `thinkingBudget`, `enabled` vs
+  /// `effort`), so a custom value replaces the generated one whole.
+  static const Set<String> _replacedWhole = {
+    'thinking',
+    'reasoning',
+    'thinkingConfig',
+  };
 
-   static Map<String, dynamic> _customBodyFromRows(Object? rows) {
-     if (rows is Map<String, dynamic>) {
-       return ModelOverridePayloadParser.customBody(rows);
-     }
-     if (rows is Map) {
-       final cast =
-           <String, dynamic>{
-             for (final e in rows.entries) e.key.toString(): e.value,
-           };
-       return ModelOverridePayloadParser.customBody(cast);
-     }
-     return const <String, dynamic>{};
-   }
- }
+  /// Merges the custom [body] into a built request [target]. Custom values
+  /// win; nested objects merge key by key so generated siblings (token
+  /// limits) survive a partial custom object. Lists, scalars and
+  /// [_replacedWhole] objects replace.
+  static void applyBody(
+    Map<String, dynamic> target,
+    Map<String, dynamic> body,
+  ) {
+    for (final entry in body.entries) {
+      final existing = target[entry.key];
+      final incoming = entry.value;
+      if (existing is Map &&
+          incoming is Map &&
+          !_replacedWhole.contains(entry.key)) {
+        final merged = <String, dynamic>{
+          for (final e in existing.entries) e.key.toString(): e.value,
+        };
+        applyBody(merged, {
+          for (final e in incoming.entries) e.key.toString(): e.value,
+        });
+        target[entry.key] = merged;
+      } else {
+        target[entry.key] = incoming;
+      }
+    }
+  }
+
+  static void _addHeadersCaseInsensitive(
+    Map<String, String> target,
+    Map<String, String> layer,
+  ) {
+    for (final entry in layer.entries) {
+      final normalized = entry.key.toLowerCase();
+      target.removeWhere((key, _) => key.toLowerCase() == normalized);
+      target[entry.key] = entry.value;
+    }
+  }
+}

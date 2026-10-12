@@ -1,23 +1,20 @@
 import 'dart:io';
-import 'package:flutter/material.dart';
+import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:image_picker/image_picker.dart';
-import '../shared/dialogs/file_duplicate_dialog.dart';
+import 'upload_dedupe.dart';
 
 class FileImportHelper {
   /// Copies a file (represented by XFile) to the target directory with duplicate handling.
   ///
-  /// If a file with the same name exists:
-  /// - Compares size and modification time.
-  /// - If identical, asks user whether to use existing or upload as new copy.
-  /// - If not identical or user chooses new copy, generates a versioned name (e.g. "file(1).ext").
+  /// Duplicates are decided by content: when the target directory already holds
+  /// a byte-identical file saved under the same name, that file is reused
+  /// instead of storing a second copy. Otherwise the file is written under a
+  /// versioned name (e.g. "file(1).ext") so a same-named but different file
+  /// never overwrites it.
   ///
   /// Returns the path of the saved/reused file, or null if operation failed.
-  static Future<String?> copyXFile(
-    XFile xFile,
-    Directory targetDir,
-    BuildContext context,
-  ) async {
+  static Future<String?> copyXFile(XFile xFile, Directory targetDir) async {
     try {
       if (!await targetDir.exists()) {
         await targetDir.create(recursive: true);
@@ -30,72 +27,41 @@ class FileImportHelper {
                 ? p.basename(xFile.path)
                 : DateTime.now().millisecondsSinceEpoch.toString());
 
-      final File sourceFile = File(xFile.path);
-      FileStat? srcStat;
-      if (xFile.path.isNotEmpty) {
+      final staging = await targetDir.createTemp('.import-');
+      try {
+        // File picking, paste and desktop drop can all carry large binaries.
+        // Keep both copying and duplicate detection bounded in memory.
+        final temp = File(p.join(staging.path, 'file'));
+        final output = await temp.open(mode: FileMode.write);
         try {
-          srcStat = await sourceFile.stat();
-        } catch (_) {}
-      }
-
-      File dest = File(p.join(targetDir.path, originalName));
-
-      if (await dest.exists()) {
-        FileStat? destStat;
-        try {
-          destStat = await dest.stat();
-        } catch (_) {}
-
-        final srcModifiedSec = srcStat == null
-            ? null
-            : (srcStat.modified.millisecondsSinceEpoch ~/ 1000);
-        final destModifiedSec = destStat == null
-            ? null
-            : (destStat.modified.millisecondsSinceEpoch ~/ 1000);
-
-        final sameSize =
-            srcStat != null &&
-            destStat != null &&
-            srcStat.size == destStat.size;
-        final sameModified =
-            srcModifiedSec != null &&
-            destModifiedSec != null &&
-            srcModifiedSec == destModifiedSec;
-
-        if (sameSize && sameModified) {
-          if (!context.mounted) return null;
-          final useExisting = await FileDuplicateDialog.show(
-            context,
-            originalName,
-          );
-          if (useExisting) {
-            return dest.path;
+          await for (final chunk in xFile.openRead()) {
+            await output.writeFrom(chunk);
           }
+        } finally {
+          await output.close();
         }
-
-        // Generate versioned name
-        final base = p.basenameWithoutExtension(originalName);
-        final ext = p.extension(originalName);
-        var counter = 1;
-        String candidate;
-        do {
-          candidate = p.join(targetDir.path, '$base($counter)$ext');
-          counter++;
-        } while (await File(candidate).exists());
-        dest = File(candidate);
-      }
-
-      // Perform copy
-      await dest.writeAsBytes(await xFile.readAsBytes());
-
-      // Keep modified time to help cache keying
-      if (srcStat != null) {
+        final digest = await sha256.bind(temp.openRead()).first;
+        final existing = await UploadDedupe.findIdenticalDigest(
+          targetDir,
+          await temp.length(),
+          digest.bytes,
+          originalName,
+        );
+        if (existing != null) return existing;
+        final dest = await UploadDedupe.reserveUniqueFile(
+          targetDir,
+          originalName,
+        );
         try {
-          await dest.setLastModified(srcStat.modified);
-        } catch (_) {}
+          await temp.rename(dest.path);
+        } catch (_) {
+          await dest.delete();
+          rethrow;
+        }
+        return dest.path;
+      } finally {
+        await staging.delete(recursive: true);
       }
-
-      return dest.path;
     } catch (_) {
       return null;
     }

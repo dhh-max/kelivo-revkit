@@ -1,85 +1,23 @@
-part of '../chat_api_service.dart';
+import 'dart:async';
 
-Map<String, dynamic> _copyChatCompletionMessage(Map<String, dynamic> m) {
-  final role = (m['role'] ?? 'user').toString();
-  final out = <String, dynamic>{
-    'role': role,
-    'content': m.containsKey('content') ? (m['content'] ?? '') : '',
-  };
+import 'package:http/http.dart' as http;
 
-  // Preserve optional name (some providers support it on non-tool roles).
-  final name = m['name'];
-  if (role != 'tool' && name != null && name.toString().isNotEmpty) {
-    out['name'] = name;
-  }
+import '../../../models/reasoning_request.dart';
+import '../../../providers/settings_provider.dart';
+import '../chat_api_helpers.dart';
+import '../generation/tool_loop_runner.dart';
+import '../stream/stream_chunk.dart';
 
-  // Preserve assistant tool_calls + vendor reasoning echoes (when present).
-  if (role == 'assistant') {
-    final toolCalls = m['tool_calls'];
-    if (toolCalls is List && toolCalls.isNotEmpty) {
-      out['tool_calls'] = toolCalls.whereType<Map>().map((toolCall) {
-        final copy = toolCall.map(
-          (key, value) => MapEntry(key.toString(), value),
-        );
-        copy.remove('metadata');
-        return copy;
-      }).toList();
-    }
-    final functionCall = m['function_call'];
-    if (functionCall != null) {
-      out['function_call'] = functionCall;
-    }
-    if (m['reasoning_content'] != null) {
-      out['reasoning_content'] = m['reasoning_content'];
-    }
-    if (m['reasoning_details'] != null) {
-      out['reasoning_details'] = m['reasoning_details'];
-    }
-  }
+import 'openai/openai_provider.dart';
 
-  // Preserve tool linkage fields.
-  if (role == 'tool') {
-    final toolCallId = m['tool_call_id'];
-    if (toolCallId != null && toolCallId.toString().isNotEmpty) {
-      out['tool_call_id'] = toolCallId;
-    }
-    if (name != null && name.toString().isNotEmpty) {
-      out['name'] = name;
-    }
-  }
-
-  return out;
-}
-
-List<Map<String, dynamic>> _cleanToolsForCompatibility(
-  List<Map<String, dynamic>> tools,
-) {
-  final cleaned = tools.map((tool) {
-    final result = Map<String, dynamic>.from(tool);
-    final fn = result['function'];
-    if (fn is Map) {
-      final fnMap = Map<String, dynamic>.from(fn);
-      final params = fnMap['parameters'];
-      if (params is Map) {
-        fnMap['parameters'] = _cleanSchemaForGemini(
-          Map<String, dynamic>.from(params),
-        );
-      }
-      result['function'] = fnMap;
-    }
-    return result;
-  }).toList();
-  // print('[ChatApi/Tools] Cleaned ${cleaned.length} tools: ${jsonEncode(cleaned)}');
-  return cleaned;
-}
-
-Stream<ChatStreamChunk> _sendOpenAIChatCompletionsStream(
+Stream<StreamChunk> sendOpenAIChatCompletionsStream(
   http.Client client,
   ProviderConfig config,
   String modelId,
   List<Map<String, dynamic>> messages, {
+  String? conversationId,
   List<String>? userImagePaths,
-  int? thinkingBudget,
+  ReasoningRequest reasoning = ReasoningRequest.auto,
   double? temperature,
   double? topP,
   int? maxTokens,
@@ -88,15 +26,19 @@ Stream<ChatStreamChunk> _sendOpenAIChatCompletionsStream(
   Map<String, String>? extraHeaders,
   Map<String, dynamic>? extraBody,
   bool stream = true,
+  bool builtInSearchOnly = false,
+  bool skipImageParsing = false,
+  StreamRoundRunner? retryRound,
 }) {
   final cfg = config.copyWith(useResponseApi: false);
-  return _sendOpenAIStream(
+  return sendOpenAIStream(
     client,
     cfg,
     modelId,
     messages,
+    conversationId: conversationId,
     userImagePaths: userImagePaths,
-    thinkingBudget: thinkingBudget,
+    reasoning: reasoning,
     temperature: temperature,
     topP: topP,
     maxTokens: maxTokens,
@@ -105,5 +47,8 @@ Stream<ChatStreamChunk> _sendOpenAIChatCompletionsStream(
     extraHeaders: extraHeaders,
     extraBody: extraBody,
     stream: stream,
+    builtInSearchOnly: builtInSearchOnly,
+    skipImageParsing: skipImageParsing,
+    retryRound: retryRound,
   );
 }

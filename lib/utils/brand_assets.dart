@@ -1,3 +1,5 @@
+import 'model_brand.dart';
+
 /// Centralized brand icon resolver.
 /// Returns an asset path like `assets/icons/openai.svg` for a given name/model.
 class BrandAssets {
@@ -10,11 +12,13 @@ class BrandAssets {
     if (key.isEmpty) return null;
     // Recompute if previously cached as null so newly added mappings take effect without restart.
     if (_cache.containsKey(key) && _cache[key] != null) return _cache[key];
-    String? result;
-    for (final e in _mapping) {
-      if (e.key.hasMatch(key)) {
-        result = 'assets/icons/${e.value}';
-        break;
+    String? result = ModelBrand.match(key)?.asset;
+    if (result == null) {
+      for (final e in _mapping) {
+        if (e.key.hasMatch(key)) {
+          result = 'assets/icons/${e.value}';
+          break;
+        }
       }
     }
     _cache[key] = result;
@@ -29,53 +33,41 @@ class BrandAssets {
   // Keep order-specific matching using a list of entries.
   static final List<MapEntry<RegExp, String>> _mapping =
       <MapEntry<RegExp, String>>[
-        MapEntry(RegExp(r'openai|gpt|o\d'), 'openai.svg'),
-        MapEntry(RegExp(r'gemini'), 'gemini-color.svg'),
+        MapEntry(RegExp(r'openai'), 'openai.svg'),
+        MapEntry(
+          RegExp(r'^azure(?: (?:tts|speech(?: services?)?))?$'),
+          'azure-speech.svg',
+        ),
         MapEntry(RegExp(r'google'), 'google-color.svg'),
-        MapEntry(RegExp(r'claude'), 'claude-color.svg'),
         MapEntry(RegExp(r'anthropic'), 'anthropic.svg'),
-        MapEntry(RegExp(r'deepseek'), 'deepseek-color.svg'),
-        MapEntry(RegExp(r'grok'), 'grok.svg'),
-        MapEntry(RegExp(r'qwen|qwq|qvq'), 'qwen-color.svg'),
-        MapEntry(RegExp(r'doubao'), 'doubao-color.svg'),
+        MapEntry(RegExp(r'firecrawl'), 'firecrawl-color.svg'),
+        MapEntry(RegExp(r'tinyfish'), 'tinyfish-color.svg'),
+        MapEntry(RegExp(r'fish.?audio|fishaudio'), 'fish-audio.svg'),
         MapEntry(RegExp(r'openrouter'), 'openrouter.svg'),
-        MapEntry(RegExp(r'zhipu|智谱|glm'), 'zhipu-color.svg'),
-        MapEntry(RegExp(r'mistral'), 'mistral-color.svg'),
+        MapEntry(RegExp(r'vercel'), 'vercel.svg'),
         MapEntry(RegExp(r'metaso|秘塔'), 'metaso-color.svg'),
-        MapEntry(RegExp(r'(?<!o)llama|meta'), 'meta-color.svg'),
-        MapEntry(RegExp(r'hunyuan|tencent'), 'hunyuan-color.svg'),
-        MapEntry(RegExp(r'gemma'), 'gemma-color.svg'),
-        MapEntry(RegExp(r'perplexity'), 'perplexity-color.svg'),
+        MapEntry(RegExp(r'meta'), 'meta-color.svg'),
+        MapEntry(RegExp(r'tencent'), 'hunyuan-color.svg'),
         MapEntry(RegExp(r'aliyun|阿里云|百炼'), 'alibabacloud-color.svg'),
         MapEntry(RegExp(r'bytedance|火山'), 'bytedance-color.svg'),
         MapEntry(RegExp(r'silicon|硅基'), 'siliconflow-color.svg'),
-        MapEntry(RegExp(r'sensenova|sensetime|商汤|日日新'), 'sensenova-color.svg'),
         MapEntry(RegExp(r'aihubmix'), 'aihubmix-color.svg'),
         MapEntry(RegExp(r'ollama'), 'ollama.svg'),
         MapEntry(RegExp(r'github'), 'github.svg'),
         MapEntry(RegExp(r'cloudflare'), 'cloudflare-color.svg'),
-        MapEntry(RegExp(r'minimax'), 'minimax-color.svg'),
         MapEntry(RegExp(r'xai'), 'xai.svg'),
         MapEntry(RegExp(r'juhenext'), 'juhenext.png'),
-        MapEntry(RegExp(r'kimi|moonshot|月之暗面'), 'kimi-color.svg'),
         MapEntry(RegExp(r'302'), '302ai-color.svg'),
-        MapEntry(RegExp(r'step|阶跃'), 'stepfun-color.svg'),
-        MapEntry(RegExp(r'internlm|书生'), 'internlm-color.svg'),
-        MapEntry(RegExp(r'cohere|command-.+'), 'cohere-color.svg'),
         MapEntry(RegExp(r'kelivo'), 'kelivo.png'),
         MapEntry(RegExp(r'tensdaq'), 'tensdaq-color.svg'),
-        MapEntry(RegExp(r'longcat'), 'longcat.png'),
+        MapEntry(RegExp(r'marucode|muteki'), 'marucode.png'),
         MapEntry(RegExp(r'iflow|心流'), 'iflow-color.svg'),
-        MapEntry(RegExp(r'sora'), 'sora-color.svg'),
-        MapEntry(RegExp(r'hybrid local|local hybrid|hybrid search'), 'web.svg'),
-        MapEntry(RegExp(r'baidu'), 'baidu-color.svg'),
-        MapEntry(RegExp(r'sogou'), 'sogou-color.svg'),
-        MapEntry(
-          RegExp(r'(^|\b)(so360|360 search|360\s|360$|qihoo|haosou|so\.com)'),
-          'so360-color.svg',
-        ),
         MapEntry(RegExp(r'bing|必应'), 'bing-color.svg'),
         MapEntry(RegExp(r'tavily'), 'tavily-color.svg'),
+        MapEntry(RegExp(r'anysearch'), 'anysearch.svg'),
+        MapEntry(RegExp(r'kagi'), 'kagi-color.svg'),
+        MapEntry(RegExp(r'parallel'), 'parallel.svg'),
+        MapEntry(RegExp(r'^you(?:\.com)?(?:\s+search)?$'), 'you.svg'),
         MapEntry(RegExp(r'exa'), 'exa-color.svg'),
         MapEntry(RegExp(r'linkup'), 'linkup.svg'),
         MapEntry(RegExp(r'brave'), 'brave-color.svg'),
@@ -84,11 +76,11 @@ class BrandAssets {
         MapEntry(RegExp(r'serper'), 'serper.svg'),
         MapEntry(RegExp(r'querit'), 'querit-color.svg'),
         MapEntry(RegExp(r'bocha|博查'), 'bocha-color.svg'),
-        MapEntry(RegExp(r'kat'), 'katkwaipilot-color.svg'),
         MapEntry(RegExp(r'duckduckgo'), 'duckduckgo-color.svg'),
-        MapEntry(RegExp(r'inclusionai'), 'ling.png'),
-        MapEntry(RegExp(r'mimo|xiaomi|小米'), 'mimo.svg'),
-        MapEntry(RegExp(r'codex'), 'codex.svg'),
+        MapEntry(RegExp(r'internlm|书生'), 'internlm-color.svg'),
+        MapEntry(RegExp(r'cohere|command-.+'), 'cohere-color.svg'),
+        MapEntry(RegExp(r'longcat'), 'longcat.png'),
+        MapEntry(RegExp(r'solab'), 'solab.png'),
       ];
 
   static const List<BrandIconOption> selectableIcons = <BrandIconOption>[
@@ -96,6 +88,11 @@ class BrandAssets {
       id: 'openai',
       label: 'OpenAI',
       asset: 'assets/icons/openai.svg',
+    ),
+    BrandIconOption(
+      id: 'opencode',
+      label: 'OpenCode',
+      asset: 'assets/icons/opencode-color.svg',
     ),
     BrandIconOption(
       id: 'gemini',
@@ -137,6 +134,11 @@ class BrandAssets {
       id: 'openrouter',
       label: 'OpenRouter',
       asset: 'assets/icons/openrouter.svg',
+    ),
+    BrandIconOption(
+      id: 'vercel',
+      label: 'Vercel AI Gateway',
+      asset: 'assets/icons/vercel.svg',
     ),
     BrandIconOption(
       id: 'zhipu',
@@ -237,7 +239,17 @@ class BrandAssets {
     BrandIconOption(
       id: 'stepfun',
       label: 'StepFun',
-      asset: 'assets/icons/stepfun-color.svg',
+      asset: 'assets/icons/stepfun.svg',
+    ),
+    BrandIconOption(
+      id: 'firecrawl',
+      label: 'Firecrawl',
+      asset: 'assets/icons/firecrawl-color.svg',
+    ),
+    BrandIconOption(
+      id: 'tinyfish',
+      label: 'TinyFish',
+      asset: 'assets/icons/tinyfish-color.svg',
     ),
     BrandIconOption(
       id: 'internlm',
@@ -250,9 +262,9 @@ class BrandAssets {
       asset: 'assets/icons/cohere-color.svg',
     ),
     BrandIconOption(
-      id: 'kelivo',
-      label: 'Kelivo',
-      asset: 'assets/icons/kelivo.png',
+      id: 'solab',
+      label: 'SoLab',
+      asset: 'assets/icons/solab.png',
     ),
     BrandIconOption(
       id: 'tensdaq',
@@ -280,25 +292,26 @@ class BrandAssets {
       asset: 'assets/icons/bing-color.svg',
     ),
     BrandIconOption(
-      id: 'baidu',
-      label: 'Baidu',
-      asset: 'assets/icons/baidu-color.svg',
-    ),
-    BrandIconOption(
-      id: 'sogou',
-      label: 'Sogou',
-      asset: 'assets/icons/sogou-color.svg',
-    ),
-    BrandIconOption(
-      id: 'so360',
-      label: '360 Search',
-      asset: 'assets/icons/so360-color.svg',
-    ),
-    BrandIconOption(
       id: 'tavily',
       label: 'Tavily',
       asset: 'assets/icons/tavily-color.svg',
     ),
+    BrandIconOption(
+      id: 'anysearch',
+      label: 'AnySearch',
+      asset: 'assets/icons/anysearch.svg',
+    ),
+    BrandIconOption(
+      id: 'kagi',
+      label: 'Kagi',
+      asset: 'assets/icons/kagi-color.svg',
+    ),
+    BrandIconOption(
+      id: 'parallel',
+      label: 'Parallel',
+      asset: 'assets/icons/parallel.svg',
+    ),
+    BrandIconOption(id: 'you', label: 'You.com', asset: 'assets/icons/you.svg'),
     BrandIconOption(
       id: 'exa',
       label: 'Exa',
@@ -368,16 +381,27 @@ class BrandAssets {
   }
 
   static bool assetNeedsDarkInvert(String asset) {
-    return asset.contains('openai') ||
-        asset.contains('anthropic') ||
-        asset.contains('grok') ||
-        asset.contains('xai') ||
-        asset.contains('openrouter') ||
-        asset.contains('ollama') ||
-        asset.contains('github') ||
-        asset.contains('codex') ||
-        asset.contains('mimo');
+    final fileName = asset.trim().toLowerCase().split('/').last;
+    return _darkAdaptiveAssets.contains(fileName);
   }
+
+  static const Set<String> _darkAdaptiveAssets = <String>{
+    'openai.svg',
+    'opencode-color.svg',
+    'anthropic.svg',
+    'grok.svg',
+    'xai.svg',
+    'openrouter.svg',
+    'vercel.svg',
+    'ollama.svg',
+    'github.svg',
+    'linkup.svg',
+    'mimo.svg',
+    'codex.svg',
+    'stepfun.svg',
+    'fish-audio.svg',
+    'firecrawl.svg',
+  };
 
   // Build the LobeHub static SVG CDN URL from an icon name (e.g. 'openai').
   static String lobehubIconUrl(String name) {

@@ -3,14 +3,18 @@ import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
 
+import '../../database/chat_database_repository.dart';
 import '../../models/assistant.dart';
+import '../../models/reasoning_request.dart';
 import '../../models/chat_message.dart';
 import '../../models/memory_entry.dart';
+import '../../models/message_part.dart';
 import '../../providers/assistant_provider.dart';
-import '../../providers/memory_provider.dart';
+import '../../providers/memory_provider_v2.dart';
 import '../../providers/settings_provider.dart';
 import '../api/chat_api_service.dart';
 import '../chat/chat_service.dart';
+import '../workspace/project_scope.dart';
 import 'memory_block_builder.dart';
 import 'memory_extractor.dart';
 import 'memory_gatekeeper.dart';
@@ -54,6 +58,8 @@ class _PipelineJob {
     required this.conversationId,
     required this.assistantId,
     required this.force,
+    this.projectId,
+    this.projectRoot,
     this.completer,
     this.onError,
   });
@@ -61,6 +67,11 @@ class _PipelineJob {
   final String conversationId;
   final String assistantId;
   final bool force;
+
+  /// 入队那一刻的进程级活动项目（兜底值，见 [_resolveJobProject]）。
+  final String? projectId;
+  final String? projectRoot;
+
   final Completer<MemoryOrganizeResult>? completer;
   final void Function(String error)? onError;
 }
@@ -72,38 +83,49 @@ class MemoryPipelineService {
   MemoryPipelineService({
     required this.chatService,
     required this.repository,
+    required this.chatRepository,
     required this._settings,
     required this._assistants,
     required this._memoryV2,
     MemoryTraceRecorder? traceRecorder,
+    this.resolveConversationProject,
     Future<String> Function({
       required ProviderConfig config,
       required String modelId,
       required String prompt,
-      int? thinkingBudget,
+      String? conversationId,
+      ReasoningRequest reasoning,
     })?
     generateText,
   }) : traceRecorder = traceRecorder ?? MemoryTraceRecorder.instance,
        _generateText = generateText ?? _defaultGenerateText,
-       smartAdd = MemorySmartAdd(repository: repository),
-       distiller = MemoryProfileDistiller(repository: repository);
+       smartAdd = MemorySmartAdd(
+         repository: repository,
+         chatRepository: chatRepository,
+       ),
+       distiller = MemoryProfileDistiller(
+         repository: repository,
+         chatRepository: chatRepository,
+       );
 
   static Future<String> _defaultGenerateText({
     required ProviderConfig config,
     required String modelId,
     required String prompt,
-    int? thinkingBudget,
+    String? conversationId,
+    ReasoningRequest reasoning = ReasoningRequest.auto,
   }) {
     return ChatApiService.generateText(
       config: config,
       modelId: modelId,
       prompt: prompt,
-      thinkingBudget: thinkingBudget,
+      reasoning: reasoning,
     );
   }
 
   final ChatService chatService;
   final MemoryRepository repository;
+  final ChatDatabaseRepository chatRepository;
   final MemorySmartAdd smartAdd;
   final MemoryProfileDistiller distiller;
 
@@ -112,18 +134,68 @@ class MemoryPipelineService {
 
   final SettingsProvider Function() _settings;
   final AssistantProvider Function() _assistants;
-  final MemoryProvider Function() _memoryV2;
+  final MemoryProviderV2 Function() _memoryV2;
+
+  /// 会话绑定的工作区解析器（见 [ConversationProjectResolver]）。
+  final ConversationProjectResolver? resolveConversationProject;
   final Future<String> Function({
     required ProviderConfig config,
     required String modelId,
     required String prompt,
-    int? thinkingBudget,
+    String? conversationId,
+    ReasoningRequest reasoning,
   })
   _generateText;
 
   static const int queueLimit = 8;
   static const int firstWindowCap = 20;
   static const int maxWindowFailures = 3;
+
+  /// 永久配额（GoUsage/monthly usage limit）冷却：一次命中后直接跳过整理
+  /// ——配额重置以天计，逐消息重试只会每条都报「记忆失败」并烧无效请求
+  /// （复测实测 429 期间反复失败）。月度配额按重置天数冷却（见
+  /// [_quotaCooldownFor]），小时级/未知配额维持 6h。
+  static const Duration quotaCooldownDuration = Duration(hours: 6);
+  static const Duration quotaCooldownMonthlyFallback = Duration(hours: 24);
+  static const Duration quotaCooldownMonthlyCap = Duration(days: 7);
+  static DateTime? _quotaCooldownUntil;
+  static bool get isQuotaCooldownActive =>
+      _quotaCooldownUntil != null &&
+      DateTime.now().isBefore(_quotaCooldownUntil!);
+
+  /// 按错误内容分级冷却时长。月度配额（monthly usage limit）尝试解析
+  /// "Resets in N days" → 冷却 N 天 + 2h 余量（封顶 7 天）；解析失败回退
+  /// 24h。此前固定 6h，月度配额每 6 小时重试一次、每次都弹「记忆失败」
+  /// （用户实测连续被弹，重置实际要 6 天）。
+  static Duration quotaCooldownFor(Object? error) {
+    final lower = error.toString().toLowerCase();
+    final monthly = lower.contains('monthly') ||
+        lower.contains('usage limit') ||
+        lower.contains('gousage');
+    if (!monthly) return quotaCooldownDuration;
+    final m = RegExp(r'resets in (\d+) day').firstMatch(lower);
+    if (m != null) {
+      final days = int.tryParse(m.group(1)!) ?? 1;
+      return Duration(
+        hours: (days * 24 + 2).clamp(
+          quotaCooldownMonthlyFallback.inHours,
+          quotaCooldownMonthlyCap.inHours,
+        ),
+      );
+    }
+    return quotaCooldownMonthlyFallback;
+  }
+
+  /// 识别错误文本中的永久配额标记（与 HttpSendRetry 同一套语义）。
+  static bool isPermanentQuotaError(Object? error) {
+    final lower = error.toString().toLowerCase();
+    return lower.contains('usage limit') ||
+        lower.contains('usage_limit') ||
+        lower.contains('gousage') ||
+        lower.contains('quota') ||
+        lower.contains('monthly') ||
+        lower.contains('insufficient_quota');
+  }
 
   final Queue<_PipelineJob> _queue = Queue<_PipelineJob>();
   bool _running = false;
@@ -186,7 +258,11 @@ class MemoryPipelineService {
         continue;
       }
       // TextPart bodies only — image/file attachments live as structured parts.
-      var text = m.content.trim();
+      var text = m.parts
+          .whereType<TextPart>()
+          .map((part) => part.text)
+          .join()
+          .trim();
       if (text.isEmpty) continue;
       if (text.length > 2000) {
         text = '${text.substring(0, 2000)}…';
@@ -220,6 +296,8 @@ class MemoryPipelineService {
           conversationId: conversationId,
           assistantId: assistantId,
           force: false,
+          projectId: ProjectScope.currentId,
+          projectRoot: ProjectScope.currentRoot,
           onError: onError,
         ),
       );
@@ -240,6 +318,8 @@ class MemoryPipelineService {
         conversationId: conversationId,
         assistantId: assistantId,
         force: true,
+        projectId: ProjectScope.currentId,
+        projectRoot: ProjectScope.currentRoot,
         completer: completer,
       ),
     );
@@ -305,7 +385,7 @@ class MemoryPipelineService {
           lastResult: result,
         );
         if (result.error != null && _isTaskFailure(result.error!)) {
-          job.onError?.call(result.error!);
+          job.onError?.call(_shortErrorForToast(result.error!));
         }
         job.completer?.complete(result);
       }
@@ -314,14 +394,34 @@ class MemoryPipelineService {
     }
   }
 
-  static bool _isTaskFailure(String error) => !const {
+  /// Outcome codes that skip organize without counting as a task failure.
+  static const Set<String> skipReasonCodes = {
     'temporary_conversation',
     'memory_disabled',
     'auto_organize_off',
     'streaming',
     'below_threshold',
     'empty_window',
-  }.contains(error);
+    // 未配置/失效的专用记忆模型是配置状态而非故障：静默跳过后台整理，
+    // 不作为任务失败冒泡（会话内 memory_update 工具链不受影响，走降级路径）。
+    'memory_model_unset',
+    'memory_model_missing',
+    // 配额冷却内的跳过同样不冒泡（原注释即"状态栏一次性显示"的意图）——
+    // 此前每条消息都弹「记忆失败：quota_cooldown」，用户被反复打扰。
+    'quota_cooldown',
+  };
+
+  static bool _isTaskFailure(String error) => !skipReasonCodes.contains(error);
+
+  /// 弹窗用短错误：`gate_request_failed:<原始>` 的原始段可能是几百字符的
+  /// 429 JSON 全文，snackbar 显示需压缩；trace 仍存完整原文。
+  static String _shortErrorForToast(String error) {
+    final colon = error.indexOf(':');
+    final code = colon < 0 ? error : error.substring(0, colon);
+    var detail = colon < 0 ? '' : error.substring(colon + 1).trim();
+    if (detail.length > 120) detail = '${detail.substring(0, 120)}…';
+    return detail.isEmpty ? code : '$code: $detail';
+  }
 
   /// Open a trace for [job]. Returns null when recording is off or fails.
   MemoryTraceHandle? _beginJobTrace(_PipelineJob job) {
@@ -349,7 +449,45 @@ class MemoryPipelineService {
     }
   }
 
+  /// 解析本任务的项目（工作区）作用域。
+  ///
+  /// 优先级：注入的 [resolveConversationProject]（会话绑定，权威）→ 入队时捕获
+  /// 的进程级活动项目（兜底，解析器未接线/抛错时）。解析器**成功返回但为空**
+  /// 时按「无项目」处理，不回落到可能已经过期的活动项目——否则又变成拿别的
+  /// 会话的工作区打标。
+  Future<({String? id, String? root})> _resolveJobProject(
+    _PipelineJob job,
+  ) async {
+    final resolver = resolveConversationProject;
+    if (resolver != null) {
+      try {
+        final resolved = await resolver(job.conversationId);
+        final id = resolved.id?.trim() ?? '';
+        final root = resolved.root?.trim() ?? '';
+        return (id: id.isEmpty ? null : id, root: root.isEmpty ? null : root);
+      } catch (e) {
+        debugPrint('MemoryPipeline project resolve failed: $e');
+      }
+    }
+    return (id: job.projectId, root: job.projectRoot);
+  }
+
   Future<MemoryOrganizeResult> _runJob(_PipelineJob job) async {
+    // 整轮（含 LLM 往返）都在**这条会话所属工作区**的 zone 里跑：打标、候选
+    // 检索、精确去重、注入块与 UI reload 全部同一个项目。此前用的是进程级
+    // 活动项目，用户切工作区/切到无工作区会话期间落地的记忆会被贴错标。
+    final project = await _resolveJobProject(job);
+    return ProjectScope.run(
+      project.id,
+      project.root,
+      () => _runJobInScope(job),
+      // force：解析结果为空 = 「这条会话没有项目」，必须屏蔽进程级活动项目，
+      // 而不是退回上一个会话的工作区。
+      force: true,
+    );
+  }
+
+  Future<MemoryOrganizeResult> _runJobInScope(_PipelineJob job) async {
     final handle = _beginJobTrace(job);
     MemoryOrganizeResult result;
     try {
@@ -392,6 +530,15 @@ class MemoryPipelineService {
         advanced: false,
         gate: null,
         error: 'auto_organize_off',
+      );
+    }
+    // 永久配额冷却中：不发起 LLM 请求也不计失败，直接静默跳过
+    // （状态栏一次性显示 quota_cooldown，窗口水位不推进，冷却后自然续跑）。
+    if (!job.force && isQuotaCooldownActive) {
+      return const MemoryOrganizeResult(
+        advanced: false,
+        gate: null,
+        error: 'quota_cooldown',
       );
     }
 
@@ -437,7 +584,7 @@ class MemoryPipelineService {
       );
     }
 
-    final all = chatService.getMessages(job.conversationId);
+    final all = await chatService.loadMessages(job.conversationId);
     final selected = collapseSelectedVersions(
       all,
       chatService.getVersionSelections(job.conversationId),
@@ -477,9 +624,9 @@ class MemoryPipelineService {
     if (watermark == -1 && window.length > firstWindowCap) {
       window = window.sublist(window.length - firstWindowCap);
     }
-    final thinkingBudget = settings.memoryModelThinkingEnabled
-        ? (assistant.thinkingBudget ?? settings.thinkingBudget)
-        : 0;
+    final reasoning = settings.memoryModelThinkingEnabled
+        ? (assistant.reasoning ?? ReasoningRequest.auto)
+        : ReasoningRequest.off;
 
     return processWindow(
       conversationId: job.conversationId,
@@ -489,10 +636,11 @@ class MemoryPipelineService {
       window: window,
       trace: handle,
       llmCall: (prompt) => _generateText(
+        conversationId: job.conversationId,
         config: cfg,
         modelId: mdlId,
         prompt: prompt,
-        thinkingBudget: thinkingBudget,
+        reasoning: reasoning,
       ),
     );
   }
@@ -651,16 +799,21 @@ class MemoryPipelineService {
 
     // ── Extract ───────────────────────────────────────────────────────────
     final extractStep = handle?.beginStep(MemoryTraceStepKind.extract);
-    final visible = await repository.queryVisibleMemories(
+    // queryVisibleMemories 已按项目（工作区）隔离：只在能看到的记忆上做去重/合并，
+    // 别把别的项目的条目当作「已有记忆」。
+    final visible = await chatRepository.queryVisibleMemories(
       assistantId: assistant.id,
     );
-    final totals = await repository.countVisibleMemoriesByType(
-      assistantId: assistant.id,
-    );
+    // 总数直接数过滤后的列表（与注入块同一口径；顺带省掉一次 SQL 聚合）。
+    final totals = <MemoryType, int>{};
+    for (final entry in visible) {
+      totals.update(entry.type, (count) => count + 1, ifAbsent: () => 1);
+    }
     final existingMemory = MemoryBlockBuilder.buildMemoryBlock(
       visible: visible,
       totalByType: totals,
       lang: lang,
+      maxItems: settings.memoryInjectionMaxItems,
     );
     final extractPrompt = MemoryExtractor.buildPrompt(
       lang: lang,
@@ -732,8 +885,15 @@ class MemoryPipelineService {
     }
 
     // ── Smart Add ─────────────────────────────────────────────────────────
+    // 自动写入白名单（用户要求）：agent 自动提取只允许写「经验/错题」
+    // （workflow 类），voice（语气）/instruction（指令）/identity（身份）
+    // 一律不自动写——这类内容曾以全局记忆形式污染上下文。APK 经验走
+    // apkPatch 专用工具链，不经过本通道。
+    final autoWriteAllowed = extracted.items
+        .where((item) => item.type == MemoryType.workflow)
+        .toList();
     final smartItems = <SmartAddItem>[
-      for (final item in extracted.items)
+      for (final item in autoWriteAllowed)
         () {
           final scope = MemorySmartAdd.resolveScopeForExtracted(
             policy: assistant.memoryWriteScope,
@@ -838,6 +998,17 @@ class MemoryPipelineService {
     required MemoryGateParseResult? gate,
     required String error,
   }) async {
+    // 永久配额（月度用量耗尽等）：重置以天计，连 maxWindowFailures 次重试
+    // 都不该烧——立即进入冷却（时长按配额类型分级），逐消息失败不再刷屏。
+    if (isPermanentQuotaError(error)) {
+      _quotaCooldownUntil = DateTime.now().add(quotaCooldownFor(error));
+      return MemoryOrganizeResult(
+        advanced: false,
+        gate: gate,
+        error: error,
+        windowSize: windowSize,
+      );
+    }
     final count = (_windowFailures[failureKey] ?? 0) + 1;
     _windowFailures[failureKey] = count;
     if (count >= maxWindowFailures) {
@@ -860,7 +1031,7 @@ class MemoryPipelineService {
   }
 
   Future<void> _advance(String conversationId, int order) async {
-    await chatService.setConversationLastMemoryExtractedOrder(
+    await chatRepository.setConversationLastMemoryExtractedOrder(
       conversationId,
       order,
     );
@@ -870,7 +1041,7 @@ class MemoryPipelineService {
       convo.lastMemoryExtractedOrder = order;
     }
     try {
-      await _memoryV2().loadAll();
+      await _memoryV2().reloadCurrentScope();
     } catch (_) {}
   }
 }

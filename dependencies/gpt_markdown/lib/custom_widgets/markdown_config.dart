@@ -102,7 +102,18 @@ class GptMarkdownConfig {
     this.components,
     this.inlineComponents,
     this.tableBuilder,
+    this.preprocessBlocks,
+    this.generation,
+    this.textBuilder,
+    this.streaming = false,
+    this.spanBuilder,
   });
+
+  final Widget Function(Text text)? textBuilder;
+  final bool streaming;
+
+  /// Render a block already parsed by the caller without reparsing its source.
+  final List<InlineSpan> Function(BuildContext, GptMarkdownConfig)? spanBuilder;
 
   /// The direction of the text.
   final TextDirection textDirection;
@@ -164,6 +175,15 @@ class GptMarkdownConfig {
   /// The table builder.
   final TableBuilder? tableBuilder;
 
+  /// Rewrites a block-level fragment before [MarkdownComponent.generate]
+  /// parses it. List items, quotes, and table cells all enter generate
+  /// again, so this is the shared hook for deterministic preprocessing.
+  final String Function(String text)? preprocessBlocks;
+
+  /// Compared by [isSame] so a reused [MdWidget] regenerates when
+  /// image/citation/theme inputs change without a new GptMarkdown key.
+  final Object? generation;
+
   /// A copy of the configuration with the specified parameters.
   GptMarkdownConfig copyWith({
     TextStyle? style,
@@ -186,6 +206,8 @@ class GptMarkdownConfig {
     final List<MarkdownComponent>? components,
     final List<MarkdownComponent>? inlineComponents,
     final TableBuilder? tableBuilder,
+    final String Function(String text)? preprocessBlocks,
+    final Object? generation,
   }) {
     return GptMarkdownConfig(
       style: style ?? this.style,
@@ -208,6 +230,11 @@ class GptMarkdownConfig {
       components: components ?? this.components,
       inlineComponents: inlineComponents ?? this.inlineComponents,
       tableBuilder: tableBuilder ?? this.tableBuilder,
+      preprocessBlocks: preprocessBlocks ?? this.preprocessBlocks,
+      generation: generation ?? this.generation,
+      textBuilder: textBuilder,
+      streaming: streaming,
+      spanBuilder: spanBuilder,
     );
   }
 
@@ -225,7 +252,8 @@ class GptMarkdownConfig {
 
   /// A method to check if the configuration is the same.
   bool isSame(GptMarkdownConfig other) {
-    return style == other.style &&
+    return (spanBuilder == null) == (other.spanBuilder == null) &&
+        style == other.style &&
         textAlign == other.textAlign &&
         textScaler == other.textScaler &&
         maxLines == other.maxLines &&
@@ -243,6 +271,7 @@ class GptMarkdownConfig {
         // imageBuilder == other.imageBuilder &&
         // highlightBuilder == other.highlightBuilder &&
         // onLinkTap == other.onLinkTap &&
-        textDirection == other.textDirection;
+        textDirection == other.textDirection &&
+        generation == other.generation;
   }
 }

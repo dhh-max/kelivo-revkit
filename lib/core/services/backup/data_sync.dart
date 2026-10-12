@@ -15,7 +15,9 @@ import '../../database/business_repository.dart';
 import '../../database/business_preferences.dart';
 import '../../database/business_restore_service.dart';
 import '../../database/business_settings_router.dart';
+import '../../database/app_database.dart';
 import '../../database/chat_database_repository.dart';
+import '../../database/schema_migrations.dart';
 import '../../models/backup.dart';
 import '../../models/chat_message.dart';
 import '../../models/message_part.dart';
@@ -26,8 +28,11 @@ import '../migration/legacy_record_sanitizer.dart';
 import '../../utils/multimodal_input_utils.dart';
 import '../../../utils/app_directories.dart';
 import '../../../utils/sandbox_path_resolver.dart';
+import '../../database/backup_portability.dart';
 import 'backup_settings_validator.dart';
 import 'restore_bundle_preparation.dart';
+import 'restore_workspace_lock.dart';
+import 'restore_business_lease.dart';
 import 'temporary_restore_file.dart';
 import 'backup_cancel_token.dart';
 import 'backup_isolate_runner.dart';
@@ -41,6 +46,46 @@ typedef _ParsedChatBackup = ({
 });
 
 typedef _BackupEntryMetadata = ({int bytes, String sha256});
+
+/// A packed archive plus what the packer learned while writing it.
+typedef PreparedBackupArchive = ({
+  File file,
+  ChatDatabaseSnapshotInfo? info,
+  String appVersion,
+});
+
+/// What restoring a backup file would mean for this build, determined from its
+/// manifest alone.
+///
+/// A local file is inspected up front by [DataSync.inspectBackupCompatibility],
+/// so the question reaches the user before the restore starts at all. A remote
+/// backup only exists on disk after it has been downloaded, so those paths ask
+/// through a [ForwardCompatibilityPrompt] instead.
+typedef BackupCompatibility = ({
+  int schemaVersion,
+  BackupSchemaVerdict verdict,
+});
+
+/// How a caller answers [ForwardCompatibilityPrompt].
+enum ForwardCompatibilityAnswer {
+  /// Restore normally.
+  proceed,
+
+  /// The backup is newer than this build and made no compatibility promise,
+  /// and the user accepted the risk anyway.
+  proceedUnverified,
+
+  /// Do not restore. The caller is responsible for telling the user why.
+  refuse,
+}
+
+/// Asked once a backup is on disk and before anything is read out of it.
+///
+/// Exists for the WebDAV and S3 restores, which cannot inspect the archive
+/// before downloading it. Runs on the caller's isolate, so it may show UI.
+typedef ForwardCompatibilityPrompt =
+    Future<ForwardCompatibilityAnswer> Function(BackupCompatibility);
+
 typedef _VersionedBackupInfo = ({
   bool includeChats,
   bool includeFiles,
@@ -194,11 +239,56 @@ bool _attachmentExistsOnDisk(String path) {
   return SandboxPathResolver.localFileExists(path);
 }
 
+/// Supplies the business settings a backup archive carries.
+typedef _BackupSettingsSource =
+    Future<({String settingsJson, Map<String, List<String>> entityRowIds})>
+    Function();
+
+/// Writes a consistent copy of the database being backed up to [destination].
+typedef _BackupDatabaseSource =
+    Future<ChatDatabaseSnapshotInfo> Function(File destination);
+
 class DataSync {
   static const _backupFormat = 'kelivo-backup';
   static const _backupFormatVersion = 2;
+
+  /// Manifest key naming the oldest archive format that can still read a
+  /// backup this build writes.
+  static const backupMinimumReadableFormatKey = 'minimumReadableFormatVersion';
+
+  /// The archive-format counterpart of
+  /// [SchemaMigrations.minimumReadableSchemaVersion].
+  ///
+  /// [_backupFormatVersion] governs the archive -- entry names and manifest
+  /// fields -- while the database schema governs the SQLite payload; the two
+  /// move independently, so a build can add an ignorable directory without
+  /// touching the schema, or vice versa.
+  ///
+  /// Raise this in lockstep with [_backupFormatVersion] whenever an archive
+  /// change is NOT purely additive: a renamed or repurposed entry or manifest
+  /// field, anything an older build would MISREAD rather than merely fail to
+  /// recognise. Leaving it behind on a purely additive change is what lets
+  /// tomorrow's backups still restore into today's build.
+  static const _minimumReadableFormatVersion = 2;
   static const _manifestEntryName = 'manifest.json';
   static const _databaseEntryName = 'database/kelivo.db';
+
+  /// Declared file roots copied when `includeFiles` is true.
+  ///
+  /// Adding a name here is additive: an older bundle that omitted the
+  /// directory still restores. Staging materializes an empty root, matching
+  /// an empty `upload/` in a current bundle. `environment/` is omitted on
+  /// purpose — the Linux rootfs is hundreds of megabytes and is not backup
+  /// data.
+  static const _assetRootNames = [
+    'upload',
+    'images',
+    'avatars',
+    'fonts',
+    'skills',
+    'workspaces',
+    'sessions',
+  ];
   // A 16 MiB metadata cap keeps manifest parsing and entry metadata bounded.
   static const _maxManifestBytes = 16 * 1024 * 1024;
   // Settings are parsed as one JSON object, so keep their decoded input bound.
@@ -209,14 +299,14 @@ class DataSync {
   static const _maxRestoreEntries = 100000;
 
   final ChatService chatService;
-  final BusinessRepository? businessRepository;
+  final BusinessRepository businessRepository;
   final BusinessPreferences? businessPreferences;
   BackupMergeReport? _lastMergeReport;
   BackupMergeReport? get lastMergeReport => _lastMergeReport;
 
   DataSync({
     required this.chatService,
-    this.businessRepository,
+    required this.businessRepository,
     this.businessPreferences,
   });
 
@@ -250,6 +340,100 @@ class DataSync {
     onProgress: onProgress,
     cancelToken: cancelToken,
   );
+
+  /// Prepares a local snapshot without opening the live database or providers.
+  /// The normal startup gate installs the durable candidate on restart, keeping
+  /// the previous data for rollback. The source archive is never modified.
+  static Future<void> prepareStartupSnapshotRestore({
+    required Directory appDataDirectory,
+    required File snapshot,
+    RestoreBusinessLease? businessLease,
+    BackupProgressSink? onProgress,
+  }) async {
+    final ownedLease = businessLease == null
+        ? await RestoreBusinessLease.acquire(appDataDirectory: appDataDirectory)
+        : null;
+    final lease = businessLease ?? ownedLease!;
+    Directory? extractDir;
+    Object? restoreError;
+    try {
+      final expectedLeasePath = p.join(
+        appDataDirectory.absolute.path,
+        RestoreBusinessLease.leaseDirectoryName,
+        RestoreBusinessLease.lockFileName,
+      );
+      if (lease.isClosed ||
+          !p.equals(lease.lockFile.absolute.path, expectedLeasePath)) {
+        throw StateError('restore_startup_business_lease');
+      }
+      extractDir = await Directory.systemTemp.createTemp(
+        'kelivo-startup-snapshot-',
+      );
+      registerLiveTempPath(extractDir.path);
+      await runBackupIsolate<void, _BackupExtractArgs>(
+        body: _extractZipInIsolate,
+        payload: _BackupExtractArgs(
+          zipPath: snapshot.path,
+          extractDirPath: extractDir.path,
+        ),
+        onProgress: onProgress,
+      );
+      final info =
+          await runBackupIsolate<_VersionedBackupInfo, _BackupPreflightArgs>(
+            body: _preflightVersionedBackupInIsolate,
+            payload: _BackupPreflightArgs(
+              manifestPath: p.join(extractDir.path, _manifestEntryName),
+              extractDirPath: extractDir.path,
+              allowUnverifiedForwardCompatible: false,
+            ),
+            onProgress: onProgress,
+          );
+      if (!info.includeChats) {
+        throw const FormatException('restore_preparation_database_required');
+      }
+      final settings = await runBackupIsolate<Map<String, dynamic>, String>(
+        body: _readSettingsJsonInIsolate,
+        payload: p.join(extractDir.path, 'settings.json'),
+        onProgress: onProgress,
+      );
+      BackupSettingsValidator.normalizeAndValidate(settings);
+      final workspaceLock = RestoreWorkspaceLock(
+        appDataDirectory: appDataDirectory,
+      );
+      await workspaceLock.synchronized(
+        workspaceLock.beginSnapshotRecoveryWhileLocked,
+      );
+      await RestoreBundlePreparation.prepare(
+        appDataDirectory: appDataDirectory,
+        extractedDirectory: extractDir,
+        sourceManifestSha256: info.normalizedManifestSha256,
+        bundleIncludesChats: info.includeChats,
+        bundleIncludesFiles: info.includeFiles,
+        restoreChats: true,
+        restoreFiles: false,
+        useExistingLocalAttachments: true,
+        validatedSettings: settings,
+        onProgress: onProgress,
+      );
+      await workspaceLock.synchronized(
+        workspaceLock.finishSnapshotRecoveryWhileLocked,
+      );
+    } catch (error) {
+      restoreError = error;
+      rethrow;
+    } finally {
+      try {
+        if (extractDir != null) {
+          await deleteTempDirectoryWhenIsolateSafe(
+            extractDir,
+            error: restoreError,
+          );
+        }
+      } finally {
+        await ownedLease?.close();
+      }
+    }
+  }
 
   // ===== WebDAV helpers =====
   Uri _collectionUri(WebDavConfig cfg) {
@@ -385,6 +569,53 @@ class DataSync {
     WebDavConfig cfg, {
     BackupProgressSink? onProgress,
     BackupCancelToken? cancelToken,
+  }) async => (await _prepareBackupArchive(
+    includeChats: cfg.includeChats,
+    includeFiles: cfg.includeFiles,
+    exportSettings: _exportBusinessSettings,
+    snapshotDatabase: (destination) => chatService.createBackupDatabaseSnapshot(
+      destination,
+      onProgress: onProgress,
+      cancelToken: cancelToken,
+    ),
+    onProgress: onProgress,
+    cancelToken: cancelToken,
+  )).file;
+
+  /// Packs the live database for the local copy store.
+  ///
+  /// Same archive as an ordinary backup minus the assets, and it hands back
+  /// the row counts the packer already computed so retention can reason about
+  /// how much data each copy holds without reopening it.
+  Future<PreparedBackupArchive> prepareLocalSnapshotArchive({
+    BackupProgressSink? onProgress,
+    BackupCancelToken? cancelToken,
+  }) => _prepareBackupArchive(
+    includeChats: true,
+    includeFiles: false,
+    exportSettings: _exportBusinessSettings,
+    snapshotDatabase: (destination) => chatService.createBackupDatabaseSnapshot(
+      destination,
+      onProgress: onProgress,
+      cancelToken: cancelToken,
+    ),
+    onProgress: onProgress,
+    cancelToken: cancelToken,
+  );
+
+  /// Packs a backup archive from whichever database and settings the caller
+  /// supplies.
+  ///
+  /// Split out of [prepareBackupFile] so a database that is not the live one
+  /// -- a copy set aside by crash recovery -- can be turned into an ordinary
+  /// backup rather than needing a restore path of its own.
+  Future<PreparedBackupArchive> _prepareBackupArchive({
+    required bool includeChats,
+    required bool includeFiles,
+    required _BackupSettingsSource exportSettings,
+    required _BackupDatabaseSource snapshotDatabase,
+    BackupProgressSink? onProgress,
+    BackupCancelToken? cancelToken,
   }) async {
     final tmp = await _ensureTempDir();
     await _cleanupPreviousBackupTempFiles(tmp);
@@ -412,9 +643,9 @@ class DataSync {
       if (cancelToken?.isCancelled == true) {
         throw const BackupCancelledException();
       }
-      // --- Step 1: Prepare temp files that need ChatService (main isolate) ---
+      // --- Step 1: Prepare temp files that need the main isolate ---
       // settings.json
-      final businessExport = await _exportBusinessSettings();
+      final businessExport = await exportSettings();
       final settingsFile = await _writeTempText(
         workDir,
         '_bk_settings.json',
@@ -423,7 +654,7 @@ class DataSync {
       settingsTmp = settingsFile;
 
       ChatDatabaseSnapshotInfo? snapshotInfo;
-      if (cfg.includeChats) {
+      if (includeChats) {
         final databaseFile = File(p.join(workDir.path, '_bk_kelivo.db'));
         databaseTmp = databaseFile;
         onProgress?.call(
@@ -433,11 +664,8 @@ class DataSync {
             cancellable: true,
           ),
         );
-        snapshotInfo = await chatService.createBackupDatabaseSnapshot(
-          databaseFile,
-          onProgress: onProgress,
-          cancelToken: cancelToken,
-        );
+        snapshotInfo = await snapshotDatabase(databaseFile);
+        await _sanitizeBackupDatabase(databaseFile);
       }
 
       final packageInfo = await PackageInfo.fromPlatform();
@@ -447,15 +675,16 @@ class DataSync {
       final manifestFile = File(p.join(workDir.path, '_bk_manifest.json'));
       manifestTmp = manifestFile;
 
-      // Resolve directory paths (need AppDirectories on main isolate)
-      final uploadDirPath = (await _getUploadDir()).path;
-      final avatarsDirPath = (await _getAvatarsDir()).path;
-      final imagesDirPath = (await _getImagesDir()).path;
-      final fontsDirPath = (await _getFontsDir()).path;
+      // Resolve directory paths (need AppDirectories on main isolate).
+      // Join against the app-data root instead of the ensure-creating
+      // helpers so a backup does not mkdir empty live roots.
+      final appData = await AppDirectories.getAppDataDirectory();
+      final assetRootPaths = {
+        for (final name in _assetRootNames) name: p.join(appData.path, name),
+      };
       final manifestPath = manifestFile.path;
       final settingsPath = settingsFile.path;
       final databasePath = databaseTmp?.path;
-      final includeFiles = cfg.includeFiles;
 
       // --- Step 2: Run CPU-heavy ZIP packing in a separate isolate ---
       await runBackupIsolate<void, _BackupPackArgs>(
@@ -466,20 +695,21 @@ class DataSync {
           settingsPath: settingsPath,
           databasePath: databasePath,
           snapshotInfo: snapshotInfo,
-          includeChats: cfg.includeChats,
+          includeChats: includeChats,
           includeFiles: includeFiles,
           appVersion: appVersion,
           businessEntityRowIds: businessExport.entityRowIds,
-          uploadDirPath: uploadDirPath,
-          avatarsDirPath: avatarsDirPath,
-          imagesDirPath: imagesDirPath,
-          fontsDirPath: fontsDirPath,
+          assetRootPaths: assetRootPaths,
         ),
         cancelToken: cancelToken,
         onProgress: onProgress,
       );
 
-      return takePreparedBackupFile(outFile, cancelToken);
+      return (
+        file: takePreparedBackupFile(outFile, cancelToken),
+        info: snapshotInfo,
+        appVersion: appVersion,
+      );
     } catch (error) {
       if (shouldDeleteTempPathsAfterIsolateError(error)) {
         unregisterLiveTempPath(workDir.path);
@@ -498,6 +728,86 @@ class DataSync {
         await _deleteFileQuietly(databaseTmp);
         await _deleteFileQuietly(manifestTmp);
       }
+    }
+  }
+
+  /// Turns a database that is not the live one into an ordinary backup.
+  ///
+  /// The copies crash recovery sets aside are bare SQLite files, possibly on
+  /// an older schema and possibly still carrying an unreplayed journal. Rather
+  /// than teaching the restore pipeline a second input shape -- the one place
+  /// in this codebase where a second implementation is least welcome -- this
+  /// converts them into the archive that pipeline already accepts, so export
+  /// and restore both reduce to what already exists.
+  ///
+  /// Assets are deliberately excluded: they live beside the live database and
+  /// are shared with it, so copying them would multiply gigabytes without
+  /// protecting anything the copy does not already protect.
+  Future<File> prepareBackupFileFromDatabase(
+    File sourceDatabase, {
+    bool allowForwardCompatible = false,
+    BackupProgressSink? onProgress,
+    BackupCancelToken? cancelToken,
+  }) async {
+    if (!await sourceDatabase.exists()) {
+      throw FileSystemException(
+        'Database copy does not exist',
+        sourceDatabase.path,
+      );
+    }
+    final tmp = await _ensureTempDir();
+    final stagingDirectory = await Directory(
+      p.join(tmp.path, 'kelivo_adopt_${DateTime.now().microsecondsSinceEpoch}'),
+    ).create(recursive: true);
+    registerLiveTempPath(stagingDirectory.path);
+    try {
+      final working = File(
+        p.join(stagingDirectory.path, AppDatabase.databaseFileName),
+      );
+      // The whole family, not just the database: a copy taken while a write
+      // was in flight keeps its committed transactions in the journal, and
+      // opening the database without it silently discards them.
+      for (final suffix in const ['', '-wal', '-shm', '-journal']) {
+        final sidecar = File('${sourceDatabase.path}$suffix');
+        if (await FileSystemEntity.type(sidecar.path, followLinks: false) ==
+            FileSystemEntityType.file) {
+          await sidecar.copy('${working.path}$suffix');
+        }
+      }
+
+      // Replays the journal, brings an older schema forward, and validates
+      // what comes out -- the same preparation a restored backup goes through.
+      await ChatDatabaseRepository.prepareSnapshotForRestore(
+        working,
+        allowForwardCompatible: allowForwardCompatible,
+      );
+
+      final database = AppDatabase.open(file: working);
+      final ({String settingsJson, Map<String, List<String>> entityRowIds})
+      businessExport;
+      try {
+        businessExport = await exportBusinessSettingsFrom(
+          BusinessRepository(database),
+        );
+      } finally {
+        await database.close();
+      }
+
+      return (await _prepareBackupArchive(
+        includeChats: true,
+        includeFiles: false,
+        exportSettings: () async => businessExport,
+        snapshotDatabase: (destination) =>
+            ChatDatabaseRepository.createConsistentSnapshot(
+              sourceFile: working,
+              destinationFile: destination,
+            ),
+        onProgress: onProgress,
+        cancelToken: cancelToken,
+      )).file;
+    } finally {
+      unregisterLiveTempPath(stagingDirectory.path);
+      await _deleteDirectoryQuietly(stagingDirectory);
     }
   }
 
@@ -678,10 +988,7 @@ class DataSync {
       includeFiles: args.includeFiles,
       appVersion: args.appVersion,
       businessEntityRowIds: args.businessEntityRowIds,
-      uploadDirPath: args.uploadDirPath,
-      avatarsDirPath: args.avatarsDirPath,
-      imagesDirPath: args.imagesDirPath,
-      fontsDirPath: args.fontsDirPath,
+      assetRootPaths: args.assetRootPaths,
       ctx: ctx,
     );
     _verifyPackedBackupSync(
@@ -716,22 +1023,28 @@ class DataSync {
     required bool includeFiles,
     required String appVersion,
     required Map<String, List<String>> businessEntityRowIds,
-    required String uploadDirPath,
-    required String avatarsDirPath,
-    required String imagesDirPath,
-    required String fontsDirPath,
+    required Map<String, String> assetRootPaths,
     BackupIsolateContext? ctx,
   }) {
     if (includeChats != (databasePath != null && snapshotInfo != null)) {
       throw StateError('backup_database_component');
     }
-    final uploadFiles = includeFiles ? _listFilesSync(uploadDirPath) : const <File>[];
-    final avatarFiles = includeFiles ? _listFilesSync(avatarsDirPath) : const <File>[];
-    final imageFiles = includeFiles ? _listFilesSync(imagesDirPath) : const <File>[];
-    final fontFiles = includeFiles ? _listFilesSync(fontsDirPath) : const <File>[];
+    if (includeFiles &&
+        (assetRootPaths.length != _assetRootNames.length ||
+            !_assetRootNames.every(assetRootPaths.containsKey))) {
+      throw StateError('backup_asset_roots');
+    }
+    final assetFiles = includeFiles
+        ? {
+            for (final name in _assetRootNames)
+              name: _listFilesSync(assetRootPaths[name]!),
+          }
+        : const <String, List<File>>{};
     var totalBytes = _fileSizeSync(settingsPath) + _fileSizeSync(databasePath);
-    for (final file in [...uploadFiles, ...avatarFiles, ...imageFiles, ...fontFiles]) {
-      totalBytes += file.lengthSync();
+    for (final files in assetFiles.values) {
+      for (final file in files) {
+        totalBytes += file.lengthSync();
+      }
     }
     final meter = _BackupByteMeter(
       ctx: ctx,
@@ -762,38 +1075,16 @@ class DataSync {
       }
 
       if (includeFiles) {
-        _addDirectoryToZip(
-          writer,
-          uploadDirPath,
-          'upload',
-          entries,
-          collisionKeys,
-          files: uploadFiles,
-        );
-        _addDirectoryToZip(
-          writer,
-          avatarsDirPath,
-          'avatars',
-          entries,
-          collisionKeys,
-          files: avatarFiles,
-        );
-        _addDirectoryToZip(
-          writer,
-          imagesDirPath,
-          'images',
-          entries,
-          collisionKeys,
-          files: imageFiles,
-        );
-        _addDirectoryToZip(
-          writer,
-          fontsDirPath,
-          'fonts',
-          entries,
-          collisionKeys,
-          files: fontFiles,
-        );
+        for (final name in _assetRootNames) {
+          _addDirectoryToZip(
+            writer,
+            assetRootPaths[name]!,
+            name,
+            entries,
+            collisionKeys,
+            files: assetFiles[name],
+          );
+        }
       }
 
       final manifestJson = _buildBackupManifestJson(
@@ -916,9 +1207,12 @@ class DataSync {
     final fileSystemEntries =
         files ??
         [
-          for (final entity in Directory(srcDirPath).existsSync()
-              ? Directory(srcDirPath).listSync(recursive: true, followLinks: false)
-              : const <FileSystemEntity>[])
+          for (final entity
+              in Directory(srcDirPath).existsSync()
+                  ? Directory(
+                      srcDirPath,
+                    ).listSync(recursive: true, followLinks: false)
+                  : const <FileSystemEntity>[])
             if (entity is File) entity,
         ];
     for (final ent in fileSystemEntries) {
@@ -1162,7 +1456,7 @@ class DataSync {
     }
     final manifest = decoded.cast<String, dynamic>();
     if (manifest['format'] != _backupFormat ||
-        manifest['formatVersion'] != _backupFormatVersion) {
+        !_acceptsArchiveFormat(manifest)) {
       throw const FormatException('manifest_version');
     }
     final rawEntries = manifest['entries'];
@@ -1401,12 +1695,127 @@ class DataSync {
     return items;
   }
 
+  /// Whether this build may read an archive of the manifest's format version.
+  ///
+  /// An exact match, plus one relaxation: a NEWER archive that vouches for us
+  /// through [backupMinimumReadableFormatKey]. An undeclared newer archive is
+  /// refused -- unlike the database axis there are no undeclared newer
+  /// archives in the wild to serve, since every build that can write a newer
+  /// format also writes the declaration, so refusing costs nothing and keeps
+  /// the strict default.
+  static bool _acceptsArchiveFormat(Map<String, dynamic> manifest) {
+    final formatVersion = manifest['formatVersion'];
+    if (formatVersion is! int) return false;
+    if (formatVersion == _backupFormatVersion) return true;
+    // Older archive formats were never supported and still are not.
+    if (formatVersion < _backupFormatVersion) return false;
+    final declared = manifest[backupMinimumReadableFormatKey];
+    return declared is int && declared >= 1 && declared <= _backupFormatVersion;
+  }
+
+  /// Whether the manifest was written by a build newer than this one, on
+  /// either axis: a newer archive format, or a newer database schema.
+  ///
+  /// Gates what unrecognised content is tolerated. Both axes matter and they
+  /// move independently -- a newer build can add an ignorable directory
+  /// without touching the schema, and a settings-only backup has no schema at
+  /// all -- so keying tolerance to the database alone would reject official
+  /// backups this build could otherwise read.
+  ///
+  /// A newer format version reaching here has already passed
+  /// [_acceptsArchiveFormat], so it is one that vouched for us.
+  static bool _declaresNewerBuild(Map<String, dynamic> manifest) {
+    final formatVersion = manifest['formatVersion'];
+    if (formatVersion is int && formatVersion > _backupFormatVersion) {
+      return true;
+    }
+    final database = manifest['database'];
+    if (database is! Map) return false;
+    final schemaVersion = database['schemaVersion'];
+    return schemaVersion is int &&
+        schemaVersion > AppDatabase.currentSchemaVersion;
+  }
+
+  /// Manifest keys this build understands. Anything else is dropped from a
+  /// backup that declares a newer schema, and rejected in any other backup.
+  static const _knownManifestKeys = <String>{
+    'format',
+    'formatVersion',
+    'payloadKind',
+    'createdAtUtc',
+    'appVersion',
+    'includeChats',
+    'includeFiles',
+    'secretsIncluded',
+    'businessEntityRowIds',
+    'database',
+    'entries',
+  };
+
+  static const _knownManifestDatabaseKeys = <String>{
+    'entry',
+    'schemaVersion',
+    SchemaMigrations.minimumReadableManifestKey,
+    'conversationCount',
+    'messageCount',
+  };
+
+  /// Reduces a newer build's manifest to the fields this one knows.
+  ///
+  /// Every validator downstream is single-version by design, and
+  /// RestoreBundleStaging checks the root key set exactly, so an unrecognised
+  /// field would fail the restore long after the user consented to it.
+  /// Trimming here keeps that strictness intact instead of loosening it in
+  /// each validator. A same-or-older backup is left alone, so an unexpected
+  /// field there still fails.
+  static void _stripUnknownManifestKeys(Map<String, dynamic> manifest) {
+    if (!_declaresNewerBuild(manifest)) return;
+    manifest.removeWhere((key, _) => !_knownManifestKeys.contains(key));
+    final database = manifest['database'];
+    if (database is Map) {
+      database.removeWhere(
+        (key, _) => !_knownManifestDatabaseKeys.contains(key),
+      );
+    }
+    // Everything the newer format added has now been removed, so what is left
+    // really is an archive in this build's format. Saying otherwise would
+    // strand the staged candidate at RestoreBundleStaging's exact-match check.
+    manifest['formatVersion'] = _backupFormatVersion;
+  }
+
+  /// Resolves [prompt] against [file] and returns the effective value for
+  /// `allowUnverifiedForwardCompatible`.
+  ///
+  /// A refusal is reported as a cancellation: the prompt owns the explanation,
+  /// so there is nothing left for the restore to say.
+  static Future<bool> _askForwardCompatibility(
+    File file, {
+    required ForwardCompatibilityPrompt? prompt,
+    required bool allowUnverifiedForwardCompatible,
+  }) async {
+    if (prompt == null) return allowUnverifiedForwardCompatible;
+    final compatibility = await inspectBackupCompatibility(file);
+    // No manifest or no SQLite payload: nothing to ask about, and the restore
+    // itself will report any real problem.
+    if (compatibility == null) return allowUnverifiedForwardCompatible;
+    switch (await prompt(compatibility)) {
+      case ForwardCompatibilityAnswer.refuse:
+        throw const BackupCancelledException();
+      case ForwardCompatibilityAnswer.proceedUnverified:
+        return true;
+      case ForwardCompatibilityAnswer.proceed:
+        return allowUnverifiedForwardCompatible;
+    }
+  }
+
   Future<void> restoreFromWebDav(
     WebDavConfig cfg,
     BackupFileItem item, {
     RestoreMode mode = RestoreMode.overwrite,
     BackupProgressSink? onProgress,
     BackupCancelToken? cancelToken,
+    bool allowUnverifiedForwardCompatible = false,
+    ForwardCompatibilityPrompt? onForwardCompatibility,
   }) async {
     // Stream the download to a file instead of buffering in memory.
     final client = http.Client();
@@ -1448,12 +1857,20 @@ class DataSync {
         }
         rethrow;
       }
+      // Only now does the archive exist locally, so this is the earliest the
+      // question can be put to the user.
+      final allowUnverified = await _askForwardCompatibility(
+        file,
+        prompt: onForwardCompatibility,
+        allowUnverifiedForwardCompatible: allowUnverifiedForwardCompatible,
+      );
       await _restoreFromBackupFile(
         file,
         cfg,
         mode: mode,
         onProgress: onProgress,
         cancelToken: cancelToken,
+        allowUnverifiedForwardCompatible: allowUnverified,
       );
     } catch (error) {
       if (error is BackupCancelledException ||
@@ -1484,17 +1901,15 @@ class DataSync {
     WebDavConfig cfg, {
     BackupProgressSink? onProgress,
     BackupCancelToken? cancelToken,
-  }) => prepareBackupFile(cfg, onProgress: onProgress, cancelToken: cancelToken);
+  }) =>
+      prepareBackupFile(cfg, onProgress: onProgress, cancelToken: cancelToken);
 
   @visibleForTesting
   static void verifyPackedBackupSync({
     required String zipPath,
     required Map<String, ({int bytes, String sha256})> expectedEntries,
   }) {
-    _verifyPackedBackupSync(
-      zipPath: zipPath,
-      expectedEntries: expectedEntries,
-    );
+    _verifyPackedBackupSync(zipPath: zipPath, expectedEntries: expectedEntries);
   }
 
   @visibleForTesting
@@ -1517,14 +1932,24 @@ class DataSync {
     RestoreMode mode = RestoreMode.overwrite,
     BackupProgressSink? onProgress,
     BackupCancelToken? cancelToken,
+    bool allowUnverifiedForwardCompatible = false,
+    ForwardCompatibilityPrompt? onForwardCompatibility,
   }) async {
     if (!await file.exists()) throw Exception('备份文件不存在');
+    // Usually already answered by the caller, which had the file all along;
+    // the prompt is here for S3, which downloads through this entry point.
+    final allowUnverified = await _askForwardCompatibility(
+      file,
+      prompt: onForwardCompatibility,
+      allowUnverifiedForwardCompatible: allowUnverifiedForwardCompatible,
+    );
     await _restoreFromBackupFile(
       file,
       cfg,
       mode: mode,
       onProgress: onProgress,
       cancelToken: cancelToken,
+      allowUnverifiedForwardCompatible: allowUnverified,
     );
   }
 
@@ -1542,7 +1967,9 @@ class DataSync {
         phase: phase,
         processed: 0,
         total: total,
-        unit: total == null ? BackupProgressUnit.none : BackupProgressUnit.bytes,
+        unit: total == null
+            ? BackupProgressUnit.none
+            : BackupProgressUnit.bytes,
         cancellable: true,
       ),
     );
@@ -1611,6 +2038,7 @@ class DataSync {
     return jsonEncode({
       'format': _backupFormat,
       'formatVersion': _backupFormatVersion,
+      backupMinimumReadableFormatKey: _minimumReadableFormatVersion,
       'payloadKind': includeChats ? 'sqlite' : 'settings-only',
       'createdAtUtc': DateTime.now().toUtc().toIso8601String(),
       'appVersion': appVersion,
@@ -1622,6 +2050,10 @@ class DataSync {
         'database': {
           'entry': _databaseEntryName,
           'schemaVersion': snapshotInfo.schemaVersion,
+          // Lets an older build decide whether it may restore this backup by
+          // dropping what it does not know, instead of refusing outright.
+          SchemaMigrations.minimumReadableManifestKey:
+              SchemaMigrations.minimumReadableSchemaVersion,
           'conversationCount': snapshotInfo.conversationCount,
           'messageCount': snapshotInfo.messageCount,
         },
@@ -1640,12 +2072,14 @@ class DataSync {
   ) => _preflightVersionedBackup(
     manifestPath: args.manifestPath,
     extractDirPath: args.extractDirPath,
+    allowUnverifiedForwardCompatible: args.allowUnverifiedForwardCompatible,
     ctx: ctx,
   );
 
   static Future<_VersionedBackupInfo> _preflightVersionedBackup({
     required String manifestPath,
     required String extractDirPath,
+    bool allowUnverifiedForwardCompatible = false,
     BackupIsolateContext? ctx,
   }) async {
     final manifestFile = File(manifestPath);
@@ -1659,7 +2093,7 @@ class DataSync {
     }
     final manifest = decoded.cast<String, dynamic>();
     if (manifest['format'] != _backupFormat ||
-        manifest['formatVersion'] != _backupFormatVersion) {
+        !_acceptsArchiveFormat(manifest)) {
       throw const FormatException('manifest_version');
     }
     final payloadKind = manifest['payloadKind'];
@@ -1703,25 +2137,45 @@ class DataSync {
     if (!entries.containsKey('settings.json')) {
       throw const FormatException('settings.json');
     }
+    // Entries this build has no use for. Tolerated only when the backup comes
+    // from a NEWER build, where they are the archive-level counterpart of the
+    // unknown tables and columns the database normalizer drops; from a same-or
+    // older build they mean the archive is malformed. The verdict below still
+    // decides whether the backup may be restored at all -- this only decides
+    // whether an unrecognised entry is fatal on its own.
+    final unknownEntryNames = <String>[];
     for (final name in entries.keys) {
+      final isFileEntry = _assetRootNames.any(
+        (root) => name.startsWith('$root/'),
+      );
       final knownEntry =
-          name == 'settings.json' ||
-          name == _databaseEntryName ||
-          name.startsWith('upload/') ||
-          name.startsWith('avatars/') ||
-          name.startsWith('images/') ||
-          name.startsWith('fonts/');
+          name == 'settings.json' || name == _databaseEntryName || isFileEntry;
       if (!knownEntry) {
-        throw FormatException('manifest_entry_scope:$name');
+        unknownEntryNames.add(name);
+        continue;
       }
-      if (!includeFiles &&
-          (name.startsWith('upload/') ||
-              name.startsWith('avatars/') ||
-              name.startsWith('images/') ||
-              name.startsWith('fonts/'))) {
+      if (!includeFiles && isFileEntry) {
         throw FormatException('manifest_files:$name');
       }
     }
+    if (unknownEntryNames.isNotEmpty) {
+      if (!_declaresNewerBuild(manifest)) {
+        throw FormatException(
+          'manifest_entry_scope:${unknownEntryNames.first}',
+        );
+      }
+      for (final name in unknownEntryNames) {
+        entries.remove(name);
+        // Removed from disk too, so nothing downstream can pick them up: the
+        // rewritten manifest below no longer mentions them, and a staged
+        // candidate must contain only what its manifest declares.
+        final file = File(p.joinAll([extractDirPath, ...name.split('/')]));
+        if (file.existsSync()) file.deleteSync();
+      }
+    }
+    // Same idea one level up: a newer build may describe itself with manifest
+    // fields this one has never heard of.
+    _stripUnknownManifestKeys(manifest);
 
     final validateTotal = entries.values.fold<int>(
       0,
@@ -1762,23 +2216,56 @@ class DataSync {
       }
       final database = rawDatabase.cast<String, dynamic>();
       final schemaVersion = database['schemaVersion'];
+      final declaredMinimumReadable =
+          database[SchemaMigrations.minimumReadableManifestKey];
       final conversationCount = database['conversationCount'];
       final messageCount = database['messageCount'];
       if (database['entry'] != _databaseEntryName ||
           schemaVersion is! int ||
+          schemaVersion < 1 ||
+          (declaredMinimumReadable != null &&
+              (declaredMinimumReadable is! int ||
+                  declaredMinimumReadable < 1 ||
+                  declaredMinimumReadable > schemaVersion)) ||
           conversationCount is! int ||
           conversationCount < 0 ||
           messageCount is! int ||
           messageCount < 0) {
         throw const FormatException('manifest_database');
       }
+      final verdict = SchemaMigrations.classifyBackup(
+        schemaVersion: schemaVersion,
+        declaredMinimumReadable: declaredMinimumReadable as int?,
+      );
+      switch (verdict) {
+        case BackupSchemaVerdict.unreadable:
+          throw const FormatException('manifest_database_schema_too_new');
+        case BackupSchemaVerdict.forwardUndeclared:
+          // The caller must have obtained the user's informed consent; without
+          // it there is no way to know this backup is safe to read.
+          if (!allowUnverifiedForwardCompatible) {
+            throw const FormatException('manifest_database_schema_too_new');
+          }
+        case BackupSchemaVerdict.current:
+        case BackupSchemaVerdict.needsUpgrade:
+        case BackupSchemaVerdict.forwardCompatible:
+          break;
+      }
       final databaseFile = File(
         p.joinAll([extractDirPath, ..._databaseEntryName.split('/')]),
       );
       final databaseInfo =
-          await ChatDatabaseRepository.prepareSnapshotForRestore(databaseFile);
-      if (databaseInfo.schemaVersion != schemaVersion ||
-          databaseInfo.conversationCount != conversationCount ||
+          await ChatDatabaseRepository.prepareSnapshotForRestore(
+            databaseFile,
+            allowForwardCompatible:
+                verdict == BackupSchemaVerdict.forwardCompatible ||
+                verdict == BackupSchemaVerdict.forwardUndeclared,
+          );
+      // The manifest records the schema the backup was AUTHORED at; the info
+      // records the schema after prepareSnapshotForRestore migrated it, so the
+      // two legitimately differ for an older backup. Row counts are the
+      // invariant instead: a migration must never add or drop rows.
+      if (databaseInfo.conversationCount != conversationCount ||
           databaseInfo.messageCount != messageCount) {
         throw const FormatException('manifest_database_metadata');
       }
@@ -1902,20 +2389,12 @@ class DataSync {
     return digest.toString();
   }
 
-  Future<Directory> _getUploadDir() async {
-    return await AppDirectories.getUploadDirectory();
-  }
-
-  Future<Directory> _getImagesDir() async {
-    return await AppDirectories.getImagesDirectory();
-  }
-
-  Future<Directory> _getAvatarsDir() async {
-    return await AppDirectories.getAvatarsDirectory();
-  }
-
-  Future<Directory> _getFontsDir() async {
-    return await AppDirectories.getFontsDirectory();
+  Future<Directory> _liveAssetRoot(String name) async {
+    if (!_assetRootNames.contains(name)) {
+      throw StateError('unknown_asset_root:$name');
+    }
+    final appData = await AppDirectories.getAppDataDirectory();
+    return Directory(p.join(appData.path, name));
   }
 
   Future<void> _copyRestoredFile(File source, File target) async {
@@ -1929,30 +2408,28 @@ class DataSync {
     }
   }
 
-  /// Copies the backup's asset payload directories (upload/images/avatars/
-  /// fonts) into the live directories without deleting anything already
-  /// present, so files referenced by an untouched chat database survive.
+  /// Copies the backup's asset payload directories into the live directories
+  /// without deleting anything already present, so files referenced by an
+  /// untouched chat database survive.
   Future<void> _restoreAssetDirectoriesAdditive(
-    Directory payloadDirectory,
-  ) async {
-    final targets =
-        <({String entryName, Future<Directory> Function() resolveTarget})>[
-          (entryName: 'upload', resolveTarget: _getUploadDir),
-          (entryName: 'images', resolveTarget: _getImagesDir),
-          (entryName: 'avatars', resolveTarget: _getAvatarsDir),
-          (entryName: 'fonts', resolveTarget: _getFontsDir),
-        ];
-    for (final target in targets) {
-      final src = Directory(p.join(payloadDirectory.path, target.entryName));
+    Directory payloadDirectory, {
+    Map<String, String> remappedConversationIds = const {},
+  }) async {
+    for (final name in _assetRootNames) {
+      final src = Directory(p.join(payloadDirectory.path, name));
       if (!await src.exists()) continue;
-      final dst = await target.resolveTarget();
+      final dst = await _liveAssetRoot(name);
       if (!await dst.exists()) {
         await dst.create(recursive: true);
       }
       for (final ent in src.listSync(recursive: true)) {
         if (ent is File) {
           final rel = p.relative(ent.path, from: src.path);
-          final targetFile = File(p.join(dst.path, rel));
+          final segments = p.split(rel);
+          if (name == 'sessions' && segments.length > 1) {
+            segments[0] = remappedConversationIds[segments[0]] ?? segments[0];
+          }
+          final targetFile = File(p.joinAll([dst.path, ...segments]));
           if (!await targetFile.exists()) {
             await _copyRestoredFile(ent, targetFile);
           }
@@ -2033,12 +2510,14 @@ class DataSync {
       }
       geminiThoughtSigs[entry.key.toString()] = entry.value as String;
     }
-    final conversations = (chats['conversations'] as List)
-        .map(
-          (entry) =>
-              Conversation.fromJson((entry as Map).cast<String, dynamic>()),
-        )
-        .toList();
+    final conversations = (chats['conversations'] as List).map((entry) {
+      final conversation = Conversation.fromJson(
+        (entry as Map).cast<String, dynamic>(),
+      );
+      return conversation.copyWith(
+        extras: {...conversation.extras}..remove('workspace.allowAll'),
+      );
+    }).toList();
 
     // Import boundary for legacy chats.json: promote marker-bearing content
     // into structured parts only when the raw JSON lacks a `parts` list.
@@ -2068,7 +2547,7 @@ class DataSync {
           message = message.copyWith(parts: decoded.parts);
         }
       }
-      // Import boundary: persist managed local attachments as solab-file URIs.
+      // Import boundary: persist managed local attachments as kelivo-file URIs.
       final normalized = _normalizeAttachmentPartUris(message.parts);
       if (!identical(normalized, message.parts)) {
         message = message.copyWith(parts: normalized);
@@ -2447,9 +2926,13 @@ class DataSync {
   }
 
   Future<({String settingsJson, Map<String, List<String>> entityRowIds})>
-  _exportBusinessSettings() async {
+  _exportBusinessSettings() => exportBusinessSettingsFrom(businessRepository);
+
+  /// The settings half of a backup, read from whichever repository is given.
+  static Future<({String settingsJson, Map<String, List<String>> entityRowIds})>
+  exportBusinessSettingsFrom(BusinessRepository repository) async {
     final exported = BusinessSettingsRouter.exportSnapshotWithRowIds(
-      await businessRepository!.readSnapshot(),
+      BackupPortability.portable(await repository.readSnapshot()),
     );
     final settings = Map<String, Object>.from(exported.settings);
     settings.removeWhere((key, _) => BackupSettingsValidator.shouldIgnore(key));
@@ -2460,12 +2943,66 @@ class DataSync {
     );
   }
 
+  static Future<void> _sanitizeBackupDatabase(File file) async {
+    final database = AppDatabase.open(file: file);
+    try {
+      await BackupPortability.sanitizeDatabase(database);
+    } finally {
+      await database.close();
+    }
+    await ChatDatabaseRepository.normalizeSnapshotJournal(file);
+  }
+
+  /// Reads a backup file's manifest and reports what restoring it would mean.
+  ///
+  /// Only the manifest entry is decoded, so this stays cheap enough to run
+  /// before the restore begins. Returns null when the file carries no SQLite
+  /// payload or its manifest cannot be read — the restore itself reports those
+  /// properly.
+  static Future<BackupCompatibility?> inspectBackupCompatibility(
+    File file,
+  ) async {
+    try {
+      if (!await file.exists()) return null;
+      final inputStream = InputFileStream(file.path);
+      Map<String, dynamic>? manifest;
+      try {
+        final archive = ZipDecoder().decodeStream(inputStream);
+        for (final entry in archive.files) {
+          if (_zipEntryName(entry.name) != _manifestEntryName) continue;
+          if (!entry.isFile || entry.size > _maxManifestBytes) return null;
+          final decoded = jsonDecode(utf8.decode(entry.readBytes()!));
+          if (decoded is Map<String, dynamic>) manifest = decoded;
+          break;
+        }
+      } finally {
+        await inputStream.close();
+      }
+      if (manifest == null) return null;
+      final database = manifest['database'];
+      if (database is! Map) return null;
+      final schemaVersion = database['schemaVersion'];
+      if (schemaVersion is! int) return null;
+      final declared = database[SchemaMigrations.minimumReadableManifestKey];
+      return (
+        schemaVersion: schemaVersion,
+        verdict: SchemaMigrations.classifyBackup(
+          schemaVersion: schemaVersion,
+          declaredMinimumReadable: declared is int ? declared : null,
+        ),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _restoreFromBackupFile(
     File file,
     WebDavConfig cfg, {
     RestoreMode mode = RestoreMode.overwrite,
     BackupProgressSink? onProgress,
     BackupCancelToken? cancelToken,
+    bool allowUnverifiedForwardCompatible = false,
   }) async {
     _lastMergeReport = null;
     // Extract to temp using file-stream decoding to avoid loading the full ZIP
@@ -2505,15 +3042,18 @@ class DataSync {
         if (cancelToken?.isCancelled == true) {
           throw const BackupCancelledException();
         }
-        versionedBackup = await runBackupIsolate<_VersionedBackupInfo, _BackupPreflightArgs>(
-          body: _preflightVersionedBackupInIsolate,
-          payload: _BackupPreflightArgs(
-            manifestPath: manifestFile.path,
-            extractDirPath: extractDir.path,
-          ),
-          cancelToken: cancelToken,
-          onProgress: onProgress,
-        );
+        versionedBackup =
+            await runBackupIsolate<_VersionedBackupInfo, _BackupPreflightArgs>(
+              body: _preflightVersionedBackupInIsolate,
+              payload: _BackupPreflightArgs(
+                manifestPath: manifestFile.path,
+                extractDirPath: extractDir.path,
+                allowUnverifiedForwardCompatible:
+                    allowUnverifiedForwardCompatible,
+              ),
+              cancelToken: cancelToken,
+              onProgress: onProgress,
+            );
       } else {
         versionedBackup = null;
       }
@@ -2541,7 +3081,7 @@ class DataSync {
         );
       }
 
-      final businessRestore = BusinessRestoreService(businessRepository!);
+      final businessRestore = BusinessRestoreService(businessRepository);
       Future<void> Function()? pendingBusinessRestore;
       if (versionedBackup != null) {
         final entityRowIds = versionedBackup.businessEntityRowIds;
@@ -2601,6 +3141,9 @@ class DataSync {
           return;
         }
         if (restoreChats) {
+          await _sanitizeBackupDatabase(
+            File(p.join(extractDir.path, _databaseEntryName)),
+          );
           beginNonCancellableCommit();
           _lastMergeReport = await chatService.mergeDatabaseSnapshot(
             File(p.join(extractDir.path, _databaseEntryName)),
@@ -2639,16 +3182,17 @@ class DataSync {
       var toolEvents = const <String, List<Map<String, dynamic>>>{};
       var geminiThoughtSigs = const <String, String>{};
       if (restoreChats) {
-        final parsed = await runBackupIsolate<_ParsedChatBackup, _LegacyChatParseArgs>(
-          body: _parseLegacyChatsInIsolate,
-          payload: _LegacyChatParseArgs(
-            chatsPath: chatsFile.path,
-            stagingPath: extractDir.path,
-            buildOverwriteCandidate: mode == RestoreMode.overwrite,
-          ),
-          cancelToken: cancelToken,
-          onProgress: onProgress,
-        );
+        final parsed =
+            await runBackupIsolate<_ParsedChatBackup, _LegacyChatParseArgs>(
+              body: _parseLegacyChatsInIsolate,
+              payload: _LegacyChatParseArgs(
+                chatsPath: chatsFile.path,
+                stagingPath: extractDir.path,
+                buildOverwriteCandidate: mode == RestoreMode.overwrite,
+              ),
+              cancelToken: cancelToken,
+              onProgress: onProgress,
+            );
         conversations = parsed.conversations;
         // Worker isolate has no SandboxPathResolver docsDir. Encode managed
         // attachments against the live root here (URI rewrite only, not a
@@ -2690,77 +3234,17 @@ class DataSync {
       if (cfg.includeFiles) {
         beginNonCancellableCommit();
         if (mode == RestoreMode.overwrite) {
-          // Overwrite mode: Delete existing directories and copy all
-          // Restore upload directory
-          final uploadSrc = Directory(
-            p.join(restorePayloadDirectory.path, 'upload'),
-          );
-          if (await uploadSrc.exists()) {
-            final dst = await _getUploadDir();
+          for (final name in _assetRootNames) {
+            final src = Directory(p.join(restorePayloadDirectory.path, name));
+            if (!await src.exists()) continue;
+            final dst = await _liveAssetRoot(name);
             if (await dst.exists()) {
               await dst.delete(recursive: true);
             }
             await dst.create(recursive: true);
-            for (final ent in uploadSrc.listSync(recursive: true)) {
+            for (final ent in src.listSync(recursive: true)) {
               if (ent is File) {
-                final rel = p.relative(ent.path, from: uploadSrc.path);
-                final target = File(p.join(dst.path, rel));
-                await _copyRestoredFile(ent, target);
-              }
-            }
-          }
-
-          // Restore images directory
-          final imagesSrc = Directory(
-            p.join(restorePayloadDirectory.path, 'images'),
-          );
-          if (await imagesSrc.exists()) {
-            final dst = await _getImagesDir();
-            if (await dst.exists()) {
-              await dst.delete(recursive: true);
-            }
-            await dst.create(recursive: true);
-            for (final ent in imagesSrc.listSync(recursive: true)) {
-              if (ent is File) {
-                final rel = p.relative(ent.path, from: imagesSrc.path);
-                final target = File(p.join(dst.path, rel));
-                await _copyRestoredFile(ent, target);
-              }
-            }
-          }
-
-          // Restore avatars directory
-          final avatarsSrc = Directory(
-            p.join(restorePayloadDirectory.path, 'avatars'),
-          );
-          if (await avatarsSrc.exists()) {
-            final dst = await _getAvatarsDir();
-            if (await dst.exists()) {
-              await dst.delete(recursive: true);
-            }
-            await dst.create(recursive: true);
-            for (final ent in avatarsSrc.listSync(recursive: true)) {
-              if (ent is File) {
-                final rel = p.relative(ent.path, from: avatarsSrc.path);
-                final target = File(p.join(dst.path, rel));
-                await _copyRestoredFile(ent, target);
-              }
-            }
-          }
-
-          // Restore managed local fonts directory
-          final fontsSrc = Directory(
-            p.join(restorePayloadDirectory.path, 'fonts'),
-          );
-          if (await fontsSrc.exists()) {
-            final dst = await _getFontsDir();
-            if (await dst.exists()) {
-              await dst.delete(recursive: true);
-            }
-            await dst.create(recursive: true);
-            for (final ent in fontsSrc.listSync(recursive: true)) {
-              if (ent is File) {
-                final rel = p.relative(ent.path, from: fontsSrc.path);
+                final rel = p.relative(ent.path, from: src.path);
                 final target = File(p.join(dst.path, rel));
                 await _copyRestoredFile(ent, target);
               }
@@ -2768,7 +3252,11 @@ class DataSync {
           }
         } else {
           // Merge mode: Only copy non-existing files
-          await _restoreAssetDirectoriesAdditive(restorePayloadDirectory);
+          await _restoreAssetDirectoriesAdditive(
+            restorePayloadDirectory,
+            remappedConversationIds:
+                _lastMergeReport?.remappedConversationIds ?? const {},
+          );
         }
       }
       // Legacy chats.json decodes before assets exist. After files land,
@@ -2874,7 +3362,7 @@ class DataSync {
             }
             // §6.7: restored history must not re-trigger background extraction,
             // and injection hashes must clear so the next request self-heals.
-            await businessRepository!.applyPostMergeMemoryConversationState(
+            await businessRepository.applyPostMergeMemoryConversationState(
               mergedConvIds,
             );
           }
@@ -2998,10 +3486,15 @@ class _BackupPreflightArgs {
   const _BackupPreflightArgs({
     required this.manifestPath,
     required this.extractDirPath,
+    this.allowUnverifiedForwardCompatible = false,
   });
 
   final String manifestPath;
   final String extractDirPath;
+
+  /// Set only after the user has been told the backup comes from a newer
+  /// version that made no compatibility promise, and chose to continue.
+  final bool allowUnverifiedForwardCompatible;
 }
 
 class _BackupPackArgs {
@@ -3015,10 +3508,7 @@ class _BackupPackArgs {
     required this.includeFiles,
     required this.appVersion,
     required this.businessEntityRowIds,
-    required this.uploadDirPath,
-    required this.avatarsDirPath,
-    required this.imagesDirPath,
-    required this.fontsDirPath,
+    required this.assetRootPaths,
   });
 
   final String outPath;
@@ -3030,10 +3520,7 @@ class _BackupPackArgs {
   final bool includeFiles;
   final String appVersion;
   final Map<String, List<String>> businessEntityRowIds;
-  final String uploadDirPath;
-  final String avatarsDirPath;
-  final String imagesDirPath;
-  final String fontsDirPath;
+  final Map<String, String> assetRootPaths;
 }
 
 class _BackupByteMeter {
@@ -3415,6 +3902,8 @@ class _NullDigestOutputStream extends OutputStream {
     }
   }
 
+  /// Not an override: no base class declares this; it is the LZ back-reference
+  /// emitter used by the decompressor at the call site.
   void writeBackReference(int distance, int count) {
     var remaining = count;
     while (remaining > 0) {
@@ -3448,9 +3937,7 @@ class _NullDigestOutputStream extends OutputStream {
   @override
   Uint8List subset(int start, [int? end]) {
     if (start < 0) start = _length + start;
-    final resolvedEnd = end == null
-        ? _length
-        : (end < 0 ? _length + end : end);
+    final resolvedEnd = end == null ? _length : (end < 0 ? _length + end : end);
     final n = resolvedEnd - start;
     if (n < 0 || start < 0 || resolvedEnd > _length) {
       throw RangeError('subset');

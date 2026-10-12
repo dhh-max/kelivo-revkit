@@ -2,10 +2,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/widgets.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 import '../../utils/sandbox_path_resolver.dart';
+import '../database/business_preferences.dart';
 import '../models/assistant.dart';
 import '../models/assistant_regex.dart';
 import '../models/preset_message.dart';
@@ -13,12 +13,23 @@ import '../services/chat/chat_service.dart';
 import '../../l10n/app_localizations.dart';
 import '../../utils/avatar_cache.dart';
 import '../../utils/app_directories.dart';
+import '../../features/solab_apk/assistant/builtin_assistant.dart';
+import '../../features/dev_assistant/builtin_dev_assistant.dart';
+
+part 'assistant_provider_solab.dart';
 
 class AssistantProvider extends ChangeNotifier {
+  // ===== SoLab 追加：APK 改包助手 =====
+  // 上游版 assistant_provider 没有内置工作台助手，这里把我方入口接回来。
+  static const String apkModAssistantId = BuiltinApkMod.assistantId;
+  static List<String> get apkModToolIds => BuiltinApkMod.toolIds;
+  static const String apkModSystemPromptCore = BuiltinApkMod.systemPromptCore;
+  static const String apkModSystemPrompt = BuiltinApkMod.systemPrompt;
+
   static const String _assistantsKey = 'assistants_v1';
   static const String _currentAssistantKey = 'current_assistant_id_v1';
-  static const String _legacySearchEnabledKey = 'search_enabled_v1';
 
+  final BusinessPreferences preferences;
   final List<Assistant> _assistants = <Assistant>[];
   String? _currentAssistantId;
   final ChatService? chatService;
@@ -34,30 +45,28 @@ class AssistantProvider extends ChangeNotifier {
 
   bool get currentSearchEnabled => currentAssistant?.searchEnabled ?? false;
 
-  AssistantProvider({this.chatService}) {
-    _load();
+  AssistantProvider({required this.preferences, this.chatService}) {
+    loaded = _load();
   }
 
+  late final Future<void> loaded;
+
   Future<void> _load() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_assistantsKey);
+    if (!preferences.isLoaded) {
+      await preferences.load();
+    }
+    final raw = preferences.getString(_assistantsKey);
     if (raw != null && raw.isNotEmpty) {
-      final legacySearchEnabled = prefs.getBool(_legacySearchEnabledKey);
-      final migrated = _decodeAssistantsWithLegacySearch(
-        raw,
-        legacySearchEnabled: legacySearchEnabled,
-      );
-      bool migratedSearchEnabled = false;
       _assistants
         ..clear()
-        ..addAll(migrated.assistants);
-      migratedSearchEnabled = migrated.didApplyLegacySearch;
+        ..addAll(_decodeAssistants(raw));
       // Fix any sandboxed local paths (avatars/backgrounds) imported from other platforms
-      bool changed = migratedSearchEnabled;
+      bool changed = false;
       for (int i = 0; i < _assistants.length; i++) {
         final a = _assistants[i];
         String? av = a.avatar;
         String? bg = a.background;
+        var itemChanged = false;
         if (av != null &&
             av.isNotEmpty &&
             (av.startsWith('/') || av.contains(':')) &&
@@ -66,6 +75,7 @@ class AssistantProvider extends ChangeNotifier {
           if (fixed != av) {
             av = fixed;
             changed = true;
+            itemChanged = true;
           }
         }
         if (bg != null &&
@@ -76,9 +86,10 @@ class AssistantProvider extends ChangeNotifier {
           if (fixedBg != bg) {
             bg = fixedBg;
             changed = true;
+            itemChanged = true;
           }
         }
-        if (changed) {
+        if (itemChanged) {
           _assistants[i] = a.copyWith(avatar: av, background: bg);
         }
       }
@@ -91,7 +102,8 @@ class AssistantProvider extends ChangeNotifier {
     // Do not create defaults here because localization is not available.
     // Defaults will be ensured later via ensureDefaults(context).
     // Restore current assistant if present
-    final savedId = prefs.getString(_currentAssistantKey);
+    final savedValue = preferences.get(_currentAssistantKey);
+    final savedId = savedValue is String ? savedValue : null;
     if (savedId != null && _assistants.any((a) => a.id == savedId)) {
       _currentAssistantId = savedId;
     } else {
@@ -100,83 +112,33 @@ class AssistantProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  _AssistantDecodeResult _decodeAssistantsWithLegacySearch(
-    String raw, {
-    required bool? legacySearchEnabled,
-  }) {
+  List<Assistant> _decodeAssistants(String raw) {
     try {
       final decoded = jsonDecode(raw) as List<dynamic>;
-      bool didApplyLegacySearch = false;
-      final assistants = [
+      return [
         for (final e in decoded)
-          if (e is Map)
-            (() {
-              final json = e.cast<String, dynamic>();
-              if (legacySearchEnabled != null &&
-                  !json.containsKey('searchEnabled')) {
-                json['searchEnabled'] = legacySearchEnabled;
-                didApplyLegacySearch = true;
-              }
-              return Assistant.fromJson(json);
-            })(),
+          if (e is Map) Assistant.fromJson(e.cast<String, dynamic>()),
       ];
-      return _AssistantDecodeResult(
-        assistants: assistants,
-        didApplyLegacySearch: didApplyLegacySearch,
-      );
     } catch (_) {
-      return const _AssistantDecodeResult(
-        assistants: <Assistant>[],
-        didApplyLegacySearch: false,
-      );
+      return const <Assistant>[];
     }
   }
-
-  /// 内置输出限制规则：剥离 AI 常见开场白、结尾套话与英文 filler。
-  /// persist 模式（visualOnly=false, replaceOnly=false）——
-  /// 在消息存储时即生效，后续展示和发送均使用已过滤版本。
-  static List<AssistantRegex> _builtinOutputFilterRules() => <AssistantRegex>[
-    AssistantRegex(
-      id: 'builtin-no-filler-open-zh',
-      name: '开场白过滤',
-      pattern: r'(?m)^(好的[，。、！]\s*(?:我来|让我)[^\n]*|当然可以[，。！]?\s*$|当然可以[，。！]\s*(?:我来|让我)[^\n]*|当然[，。！]\s*(?:我来|让我|可以)[^\n]*|没问题[，。！]?\s*$|让我来[帮为你][^\n]*|我来帮[^\n]*)$\n?',
-      replacement: '',
-      scopes: const <AssistantRegexScope>[AssistantRegexScope.assistant],
-      enabled: true,
-    ),
-    AssistantRegex(
-      id: 'builtin-no-filler-close-zh',
-      name: '结尾套话过滤',
-      pattern: r'(?m)^(希望[对这能][^\n]{0,30}有帮助[^\n]{0,20}|如果你还[^\n]{0,40}问题[^\n]{0,30}|以上就是[^\n]{0,40}(?:内容|全部内容)[。！]?|如有[^\n]{0,30}疑问[^\n]{0,30})$\n?',
-      replacement: '',
-      scopes: const <AssistantRegexScope>[AssistantRegexScope.assistant],
-      enabled: true,
-    ),
-    AssistantRegex(
-      id: 'builtin-no-filler-en',
-      name: 'English Filler Filter',
-      pattern: r'''(?m)^(Sure[,!.][^\n]{0,60}|Of course[,!.]?\s*$|Of course[,!.]?\s*(?:I'll|let me)[^\n]{0,60}|Let me help[^\n]{0,60}|I hope this helps[^\n]{0,40})$\n?''',
-      replacement: '',
-      scopes: const <AssistantRegexScope>[AssistantRegexScope.assistant],
-      enabled: true,
-    ),
-  ];
 
   Assistant _defaultAssistant(AppLocalizations l10n) => Assistant(
     id: const Uuid().v4(),
     name: l10n.assistantProviderDefaultAssistantName,
-    systemPrompt:
-        '直接输出最终结果，不展示中间推理、工具调用步骤、验证过程等任何中间过程。'
-        '禁止输出与正文无关的内容：不要开场白、不要结尾套话、不要解释自己做了什么。'
-        '用户要求什么，一步到位给出最终答案。',
-    thinkingBudget: null,
-    temperature: 0.6,
+    systemPrompt: '',
+    temperature: null,
     topP: null,
-    regexRules: _builtinOutputFilterRules(),
+    limitContextMessages: false,
   );
 
   // Ensure localized default assistants exist; call this after localization is ready.
   Future<void> ensureDefaults(dynamic context) async {
+    await loaded;
+    // SoLab：先播种/升级我方内置助手（逆向助手、开发助手），再走上游的
+    // 「列表为空才建默认助手」。上游的提前返回会漏掉已装用户的模板升级。
+    await ensureSolabBuiltInAssistants();
     if (_assistants.isNotEmpty) return;
     final l10n = AppLocalizations.of(context)!;
     // 1) 默认助手
@@ -187,38 +149,18 @@ class AssistantProvider extends ChangeNotifier {
         id: const Uuid().v4(),
         name: l10n.assistantProviderSampleAssistantName,
         systemPrompt: l10n.assistantProviderSampleAssistantSystemPrompt(
-              '{model_name}',
-            ) +
-            '\n\n直接输出最终结果，不展示中间推理、工具调用步骤、验证过程等任何中间过程。'
-            '禁止输出与正文无关的内容：不要开场白、不要结尾套话、不要解释自己做了什么。'
-            '用户要求什么，一步到位给出最终答案。',
-        temperature: 0.6,
+          '{model_name}',
+        ),
+        temperature: null,
         topP: null,
-        regexRules: _builtinOutputFilterRules(),
-      ),
-    );
-    // 3) 逆向分析师 — 绑定 @kelivo/reverse 聚合逆向 MCP
-    _assistants.add(
-      Assistant(
-        id: const Uuid().v4(),
-        name: (Localizations.localeOf(context).languageCode == 'zh')
-            ? '逆向分析师'
-            : 'Reverse Analyst',
-        systemPrompt: (Localizations.localeOf(context).languageCode == 'zh')
-            ? '你是一名专业的 Android 逆向分析工程师。你擅长：APK 结构分析、DEX/ODEX 字节码反编译、SO/ELF 原生库逆向、Manifest 权限与组件审计、JNI 接口分析、反混淆与加壳识别。请使用内置的 @kelivo/reverse 工具集进行系统化分析，并在回复中引用工具输出作为证据。\n\n直接输出最终结果，不展示中间推理、工具调用步骤、验证过程等任何中间过程。禁止输出与正文无关的内容：不要开场白、不要结尾套话、不要解释自己做了什么。用户要求什么，一步到位给出最终答案。'
-            : 'You are a professional Android reverse engineering analyst. You excel at: APK structure analysis, DEX/ODEX bytecode decompilation, SO/ELF native library reverse engineering, Manifest permission and component auditing, JNI interface analysis, deobfuscation and packer identification. Use the built-in @kelivo/reverse toolset for systematic analysis and cite tool outputs as evidence in your responses.\n\nOutput the final result directly. Do not include intermediate reasoning, tool call steps, or verification processes. Do not output content unrelated to the main text: no opening pleasantries, no closing remarks, no explanations of what you did. Whatever the user asks, deliver the final answer in one step.',
-        temperature: 0.3,
-        topP: null,
-        mcpServerIds: const [], // MCP 按需手动启用，不默认绑定
-        regexRules: _builtinOutputFilterRules(),
+        limitContextMessages: false,
       ),
     );
     await _persist();
     // Set current assistant if not set
     if (_currentAssistantId == null && _assistants.isNotEmpty) {
       _currentAssistantId = _assistants.first.id;
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_currentAssistantKey, _currentAssistantId!);
+      await preferences.setString(_currentAssistantKey, _currentAssistantId!);
     }
     notifyListeners();
   }
@@ -278,17 +220,80 @@ class AssistantProvider extends ChangeNotifier {
     }
   }
 
+  Future<String?> _copyLocalAssetToManagedDirectory(
+    String? rawPath, {
+    required Future<Directory> Function() directoryAsync,
+    required String filenamePrefix,
+    required String id,
+  }) async {
+    final raw = (rawPath ?? '').trim();
+    if (raw.isEmpty || raw.startsWith('http') || raw.startsWith('data:')) {
+      return rawPath;
+    }
+    if (!(raw.startsWith('/') || raw.contains(':'))) return rawPath;
+
+    final fixed = SandboxPathResolver.fix(raw);
+    final src = File(fixed);
+    if (!await src.exists()) return rawPath;
+
+    final managedDir = await directoryAsync();
+    final managedRoot = p.normalize(managedDir.absolute.path);
+    final sourcePath = p.normalize(src.absolute.path);
+    if (p.isWithin(managedRoot, sourcePath)) return fixed;
+
+    if (!await managedDir.exists()) {
+      await managedDir.create(recursive: true);
+    }
+
+    var ext = p.extension(fixed).toLowerCase();
+    if (ext.isEmpty || ext.length > 7) ext = '.jpg';
+    final safeId = id.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+    final dest = File(
+      p.join(
+        managedDir.path,
+        '${filenamePrefix}_${safeId}_${DateTime.now().millisecondsSinceEpoch}$ext',
+      ),
+    );
+    await src.copy(dest.path);
+    return dest.path;
+  }
+
+  Future<void> _deleteManagedFileIfOwned(
+    String? rawPath, {
+    required Future<Directory> Function() directoryAsync,
+    required String? replacementPath,
+  }) async {
+    final raw = (rawPath ?? '').trim();
+    if (raw.isEmpty) return;
+    try {
+      final dir = await directoryAsync();
+      final root = p.normalize(dir.absolute.path);
+      final targetFile = File(raw);
+      final target = p.normalize(targetFile.absolute.path);
+      if (!p.isWithin(root, target)) return;
+      if (replacementPath != null &&
+          p.equals(target, p.normalize(File(replacementPath).absolute.path))) {
+        return;
+      }
+      if (await targetFile.exists()) {
+        await targetFile.delete();
+      }
+    } catch (_) {}
+  }
+
   Future<void> _persist() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_assistantsKey, Assistant.encodeList(_assistants));
+    await preferences.setString(
+      _assistantsKey,
+      Assistant.encodeList(_assistants),
+    );
   }
 
   Future<void> setCurrentAssistant(String id) async {
+    await loaded;
     if (_currentAssistantId == id) return;
     _currentAssistantId = id;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_currentAssistantKey, id);
+    await preferences.setString(_currentAssistantKey, id);
   }
 
   Assistant? getById(String id) {
@@ -319,14 +324,9 @@ class AssistantProvider extends ChangeNotifier {
           (context != null
               ? AppLocalizations.of(context)!.assistantProviderNewAssistantName
               : 'New Assistant')),
-      systemPrompt:
-          '直接输出最终结果，不展示中间推理、工具调用步骤、验证过程等任何中间过程。'
-          '禁止输出与正文无关的内容：不要开场白、不要结尾套话、不要解释自己做了什么。'
-          '用户要求什么，一步到位给出最终答案。',
-      temperature: 0.6,
+      temperature: null,
       topP: null,
-      mcpServerIds: const [], // 默认不绑定任何 MCP，用户按需手动启用
-      regexRules: _builtinOutputFilterRules(),
+      limitContextMessages: false,
     );
     _assistants.add(a);
     await _persist();
@@ -361,7 +361,11 @@ class AssistantProvider extends ChangeNotifier {
       background: backgroundCopy,
       mcpServerIds: List<String>.of(source.mcpServerIds),
       localToolIds: List<String>.of(source.localToolIds),
-      skillIds: List<String>.of(source.skillIds),
+      defaultWorkspaceId: source.defaultWorkspaceId,
+      skillIds: source.skillIds == null
+          ? null
+          : List<String>.of(source.skillIds!),
+      healthDataTypeIds: List<String>.of(source.healthDataTypeIds),
       customHeaders: source.customHeaders
           .map((e) => Map<String, String>.from(e))
           .toList(),
@@ -399,55 +403,32 @@ class AssistantProvider extends ChangeNotifier {
 
     var next = updated;
 
-    // If avatar changed and is a local file path (from gallery/cache),
-    // copy it to persistent Documents/avatars and store that path.
     try {
       final prev = _assistants[idx];
       final raw = (updated.avatar ?? '').trim();
       final prevRaw = (prev.avatar ?? '').trim();
       final changed = raw != prevRaw;
-      final isLocalPath =
-          raw.isNotEmpty &&
-          (raw.startsWith('/') || raw.contains(':')) &&
-          !raw.startsWith('http');
-      // Skip if it's already under our avatars folder
-      if (changed &&
-          isLocalPath &&
-          !raw.contains('/avatars/') &&
-          !raw.contains('\\avatars\\')) {
-        final fixedInput = SandboxPathResolver.fix(raw);
-        final src = File(fixedInput);
-        if (await src.exists()) {
-          final avatarsDir = await AppDirectories.getAvatarsDirectory();
-          if (!await avatarsDir.exists()) {
-            await avatarsDir.create(recursive: true);
-          }
-          String ext = '';
-          final dot = fixedInput.lastIndexOf('.');
-          if (dot != -1 && dot < fixedInput.length - 1) {
-            ext = fixedInput.substring(dot + 1).toLowerCase();
-            if (ext.length > 6) ext = 'jpg';
-          } else {
-            ext = 'jpg';
-          }
-          final filename =
-              'assistant_${updated.id}_${DateTime.now().millisecondsSinceEpoch}.$ext';
-          final dest = File('${avatarsDir.path}/$filename');
-          await src.copy(dest.path);
 
-          // Optionally remove old stored avatar if it lives in our avatars folder
-          if (prevRaw.isNotEmpty &&
-              (prevRaw.contains('/avatars/') ||
-                  prevRaw.contains('\\avatars\\'))) {
-            try {
-              final old = File(prevRaw);
-              if (await old.exists() && old.path != dest.path) {
-                await old.delete();
-              }
-            } catch (_) {}
-          }
-
-          next = updated.copyWith(avatar: dest.path);
+      if (changed) {
+        final avatarPath = await _copyLocalAssetToManagedDirectory(
+          raw,
+          directoryAsync: AppDirectories.getAvatarsDirectory,
+          filenamePrefix: 'assistant',
+          id: updated.id,
+        );
+        if (avatarPath != updated.avatar) {
+          await _deleteManagedFileIfOwned(
+            prevRaw,
+            directoryAsync: AppDirectories.getAvatarsDirectory,
+            replacementPath: avatarPath,
+          );
+          next = updated.copyWith(avatar: avatarPath);
+        } else if (raw.isEmpty) {
+          await _deleteManagedFileIfOwned(
+            prevRaw,
+            directoryAsync: AppDirectories.getAvatarsDirectory,
+            replacementPath: null,
+          );
         }
       }
 
@@ -462,56 +443,27 @@ class AssistantProvider extends ChangeNotifier {
       final bgRaw = (updated.background ?? '').trim();
       final prevBgRaw = (prev.background ?? '').trim();
       final bgChanged = bgRaw != prevBgRaw;
-      final bgIsLocal =
-          bgRaw.isNotEmpty &&
-          (bgRaw.startsWith('/') || bgRaw.contains(':')) &&
-          !bgRaw.startsWith('http');
-      if (bgChanged &&
-          bgIsLocal &&
-          !bgRaw.contains('/images/') &&
-          !bgRaw.contains('\\images\\')) {
-        final fixedBg = SandboxPathResolver.fix(bgRaw);
-        final srcBg = File(fixedBg);
-        if (await srcBg.exists()) {
-          final imagesDir = await AppDirectories.getImagesDirectory();
-          if (!await imagesDir.exists()) {
-            await imagesDir.create(recursive: true);
-          }
-          String ext = '';
-          final dot = fixedBg.lastIndexOf('.');
-          if (dot != -1 && dot < fixedBg.length - 1) {
-            ext = fixedBg.substring(dot + 1).toLowerCase();
-            if (ext.length > 6) ext = 'jpg';
-          } else {
-            ext = 'jpg';
-          }
-          final filename =
-              'background_${updated.id}_${DateTime.now().millisecondsSinceEpoch}.$ext';
-          final destBg = File('${imagesDir.path}/$filename');
-          await srcBg.copy(destBg.path);
-
-          // Clean old stored background if it lived in images/
-          if (prevBgRaw.isNotEmpty &&
-              (prevBgRaw.contains('/images/') ||
-                  prevBgRaw.contains('\\images\\'))) {
-            try {
-              final oldBg = File(prevBgRaw);
-              if (await oldBg.exists() && oldBg.path != destBg.path) {
-                await oldBg.delete();
-              }
-            } catch (_) {}
-          }
-
-          next = next.copyWith(background: destBg.path);
+      if (bgChanged) {
+        final backgroundPath = await _copyLocalAssetToManagedDirectory(
+          bgRaw,
+          directoryAsync: AppDirectories.getImagesDirectory,
+          filenamePrefix: 'background',
+          id: updated.id,
+        );
+        if (backgroundPath != updated.background) {
+          await _deleteManagedFileIfOwned(
+            prevBgRaw,
+            directoryAsync: AppDirectories.getImagesDirectory,
+            replacementPath: backgroundPath,
+          );
+          next = next.copyWith(background: backgroundPath);
+        } else if (bgRaw.isEmpty) {
+          await _deleteManagedFileIfOwned(
+            prevBgRaw,
+            directoryAsync: AppDirectories.getImagesDirectory,
+            replacementPath: null,
+          );
         }
-      } else if (bgChanged && bgRaw.isEmpty && prevBgRaw.contains('/images/')) {
-        // If background cleared, optionally remove previous stored file
-        try {
-          final oldBg = File(prevBgRaw);
-          if (await oldBg.exists()) {
-            await oldBg.delete();
-          }
-        } catch (_) {}
       }
     } catch (_) {
       // On any failure, fall back to the provided value unchanged.
@@ -561,11 +513,10 @@ class AssistantProvider extends ChangeNotifier {
           : null;
     }
     await _persist();
-    final prefs = await SharedPreferences.getInstance();
     if (_currentAssistantId != null) {
-      await prefs.setString(_currentAssistantKey, _currentAssistantId!);
+      await preferences.setString(_currentAssistantKey, _currentAssistantId!);
     } else {
-      await prefs.remove(_currentAssistantKey);
+      await preferences.remove(_currentAssistantKey);
     }
     notifyListeners();
     return true;
@@ -631,14 +582,4 @@ class AssistantProvider extends ChangeNotifier {
     notifyListeners();
     await _persist();
   }
-}
-
-class _AssistantDecodeResult {
-  const _AssistantDecodeResult({
-    required this.assistants,
-    required this.didApplyLegacySearch,
-  });
-
-  final List<Assistant> assistants;
-  final bool didApplyLegacySearch;
 }

@@ -1,17 +1,21 @@
 import 'dart:convert';
 
+import '../../database/chat_database_repository.dart';
 import '../../models/assistant.dart';
 import '../../models/memory_entry.dart';
+import 'memory_audit.dart';
+import 'memory_quality.dart';
+import 'memory_search_utils.dart';
 import '../../models/user_profile_field.dart';
 import '../chat/chat_service.dart';
 import 'memory_block_builder.dart';
 import 'memory_prompts.dart';
 import 'memory_repository.dart';
 import 'memory_smart_add.dart';
-import 'memory_quality.dart';
-import 'memory_search_utils.dart';
 import 'memory_tokenizer.dart';
 import 'memory_trace.dart';
+import '../workspace/project_scope.dart';
+import '../local_tools/tool_paging.dart';
 
 /// Memory system V1 tool declarations + dispatch (§10).
 ///
@@ -65,6 +69,91 @@ abstract final class MemoryTools {
   /// Build tool definitions gated by [enableMemory] / [allowPastConversationRecall]
   /// (§10.1). [writeScope] controls whether `scope` appears on `memory_update`
   /// (§10.2 / §4.3).
+
+  /// 目录模式用的 v2 记忆工具定义（上游 1.2.6 的 `built_in_tool_catalog` 用）。
+  ///
+  /// 本 fork 的定义入口是 [buildDefinitions]（带 enableMemory / writeScope 等
+  /// 上下文），这里给目录场景一个「全开」的稳定版本：写作用域用
+  /// toolDefaultGlobal、读写都开。
+  static List<Map<String, dynamic>> catalogDefinitions(MemoryPromptLang lang) =>
+      buildDefinitions(
+        lang: lang,
+        writeScope: MemoryWriteScope.toolDefaultGlobal,
+        enableMemory: true,
+        allowPastConversationRecall: true,
+      );
+
+  static List<Map<String, dynamic>> legacyDefinitions(MemoryPromptLang lang) {
+    final zh = lang == MemoryPromptLang.zh;
+    return [
+      {
+        'type': 'function',
+        'function': {
+          'name': 'create_memory',
+          'description': zh ? '新增一条记忆记录。' : 'Create a memory record.',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'content': {
+                'type': 'string',
+                'description': zh
+                    ? '记忆记录的内容。'
+                    : 'The content of the memory record.',
+              },
+            },
+            'required': ['content'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'edit_memory',
+          'description': zh
+              ? '更新一条已有的记忆记录。'
+              : 'Update an existing memory record.',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'id': {
+                'type': 'integer',
+                'description': zh
+                    ? '记忆记录的 id。'
+                    : 'The id of the memory record.',
+              },
+              'content': {
+                'type': 'string',
+                'description': zh
+                    ? '记忆记录的内容。'
+                    : 'The content of the memory record.',
+              },
+            },
+            'required': ['id', 'content'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'delete_memory',
+          'description': zh ? '删除一条记忆记录。' : 'Delete a memory record.',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'id': {
+                'type': 'integer',
+                'description': zh
+                    ? '记忆记录的 id。'
+                    : 'The id of the memory record.',
+              },
+            },
+            'required': ['id'],
+          },
+        },
+      },
+    ];
+  }
+
   static List<Map<String, dynamic>> buildDefinitions({
     required MemoryPromptLang lang,
     required MemoryWriteScope writeScope,
@@ -103,6 +192,7 @@ abstract final class MemoryTools {
     required Map<String, dynamic> args,
     required Assistant assistant,
     required MemoryRepository repository,
+    required ChatDatabaseRepository chatRepository,
     ChatService? chatService,
     String? conversationId,
     Future<void> Function()? onMutated,
@@ -140,6 +230,7 @@ abstract final class MemoryTools {
           args: args,
           chatService: chatService,
           conversationId: conversationId,
+          assistantId: assistant.id,
         );
         _finishToolTrace(handle, step, result: result);
         return result;
@@ -190,13 +281,14 @@ abstract final class MemoryTools {
           result = await _handleMemoryRead(
             args: args,
             assistant: assistant,
-            repository: repository,
+            chatRepository: chatRepository,
           );
         case memoryUpdate:
           result = await _handleMemoryUpdate(
             args: args,
             assistant: assistant,
             repository: repository,
+            chatRepository: chatRepository,
             smartAdd: smartAdd,
             promptLang: promptLang,
             memoryLlmCall: memoryLlmCall,
@@ -209,13 +301,14 @@ abstract final class MemoryTools {
           result = await _handleMemorySearchProfile(
             args: args,
             assistant: assistant,
-            repository: repository,
+            chatRepository: chatRepository,
           );
         case memoryEdit:
           result = await _handleMemoryEdit(
             args: args,
             assistant: assistant,
             repository: repository,
+            chatRepository: chatRepository,
             traceStep: step,
           );
           await onMutated?.call();
@@ -224,6 +317,7 @@ abstract final class MemoryTools {
             args: args,
             assistant: assistant,
             repository: repository,
+            chatRepository: chatRepository,
             traceStep: step,
           );
           await onMutated?.call();
@@ -231,6 +325,7 @@ abstract final class MemoryTools {
           result = await _handleUpdateUserProfile(
             args: args,
             repository: repository,
+            chatRepository: chatRepository,
             traceStep: step,
           );
           await onMutated?.call();
@@ -343,7 +438,6 @@ abstract final class MemoryTools {
   }
 
   /// Whitespace-split, lowercase, then [MemoryTokenizer.escapeLike] (§5.9).
-  /// Delegates to [MemorySearchUtils.tokenize] (shared impl from SoLab v2).
   static List<String> searchTokens(String query) =>
       MemorySearchUtils.tokenize(query, escapeLike: true);
 
@@ -352,7 +446,7 @@ abstract final class MemoryTools {
   static Future<String> _handleMemoryRead({
     required Map<String, dynamic> args,
     required Assistant assistant,
-    required MemoryRepository repository,
+    required ChatDatabaseRepository chatRepository,
   }) async {
     final type = _parseMemoryType(args['type']);
     if (args.containsKey('type') && args['type'] != null && type == null) {
@@ -364,16 +458,47 @@ abstract final class MemoryTools {
     }
     final includeArchived = _asBool(args['include_archived']) ?? false;
     final limit = (_asInt(args['limit']) ?? 50).clamp(1, 100);
+    // 分页契约与上游 1.2.7 一致（offset/has_more/next_offset），
+    // 便于后续拉取时这块不再重写。
+    final offset = int.tryParse((args['offset'] ?? 0).toString());
+    if (offset == null || offset < 0) {
+      return toolError(
+        error: 'invalid_memory_offset',
+        message: 'offset must be a non-negative integer.',
+        tool: memoryRead,
+      );
+    }
 
-    final all = await repository.queryVisibleMemories(
-      assistantId: assistant.id,
-      type: type,
-      includeArchived: includeArchived,
+    // 项目隔离（用户 2026-10-03）：读回也按项目过滤——项目 A 的结论不该在项目 B
+    // 的记忆列表里出现（全局/用户级偏好不受影响）。
+    final all = MemoryRepository.visibleInProject(
+      await chatRepository.queryVisibleMemories(
+        assistantId: assistant.id,
+        type: type,
+        includeArchived: includeArchived,
+      ),
+      ProjectScope.currentId,
     );
-    final returned = all.length <= limit ? all : all.sublist(0, limit);
+    final start = offset.clamp(0, all.length);
+    final end = start + limit.clamp(0, all.length - start);
+    final returned = all.sublist(start, end);
+    final hasMore = end < all.length;
     return jsonEncode({
       'total': all.length,
       'returned': returned.length,
+      'offset': offset,
+      'limit': limit,
+      'has_more': hasMore,
+      'next_offset': hasMore ? end : null,
+      // 报告 2-23：显式声明单位（条），并给机器可读的 page 块；snake_case 老字段
+      // 保留不动，老调用方零感知。
+      'page': ToolPaging.block(
+        unit: ToolPaging.unitItems,
+        offset: offset,
+        limit: limit,
+        returned: returned.length,
+        total: all.length,
+      ),
       'entries': [
         for (final e in returned) _entrySummary(e, includeStatus: true),
       ],
@@ -384,6 +509,7 @@ abstract final class MemoryTools {
     required Map<String, dynamic> args,
     required Assistant assistant,
     required MemoryRepository repository,
+    required ChatDatabaseRepository chatRepository,
     MemorySmartAdd? smartAdd,
     MemoryPromptLang? promptLang,
     Future<String> Function(String prompt)? memoryLlmCall,
@@ -401,7 +527,11 @@ abstract final class MemoryTools {
       );
     }
     final content = (args['content'] ?? '').toString();
-    // MemoryQuality: hard-validate before LLM Smart Add (SoLab v2 fusion).
+    // SoLabAgent（builtin-apk-mod）的 app 经验直接存入本 agent 记忆
+    // （2026-09-14）：此前按内容嗅探拦截并要求走「预存→用户确认→record」
+    // 专用流程，但模型实际从不遵守该流程，只会反复拿
+    // apk_project_memory_is_scoped 报错。写作用域仍由 assistant 策略决定
+    // （内置策略 alwaysAssistant），app 经验只进本 agent，别的 agent 不可见。
     final qualityError = MemoryQuality.validate(content);
     if (qualityError != null) {
       return toolError(
@@ -410,15 +540,28 @@ abstract final class MemoryTools {
         tool: memoryUpdate,
       );
     }
+    // 安全审计（2026-10-02）：记忆会被注入回上下文，所以它是一条指令注入通道，
+    // 也是凭据落点。质量闸门管「值不值得记」，这里管「能不能安全地记」。
+    final audit = MemoryAudit.inspect(content);
+    if (audit.blocked) {
+      return toolError(
+        error: 'memory_audit_blocked',
+        message: audit.refusalMessage,
+        tool: memoryUpdate,
+      );
+    }
 
     final scopeArg = args['scope']?.toString();
-    final scope = resolveWriteScope(assistant.memoryWriteScope, scopeArg);
+    var scope = resolveWriteScope(assistant.memoryWriteScope, scopeArg);
+    // SoLabAgent 的记忆（含 app 经验）强制本 agent 作用域：即使助手设置被
+    // 改成 global 也不外泄给其他 agent（2026-09-14 用户要求「不通用」）。
+    if (assistant.id == 'builtin-apk-mod') scope = MemoryScope.assistant;
     final assistantId = scope == MemoryScope.assistant ? assistant.id : null;
 
     // Real Smart Add when wired (§12.6); else exact-duplicate → SKIP / NEW.
     final adder =
         smartAdd ??
-        MemorySmartAdd(repository: repository);
+        MemorySmartAdd(repository: repository, chatRepository: chatRepository);
     final result = await adder.addOne(
       item: SmartAddItem(
         type: type,
@@ -441,7 +584,7 @@ abstract final class MemoryTools {
   static Future<String> _handleMemorySearchProfile({
     required Map<String, dynamic> args,
     required Assistant assistant,
-    required MemoryRepository repository,
+    required ChatDatabaseRepository chatRepository,
   }) async {
     final query = (args['query'] ?? '').toString();
     if (query.trim().isEmpty) {
@@ -469,12 +612,16 @@ abstract final class MemoryTools {
       });
     }
 
-    final matched = await repository.searchMemories(
-      assistantId: assistant.id,
-      tokens: tokens,
-      type: type,
-      matchAll: true,
-      limit: limit,
+    // 项目隔离：检索同样只看「全局 + 当前项目」。
+    final matched = MemoryRepository.visibleInProject(
+      await chatRepository.searchMemories(
+        assistantId: assistant.id,
+        tokens: tokens,
+        type: type,
+        matchAll: true,
+        limit: limit,
+      ),
+      ProjectScope.currentId,
     );
 
     final matchedIds = {for (final e in matched) e.id};
@@ -487,7 +634,7 @@ abstract final class MemoryTools {
       }
     }
 
-    final relatedEntries = await repository.memoriesByIds(
+    final relatedEntries = await chatRepository.memoriesByIds(
       viaByRelated.keys.toList(growable: false),
     );
     final relatedFiltered = relatedEntries
@@ -495,6 +642,8 @@ abstract final class MemoryTools {
           (e) =>
               e.status == MemoryStatus.active &&
               _isVisible(e, assistant.id) &&
+              // 关联条目也要过项目可见性：否则能从关联边绕出别的项目的结论。
+              e.visibleInProject(ProjectScope.currentId) &&
               !matchedIds.contains(e.id),
         )
         .toList();
@@ -529,6 +678,7 @@ abstract final class MemoryTools {
     required Map<String, dynamic> args,
     required Assistant assistant,
     required MemoryRepository repository,
+    required ChatDatabaseRepository chatRepository,
     MemoryTraceStep? traceStep,
   }) async {
     final id = (args['id'] ?? '').toString().trim();
@@ -548,7 +698,7 @@ abstract final class MemoryTools {
       );
     }
 
-    final found = await repository.memoriesByIds([id]);
+    final found = await chatRepository.memoriesByIds([id]);
     final entry = found.isEmpty ? null : found.first;
     if (entry == null ||
         entry.status != MemoryStatus.active ||
@@ -592,6 +742,7 @@ abstract final class MemoryTools {
     required Map<String, dynamic> args,
     required Assistant assistant,
     required MemoryRepository repository,
+    required ChatDatabaseRepository chatRepository,
     MemoryTraceStep? traceStep,
   }) async {
     final id = (args['id'] ?? '').toString().trim();
@@ -603,7 +754,7 @@ abstract final class MemoryTools {
       );
     }
 
-    final found = await repository.memoriesByIds([id]);
+    final found = await chatRepository.memoriesByIds([id]);
     final entry = found.isEmpty ? null : found.first;
     if (entry == null || !_isVisible(entry, assistant.id)) {
       return toolError(
@@ -639,6 +790,7 @@ abstract final class MemoryTools {
   static Future<String> _handleUpdateUserProfile({
     required Map<String, dynamic> args,
     required MemoryRepository repository,
+    required ChatDatabaseRepository chatRepository,
     MemoryTraceStep? traceStep,
   }) async {
     final rawFields = args['fields'];
@@ -658,7 +810,7 @@ abstract final class MemoryTools {
     final priorValues = <String, String>{};
     if (traceStep != null) {
       try {
-        for (final field in await repository.readProfileFields()) {
+        for (final field in await chatRepository.readProfileFields()) {
           priorValues[field.key] = field.value;
         }
       } catch (_) {}
@@ -712,6 +864,7 @@ abstract final class MemoryTools {
     required Map<String, dynamic> args,
     required ChatService? chatService,
     required String? conversationId,
+    required String assistantId,
   }) async {
     final query = (args['query'] ?? '').toString();
     if (query.trim().isEmpty) {
@@ -730,12 +883,7 @@ abstract final class MemoryTools {
     }
     final limit = (_asInt(args['limit']) ?? 10).clamp(1, 20);
     final filterConversationId = args['conversation_id']?.toString().trim();
-    final tokens = query
-        .trim()
-        .toLowerCase()
-        .split(RegExp(r'\s+'))
-        .where((t) => t.isNotEmpty)
-        .toList(growable: false);
+    final tokens = MemorySearchUtils.tokenize(query);
     if (tokens.isEmpty) {
       return jsonEncode({'query': query, 'results': <Map<String, dynamic>>[]});
     }
@@ -747,6 +895,7 @@ abstract final class MemoryTools {
       limit: limit * 8,
       conversationId: scoped ? filterConversationId : null,
       excludeConversationId: scoped ? null : conversationId,
+      assistantId: assistantId,
     );
 
     final results = <Map<String, dynamic>>[];
@@ -781,8 +930,8 @@ abstract final class MemoryTools {
       'function': {
         'name': memoryRead,
         'description': zh
-            ? '读取用户的长期记忆。type 可选：identity（姓名、身边的人、职业等身份信息）、workflow（做事方式、工具偏好、调试习惯）、voice（行文风格、句式节奏、用词习惯）、instruction（用户对你的明确要求）。不传 type 则返回全部类型。对话中已经提供了记忆摘要，只有在摘要标了 mode="summary" 被截断、或需要拿到条目 id 时才需要调用。'
-            : 'Read the user\'s long-term memory. Optional type: identity (name, people around them, occupation, etc.), workflow (ways of working, tool preferences, debugging habits), voice (writing style, rhythm, word choice), instruction (explicit requests to you). Omit type to return all types. A memory summary is already in the conversation; call this only when a block is marked mode="summary" (truncated) or you need entry ids.',
+            ? '读取用户的通用长期记忆。type 可选：identity、workflow、voice、instruction。不传 type 则返回全部类型。用 limit 和 offset 分页；结果 total 为筛选后的总条数，has_more 为 true 时保持筛选不变、把 next_offset 作为下次 offset，最后一页 next_offset 为 null。'
+            : 'Read generic long-term memory. Optional type: identity, workflow, voice, instruction. Omit type to return all types. Paginate with limit and offset. total counts all entries matching the filters; when has_more is true keep the same filters and pass next_offset as offset; next_offset is null on the last page.',
         'parameters': {
           'type': 'object',
           'properties': {
@@ -807,6 +956,13 @@ abstract final class MemoryTools {
                   ? '最多返回多少条，默认 50。'
                   : 'Maximum number of entries to return. Default 50.',
             },
+            'offset': {
+              'type': 'integer',
+              'minimum': 0,
+              'description': zh
+                  ? '跳过筛选结果的条数，默认 0。从上一页的 next_offset 继续读取。'
+                  : 'Number of matching entries to skip. Default 0. Use next_offset from the previous page to continue.',
+            },
           },
           'required': <String>[],
         },
@@ -824,14 +980,14 @@ abstract final class MemoryTools {
         'type': 'string',
         'enum': ['identity', 'workflow', 'voice', 'instruction'],
         'description': zh
-            ? 'identity 身份信息；workflow 做事方式与工具偏好；voice 表达风格；instruction 用户对你的明确要求。'
-            : 'identity: identity facts; workflow: ways of working and tool preferences; voice: expression style; instruction: explicit requests to you.',
+            ? 'identity 身份信息；workflow 做事方式、工具偏好或可跨会话续做的项目状态；voice 表达风格；instruction 用户对你的明确要求。'
+            : 'identity: identity facts; workflow: ways of working, tool preferences, or project state that can continue across sessions; voice: expression style; instruction: explicit requests to you.',
       },
       'content': {
         'type': 'string',
         'description': zh
-            ? '一条完整、自包含的第三人称陈述句，例如「用户偏好直接、可落地的中文说明」。不要使用「这个」「刚才」等指回本次对话的词。'
-            : 'One complete, self-contained third-person statement, e.g. "The user prefers direct, actionable explanations in Chinese." Avoid deictic words that refer back to this conversation.',
+            ? '一条完整、自包含的第三人称陈述句。例如「用户偏好直接、可落地的中文说明」。保存项目状态时必须写全“项目/约束；已验证结果或产物；下一步”，不能只写工具名、数量或“已完成”。'
+            : 'One complete, self-contained third-person statement. For project state, include project/constraint, verified outcome or artifact, and next action; never save only a tool name, count, or “done”.',
       },
     };
     if (writeScope == MemoryWriteScope.toolDefaultGlobal ||
@@ -849,8 +1005,8 @@ abstract final class MemoryTools {
       'function': {
         'name': memoryUpdate,
         'description': zh
-            ? '写入一条用户长期记忆。系统会自动与已有记忆去重合并，不需要先读取再全文替换。只写下次新开对话时仍然成立的稳定信息；本次对话内的临时上下文不要写。'
-            : 'Write one long-term user memory. The system deduplicates and merges with existing memories automatically; you do not need to read then replace. Only write stable facts that will still hold in a future conversation; do not write ephemeral context from this chat.',
+            ? '写入或合并用户长期记忆。同一个 APP、软件或项目只保留一条同类型记忆，新结论必须并入旧条目。workflow 可保存用户明确要求跨会话续做的项目最终状态；必须带可执行依据和下一步，不保存临时排查流水。'
+            : 'Write or merge long-term user memory. Keep only one entry of the same type per app, software product, or project, merging new conclusions into it. Workflow may store final project state the user expects to continue across sessions; include usable evidence and the next action, not a temporary investigation log.',
         'parameters': {
           'type': 'object',
           'properties': properties,
@@ -867,8 +1023,8 @@ abstract final class MemoryTools {
       'function': {
         'name': memorySearchProfile,
         'description': zh
-            ? '搜索用户的长期记忆。当对话中提供的记忆摘要不够详细、被截断（标了 mode="summary"），或需要查找某个特定信息时使用。按关键词匹配，多个关键词之间是「且」关系。'
-            : 'Search the user\'s long-term memory. Use when the in-conversation memory summary is incomplete, truncated (mode="summary"), or you need a specific fact. Keyword match; multiple keywords are ANDed.',
+            ? '搜索用户的长期记忆。记忆内容默认不注入对话（只注入类型+条数索引），需要某个特定信息或按主题回忆时使用。按关键词匹配，多个关键词之间是「且」关系。'
+            : 'Search the user\'s long-term memory. Memory content is NOT injected into the conversation (only a type+count index is); use this to look up a specific fact or recall by topic. Keyword match; multiple keywords are ANDed.',
         'parameters': {
           'type': 'object',
           'properties': {
@@ -1004,8 +1160,8 @@ abstract final class MemoryTools {
       'function': {
         'name': chatSearch,
         'description': zh
-            ? '在历史对话中按关键词搜索消息内容（跨全部会话）。需要回忆之前聊过什么，或者用户提到「上次」「之前说的」「我们讨论过」时，优先使用这个工具。默认不搜索当前对话，因为当前对话的内容已经在上下文里。'
-            : 'Search message content across past conversations by keywords. Prefer this when recalling prior discussion, or when the user mentions "last time", "earlier", or "we discussed". By default the current conversation is excluded because it is already in context.',
+            ? '在历史对话中按关键词搜索消息内容（仅当前助手的会话，以及没有归属助手的旧会话）。需要回忆之前聊过什么，或者用户提到「上次」「之前说的」「我们讨论过」时，优先使用这个工具。默认不搜索当前对话，因为当前对话的内容已经在上下文里。'
+            : 'Search message content in this assistant\'s past conversations (and unowned older chats) by keywords. Prefer this when recalling prior discussion, or when the user mentions "last time", "earlier", or "we discussed". By default the current conversation is excluded because it is already in context.',
         'parameters': {
           'type': 'object',
           'properties': {
@@ -1026,8 +1182,8 @@ abstract final class MemoryTools {
             'conversation_id': {
               'type': 'string',
               'description': zh
-                  ? '只在指定会话内搜索。省略则搜索除当前会话外的全部会话。'
-                  : 'Search only within this conversation. Omit to search all conversations except the current one.',
+                  ? '只在指定会话内搜索。省略则搜索除当前会话外、当前助手可见的会话。'
+                  : 'Search only within this conversation. Omit to search this assistant\'s visible conversations except the current one.',
             },
           },
           'required': ['query'],
@@ -1052,10 +1208,8 @@ abstract final class MemoryTools {
     };
   }
 
-  static bool _isVisible(MemoryEntry entry, String assistantId) {
-    if (entry.scope == MemoryScope.global) return true;
-    return entry.assistantId == assistantId;
-  }
+  static bool _isVisible(MemoryEntry entry, String assistantId) =>
+      entry.isVisibleFor(assistantId);
 
   static MemoryType? _parseMemoryType(dynamic raw) {
     if (raw == null) return null;

@@ -10,11 +10,12 @@ import '../../../utils/brand_assets.dart';
 import '../../../core/providers/settings_provider.dart';
 import '../../../core/providers/assistant_provider.dart';
 import '../../../core/services/api/chat_api_service.dart';
+import '../../../core/services/api/stream/stream_chunk.dart';
 import '../../../shared/widgets/ios_tactile.dart';
 import '../../../shared/widgets/snackbar.dart';
 import '../../settings/widgets/language_select_sheet.dart'
     show LanguageOption, supportedLanguages, showLanguageSelector;
-import '../../../core/services/haptics.dart';
+import 'package:Kelivo/shared/services/haptics.dart';
 import '../../model/widgets/model_select_sheet.dart' show showModelSelector;
 import '../../../theme/app_font_weights.dart';
 
@@ -137,10 +138,14 @@ class _TranslatePageState extends State<TranslatePage> {
         messages: [
           {'role': 'user', 'content': p},
         ],
+        reasoning: settings.translateGenerationReasoningFor(
+          context.read<AssistantProvider>().currentAssistant,
+        ),
       );
       _sub = stream.listen(
         (chunk) {
-          final s = chunk.content;
+          if (chunk is! TextDelta) return;
+          final s = chunk.text;
           if (_dst.text.isEmpty) {
             // Remove any leading whitespace/newlines from the first chunk to avoid top gap
             final cleaned = s.replaceFirst(RegExp(r'^\s+'), '');
@@ -303,14 +308,27 @@ class _TranslatePageState extends State<TranslatePage> {
               ),
             ),
           ),
-          // Model brand icon (keep original colors)
+          // Model brand icon
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: IosIconButton(
               padding: const EdgeInsets.all(8),
               builder: (color) {
                 if (asset != null && asset.toLowerCase().endsWith('.svg')) {
-                  return SvgPicture.asset(asset, width: 22, height: 22);
+                  final isDark =
+                      Theme.of(context).brightness == Brightness.dark;
+                  return SvgPicture.asset(
+                    asset,
+                    width: 22,
+                    height: 22,
+                    colorFilter:
+                        isDark && BrandAssets.assetNeedsDarkInvert(asset)
+                        ? ColorFilter.mode(
+                            Theme.of(context).colorScheme.onSurface,
+                            BlendMode.srcIn,
+                          )
+                        : null,
+                  );
                 }
                 if (asset != null) {
                   return Image.asset(asset, width: 22, height: 22);
@@ -444,7 +462,7 @@ class _TranslatePageState extends State<TranslatePage> {
                                   width: 18,
                                   height: 18,
                                   colorFilter: ColorFilter.mode(
-                                    isDark ? Colors.black : Colors.white,
+                                    cs.onPrimary,
                                     BlendMode.srcIn,
                                   ),
                                 ),
@@ -452,7 +470,7 @@ class _TranslatePageState extends State<TranslatePage> {
                                 Text(
                                   l10n.chatMessageWidgetStopTooltip,
                                   style: TextStyle(
-                                    color: isDark ? Colors.black : Colors.white,
+                                    color: cs.onPrimary,
                                     fontWeight: AppFontWeights.emphasis,
                                   ),
                                 ),
@@ -465,13 +483,13 @@ class _TranslatePageState extends State<TranslatePage> {
                                 Icon(
                                   lucide.Lucide.Languages,
                                   size: 18,
-                                  color: isDark ? Colors.black : Colors.white,
+                                  color: cs.onPrimary,
                                 ),
                                 const SizedBox(width: 8),
                                 Text(
                                   l10n.chatMessageWidgetTranslateTooltip,
                                   style: TextStyle(
-                                    color: isDark ? Colors.black : Colors.white,
+                                    color: cs.onPrimary,
                                     fontWeight: AppFontWeights.emphasis,
                                   ),
                                 ),

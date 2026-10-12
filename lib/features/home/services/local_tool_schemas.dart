@@ -2,14 +2,34 @@ part of 'local_tools_service.dart';
 
 const kSoAnalyzeActionCatalog = <String>[
   'open',
-  'open_url',
+  // D18 第二步（2026-09-21）：以下动作已**从目录摘除**——它们整族 0 命中
+  // （capabilities 8/8、open_url 6/6、emulate 7/7、lief_* 4/4 全失败），留在目录里
+  // 只会被反复踩。摘除后仍会被 kSoAnalyzeRetiredActions 在执行前拦下并给替代路径，
+  // 所以老调用方拿到的是"已知不可用 + 怎么改"，而不是"未知 action"。
+  // 'open_url', 'capabilities', 'emulate', 'emulate_dump', 'emulation_status',
+  // 'lief_dispatch', 'lief_patch_address', 'lief_add_export', 'lief_remove_symbol',
   'workspaces',
+  // D20：句柄映射——一次调用给出 workspaceId ↔ Blutter jobId 的对应关系
+  // （按输入路径对齐），替代"人工比对 VA/fileOffset"。
+  'handles',
   'close',
   'list_sources',
   'analyze_apk',
   'read_elf',
+  'crypto_scan',
+  'jni_bridge',
   'read_stats',
   'disasm',
+  // 阶段 0（C1/C16）接入的三个读取动作：引擎路由已补（SolabChannel 的
+  // soEngineDispatch 分支 "outline"/"xref_symbol"/"xref_string"），真机验证见
+  // docs/benchmark/runs.md（outline 出 rizin 真 CFG 66 块/98 边、xref_string 标
+  // arm64 unsupported）。此前 Dart 目录漏登记：模型在 action 目录里看不到它们，
+  // 而 outline 还被 kSoAnalyzeActionRenames 的旧条目在执行前改道去
+  // list(view=sections)——那是"列节区"，不是函数级 outline
+  // （basicBlocks/cfgEdges/callers），等于把手能用的能力挡掉。
+  'outline',
+  'xref_symbol',
+  'xref_string',
   'hexdump',
   'strings',
   'search',
@@ -47,27 +67,138 @@ const kSoAnalyzeActionCatalog = <String>[
   'rz_search_bytes',
   'rz_command',
   'rz_asm',
-  'lief_dispatch',
-  'lief_patch_address',
-  'lief_add_export',
-  'lief_remove_symbol',
+  // 'lief_dispatch',  ← D18 摘除
+  // 'lief_patch_address',  ← D18 摘除
+  // 'lief_add_export',  ← D18 摘除
+  // 'lief_remove_symbol',  ← D18 摘除
   'xanso_dispatch',
-  'emulate',
-  'emulate_dump',
-  'emulation_status',
+  // 'emulate',  ← D18 摘除
+  // 'emulate_dump',  ← D18 摘除
+  // 'emulation_status',  ← D18 摘除
   'unidbg_dispatch',
   'unidbg_batch',
   'blutter',
   'suggest',
-  'capabilities',
+  // 'capabilities',  ← D18 摘除（8/8 失败；能力清单改由 get_solab_tool_map 与
+  //                     blutterAction=packages 提供，拦截文案见 kSoAnalyzeRetiredActions）
   'asset_status',
   'asset_download',
 ];
+
+/// 已退役的 so_analyze 动作（2026-09-21 全工具自检：整族 0 命中）。
+///
+/// 标记而不是立刻删除（自检方案 D18 的两步走）：调用方在**执行前**就拿到
+/// "已知不可用 + 替代路径"，不必等它失败再猜。确认长期不需要后再从
+/// [kSoAnalyzeActionCatalog] 正式摘除。
+///
+/// value.reason 保留自检实测结论，不修饰；value.instead 必须是真能走通的动作。
+const kSoAnalyzeRetiredActions = <String, Map<String, String>>{
+  'capabilities': {
+    'reason': '自检 8/8 失败：本动作未接通（能力清单改由工具地图发布）。',
+    'instead':
+        'get_solab_tool_map(tool: "so_analyze") 读完整动作目录；Blutter runner 矩阵用 '
+        'so_analyze(action: "blutter", blutterAction: "packages")。',
+  },
+  'open_url': {
+    'reason': '自检 6/6 失败（另有 SSRF 守卫：仅公网 http(s)，内网/回环/明文跳转一律拒绝）。',
+    'instead':
+        '先把 .so/ELF 落到工作目录（file(action:"write") 或 out-of-band 下载），再 '
+        'so_analyze(action: "open", path: "<工作目录内的文件>")。',
+  },
+  'emulate': {
+    'reason': '自检 7/7 失败：JNI_OnLoad 未导出，进程内仿真入口不成立。',
+    'instead':
+        'so_analyze(action: "unidbg_dispatch" / "unidbg_batch") 走 Unidbg 全仿真；'
+        '只要读导出函数用 action:"jni_bridge" + call_export。',
+  },
+  'lief_dispatch': {
+    'reason': '自检 4/4 失败：LIEF 增删改入口未接通。',
+    'instead':
+        'so_analyze(action: "edit_hex") 或 action:"edit_asm"（内置原生编辑通道，支持等长与变长写）。',
+  },
+  'lief_patch_address': {
+    'reason': '自检 4/4 失败：LIEF 增删改入口未接通。',
+    'instead':
+        'so_analyze(action: "edit_hex", va: ..., patchHex: ...) → action:"edit_check" 复核。',
+  },
+  'lief_add_export': {
+    'reason': '自检 4/4 失败：LIEF 增删改入口未接通。',
+    'instead':
+        'so_analyze(action: "edit_symbol") 新增/改导出表，再 action:"build" 落产物。',
+  },
+  'lief_remove_symbol': {
+    'reason': '自检 4/4 失败：LIEF 增删改入口未接通。',
+    'instead': 'so_analyze(action: "edit_symbol") 改符号表，再 action:"build" 落产物。',
+  },
+};
+
+/// "域"标识符：它们是一组子动作的命名空间，不是可直接调用的动作。
+/// 调用方拿到的是"这是域 + 可用子动作"，而不是笼统的 Unknown action（自检 D19）。
+const kSoAnalyzeDomains = <String, Map<String, dynamic>>{
+  'read': {
+    'domain': true,
+    'subActions': [
+      'read_elf',
+      'read_stats',
+      'outline',
+      'xref_symbol',
+      'xref_string',
+      'hexdump',
+      'strings',
+      'search',
+      'list',
+      'overview',
+    ],
+  },
+  'edit': {
+    'domain': true,
+    'subActions': [
+      'edit_open',
+      'edit_snapshot',
+      'edit_rollback',
+      'edit_undo',
+      'edit_redo',
+      'edit_reset',
+      'edit_hex',
+      'edit_asm',
+      'edit_symbol',
+      'edit_check',
+    ],
+  },
+  // 注意：不要往这里加 blutter。它是**合法动作**（action:"blutter" +
+  // blutterAction=...），不是纯命名空间——把它归为域会在执行前直接拒绝
+  // 掉整条 Blutter 链路（2026-09-21 自检批次实测踩到，回归锁：
+  // local_tools_service_test "Blutter analyze returns its background job immediately"）。
+};
+
+/// 历史别名 → 当前动作名。调用方写错名字时应当被告知正确写法（自检 D18）。
+const kSoAnalyzeActionRenames = <String, String>{
+  'xref': 'rz_xrefs',
+  'packages': 'packages(action:"blutter" + blutterAction:"packages")',
+  'workspace': 'workspaces',
+  'write_entry': 'edit_hex / edit_asm',
+  'xrefs': 'rz_xrefs',
+  'functions': 'rz_functions',
+  'decompile': 'rz_decompile',
+};
+
+/// 已在 [buildLocalToolSchemas] 内联装配的设备工具（自带平台门控与自定义描述）。
+///
+/// 其余设备工具（定位/天气/健康/提醒）的定义来自 [DeviceLocalToolSchemas]，
+/// 但它们不登记在 `LocalToolRegistry.specs`（按运行时能力装配），因此构建
+/// 工具清单时要单独补装，出口过滤也要对它们放行。
+const Set<String> _inlineGatedDeviceTools = <String>{
+  LocalToolNames.phoneControl,
+  LocalToolNames.screenTime,
+  LocalToolNames.calendarQuery,
+  LocalToolNames.calendarCreate,
+};
 
 List<Map<String, dynamic>> buildLocalToolSchemas({
   required Assistant? assistant,
   required bool supportsTools,
   required Map<String, Object> apkPathParameter,
+  required Map<String, Object> allowOversizeParameter,
   required String Function() deviceTimezoneHint,
 }) {
   if (!supportsTools || assistant == null) {
@@ -223,6 +354,126 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
       },
     });
   }
+  if (assistant.localToolIds.contains(LocalToolNames.valueCalc)) {
+    tools.add(const {
+      'type': 'function',
+      'function': {
+        'name': LocalToolNames.valueCalc,
+        'description':
+            'Low-level value/byte calculator - never do this arithmetic by hand. '
+            'action=convert: radix & bit-width conversion (hex/dec/bin/oct, 8/16/32/64-bit signed & unsigned, little-endian hex, ASCII) for one value or a values batch. '
+            'action=bitwise: and/or/xor/not/shl/shr/sar/rol/ror with bitWidth 8/16/32/64. '
+            'action=endian: big<->little byte order for a number or a hex byte stream. '
+            'action=float: IEEE754 float32/float64 layout <-> number (smali const/high16, const-wide). '
+            'action=codec: base64/hex/url encode & decode. action=hash: md5/sha1/sha256. '
+            'action=crc: crc32/crc16. action=mod: mod_pow/mod_inverse/gcd. '
+            r'steps[] chains several steps in ONE call and references an earlier result with {"$step": 0, "field": "bitWidths.bit32.littleEndianHex"}.',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'action': {
+              'type': 'string',
+              'enum': [
+                'convert',
+                'bitwise',
+                'endian',
+                'float',
+                'codec',
+                'hash',
+                'crc',
+                'mod',
+              ],
+              'description': 'Which calculation to run.',
+            },
+            'value': {
+              'type': 'string',
+              'description':
+                  'Primary input: integer (0x401000 / 4198400 / -42), float (3.14159 or machine code 0x3f800000), hex byte stream (0102030405), or the text/hex data for codec/hash/crc.',
+            },
+            'values': {
+              'type': 'array',
+              'items': {'type': 'string'},
+              'description':
+                  'convert batch: up to 8 integers converted in ONE call.',
+            },
+            'from': {
+              'type': 'string',
+              'enum': ['auto', 'hex', 'dec', 'bin', 'oct'],
+              'description':
+                  'Radix for a bare value with no 0x/0b/0o prefix (default auto: prefixes win, bare digits are decimal).',
+            },
+            'op': {
+              'type': 'string',
+              'description':
+                  'Sub-operation: bitwise=and/or/xor/not/shl/shr/sar/rol/ror, codec=to_base64/from_base64/to_hex/from_hex/url_encode/url_decode, mod=mod_pow/mod_inverse/gcd.',
+            },
+            'a': {
+              'type': 'string',
+              'description': 'First operand for bitwise / mod.',
+            },
+            'b': {
+              'type': 'string',
+              'description':
+                  'Second operand or shift count for bitwise; exponent for mod_pow.',
+            },
+            'modulus': {
+              'type': 'string',
+              'description': 'Modulus for mod_pow/mod_inverse.',
+            },
+            'bitWidth': {
+              'type': 'integer',
+              'enum': [8, 16, 32, 64],
+              'description': 'Bit width for bitwise (default 32).',
+            },
+            'widthBytes': {
+              'type': 'integer',
+              'description':
+                  'Byte length for endian (2/4/8); inferred from the value when omitted.',
+            },
+            'precision': {
+              'type': 'string',
+              'enum': ['auto', 'float32', 'float64'],
+              'description': 'float: which layout to return (default auto).',
+            },
+            'format': {
+              'type': 'string',
+              'enum': ['text', 'hex'],
+              'description':
+                  'codec: input format for to_base64, output format for from_base64. hash/crc: whether value is text or hex bytes.',
+            },
+            'urlSafe': {
+              'type': 'boolean',
+              'description':
+                  'codec to_base64: URL-safe alphabet, padding stripped.',
+            },
+            'algorithm': {
+              'type': 'string',
+              'enum': ['md5', 'sha1', 'sha256'],
+              'description': 'hash: algorithm (default sha256).',
+            },
+            'variant': {
+              'type': 'string',
+              'enum': ['crc32', 'crc16-ccitt', 'crc16-xmodem', 'crc16-modbus'],
+              'description':
+                  'crc: variant (default crc32); the result echoes poly/init.',
+            },
+            'steps': {
+              'type': 'array',
+              'items': {'type': 'object'},
+              'description':
+                  r'Chain of up to 8 steps run in one call. Each step is {action, ...}; any value may be {"$step": <earlier index>, "field": "<dotted path of that result>"}.',
+            },
+          },
+        },
+      },
+    });
+  }
+  if (DeviceLocalTools.phoneControlSupported &&
+      assistant.localToolIds.contains(LocalToolNames.phoneControl)) {
+    // 定义原文取自上游 1.3.0（无障碍手机控制），与 Kotlin 侧动作一一对应；
+    // 数据格式必须逐字一致，改动请同步 device_local_tool_schemas.dart。
+    tools.add(DeviceLocalToolSchemas.phoneControlDefinition);
+  }
   if (DeviceLocalTools.screenTimeSupported &&
       assistant.localToolIds.contains(LocalToolNames.screenTime)) {
     tools.add({
@@ -355,6 +606,19 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
       },
     });
   }
+  // 定位/天气/健康/提醒（上游 1.2.7 原文定义）：平台可用性走 UI 同一个判定口，
+  // 顺序跟随 assistant.localToolIds，保证「助手勾选顺序 = 模型侧工具顺序」。
+  for (final deviceTool in assistant.localToolIds) {
+    if (_inlineGatedDeviceTools.contains(deviceTool)) continue;
+    if (!LocalToolsService.isAvailableOnThisPlatform(deviceTool)) continue;
+    if (deviceTool == LocalToolNames.healthSummary) {
+      // 健康类型枚举要按「助手勾选 ∩ 设备可用」裁剪，必须走带 assistant 的重载。
+      tools.add(DeviceLocalToolSchemas.healthSummaryDefinitionFor(assistant));
+      continue;
+    }
+    final definition = DeviceLocalToolSchemas.definitionFor(deviceTool);
+    if (definition != null) tools.add(definition);
+  }
   if (assistant.localToolIds.contains(LocalToolNames.apkReport)) {
     tools.add({
       'type': 'function',
@@ -383,7 +647,8 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
       },
     });
   }
-  if (assistant.localToolIds.contains(LocalToolNames.apkSkill)) {
+  if (assistant.localToolIds.contains(LocalToolNames.apkSkill) &&
+      AgentCapabilityPolicy.enabled(assistant, AgentCapability.skills)) {
     tools.add({
       'type': 'function',
       'function': {
@@ -396,7 +661,7 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
             'skill': {
               'type': 'string',
               // 从 SolabApkSkills.skillNames 生成，防止注册表与 enum 手工同步漂移
-              'enum': SolabApkSkills.skillNames,
+              'enum': SolabBuiltinSkills.unionNames,
             },
           },
           'required': ['skill'],
@@ -432,7 +697,8 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
       },
     });
   }
-  if (assistant.localToolIds.contains(LocalToolNames.installedSkills)) {
+  if (assistant.localToolIds.contains(LocalToolNames.installedSkills) &&
+      AgentCapabilityPolicy.enabled(assistant, AgentCapability.skills)) {
     tools.add(const {
       'type': 'function',
       'function': {
@@ -501,7 +767,7 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
       'function': {
         'name': LocalToolNames.apkPatchDex,
         'description':
-            'DEX write tool. First obtain a real qualifiedId from class_outline, dex_xref, smali_read or Analyzer evidence; report string hits are clues, never patch targets. Prefer one verified upstream method. For an exact modification already authorized by the user, call once with dryRun=true and applyAfterPreview=true; the tool previews and applies unchanged parameters only when there is no warning. Use pure dryRun when the preview still needs a decision; it returns exact applyArguments for the second call. Use the returned output path with apk_sign; never overwrite the source APK.',
+            'DEX write tool. Patch targets must come from class_outline / dex_xref / smali_read / Analyzer evidence — report string hits are clues, never patch targets. For an already-authorized exact change: call once with dryRun=true and applyAfterPreview=true (preview + apply in one). Use pure dryRun to see exact applyArguments when a decision is still needed. Output path goes to apk_sign; never overwrite the source APK.',
         'parameters': {
           'type': 'object',
           'properties': {
@@ -550,6 +816,16 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
               'description':
                   'Force root-detection methods (name contains isrooted/checkroot/hasroot/suavailable/... , boolean/int return) to false. Preview first.',
             },
+            'removeScreenCaptureDetection': {
+              'type': 'boolean',
+              'description':
+                  'Force screen-capture/recording-detection methods (name contains onscreencapture/screencapturecallback/isrecording/isprojection/... , boolean/int return) to false so the app cannot detect or react to screenshots or screen recording. Preview first and confirm the hit list — isrecording is broad by design.',
+            },
+            'removeFlagSecure': {
+              'type': 'boolean',
+              'description':
+                  'Re-enable screenshots: clear the FLAG_SECURE (0x2000) bit from constants flowing into Window.setFlags/addFlags, keeping other flag bits intact (0x2008 stays 0x0008). Surgical instruction-level patch — it does not void onCreate or whole methods. Covers the common addFlags(FLAG_SECURE)/setFlags(FLAG_SECURE, FLAG_SECURE) pattern; or-int bit-composition is not covered yet (locate manually with smali_read + classMethods).',
+            },
             'removeDebugDetection': {
               'type': 'boolean',
               'description':
@@ -569,20 +845,27 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
             },
             'shortenSplashCountdown': {
               'type': 'boolean',
+              // F-42（2026-10-04）：dryRun 现在返回**真明细** splashCountdownTargets
+              // （与 apply 同一检测源——清单里的方法即应用时会改的方法）；应用
+              // 回执另给 splashCountdown 计数。除非要缩小范围，否则无需再靠
+              // class_outline 预核。
               'description':
-                  'Shorten splash-screen ad countdowns: in classes whose type contains "splash", track CONST values written to registers; when Handler.postDelayed / sendEmptyMessageDelayed / sendMessageDelayed / CountDownTimer.<init> is hit with delay >= 1000ms, zero out the delay constant so the countdown ends immediately and the app enters the main UI. Preview counts how many will be shortened.',
+                  'Shorten splash-screen ad countdowns: in classes whose type contains "splash", track CONST values written to registers; when Handler.postDelayed / sendEmptyMessageDelayed / sendMessageDelayed / CountDownTimer.<init> is hit with delay >= 1000ms, zero out the delay constant so the countdown ends immediately and the app enters the main UI. The dryRun preview returns splashCountdownTargets — same detection source as apply, so listed methods are exactly what will be shortened; the applied count comes back as splashCountdown.',
             },
             'signatureBypass': {
               'type': 'boolean',
               'default': false,
               'description':
-                  'Signature-compatibility injection. Defaults false: this tool patches business logic only. Use the dedicated signature_bypass tool as the first write against the unchanged original APK instead of mixing it into a patch call. If you still set it here, run it alone against the unchanged original (no business patch in the same call), then pass the returned nextInputPath to later modifications with signatureBypass=false.',
+                  'DEPRECATED (F-41): use the dedicated signature_bypass tool as the first write against the unchanged original APK; mixing signature work into a patch call is no longer the supported path. Kept only for backward compatibility — if set, run it alone against the unchanged original (no business patch in the same call), then pass the returned nextInputPath to later modifications with signatureBypass=false.',
             },
             'signatureBypassMode': {
               'type': 'string',
-              'enum': ['normal', 'original_apk'],
+              // F-41（2026-10-04）：枚举补 'dpatch'——执行层（SolabChannel 校验集）
+              // 与 retry 提示一直是三模式，schema 独缺导致走旧路径的 agent 静默
+              // 拿不到 dpatch（保留原包签名只注入独立 payload 的最后手段）。
+              'enum': ['normal', 'original_apk', 'dpatch'],
               'description':
-                  'Signature compatibility mode. Use normal by default. original_apk is the fallback for whole-APK verification and uses embedded-original I/O redirection plus ZIP data multiplexing. Only relevant when signatureBypass=true.',
+                  'Signature compatibility mode. normal by default. original_apk: whole-APK verification fallback with embedded-original I/O redirection plus ZIP data multiplexing. dpatch: keep the original APK signature intact and inject a standalone payload — the last resort for signature-verified apps; prefer the dedicated signature_bypass tool. Only relevant when signatureBypass=true.',
             },
             'originalApkPath': {
               'type': 'string',
@@ -595,6 +878,43 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
                   'Size optimization (from ref 2.9): when writing back a patched DEX, strip debug info (line numbers / local variable tables / param names) from ALL classes in that DEX, shrinking it by 5%~15% with zero runtime impact. Only applies to DEX files already being rewritten by this patch call; does not touch unmodified DEX files. Recommended true when size matters.',
             },
             ...apkPathParameter,
+            ...allowOversizeParameter,
+            'dryRun': {'type': 'boolean'},
+            'applyAfterPreview': {
+              'type': 'boolean',
+              'description':
+                  'When the user already authorized this exact modification, set true with dryRun=true. The tool previews and, only if the preview has no warning, applies the same parameters in this call.',
+            },
+            'confirm': {'type': 'boolean'},
+            'previewToken': {'type': 'string'},
+          },
+          'required': ['dryRun'],
+        },
+      },
+    });
+  }
+  if (assistant.localToolIds.contains(LocalToolNames.apkPatchDexStrings)) {
+    tools.add({
+      'type': 'function',
+      'function': {
+        'name': LocalToolNames.apkPatchDexStrings,
+        'description':
+            'Replace exact const-string references inside dex files (URLs, UI copy, watermarks) in seconds — no full decode→smali→build rebuild needed. Pass replacements as a {old: new} object or a [{"from": ..., "to": ...}] list; from must be non-empty and differ from to. dryRun previews matched strings per dex without writing; apply with the same parameters plus applyAfterPreview=true (or confirm=true). The source APK is never modified; the output is an unsigned intermediate package — sign before installing. Exact-match only: obfuscated/split strings or strings living in libapp.so are not found here.',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'replacements': {
+              'type': 'object',
+              // v8-D2（2026-10-04）：两种形态均可——{old: new} 对象或
+              // [{"from":…, "to":…}] 列表（守卫按 acceptsTypes 放行两种）。
+              'acceptsTypes': ['object', 'array'],
+              'description':
+                  '{old: new} pairs to replace, e.g. {"https://old.example/api": "https://new.example/api"}, '
+                  'or a list form [{"from": "...", "to": "..."}]. Keys are matched exactly against const-string pool entries — '
+                  'leading/trailing spaces are significant (no trimming).',
+            },
+            ...apkPathParameter,
+            ...allowOversizeParameter,
             'dryRun': {'type': 'boolean'},
             'applyAfterPreview': {
               'type': 'boolean',
@@ -615,22 +935,26 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
       'function': {
         'name': LocalToolNames.apkSignatureBypass,
         'description':
-            'Standalone signature-verification bypass. Runs against the UNCHANGED original APK only, as the first write before any business patch. mode=normal fakes PackageInfo signatures in-process; mode=original_apk additionally embeds the original APK and redirects file reads (handles direct META-INF certificate checks). Returns an output path: use it as apkPath for every later modification with signatureBypass=false, then sign the final output with apk_sign. Does NOT analyze, patch business logic, or sign. Call it alone; do not reuse patch_apk_dex_methods(signatureBypass=true) for this.',
+            'Standalone signature handling — three independent signature-bypass modes for the original APK, freely switchable per user instruction. Omit mode to follow the APK Workbench setting (new-install default: off, i.e. NO bypass — the caller must name a mode explicitly); an explicit user mode always wins. mode=normal fakes PackageInfo signatures in-process; mode=original_apk embeds the original APK and redirects file reads; mode=dpatch writes only its independent DEX/native payload plus the unchanged original APK, then starts through its component factory before application creation. Every mode returns an output path: use it as apkPath for every later modification with signatureBypass=false. Does NOT analyze, patch business logic, or sign. Call it alone; do not reuse patch_apk_dex_methods(signatureBypass=true) for this.',
         'parameters': {
           'type': 'object',
           'properties': {
             ...apkPathParameter,
             'mode': {
               'type': 'string',
-              'enum': ['normal', 'original_apk'],
-              'default': 'normal',
+              'enum': ['normal', 'original_apk', 'dpatch'],
               'description':
-                  'normal (default) | original_apk for whole-APK verification with embedded-original redirection.',
+                  'Omitted: follow the current APK Workbench setting (new-install default off = no bypass); an explicit value wins. When the workbench default is off and you set signatureBypass=true without naming a mode, the call is refused with signature_bypass_disabled and a retry_with_param hint. normal=Application proxy | original_apk=embedded original APK + read redirection | dpatch=standalone DEX/native payload started by its component factory (prepared from the unmodified original).',
             },
             'originalApkPath': {
               'type': 'string',
               'description':
                   'Absolute path of the unchanged original APK, required when upgrading an already-modified normal-mode package to original_apk.',
+            },
+            'makeActive': {
+              'type': 'boolean',
+              'description':
+                  'Default false. Signature handling is a staging step: the produced package is NOT promoted to the active modification target, and the previous active target is restored (the response repeats this and tells you how to opt in). Pass true only when the user explicitly wants this bypass output to be the artifact that later modifications build on.',
             },
           },
           'required': ['apkPath'],
@@ -671,6 +995,12 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
               'description':
                   'Match ad components and ad_permissions automatically from the rule library.',
             },
+            'applicationFlags': {
+              'type': 'object',
+              'additionalProperties': {'type': 'boolean'},
+              'description':
+                  'Set boolean attributes on the <application> element, e.g. {"debuggable": false} or {"allowBackup": false}. Only rewrites attributes that already exist (pure byte edit, no string-pool rebuild); attributes that are absent are reported in skippedFlags, never added. Cannot add a new attribute.',
+            },
             ...apkPathParameter,
             'dryRun': {'type': 'boolean'},
             'applyAfterPreview': {
@@ -692,7 +1022,7 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
       'function': {
         'name': LocalToolNames.apkToolMap,
         'description':
-            'List the enabled APK tools as a compact index. Pass tool=<name> to get that tool\'s complete parameter schema and documentation.',
+            'List the enabled APK tools as a compact index. Pass tool=<name> to get that tool\'s complete parameter schema and documentation. Use filter=write to see only mutation tools (staging/verification/cleanup) without paging the full index.',
         'parameters': {
           'type': 'object',
           'properties': {
@@ -700,6 +1030,12 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
               'type': 'string',
               'description':
                   'Optional exact tool name. Returns the complete schema for that one tool.',
+            },
+            'filter': {
+              'type': 'string',
+              'enum': ['declaredNow', 'missing', 'write'],
+              'description':
+                  'Optional directory filter (catalog mode only): declaredNow = tools declared this turn; missing = enabled but not declared this turn; write = mutation/staging/verification/cleanup tools only.',
             },
           },
         },
@@ -712,8 +1048,22 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
       'function': {
         'name': LocalToolNames.apkPatchMemory,
         'description':
-            'Read past patch memories that match the CURRENT APK by type fingerprint (ad SDK vendors + shell type + engine), NOT by package name/SHA/app name — so a renamed or repackaged app of the same type still matches. Before modifying an APK, call this to reuse a one-line solution (which single place to patch to disable a whole class). Memories are user/agent accumulated, minimal one-liners.',
-        'parameters': {'type': 'object', 'properties': <String, dynamic>{}},
+            'Two modes. (1) Default: read past patch memories matching the CURRENT APK by type fingerprint (ad SDK vendors + shell type + engine), NOT by package name/SHA/app name. Call before modifying to reuse a one-line solution. (2) lookupArtifactPath: identify a mysterious APK file by its content sha256 — answers "is this file an already-verified patched product / an analyzed source package?" across sessions, so you never redo an already-patched baseline from the original.',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'lookupArtifactPath': {
+              'type': 'string',
+              'description':
+                  'Absolute path of an APK to identify by content fingerprint. Returns matched verified-artifact records (with solution/targets) and/or the registered source project. Recommended before re-patching any pre-existing _signed/baseline APK found in the work directory.',
+            },
+            'listAll': {
+              'type': 'boolean',
+              'description':
+                  'true = return a compact summary of ALL stored experiences (id/title/app/version/outcome) instead of the current-APK match. Use to browse; full details load via the default matched mode.',
+            },
+          },
+        },
       },
     });
   }
@@ -729,7 +1079,8 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
           'properties': {
             'title': {
               'type': 'string',
-              'description': 'Short type label, e.g. 穿山甲+开屏去广告',
+              'description':
+                  'Short type label, e.g. 穿山甲+开屏去广告 (vendor + ad format).',
             },
             'solution': {
               'type': 'string',
@@ -739,7 +1090,7 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
             'pitfall': {
               'type': 'string',
               'description':
-                  'Optional how-to-do-it-right warning shown on reuse, e.g. 恒返回常量用 force_return_constant，勿裸 hex 改栈帧.',
+                  'Optional how-to-do-it-right warning shown on reuse. Example: use force_return_constant for constant returns; never raw-hex a stack frame.',
             },
             'targets': {
               'type': 'array',
@@ -761,7 +1112,7 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
       'function': {
         'name': LocalToolNames.apkRecordPatchVerification,
         'description':
-            'Commit the staged APK draft to long-term memory exactly once, only after the user explicitly reports the installed signed APK worked or failed. Tool success, byte verification, signing, or delivering the file is not user validation. A success automatically cleans the work directory and keeps exactly the original APK plus the final signed APK; failure keeps the diagnostic workspace.',
+            'Commit the staged APK draft to long-term memory exactly once, only after the user explicitly reports the installed signed APK worked or failed. Tool success, byte verification, signing, or delivering the file is not user validation. A success automatically cleans the work directory and keeps exactly the original APK plus the final signed APK; failure keeps the diagnostic workspace. Runs outside the build ledger are degraded, not rejected: the conclusion is still recorded and the response carries degraded:true plus a warning listing exactly what could not be stored (pass artifactPath to keep the artifact fingerprint).',
         'parameters': {
           'type': 'object',
           'properties': {
@@ -776,7 +1127,12 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
             'pitfall': {
               'type': 'string',
               'description':
-                  'Optional pitfall learned in this run, e.g. 恒返回常量用 force_return_constant，勿裸 hex 改栈帧. Merged into the verified memory entry.',
+                  'Optional pitfall learned in this run; merged into the verified memory entry. Example: use force_return_constant for constant returns; never raw-hex a stack frame.',
+            },
+            'artifactPath': {
+              'type': 'string',
+              'description':
+                  'Exact APK file the user installed and verified. Pass it whenever the run did not go through the apk_sign/build ledger (direct streaming patch + sign): without it the artifact fingerprint falls back to the last APK any tool touched, which is usually the source APK, and no artifact fingerprint is stored.',
             },
           },
           'required': ['outcome', 'summary'],
@@ -801,7 +1157,7 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
       'function': {
         'name': LocalToolNames.apkCleanupBuilds,
         'description':
-            'Reclaim workspace junk after a task chain: default scope deletes regenerable caches and stale outputs; aggressive=true restores the indexed clean baseline. Always dryRun first, then confirm=true with the previewToken. After the user confirms the installed final APK works, verified cleanup runs automatically and keeps only the original APK and final signed artifact.',
+            'Reclaim workspace junk after a task chain: default scope deletes regenerable caches and stale outputs; aggressive=true restores the indexed clean baseline. Always dryRun first, then confirm=true with the previewToken. Pass keep=[paths] for anything the user asked to preserve (written into the build index keep flag, honoured by all later cleanups) and release=[paths] to drop that protection. After the user confirms the installed final APK works, verified cleanup runs automatically and keeps only the original APK and final signed artifact.',
         'parameters': {
           'type': 'object',
           'properties': {
@@ -813,6 +1169,18 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
             'dryRun': {'type': 'boolean'},
             'confirm': {'type': 'boolean'},
             'previewToken': {'type': 'string'},
+            'keep': {
+              'type': 'array',
+              'items': {'type': 'string'},
+              'description':
+                  'Artifact paths or file names the user explicitly asked to keep. On the confirming call they are written into the build index as keep=true, so this and every later cleanup / missing-artifact pruning / intermediate auto-clean skips them. A dryRun only previews the effect (the index is not modified).',
+            },
+            'release': {
+              'type': 'array',
+              'items': {'type': 'string'},
+              'description':
+                  'Artifact paths or file names to release: clears their keep flag so cleanup may delete them again. A name listed in both keep and release is kept.',
+            },
           },
           'required': ['dryRun'],
         },
@@ -864,10 +1232,75 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
       'function': {
         'name': LocalToolNames.apkListWorkspace,
         'description':
-            'List APK files in the configured workspace directory (工作目录). Use to discover which APKs are available to analyze/patch without the user manually picking them.',
+            'List APK files in the configured work directory. Use it to discover which APKs are available to analyze/patch without asking the user to pick a path manually.',
         'parameters': {'type': 'object', 'properties': <String, dynamic>{}},
       },
     });
+  }
+  if (assistant.localToolIds.contains(LocalToolNames.runTaskCommand)) {
+    tools.add(const {
+      'type': 'function',
+      'function': {
+        'name': LocalToolNames.runTaskCommand,
+        'description':
+            'Runs a fixed-probe Task Command chain (Direct Command 2.0) in ONE call and returns the evidence digest; the LLM only judges, it never invents the query chain. FIELD_STATE_LOCATE = field-state location: FIELD_USAGE then WRITE_FIELD priority then METHOD_BODY (authoritative writer smali, up to 3) then the writer\'s upstream callers. FIELD_CANDIDATE_MINE = field-candidate mining from a semantic description (e.g. VIP unlock, ad removal). AD_SDK_LOCATE = ad-SDK location from a package name. SIGNATURE_CHECK_LOCATE = signature-check evidence. VERIFY_ARTIFACT = artifact verification. Chains are programmatic probes; failures return a structured failureReason plus recent same-app failure memory.',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'command': {
+              'type': 'string',
+              'enum': [
+                'FIELD_STATE_LOCATE',
+                'VERIFY_ARTIFACT',
+                'FIELD_CANDIDATE_MINE',
+                'AD_SDK_LOCATE',
+                'SIGNATURE_CHECK_LOCATE',
+              ],
+            },
+            'semantic': {
+              'type': 'string',
+              'description':
+                  'Required for FIELD_CANDIDATE_MINE: semantic description, e.g. VIP unlock or ad removal.',
+            },
+            'vendor': {
+              'type': 'string',
+              'description':
+                  'Optional for AD_SDK_LOCATE: the ad SDK package to locate, e.g. com.bytedance.sdk.openadsdk; default takes the report\'s top-3 adSdkMatches.',
+            },
+            'field': {
+              'type': 'string',
+              'description':
+                  'Field name (e.g. isVip) or a full qid such as Lpkg/Class;->isVip:Z',
+            },
+            'className': {
+              'type': 'string',
+              'description':
+                  'Field host class, e.g. UserInfoBean or Lcom/x/UserInfoBean;',
+            },
+            'apkPath': {
+              'type': 'string',
+              'description':
+                  'Optional; defaults to the current active chain target.',
+            },
+            'install': {
+              'type': 'boolean',
+              'description':
+                  'Optional; true = after the three checks pass, start the system install intent (PackageInstaller confirmation dialog on screen; the user must approve). install SUCCESS means the system signature check passed = device-side Verified evidence. False = do not start the install intent.',
+            },
+          },
+          'required': ['command'],
+        },
+      },
+    });
+  }
+  // analyzer.* 四工具（open/global_search/find_field_usage/business_state）：
+  // handler 与 assistant.localToolIds 均有，但声明层长期缺失——点名也不挂
+  // （冒烟实测 analyzer.* 连续 unknown_function）。此处按启用集追加声明。
+  final analyzerEnabled = AnalyzerToolNames.all
+      .where(assistant.localToolIds.contains)
+      .toSet();
+  if (analyzerEnabled.isNotEmpty) {
+    tools.addAll(AnalyzerGatewayTools.buildDefinitions(analyzerEnabled));
   }
   if (assistant.localToolIds.contains(LocalToolNames.apkAnalyzeWorkspace)) {
     tools.add(const {
@@ -875,20 +1308,163 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
       'function': {
         'name': LocalToolNames.apkAnalyzeWorkspace,
         'description':
-            'Prepare the workspace APK when get_current_apk_report is missing or stale. By default (signatureMode=normal) it first creates a normal signature-compatible APK, then analyzes that APK for later writes, so users who forget to bypass signature checks do not crash after patching. Set signatureMode=skip only when the user explicitly confirms the app has no signature check or only analysis is needed; for a standalone bypass use the signature_bypass tool.',
+            'Analyze an APK in the workspace — call it on demand, not as a forced first step. Independently callable whenever a report is needed. signatureMode is optional: omitted follows the APK Workbench setting; skip does not run signature preparation. Returns sample+totals only; read details later via get_current_apk_report(section=...). The MCP side queues this tool automatically and returns a taskId.',
         'parameters': {
           'type': 'object',
           'properties': {
             'fileName': {
               'type': 'string',
               'description':
-                  'APK file name inside the workspace directory, e.g. 橘汁_3.0.2.3_会员解锁去广告_v3.apk',
+                  'APK file name inside the work directory (bare file name, not a path), e.g. 橘汁_3.0.2.3_会员解锁去广告_v3.apk.',
             },
             'signatureMode': {
               'type': 'string',
-              'enum': ['normal', 'skip'],
+              'enum': ['normal', 'original_apk', 'dpatch', 'skip'],
               'description':
-                  'normal (default) prepares signature compatibility before analysis; skip analyzes only, without writing an intermediate package.',
+                  'normal=standard bypass, original_apk=embedded-original bypass, dpatch=DPatch bypass (separate prepared output), skip=no bypass. Freely switchable per user intent; when omitted, the Workbench default applies.',
+            },
+          },
+        },
+      },
+    });
+  }
+  if (assistant.localToolIds.contains(LocalToolNames.apkArchive)) {
+    tools.add({
+      'type': 'function',
+      'function': {
+        'name': LocalToolNames.apkArchive,
+        'description':
+            'Browse an APK without extracting it. action=list returns a paged flat entry list and can filter by query; action=read returns a bounded text or hex window for one exact entry; action=certificates verifies and returns signer subject, issuer, validity and fingerprints. For native SO entries, pass va instead of offset: the ELF64 PT_LOAD mapping is done for you (no manual address arithmetic). Pass reads (up to 8 items) to batch-verify multiple patch sites in one call. All actions are read-only and use the current APK when path is omitted.',
+        'parameters': {
+          'type': 'object',
+          // 条件必填（标准 JSON Schema）：action=read/strings 时 entry 必填，
+          // list/certificates 不需要。宽松网关忽略 allOf 不受影响。
+          'allOf': [
+            {
+              'if': {
+                'properties': {
+                  'action': {
+                    'enum': ['read', 'strings'],
+                  },
+                },
+                'required': ['action'],
+                // D9（2026-09-21 自检）：handler 里 reads 数组优先于 action（批量读
+                // 时不需要顶层 entry，entry 在每个 items[] 里）。旧条件只看
+                // action=read/strings 就要求 entry，于是 {path, action:'read',
+                // reads:[...]} 被客户端校验判缺 entry，而同一个 handler 对
+                // {path, reads:[...]} 放行——同一形状先成功后失败。这里排除
+                // 带 reads 的调用，与 handler 的优先级对齐。
+                'not': {
+                  'required': ['reads'],
+                },
+              },
+              'then': {
+                'required': ['entry'],
+              },
+            },
+          ],
+          'properties': {
+            'path': {
+              'type': 'string',
+              'description':
+                  'APK path, or a work-directory file name. Omit to use the current APK.',
+            },
+            'action': {
+              'type': 'string',
+              'enum': ['list', 'read', 'strings', 'certificates', 'resources'],
+              'description':
+                  'list (default), read, strings, or certificates. read and strings REQUIRE entry (rejected without it); list and certificates do not use entry. NOTE: `reads` is NOT an action value — it is the batch array parameter (see `reads`); pass reads alone or with action=read, never as action=reads.',
+            },
+            'query': {
+              'type': 'string',
+              'description': 'Case-insensitive path filter for list.',
+            },
+            'entry': {
+              'type': 'string',
+              'description':
+                  'REQUIRED for action=read and action=strings: exact APK entry path (e.g. "classes.dex", "res/values/strings.xml", "AndroidManifest.xml"). Calls with action=read/strings but no entry are rejected.',
+            },
+            'offset': {
+              'type': 'integer',
+              'description':
+                  'list: entry offset; read: byte offset. Both are zero-based.',
+            },
+            'limit': {
+              'type': 'integer',
+              'description':
+                  'list: entries per page (max 500); read: bytes per window (max 65536).',
+            },
+            'minLen': {
+              'type': 'integer',
+              'description': 'Minimum string length for strings (default 4).',
+            },
+            'id': {
+              'type': 'string',
+              'description':
+                  'action=resources only: exact resource id such as "0x7f010000" (0xPPTTEEEE). '
+                  'Use it for a single resource; use query to search by name/type/value instead.',
+            },
+            'withReferences': {
+              'type': 'boolean',
+              'description':
+                  'action=list only: when true, each entry gets referencedFromDex — whether its path '
+                  'or file name appears in the dex string pool (is the entry still referenced by code?). '
+                  'Costs one full dex-string scan per APK (cached by file fingerprint); off by default.',
+            },
+            'va': {
+              'type': 'string',
+              'description':
+                  'action=read only, for native SO entries: ELF64 virtual address (e.g. "0x1234c0"). Automatically mapped to an in-entry file offset via PT_LOAD segments, so never do the address math yourself. Applies to arm64 ELF64 entries; use offset for everything else. Combines with offset (added after mapping) and limit.',
+            },
+            'reads': {
+              'type': 'array',
+              'maxItems': 8,
+              'items': {
+                'type': 'object',
+                'properties': {
+                  'entry': {
+                    'type': 'string',
+                    'description': 'Exact APK entry path.',
+                  },
+                  'va': {
+                    'type': 'string',
+                    'description':
+                        'ELF64 virtual address (preferred for SO patch verification).',
+                  },
+                  'offset': {
+                    'type': 'integer',
+                    'description': 'Byte offset within the entry.',
+                  },
+                  'limit': {
+                    'type': 'integer',
+                    'description':
+                        'Bytes per window; defaults to 64 in batch mode.',
+                  },
+                },
+                'required': ['entry'],
+              },
+              'description':
+                  'Batch read (action is implied read): up to 8 {entry, va|offset, limit} items verified in ONE call, e.g. all patch sites of a rebuild. Each item is independent; the response is {ok, batch:true, reads:[...], succeeded, failed}. Prefer this over repeated single reads.',
+            },
+          },
+        },
+      },
+    });
+  }
+  if (assistant.localToolIds.contains(LocalToolNames.apkExportReport)) {
+    tools.add({
+      'type': 'function',
+      'function': {
+        'name': LocalToolNames.apkExportReport,
+        'description':
+            'Save the current fresh APK analysis report as JSON in the workspace directory. It does not reanalyze or modify the APK.',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'fileName': {
+              'type': 'string',
+              'description':
+                  'Optional output .json file name only, without a directory. A unique name is generated when omitted.',
             },
           },
         },
@@ -897,7 +1473,7 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
   }
   // ===== 静态分析工具链（jadx/baksmali/APKEditor/DexKit）=====
   if (assistant.localToolIds.contains(LocalToolNames.jadxDecompile)) {
-    tools.add(const {
+    tools.add({
       'type': 'function',
       'function': {
         'name': LocalToolNames.jadxDecompile,
@@ -936,6 +1512,7 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
               'description':
                   'For action=list pagination: skip this many classes first (use nextOffset from the previous response to page through large APKs).',
             },
+            ...allowOversizeParameter,
           },
         },
       },
@@ -957,11 +1534,21 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
             },
             'outputApk': {
               'type': 'string',
-              'description': 'Output path (default <name>-signed.apk).',
+              'description': 'Output path (default <stem>_成品.apk).',
             },
             'minSdk': {
               'type': 'integer',
               'description': 'Min SDK (default 26).',
+            },
+            'confirm': {
+              'type': 'boolean',
+              'description':
+                  'Default false. When no explicit path is given the tool signs the current active artifact; if that resolved target already looks like a signed deliverable (*_成品.apk / *_signed.apk) the call is refused with already_signed_confirm_required instead of producing a redundant package. Ask the user first, then re-issue with confirm=true (or pass an explicit path).',
+            },
+            'install': {
+              'type': 'boolean',
+              'description':
+                  'Default false. true = after signing, raise the "ask the user to install this package on the device and report back" waiting point (questionArguments + completionBlockedUntilUserAnswer). This does NOT install silently: it needs install authorization. run_task_command(command=VERIFY_ARTIFACT, install=true) is the automatic PackageInstaller path; use this flag when the user should install manually.',
             },
           },
         },
@@ -969,7 +1556,7 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
     });
   }
   if (assistant.localToolIds.contains(LocalToolNames.apkRebuild)) {
-    tools.add(const {
+    tools.add({
       'type': 'function',
       'function': {
         'name': LocalToolNames.apkRebuild,
@@ -1017,6 +1604,7 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
               'description':
                   'merge/refactor: clean META-INF old signatures (default true).',
             },
+            ...allowOversizeParameter,
           },
         },
       },
@@ -1028,7 +1616,7 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
       'function': {
         'name': LocalToolNames.dexSearch,
         'description':
-            'DEX 自动定位、过滤和候选判断,可独立使用。默认 auto: 组合类名、方法名、字段名、字符串、数字常量、指令序列及被调方法; 严格交集无结果时自动拆分证据、交叉计分和排序,无需用户选择定位路径。候选仍须按返回的 nextActions 验证真实代码与调用关系。',
+            'DEX auto-search for location, filtering and candidate ranking; independently callable. Default action=auto: keyword substring hit across class/method names and strings (not evidence composition); after a class hit, deep-dive with class_outline/smali_read. Structural clues (className/methodName) can stand alone without keyword; keyword is for string/name search. Use keywords for multi-term sweeps (cap 8).',
         'parameters': {
           'type': 'object',
           'properties': {
@@ -1039,7 +1627,13 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
             'keyword': {
               'type': 'string',
               'description':
-                  'String/name to search. Multi-string and feature actions accept up to 16 terms joined by |.',
+                  'String/name to search. Multi-string and feature actions accept up to 16 terms joined by |. A literal | inside the target (e.g. a regex fragment such as (?i:http|https|rtsp)://) must be escaped as \\| — otherwise it splits into terms, and matchType=Equals then degrades to per-fragment matching and reports a false 0 hits. Note matchType=Contains matches a pool entry CONTAINING the term, not the term itself.',
+            },
+            'keywords': {
+              'type': 'array',
+              'items': {'type': 'string'},
+              'description':
+                  'Batch mode: up to 8 keywords, each searched independently in ONE call (shared className/action/matchType/limit). Each item returns its own result object; zero-hit items stay as entries without aborting the batch. Use this instead of looping single keyword calls.',
             },
             'numbers': {
               'type': 'array',
@@ -1087,9 +1681,13 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
                 'method_by_features',
                 'method_by_name',
                 'class_by_name',
+                'class_by_superclass',
+                'class_by_interface',
+                'class_by_annotation',
+                'method_by_annotation',
               ],
               'description':
-                  'Search mode (default auto). Keep auto unless a caller explicitly needs one isolated query.',
+                  'Search mode (default auto). auto = substring hit of the keyword across class names, method names and strings (not evidence composition); after a class hit, deep-dive with class_outline/smali_read. Use a specific action only for a single isolated query. Class-structure queries: class_by_superclass finds every subclass of a given parent (keyword = full parent class name; first choice for ad-SDK variant sweeps); class_by_interface finds implementers (keywords may list several interfaces); class_by_annotation / method_by_annotation find annotated classes/methods (e.g. JavascriptInterface, Keep, OnClick).',
             },
             'matchType': {
               'type': 'string',
@@ -1165,7 +1763,7 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
       'function': {
         'name': LocalToolNames.dexXref,
         'description':
-            'DEX 调用处、调用流程和重写方法证据,可独立验证已有 locator。to/from/both 返回精确 callSites、callers/callees；overrides 按类层级和方法签名查找重写实现。includeGraph 返回有向 nodes/edges,可直接画流程图。结果 qualifiedId 可交给 smali_read；空直接调用不等于无反射或动态分派。',
+            'DEX call sites, call flow and override evidence; read-only and safe to run alongside other read-only tools. Independently verifies an existing locator. to/from/both return exact callSites, callers/callees; overrides looks up implementations by class hierarchy and method signature. includeGraph returns directed nodes/edges for flowcharts. Returned qualifiedId values feed smali_read directly. A dex_field: prefix routes to field READ/WRITE xref.',
         'parameters': {
           'type': 'object',
           'properties': {
@@ -1196,11 +1794,23 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
             },
             'offset': {
               'type': 'integer',
-              'description': 'Pagination offset (default 0).',
+              'description':
+                  'Pagination offset into directCallers / field refs (default 0). Every offset is reachable — totals stay in summary, paging never drops data.',
             },
             'limit': {
               'type': 'integer',
-              'description': 'Max callers (default 50).',
+              'description':
+                  'Max rows per page (default 50; field refs default 500). Page deeper with offset=nextCursor until truncated=false.',
+            },
+            'callSiteOffset': {
+              'type': 'integer',
+              'description':
+                  'Pagination offset into callSites (default 0). Reaches every call site, not just the first window.',
+            },
+            'callSiteLimit': {
+              'type': 'integer',
+              'description':
+                  'Max call sites per page (default 300). Follow callSitesNextCursor for the rest.',
             },
             'includeGraph': {
               'type': 'boolean',
@@ -1219,7 +1829,7 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
       'function': {
         'name': LocalToolNames.classOutline,
         'description':
-            '读取类的方法、字段、签名和精确 locator,既可作为混淆类的独立结构探针,也可验证其他产物给出的类。不要按短方法名合并不同类；按 qualifiedId、返回类型、字段形态和调用关系判断。结果可任选 dex_xref、smali_read 或字段使用分析继续,不是固定前置步骤。',
+            'Reads a DEX class\'s methods, fields, signatures and exact locators. Dart/Flutter classes require runtime=dart plus the current Blutter jobId and go through the Blutter ASM index, never a DEX scan. Never merge different classes by short method names; judge by qualifiedId, return type, field shape and call relations. Results feed dex_xref, smali_read or field analysis.',
         'parameters': {
           'type': 'object',
           'properties': {
@@ -1230,15 +1840,32 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
             'className': {
               'type': 'string',
               'description':
-                  'Full class name (Lpkg/Class;) or short name/substring.',
+                  'DEX: full class name (Lpkg/Class;) or short name/substring. Dart: class/path hint for Blutter ASM.',
+            },
+            'runtime': {
+              'type': 'string',
+              'enum': ['dex', 'dart'],
+              'description':
+                  'Default dex. Use dart only with a Blutter jobId; it queries the same native index used by so_analyze.',
+            },
+            'jobId': {
+              'type': 'string',
+              'description':
+                  'Required only when runtime=dart: current APK Blutter jobId.',
             },
             'offset': {
               'type': 'integer',
-              'description': 'Pagination offset (default 0).',
+              'description':
+                  'Method pagination offset (default 0). Fields have their own cursor: fieldsOffset.',
+            },
+            'fieldsOffset': {
+              'type': 'integer',
+              'description':
+                  'Field pagination offset (default 0). Fields do NOT follow offset; continue with nextFieldsOffset when hasMoreFields=true, otherwise tail fields are unreachable.',
             },
             'limit': {
               'type': 'integer',
-              'description': 'Max methods/fields (default 200).',
+              'description': 'Max methods/fields per page (default 200).',
             },
           },
           'required': ['path', 'className'],
@@ -1252,7 +1879,7 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
       'function': {
         'name': LocalToolNames.smaliRead,
         'description':
-            '读取一个精确方法的真实指令、分支、字段和返回语义。它是强行为证据,可直接验证用户或任意产物给出的 qualifiedId,不要求先跑搜索链。qualifiedId 必须原样传入；方法体已直接表达目标时可据此 dryRun,仍有多种解释时再选 xref、字段读写或常量作为独立证据。',
+            'Reads one exact method\'s real instructions, branches, fields and return semantics (read-only, safe to run alongside other read-only tools). This is strong behavioral evidence and directly verifies a qualifiedId from the user or any artifact — no search chain required first. Pass qualifiedId verbatim; batch several methods via qualifiedIds in ONE call (cap 8) instead of calling one by one.',
         'parameters': {
           'type': 'object',
           'properties': {
@@ -1264,10 +1891,300 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
             'qualifiedId': {
               'type': 'string',
               'description':
-                  'Method qualifiedId from dex_search, class_outline, or dex_xref results, e.g. Lcom/foo/Bar;->isVip()Z.',
+                  'REQUIRED for a single read. Method qualifiedId from dex_search, class_outline, or dex_xref results, e.g. Lcom/foo/Bar;->isVip()Z. Omit only when passing qualifiedIds batch.',
+            },
+            'qualifiedIds': {
+              'type': 'array',
+              'items': {'type': 'string'},
+              'description':
+                  'Batch mode: up to 8 qualifiedIds read in ONE call. Each item returns its own result object (failed items keep an error entry without aborting the batch). Use this instead of looping single reads.',
             },
           },
-          'required': ['qualifiedId'],
+        },
+      },
+    });
+  }
+  if (assistant.localToolIds.contains(LocalToolNames.frida)) {
+    tools.add({
+      'type': 'function',
+      'function': {
+        'name': LocalToolNames.frida,
+        'description':
+            'Frida gadget workflow without root. action=status reports the pinned gadget version/URL, its sha256 and local presence (no path needed). action=install_gadget downloads that pinned build, verifies the sha256, decompresses the .xz and checks it is an arm64 ELF (no path needed). action=inject adds lib/arm64-v8a/libfrida-gadget.so plus a proxy Application that loads it, so the target process later listens on 127.0.0.1:27042. The inject output is an INJECTED build: label every finding as injected, never merge it with static analysis of the original APK, and re-sign it with apk_sign before installing. The runtime actions (open/hook/call/read/backtrace/close) require the Linux sandbox and currently answer environment_not_ready.',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'action': {
+              'type': 'string',
+              'enum': [
+                'status',
+                'install_gadget',
+                'inject',
+                'open',
+                'hook',
+                'call',
+                'read',
+                'backtrace',
+                'close',
+              ],
+              'description':
+                  'status/install_gadget need no path. inject needs apkPath. The remaining actions need the Linux sandbox.',
+            },
+            'apkPath': {
+              'type': 'string',
+              'description':
+                  'APK inside the unified work dir (a file name directly under the work-dir root). Required for inject; anything outside the work dir is refused.',
+            },
+            'source': {
+              'type': 'string',
+              'description':
+                  'install_gadget only. A mirror URL for the pinned gadget archive, or a mirror prefix ending in "/" (the pinned URL is appended). Use this when github.com is unreachable; the download is still verified against the pinned sha256, so an untrusted mirror cannot swap the binary. Built-in mirrors are tried automatically before the canonical URL.',
+            },
+            'localPath': {
+              'type': 'string',
+              'description':
+                  'install_gadget only (agent face). Path to an already-downloaded frida-gadget-*.so.xz. It is accepted only when its sha256 equals the pinned value; use it when neither GitHub nor any mirror is reachable.',
+            },
+          },
+          'required': ['action'],
+        },
+      },
+    });
+  }
+  if (assistant.localToolIds.contains(LocalToolNames.subagent)) {
+    // 助手级专家团开关（设置 → 子智能体）：关掉后 schema 里不能留 team/
+    // members —— 模型会照着不存在的形态发调用（第 63/65 条同一判据）。
+    final teamsEnabled = assistant.subagentTeamsEnabled;
+    // 名单面（2026-09-29「各司其职」收口）：schema 只描述当前助手域内可见的
+    // 子代理/预置团——开发助手看不到逆向角色，逆向助手看不到开发角色；自建
+    // 助手（any 域）全可见。与 SubAgentToolHandler 的 domain 参数同源。
+    final domain = SubAgentRegistry.domainForAssistant(assistant);
+    final agentCatalog = switch (domain) {
+      SubAgentDomain.dev => 'general, 调研员, 实现者, 审核员 (dev domain)',
+      SubAgentDomain.apk => 'general, 逆向分析员, 补丁执行者, 改包复核员 (apk domain)',
+      SubAgentDomain.any =>
+        'general, 调研员, 实现者, 审核员 (dev domain), 逆向分析员, 补丁执行者, 改包复核员 (apk domain)',
+    };
+    final teamCatalog = switch (domain) {
+      SubAgentDomain.dev => 'dev-team (research -> implement -> review)',
+      SubAgentDomain.apk => 'apk-team (analyse -> patch -> verify)',
+      SubAgentDomain.any =>
+        'dev-team (research -> implement -> review) or apk-team (analyse -> patch -> verify)',
+    };
+    tools.add({
+      'type': 'function',
+      'function': {
+        'name': LocalToolNames.subagent,
+        'description': teamsEnabled
+            ? 'Dispatch work to fresh subagent instances. Two shapes: (1) a single job — pass agent + task; (2) an expert team — pass team ($teamCatalog) or your own members[] so several roles collaborate on one goal, optionally chained with blockedBy. Subagents do NOT see this conversation, so put everything they need in task/context. They can only use tools the current assistant also has, a read-only instance cannot write, and writing members need /goal mode. Returns JSON: status/text for a single job, or {members[], merged, warnings} for a team.'
+            : 'Dispatch one independent job to a fresh subagent instance: pass agent + task. Expert teams are turned off for this assistant, so team / members are not accepted. Subagents do NOT see this conversation, so put everything they need in task/context. They can only use tools the current assistant also has, a read-only instance cannot write, and a writing instance needs /goal mode. Returns JSON: {status, text}.',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'agent': {
+              'type': 'string',
+              'description':
+                  'Subagent slug for a single job. Built-ins visible to this assistant: $agentCatalog. Omit for `general`.',
+            },
+            'task': {
+              'type': 'string',
+              'description':
+                  'For a single job: the one thing to do. For a team: the shared goal every member works towards.',
+            },
+            'context': {
+              'type': 'string',
+              'description':
+                  'Optional background the subagent needs (it cannot see this chat).',
+            },
+            'tools': {
+              'type': 'array',
+              'description':
+                  'Only for built-in subagents: which tool categories the instance may use. '
+                  'read = read-only tools including the file tool (list/read/grep/info/strings); '
+                  'write = mutating tools (needs /goal mode). The legacy `shell` value is accepted '
+                  'but grants nothing (sandbox shell is not part of the subagent tool face).',
+              'items': {
+                'type': 'string',
+                'enum': ['read', 'write', 'shell'],
+              },
+            },
+            'label': {
+              'type': 'string',
+              'description':
+                  'Short label shown while this instance runs, to tell parallel instances apart.',
+            },
+            if (teamsEnabled)
+              'team': {
+                'type': 'string',
+                'description':
+                    'Expert-team preset id to run instead of a single agent: $teamCatalog. Pass task as the shared goal.',
+              },
+            if (teamsEnabled)
+              'members': {
+                'type': 'array',
+                'description':
+                    'Custom expert team (max 4). Members without blockedBy may run in parallel; members whose writeScope overlaps are serialised automatically.',
+                'items': {
+                  'type': 'object',
+                  'properties': {
+                    'name': {
+                      'type': 'string',
+                      'description': 'Unique member name inside the team.',
+                    },
+                    'agent': {
+                      'type': 'string',
+                      'description': 'Subagent slug to run for this member.',
+                    },
+                    'task': {
+                      'type': 'string',
+                      'description': 'What this member must do.',
+                    },
+                    'blockedBy': {
+                      'type': 'array',
+                      'items': {'type': 'string'},
+                      'description':
+                          'Member names that must finish before this one starts.',
+                    },
+                    'writeScope': {
+                      'type': 'array',
+                      'items': {'type': 'string'},
+                      'description':
+                          'Work-directory path prefixes this member may write. Empty = whole work directory; overlapping scopes are serialised instead of running in parallel.',
+                    },
+                  },
+                  'required': ['name', 'agent', 'task'],
+                },
+              },
+          },
+          'required': ['task'],
+        },
+      },
+    });
+  }
+  // 2026-10-03 单开关：暴露与否只看助手是否挂了 run_workflow；具体某条
+  // 工作流在对话里可不可用由**该条自己的开关**决定（store.enabled 过滤）。
+  if (assistant.localToolIds.contains(LocalToolNames.runWorkflow)) {
+    // 没有内置模板（2026-10-03 起）：工作流全部是用户在工作流页面手建或
+    // AI 生成落库的；省略 workflow 时工具会返回完整目录（模型先读再用）。
+    tools.add({
+      'type': 'function',
+      'function': {
+        'name': LocalToolNames.runWorkflow,
+        'description':
+            'Run a saved workflow — a small node graph (text / AI generation / HTTP request / condition / extract / delay / merge / output) that returns one final output. Omit `workflow` to list the available workflows (ids and names); workflows are created by the user in the workflow page (some generated by AI), there are no built-in templates. Pass `input` to hand the workflow its starting text (the start node receives it; downstream nodes reference it as {{start}}). AI generate nodes need a model seam (a chat session); without one they fail while the other node types still run. Returns JSON: {ok, output, steps, trail}.',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'workflow': {
+              'type': 'string',
+              'description':
+                  'Workflow id or exact name (see the catalog in the description). Omit to list available workflows.',
+            },
+            'input': {
+              'type': 'string',
+              'description':
+                  'Starting text passed to the workflow start node. Leave empty when the workflow does not need one.',
+            },
+          },
+        },
+      },
+    });
+  }
+  if ((assistant.localToolIds.contains(LocalToolNames.todoWrite) ||
+          assistant.localToolIds.contains(LocalToolNames.todoRead)) &&
+      AgentCapabilityPolicy.enabled(assistant, AgentCapability.todo)) {
+    tools.add({
+      'type': 'function',
+      'function': {
+        'name': LocalToolNames.todoRead,
+        'description':
+            'Read the task list of this conversation (the external memory for long tasks). Returns {todos, counts, rendered}.',
+        'parameters': {'type': 'object', 'properties': <String, dynamic>{}},
+      },
+    });
+    tools.add({
+      'type': 'function',
+      'function': {
+        'name': LocalToolNames.todoWrite,
+        'description':
+            'Replace the task list of this conversation (full table, not a patch). Keep it short and verifiable; mark a step done as soon as it is verified, and always send back the complete list including finished items.',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'todos': {
+              'type': 'array',
+              'description': 'The complete list, in order.',
+              'items': {
+                'type': 'object',
+                'properties': {
+                  'text': {
+                    'type': 'string',
+                    'description': 'One verifiable step.',
+                  },
+                  'status': {
+                    'type': 'string',
+                    'enum': ['pending', 'in_progress', 'done'],
+                  },
+                },
+                'required': ['text'],
+              },
+            },
+          },
+          'required': ['todos'],
+        },
+      },
+    });
+  }
+  if (assistant.localToolIds.contains(LocalToolNames.goalGet) ||
+      assistant.localToolIds.contains(LocalToolNames.goalCreate) ||
+      assistant.localToolIds.contains(LocalToolNames.goalUpdate)) {
+    tools.add({
+      'type': 'function',
+      'function': {
+        'name': LocalToolNames.goalGet,
+        'description':
+            'Read the current goal of this conversation: mode (build/plan/goal), status (active/paused/none), objective and whether approvals are bypassed. Call it before changing the goal.',
+        'parameters': {'type': 'object', 'properties': <String, dynamic>{}},
+      },
+    });
+    tools.add({
+      'type': 'function',
+      'function': {
+        'name': LocalToolNames.goalCreate,
+        'description':
+            'Set the conversation goal and switch the session into goal mode. Goal mode runs without per-tool approval, so only use it for an objective the user actually wants pursued autonomously; keep the objective concrete and verifiable. When the user states a long-running objective, create it instead of waiting for a slash command.',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'objective': {
+              'type': 'string',
+              'description':
+                  'The objective: one or two sentences, including the success criterion when known.',
+            },
+          },
+          'required': ['objective'],
+        },
+      },
+    });
+    tools.add({
+      'type': 'function',
+      'function': {
+        'name': LocalToolNames.goalUpdate,
+        'description':
+            'Advance the goal: edit (replace the objective), pause (leave goal mode but keep the objective), resume (enter goal mode again), complete (leave goal mode and clear the objective). Use complete only once the objective is actually achieved, and report what was verified and what was not.',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'action': {
+              'type': 'string',
+              'enum': ['edit', 'pause', 'resume', 'complete'],
+            },
+            'objective': {
+              'type': 'string',
+              'description': 'New objective; required for edit.',
+            },
+          },
+          'required': ['action'],
         },
       },
     });
@@ -1278,7 +2195,7 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
       'function': {
         'name': LocalToolNames.soPatchIntoApk,
         'description':
-            'One-stop: write a patched .so back into the target APK. Auto-senses the latest successful build and resolves the APK entry. For an exact write-back already authorized by the user, use dryRun=true plus applyAfterPreview=true; the resolved SO path and entry are bound to the preview and applied in the same call. Pure dryRun returns exact applyArguments. Pass sign=true to produce an installable signed APK.',
+            'One-stop: write a patched .so back into the target APK. Only lib/<abi>/*.so entries are patchable. Guards: payload must be a real ELF; a >90% shrink needs allowShrink=true. Auto-senses the latest successful build and resolves the APK entry. For an exact write-back already authorized by the user, use dryRun=true plus applyAfterPreview=true (= preview then auto-apply only if the preview passes all guards; any guard failure blocks the write and returns the error). Pure dryRun returns exact applyArguments. Pass sign=true to produce an installable signed APK.',
         'parameters': {
           'type': 'object',
           'properties': {
@@ -1290,7 +2207,12 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
             'entryName': {
               'type': 'string',
               'description':
-                  'Explicit target entry, e.g. lib/arm64-v8a/libapp.so. Omit for auto-resolution.',
+                  'Explicit target entry; must match lib/<abi>/<name>.so. Omit for auto-resolution.',
+            },
+            'allowShrink': {
+              'type': 'boolean',
+              'description':
+                  'Explicit confirm for a >90% entry shrink (almost always a wrong payload). Omit unless the user truly confirmed the tiny payload.',
             },
             'abi': {
               'type': 'string',
@@ -1332,14 +2254,14 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
       'function': {
         'name': LocalToolNames.soAnalyze,
         'description':
-            '本地 SO/Flutter 证据入口。open、overview、search、函数、引用、Blutter、反汇编和编辑均可按现有证据独立进入,无需补齐固定前置链。混淆时以文件身份、VA、对象池引用、常量、函数边界和调用位置为主,符号名为辅；不同视图先映射 VA 再比较。Blutter path 传 APK 或含 libapp.so+libflutter.so 的目录。强制返回优先 force_return_constant,手写补丁不得破坏栈帧；callers 为空只表示没有解析到直接调用。精确修改仍须 dryRun/applyAfterPreview。',
+            'Local SO/Flutter evidence entry. open, overview, search, functions, xrefs, Blutter, disassembly and editing can each start independently from what evidence already exists — no fixed prerequisite chain. Under obfuscation rely on file identity, VA, object-pool references, constants, function boundaries and call sites first, symbol names second; map VAs before comparing views. Blutter path takes an APK or a directory containing libapp.so+libflutter.so, never a bare .so.',
         'parameters': {
           'type': 'object',
           'properties': {
             'action': {
               'type': 'string',
               'description':
-                  '动作按域分为工作区、读取、Rizin/LIEF、Blutter、编辑构建和模拟。完整 action 列表及参数先调 get_solab_tool_map(tool=so_analyze) 获取；常用起点为 open、overview、search、rz_functions、blutter、edit_open、build。',
+                  'Action name, or a domain name for grouped sub-actions. Domains (read/edit) are NOT callable and are refused with their sub-action list; xref is not an action (use rz_xrefs). Full catalog + parameters: get_solab_tool_map(tool=so_analyze).',
             },
             'path': {
               'type': 'string',
@@ -1348,8 +2270,10 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
             },
             'url': {
               'type': 'string',
+              // F-43（2026-10-04）：动作已退役（接受面会拒绝）。参数说明只讲
+              // 「怎么把文件弄进工作目录」，不再引用不存在的 open_url。
               'description':
-                  'http(s) URL of a .so/ELF to download into the work dir then open (action=open_url).',
+                  'DEPRECATED/unused: the open_url action is retired. Put the .so/ELF into the work dir first (file(action=write) or an out-of-band download), then so_analyze(action=open, path=...).',
             },
             'asm': {
               'type': 'string',
@@ -1358,17 +2282,17 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
             'va': {
               'type': 'string',
               'description':
-                  'Hex virtual address, e.g. 0x1234 (edit_hex VA mode / lief_patch_address / lief_add_export / blutterAction=disasm: function or instruction VA from locate/xref, returns the full function body with inline [pp+0x...] object-pool annotations; limit param controls max lines, default 400, max 2000).',
+                  'Hex virtual address, e.g. 0x1234 (edit_hex VA mode / blutterAction=disasm: function or instruction VA from locate/xref, returns the full function body with inline [pp+0x...] object-pool annotations; limit param controls max lines, default 400, max 2000).',
             },
             'patchHex': {
               'type': 'string',
               'description':
-                  "Hex bytes to write at va, spaces allowed, e.g. '20 00 80 52' (edit_hex VA mode / lief_patch_address).",
+                  "Hex bytes to write at va, spaces allowed, e.g. '20 00 80 52' (edit_hex VA mode).",
             },
             'name': {
               'type': 'string',
               'description':
-                  'Symbol name (lief_add_export/lief_remove_symbol).',
+                  'Symbol name (edit_symbol rename, or blutterAction filters).',
             },
             'file': {
               'type': 'string',
@@ -1406,7 +2330,7 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
             'editSessionId': {
               'type': 'string',
               'description':
-                  'Returned by action=edit_open; edit_asm 会在旧会话失效时恢复空会话并返回新的 editSessionId，后续调用使用返回值。',
+                  'Returned by action=edit_open. Reads (hexdump/disasm/rz_*/diff) may omit it and then read the original workspace file; edit_hex/edit_asm/edit_symbol need a live session (missing or unknown id returns EDIT_SESSION_NOT_FOUND, so call edit_open first) and their responses echo the session id (edit_asm also returns sessionRestored when it re-opened the session for you). Read responses include readState. Inside op=batch each step may override it.',
             },
             'locator': {
               'type': 'string',
@@ -1417,7 +2341,32 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
               'type': 'array',
               'items': {'type': 'object'},
               'description':
-                  "Patch list for edit_hex/edit_asm/edit_symbol. Each item MUST be a JSON object (not a string): edit_hex → {va, newHex} (preferred: absolute VA exactly as returned by disasm/xref/locate, no offset math) or {byteOffset, newHex} (relative to the resolved locator start — do NOT pass absolute fileOffset/VA here); edit_asm → {instructionIndex?, byteLength?, mode?, writeAsm} or {mode:'force_return_constant', value, returnType?, valueEncoding?}; 单个 edit_asm 可把这些字段直接放在顶层而不传 edits. force_return_constant auto-generates a stack-safe stub. valueEncoding=auto detects libapp.so/Dart AOT: bool uses NULL_REG+0x20/0x30, null/object uses NULL_REG, int uses Smi; use valueEncoding=native only for native ABI values. Dart strings require a located pool object and are rejected here. never hand-write prologue/epilogue rewrites, the engine rejects stack-imbalanced patches with STACK_IMBALANCE unless overrideStackCheck:true; edit_symbol → {op:'rename', newName}. Values as returned by the matching dryRun preview. For edit_hex you may instead pass va+patchHex (session-tracked VA patching with dryRun/undo) — see va/patchHex.",
+                  "Patch list for edit_hex/edit_asm/edit_symbol. Each item MUST be a JSON object (not a string): edit_hex → {va, newHex} (preferred: absolute VA exactly as returned by disasm/xref/locate, no offset math) or {byteOffset, newHex} (relative to the resolved locator start — do NOT pass absolute fileOffset/VA here); edit_asm → {instructionIndex?, byteLength?, mode?, writeAsm} or {mode:'force_return_constant', value, returnType?, valueEncoding?}; returnType=bool requires numeric value 0 or 1, not a boolean literal. 单个 edit_asm 可把这些字段直接放在顶层而不传 edits. force_return_constant auto-generates a stack-safe stub. valueEncoding=auto detects libapp.so/Dart AOT: bool uses NULL_REG+0x20/0x30, null/object uses NULL_REG, int uses Smi; use valueEncoding=native only for native ABI values. Dart strings require a located pool object and are rejected here. never hand-write prologue/epilogue rewrites, the engine rejects stack-imbalanced patches with STACK_IMBALANCE unless overrideStackCheck:true; edit_symbol → {op:'rename', newName}. Values as returned by the matching dryRun preview. For edit_hex you may instead pass va+patchHex (session-tracked VA patching with dryRun/undo) — see va/patchHex.",
+            },
+            'mode': {
+              'type': 'string',
+              'description':
+                  "Single edit_asm shortcut, e.g. force_return_constant, nop_out, or replace_instructions.",
+            },
+            'value': {
+              'type': 'integer',
+              'description':
+                  'Single edit_asm force_return_constant value. For returnType=bool use numeric 0 or 1. blutterAction=values also accepts one numeric value here as a shorthand for query.',
+            },
+            'returnType': {
+              'type': 'string',
+              'description':
+                  'Single edit_asm constant type: int, enum, bool, null, object, or reference.',
+            },
+            'valueEncoding': {
+              'type': 'string',
+              'enum': ['auto', 'native', 'dart_aot'],
+              'description':
+                  'Single edit_asm constant encoding; auto selects from the target.',
+            },
+            'writeAsm': {
+              'type': 'string',
+              'description': 'Single edit_asm assembly text.',
             },
             'dryRun': {
               'type': 'boolean',
@@ -1433,6 +2382,47 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
               'type': 'string',
               'description':
                   'Version guard for edit_hex/edit_asm/edit_symbol with dryRun=false: pass the targetVersion returned by the dryRun preview; if the session changed since the preview, the engine rejects with VERSION_DRIFT and you must re-run the preview. Responses return newTargetVersion for chaining.',
+            },
+            'vaEnd': {
+              'type': 'string',
+              'description':
+                  'so_analyze(action=disasm) exclusive upper VA bound; window stops before it. Alternative to limit when isolating a branch region. Also accepts byteOffset+bytes relative to function start.',
+            },
+            'includePseudocode': {
+              'type': 'boolean',
+              'description':
+                  'so_analyze(action=disasm) only. Default false for fast raw disassembly. Set true only when the current window needs Rizin pseudocode; use rz_decompile when pseudocode itself is the goal.',
+            },
+            'byteOffset': {
+              'type': 'integer',
+              'description':
+                  'disasm byte offset from the function start VA; combined with bytes builds vaEnd automatically (arm64: 4 bytes per instruction).',
+            },
+            'bytes': {
+              'type': 'integer',
+              'description':
+                  'Byte span to include after byteOffset in disasm windows.',
+            },
+            'consumerExclude': {
+              'type': 'array',
+              'items': {'type': 'string'},
+              'description':
+                  'blutterAction=trace only. Substrings matched case-insensitively against consumer function/class/file to drop noisy third-party hits (e.g. pointycastle, rc2). Response returns top-level consumerClusters and highConfidenceConsumers; verify the first high-confidence consumer before applying filters.',
+            },
+            'compareToJobId': {
+              'type': 'string',
+              'description':
+                  "blutterAction=diff only: jobId of the NEW package's analyze result to match against the current one.",
+            },
+            'classPrefix': {
+              'type': 'string',
+              'description':
+                  'diff filter substring for old-side class/file/name; empty maps everything within limit.',
+            },
+            'minSimilarity': {
+              'type': 'number',
+              'description':
+                  'diff anchor-set Jaccard threshold (default 0.45). Anchors are pooled-string references, rename-immune; re-disasm rows below ~0.8 before patching.',
             },
             'overrideAotObjectSafety': {
               'type': 'boolean',
@@ -1455,8 +2445,12 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
             },
             'view': {
               'type': 'string',
+              // F-54（2026-10-04）：文档与引擎对齐——list 实际支持七个视图，
+              // 过去写「relocs 暂不支持」（字面 relocs 确实 INVALID_LOCATOR，
+              // 但 relocations 可用），等于把手能用的能力挡掉。
               'description':
-                  'action=list view: sections | symbols | relocs (default sections).',
+                  'action=list view: sections | symbols | dynsyms | functions | relocations | strings | imports (default sections). '
+                      'Unknown view names return INVALID_LOCATOR with the view list.',
             },
             'prefix': {
               'type': 'string',
@@ -1501,7 +2495,7 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
             'op': {
               'type': 'string',
               'description':
-                  'Backend dispatch op. unidbg_dispatch: status | session_open(editSessionId,callJniOnLoad) | session_list | session_close | session_call | session_call_address | session_dump | session_modules | session_exports | session_registers | session_memory_maps | session_memory_write/map/protect/unmap | session_trace_code/start/events/stop/clear | session_hook_start/list/stop | session_breakpoint_add/remove | session_single_step | session_emu_stop | debugger_plan | trace_plan | breakpoints_plan | framework_matrix | stub/hook/env_template. lief_dispatch: roots | methods | parse_any | validate | get | list | set | call. xanso_dispatch: status | help | capabilities. args[] carries each op positional arguments (e.g. session_call → [emulatorSessionId, symbolName, argsArray, trace]).',
+                  'Backend dispatch op. unidbg_dispatch: status | session_open(editSessionId,callJniOnLoad) | session_list | session_close | session_call | session_call_address | session_dump | session_modules | session_exports | session_registers | session_memory_maps | session_memory_write/map/protect/unmap | session_trace_code/start/events/stop/clear | session_hook_start/list/stop | session_breakpoint_add/remove | session_single_step | session_emu_stop | debugger_plan | trace_plan | breakpoints_plan | framework_matrix | stub/hook/env_template | batch. batch = run many dispatches in one call: method holds the step op, args[0] = {steps:[{op, method?, args?, workspaceId?, editSessionId?, resultKey?}]..., workspaceId?, stopOnError? (default true), maxSteps? (default 30, max 100)}. A step result is stored under its resultKey and later steps may reference it inside method/workspaceId/editSessionId/args strings as \${resultKey.dotted.path} (e.g. \${open.args[0]}). xanso_dispatch: status | help | capabilities. args[] carries each op positional arguments (e.g. session_call → [emulatorSessionId, symbolName, argsArray, trace]).',
             },
             'method': {
               'type': 'string',
@@ -1530,6 +2524,7 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
                 'cancel',
                 'packages',
                 'search',
+                'pool',
                 'raw_strings',
                 'values',
                 'xref',
@@ -1537,11 +2532,31 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
                 'locate',
                 'report',
                 'callers',
+                'diff',
                 'disasm',
                 'prune',
               ],
               'description':
-                  'Blutter 独立证据动作。已有 jobId、池偏移、函数 VA、数值或专项报告时可直接调用 report、search、xref、trace、values、disasm、callers,无需重放 locate。result 读取 result.json 缓存视图,未就绪返回 REPORT_NOT_READY。trace 从任意字段键推导写入和同偏移读取,再用 24 指令寄存器切片证明字段是否流入比较、分支、布尔结果、返回或调用参数；优先 high confidence,low 不能作为结论。Blutter disasm 只用于定位,补丁验收必须读取当前文件真实字节。',
+                  'Standalone Blutter evidence actions. With an existing jobId, pool offset, function VA, value or saved report you may call report, search, pool, xref, trace, values, disasm, callers directly — no need to replay locate. '
+                  'result reads the cached result.json view (REPORT_NOT_READY when absent); trace derives writes and same-offset reads from any field key. '
+                  'BOUNDARY DISCIPLINE: every analyze reply declares capabilities.functionBoundaries and each reference a boundaryStatus. When it is unverified, locate/trace are REFUSED (BLUTTER_BOUNDARIES_UNVERIFIED) — do not retry or swap keywords; see allowUnverifiedBoundaries / poolOffset for the working route.',
+            },
+            'allowUnverifiedBoundaries': {
+              'type': 'boolean',
+              'description':
+                  'blutterAction=locate/trace only, default false. Boundary evidence levels (from capabilities.functionBoundaries / refs[].boundaryStatus): verified = runner matched engine/snapshot exactly, artifact function sizes usable; inferred_next_header = artifact had no size (Dart-version fallback), interval derived from the next function header — usable but say "inferred" when reporting; unverified = no function header matched, functionVa is null, only va/verificationVa usable. When the job is unverified, locate/trace refuse with BLUTTER_BOUNDARIES_UNVERIFIED. Set true ONLY to accept inference-grade output; conclusions are then labelled (boundaryStatus/boundaryBasis) and must be reported as inferences, not artifact facts. The boundary-free route is poolOffset + so_analyze(action=disasm).',
+            },
+            'allowDeprecatedAction': {
+              'type': 'boolean',
+              // F-43（2026-10-04）：退役动作现在在**接受面**被无条件拒绝
+              // （Dart 与 Kotlin 双层），这个开关不再能放行任何东西。
+              'description':
+                  'DEPRECATED/no-op (F-43): so_analyze actions known to be broken (capabilities, open_url, emulate, lief_*) are now refused at the acceptance surface with the reason and a working alternative — this flag cannot bypass that. Read the refusal for the replacement action.'
+            },
+            'async': {
+              'type': 'boolean',
+              'description':
+                  'blutterAction=locate only. true = run locate in the background and return accepted immediately (recommended, avoids timeout lane cooldown). Retry the same async call to poll: stillRunning=true means unfinished; false (blutterAction=locate without async) reruns synchronously with warm caches.',
             },
             'jobId': {
               'type': 'string',
@@ -1561,22 +2576,32 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
             'goal': {
               'type': 'string',
               'description':
-                  'blutterAction=locate/values/trace user goal. 用户给出的文件名和数值只作为证据提示；locate/trace 会从真实字段写入和读取关系建立数据流,不会把示例名称或数值写成固定规则。Blutter 函数体缺失时 locate 的 rawDecisionFlow 会直接读取当前 libapp 字节,连接文案分支值、调用链与返回值阶梯。values 同时检查原始整数、Dart Smi 编码和对象池整数引用,但排除内存寻址偏移。',
+                  'The user\'s goal for blutterAction=locate/values/trace. File names and numbers the user mentions are evidence hints only; locate/trace build data flow from real field writes and reads and never hard-code example names or values as rules. When the Blutter function body is missing, locate\'s rawDecisionFlow reads the current libapp bytes directly to connect text branches, compared values, call chains and the final return.',
             },
             'deep': {
               'type': 'boolean',
               'description':
-                  'blutterAction=locate only. Default false always uses compact XREF + candidate-window verification and never starts a full semantic/value/field scan. Set true only when the fast result lacks enough evidence and a complete field-flow trace is explicitly needed.',
+                  'blutterAction=locate only. Default false always uses compact XREF + candidate-window verification and never starts a full semantic/value/field scan. Set true only when the fast result lacks enough evidence and a complete field-flow trace is explicitly needed. A saved report records the pipeline that produced it (reportGeneratedWith.deep): asking report with deep=true for a fast-pipeline snapshot returns REPORT_PIPELINE_MISMATCH instead of the stale snapshot — re-run locate with deep=true, re-issuing report alone will not recompute anything.',
+            },
+            'expandKeywords': {
+              'type': 'boolean',
+              'description':
+                  'blutterAction=raw_strings only. Default false searches exactly the words you passed in query/goal. Set true to also expand them through the built-in keyword table (used to be the default, but it drowned a single query word under ~30 unrelated terms). The response echoes termsUsed either way.',
+            },
+            'includeNoisy': {
+              'type': 'boolean',
+              'description':
+                  'blutterAction=raw_strings only. Default false hides hits that look like bulk word-list/symbol-table data (one long string matching several terms). Hidden hits are counted in noisyCount with noisyNote, never silently dropped; set true to get them back.',
             },
             'poolOffset': {
               'type': 'string',
               'description':
-                  'Hex object-pool offset(s) from blutterAction=search. Multiple offsets may be comma-separated and are resolved in one pass. Use xref for direct references or trace for key→field write→field readers.',
+                  'Hex object-pool offset(s), e.g. 0xe890 or pp+0xe890. Multiple offsets may be comma-separated and are resolved in one pass. blutterAction=pool returns the ledger text plus neighbouring lines for each offset, and answers found=false explicitly when the offset is not in pp.txt — that is a decidable negative, so never fall back to grepping pp.txt to re-check it. Use xref for direct references, trace for key→field write→field readers, and callers to resolve Dart closure blr indirect calls when pp.txt does not expose the target Code VA.',
             },
             'scope': {
               'type': 'string',
               'description':
-                  'blutterAction=search scope: pp (default) | asm | all.',
+                  'blutterAction=search scope: pp (default) | asm | all. pp.txt is the complete string ledger (inverted index, sub-second) and is always searched first; for a default scope=all request with no asm-specific filter, pp hits replace the asm full-scan (huge APKs have thousands of function files — a full scan takes minutes). Explicit asm requests are never skipped: scope=asm, or scope=all with fullScan/includePath/excludePath/includeThirdParty set, always scans. asm/all automatically join matching object-pool strings with their indexed references in poolStringReferences; use that result before fullScan.',
             },
             'fullScan': {
               'type': 'boolean',
@@ -1632,7 +2657,7 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
             'addr': {
               'type': 'string',
               'description':
-                  'Hex address (rz_asm / disasm / emulate_dump / blutterAction=callers). For emulate_dump this is the Unidbg RUNTIME absolute address: add the module base from unidbg_dispatch(op=session_modules) to the ELF VA, not the raw ELF VA. For callers: the target function VA whose bl/b call sites you want.',
+                  'Hex address (rz_asm / disasm / emulate_dump / blutterAction=callers). For emulate_dump this is the Unidbg RUNTIME absolute address: add the module base from unidbg_dispatch(op=session_modules) to the ELF VA, not the raw ELF VA. For callers: target function VA; it returns bl/b direct sites and matching pool-backed blr closure sites.',
             },
             'size': {
               'type': 'integer',
@@ -1704,13 +2729,45 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
       },
     });
   }
+  if (assistant.localToolIds.contains(LocalToolNames.workspacePolicy)) {
+    tools.add(const {
+      'type': 'function',
+      'function': {
+        'name': LocalToolNames.workspacePolicy,
+        'description':
+            'Read the current workspace policy before touching paths: the bound work directory, the read-only original APK, which tools need explicit user authorisation, the preview contract and the result size caps. Call once when a task starts or after switching workspaces instead of discovering the rules from errors. Pass includeToolStats=true to also return the engine-side per-tool timing snapshot (call counts, avg/max ms) when performance data is needed.',
+        'parameters': {
+          'type': 'object',
+          'properties': <String, dynamic>{
+            'includeToolStats': <String, dynamic>{
+              'type': 'boolean',
+              'description':
+                  'Also return the engine-side per-tool timing snapshot (counts, avg/max ms, recent samples) for performance work. Read-only; empty when stats collection is off.',
+            },
+            // F-52（2026-10-04）：过滤器必须挂在**产出方**（get_workspace_policy）
+            // 上——上一批误加进 so_analyze 的 schema，实测该参数不生效。
+            'toolStatsFilter': <String, dynamic>{
+              'type': 'string',
+              'description':
+                  'Only with includeToolStats=true. Filter the toolStats payload: '
+                  'none = omit the stats detail; failures_only = keep only tools with failed>0; '
+                  'top = top 10 by p95. Omit for the full snapshot.',
+              'enum': ['none', 'failures_only', 'top'],
+            },
+          },
+        },
+      },
+    });
+  }
   if (assistant.localToolIds.contains(LocalToolNames.file)) {
     tools.add(const {
       'type': 'function',
       'function': {
         'name': LocalToolNames.file,
         'description':
-            'Unified file operations in the work directory. Call action=inventory to get this conversation\'s live work directory, report source, active APK, SO output and artifact paths without searching. Every entry is stat-checked, so deleted outputs are marked missing. Blutter pp.txt, JSONL and asm dumps are reference artifacts: grep a target or use so_analyze locate/search/xref/disasm; never read them page by page. Paths must be INSIDE the work directory.',
+            'Unified file operations in the work directory. Call action=inventory to get this conversation\'s live work directory (its root entries include ALL files physically present there — user-added notes like .md, logs, builds — not just tracked artifacts), report source, active APK, SO output and artifact paths without searching. Every entry is stat-checked, so deleted outputs are marked missing. To read any listed file use action=read with its path; for several files use action=read with paths:[...] (batch, cap 8) instead of looping single reads. Read-class actions (inventory/read/list/info/grep/strings) are read-only and may be called concurrently with other read calls. Use list for subdirectories. '
+            'Blutter pp.txt, JSONL and asm dumps are reference artifacts. Never read them page by page. For a Blutter pool offset the right tool is so_analyze(action=blutter, blutterAction=pool, poolOffset=0x...) — it returns the ledger text and answers found=false explicitly; grep is the fallback for free-text targets only. '
+            'GREP HONESTY: a grep reply always says whether it actually searched. searchPerformed=false means no file was read, so count=0 is NOT evidence that the pattern is absent — inspect skipped[] (reason size_exceeds_limit → raise maxFileBytes; non_text_or_binary → set forceText=true) and re-run before drawing any conclusion. Paths must be INSIDE the work directory; bare names are resolved against it.',
         'parameters': {
           'type': 'object',
           'properties': {
@@ -1724,7 +2781,10 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
                 'info',
                 'delete',
                 'copy',
+                'diff',
+                'mkdir',
                 'rename',
+                'move',
                 'zip',
                 'unzip',
                 'grep',
@@ -1732,25 +2792,67 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
                 'strings',
               ],
               'description':
-                  'inventory returns the live per-conversation artifact ledger; otherwise performs the selected file operation.',
+                  'inventory returns the live per-conversation artifact ledger; otherwise performs the selected file operation. '
+                  'move is a DECLARED alias of rename (same implementation — the underlying rename relocates across directories too). The reply echoes back the action you wrote and adds normalizedTo when the two differ, so the normalization is never silent. '
+                  'Write-class actions (write/delete/copy/rename/move/zip/unzip/replace) default to dryRun=true: pass dryRun=false to actually apply. '
+                  'grep/replace read `path` (+ recursive for directories); zip reads `path` + `output`; '
+                  'unzip target directory is outputDir (default <zip name>/ next to the archive). '
+                  'read/write `limit: 0` means unlimited (no clamp).',
             },
             'path': {
               'type': 'string',
               'description':
-                  'Target path (file or directory) in the work directory.',
+                  'Target path (file or directory) in the work directory. When it points to an APK/ZIP file, action=list returns the archive entry listing (name/size/compressedSize/modified) instead of a directory listing.',
+            },
+            'paths': {
+              'type': 'array',
+              'items': {'type': 'string'},
+              'description':
+                  'Batch read: with action=read, up to 8 paths read in ONE call (offset/limit apply to every file). Each item returns its own result object; a missing file stays as an error entry without aborting the batch. Use this instead of looping single reads.',
+            },
+            'entryPrefix': {
+              'type': 'string',
+              'description':
+                  'Optional name-prefix filter for action=list on APK/ZIP archives (e.g. dex/, res/, lib/arm64-v8a/).',
             },
             'sourcePath': {
               'type': 'string',
-              'description': 'Source path for copy/rename.',
+              'description': 'Source path for copy/rename/diff.',
             },
             'targetPath': {
               'type': 'string',
-              'description': 'Target path for copy/rename.',
+              'description': 'Target path for copy/rename/diff.',
+            },
+            'context': {
+              'type': 'integer',
+              'description':
+                  'Context lines around changes for diff (default 3, max 16).',
             },
             'content': {'type': 'string', 'description': 'Content for write.'},
+            'contentEncoding': {
+              'type': 'string',
+              'enum': ['utf8', 'base64', 'hex'],
+              'description':
+                  'Encoding of content for write (default utf8). base64/hex enable binary writes; read returns hexPreview for binary files.',
+            },
             'pattern': {
               'type': 'string',
               'description': 'Regex pattern for grep/replace.',
+            },
+            'include': {
+              'type': 'string',
+              'description':
+                  'action=grep/replace only. Optional comma-separated file-extension filter without dots, e.g. "dart,java,xml"; empty/omitted means no filtering. Applied while walking a directory, so it also bounds how many files are read.',
+            },
+            'maxFileBytes': {
+              'type': 'integer',
+              'description':
+                  'action=grep only. Per-file size ceiling in bytes (default 512MB, max 2GB). Large reference ledgers (Blutter pp.txt/objs.txt) can exceed it; an over-limit file is skipped and listed in skipped[] with reason size_exceeds_limit. count=0 with searchPerformed=false is NOT evidence of absence — raise this and re-run before concluding anything.',
+            },
+            'forceText': {
+              'type': 'boolean',
+              'description':
+                  'action=grep only. Default false runs a text probe (a NUL byte in the first 4096 bytes rejects the file as binary). Set true to grep a file the probe rejected; skipped files are listed with reason non_text_or_binary. This, not a re-run with another tool, is how you search a large ledger that grep refused.',
             },
             'query': {
               'type': 'string',
@@ -1779,17 +2881,17 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
             'offset': {
               'type': 'integer',
               'description':
-                  'Text: 0-based start line. Binary: start byte offset.',
+                  'Text: 0-based start line. Binary: start byte offset. APK/ZIP list: entry offset (default 0, every offset reachable).',
             },
             'limit': {
               'type': 'integer',
               'description':
-                  'Text: max lines. Binary: max bytes. List: max entries.',
+                  'Text: max lines. Binary: max bytes. List: max entries (directory default 200, archive default 200).',
             },
             'dryRun': {
               'type': 'boolean',
               'description':
-                  'true to preview write/delete/copy/rename/zip/replace (default true).',
+                  'true to preview write/delete/copy/rename/zip/replace/mkdir (default true). mkdir is included: dryRun=true returns wouldCreate=true and touches nothing, so pass dryRun=false to actually create the directory.',
             },
             'recursive': {
               'type': 'boolean',
@@ -1803,6 +2905,11 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
               'type': 'string',
               'description': 'Output zip path for zip.',
             },
+            'outputDir': {
+              'type': 'string',
+              'description':
+                  'Target directory for unzip (default: a directory named after the archive, next to it).',
+            },
           },
           'required': ['action'],
         },
@@ -1815,7 +2922,7 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
       'function': {
         'name': LocalToolNames.routeTask,
         'description':
-            '证据路线建议器,不是流程执行器。它按目标给出可独立使用的 DEX、Flutter、Native、资源和产物探针,以及冲突裁决规则；recommended/preferred tools 都是候选而非必经步骤。已有精确 locator 时可跳过 route_task 直接验证。调用后由证据区分力自由选择下一工具,不要机械照顺序执行。',
+            'Evidence-route advisor, not a pipeline runner. It returns independently usable DEX, Flutter, native, resource and artifact probes with conflict-resolution rules; recommended/preferred tools are candidates, never mandatory steps. With an exact locator you may skip route_task and verify directly. After it returns, pick the next tool by discriminating power — do not follow the order mechanically.',
         'parameters': {
           'type': 'object',
           'properties': {
@@ -1829,12 +2936,33 @@ List<Map<String, dynamic>> buildLocalToolSchemas({
       },
     });
   }
-  // SO 全域工具归口 so_analyze（40+ action）；外部原名别名已下线（U11）
+  // 运行时控制面（§7.4 核心控制）：schema 直接取运行时自己的 defs，
+  // **单一来源**，不在工具面再抄第二份（抄一份就必然漂移：声明与分派）。
+  // route_task 已在上方单独声明（它另有专门 handler 与检查点语义），跳过。
+  for (final def in RuntimeTools.defs) {
+    if (def.name == LocalToolNames.routeTask) continue;
+    if (!assistant.localToolIds.contains(def.name)) continue;
+    tools.add(<String, dynamic>{
+      'type': 'function',
+      'function': {
+        'name': def.name,
+        'description': def.description,
+        'parameters': def.parameters,
+      },
+    });
+  }
+  // SO 全域工具归口 so_analyze（40+ action）；外部原名别名已下线（U11）。
+  // analyzer.* 由 AnalyzerToolNames 独立管理（不在 LocalToolRegistry），
+  // 过滤必须放行，否则追加的声明在 return 前被 registeredToolIds 吞掉。
+  // 声明输出的是发布名 analyzer_open（点号名被严格网关拒绝），放行前缀
+  // 相应匹配 analyzer_。
   return tools
-      .where(
-        (tool) => registeredToolIds.contains(
-          (tool['function'] as Map)['name'].toString(),
-        ),
-      )
+      .where((tool) {
+        final name = (tool['function'] as Map)['name'].toString();
+        return registeredToolIds.contains(name) ||
+            name.startsWith('analyzer_') ||
+            // 设备工具（定位/天气/健康/提醒）不登记在注册表里，见上方装配段。
+            DeviceLocalToolSchemas.definitionFor(name) != null;
+      })
       .toList(growable: false);
 }

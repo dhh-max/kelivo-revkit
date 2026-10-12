@@ -4,10 +4,12 @@ import 'package:provider/provider.dart';
 import '../../../icons/lucide_adapter.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../core/models/quick_phrase.dart';
+import '../../../core/providers/assistant_provider.dart';
 import '../../../core/providers/quick_phrase_provider.dart';
 import 'package:uuid/uuid.dart';
-import '../../../core/services/haptics.dart';
+import 'package:Kelivo/shared/services/haptics.dart';
 import '../../../theme/app_font_weights.dart';
+import 'package:Kelivo/theme/app_semantic_colors.dart';
 
 class QuickPhrasesPage extends StatefulWidget {
   const QuickPhrasesPage({super.key, this.assistantId});
@@ -20,10 +22,21 @@ class QuickPhrasesPage extends StatefulWidget {
 }
 
 class _QuickPhrasesPageState extends State<QuickPhrasesPage> {
+  bool _showGlobal = true;
+
   @override
   void initState() {
     super.initState();
-    // Provider will handle loading
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<QuickPhraseProvider>().initialize();
+    });
+  }
+
+  String? _assistantId() {
+    if (widget.assistantId != null) return widget.assistantId;
+    return _showGlobal
+        ? null
+        : context.read<AssistantProvider>().currentAssistantId;
   }
 
   Future<void> _showAddEditSheet({QuickPhrase? phrase}) async {
@@ -40,7 +53,7 @@ class _QuickPhrasesPageState extends State<QuickPhrasesPage> {
       builder: (ctx) {
         return _QuickPhraseEditSheet(
           phrase: phrase,
-          assistantId: widget.assistantId,
+          assistantId: _assistantId(),
         );
       },
     );
@@ -59,8 +72,8 @@ class _QuickPhrasesPageState extends State<QuickPhrasesPage> {
           id: const Uuid().v4(),
           title: title,
           content: content,
-          isGlobal: widget.assistantId == null,
-          assistantId: widget.assistantId,
+          isGlobal: _assistantId() == null,
+          assistantId: _assistantId(),
         );
         await quickPhraseProvider.add(newPhrase);
       } else {
@@ -83,9 +96,13 @@ class _QuickPhrasesPageState extends State<QuickPhrasesPage> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     final quickPhraseProvider = context.watch<QuickPhraseProvider>();
-    final phrases = widget.assistantId == null
+    final currentAssistant = context
+        .watch<AssistantProvider>()
+        .currentAssistant;
+    final assistantId = _assistantId();
+    final phrases = assistantId == null
         ? quickPhraseProvider.globalPhrases
-        : quickPhraseProvider.getForAssistant(widget.assistantId!);
+        : quickPhraseProvider.getForAssistant(assistantId);
 
     return Scaffold(
       appBar: AppBar(
@@ -99,7 +116,7 @@ class _QuickPhrasesPageState extends State<QuickPhrasesPage> {
           ),
         ),
         title: Text(
-          widget.assistantId == null
+          assistantId == null
               ? l10n.quickPhraseGlobalTitle
               : l10n.quickPhraseAssistantTitle,
         ),
@@ -117,202 +134,301 @@ class _QuickPhrasesPageState extends State<QuickPhrasesPage> {
         ],
       ),
       body: phrases.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Lucide.Zap,
-                    size: 64,
-                    color: cs.onSurface.withValues(alpha: 0.3),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    l10n.quickPhraseEmptyMessage,
-                    style: TextStyle(
-                      color: cs.onSurface.withValues(alpha: 0.6),
-                      fontSize: 14,
-                    ),
-                  ),
-                ],
-              ),
+          ? _QuickPhraseEmptyState(
+              l10n: l10n,
+              color: cs.onSurface.withValues(alpha: 0.6),
+              showScopeSwitch: widget.assistantId == null,
+              showGlobal: _showGlobal,
+              assistantName: currentAssistant?.name,
+              onScopeChanged: (global) => setState(() => _showGlobal = global),
             )
-          : ReorderableListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: phrases.length,
-              buildDefaultDragHandles: false,
-              proxyDecorator: (child, index, animation) {
-                // Smooth scale, no shadow/elevation
-                return AnimatedBuilder(
-                  animation: animation,
-                  builder: (context, _) {
-                    final t = Curves.easeOut.transform(animation.value);
-                    return Transform.scale(
-                      scale: 0.98 + 0.02 * t,
-                      child: child,
-                    );
-                  },
-                );
-              },
-              onReorderItem: (oldIndex, newIndex) {
-                // Update immediately for smooth drop animation
-                context.read<QuickPhraseProvider>().reorderPhrases(
-                  oldIndex: oldIndex,
-                  newIndex: newIndex,
-                  assistantId: widget.assistantId,
-                );
-              },
-              itemBuilder: (context, index) {
-                final phrase = phrases[index];
-                return KeyedSubtree(
-                  key: ValueKey('reorder-quick-phrase-${phrase.id}'),
-                  child: ReorderableDelayedDragStartListener(
-                    index: index,
-                    child: Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Slidable(
-                        key: ValueKey(phrase.id),
-                        endActionPane: ActionPane(
-                          motion: const StretchMotion(),
-                          extentRatio: 0.35,
-                          children: [
-                            CustomSlidableAction(
-                              autoClose: true,
-                              backgroundColor: Colors.transparent,
-                              child: Container(
-                                width: double.infinity,
-                                height: double.infinity,
-                                decoration: BoxDecoration(
-                                  color: isDark
-                                      ? cs.error.withValues(alpha: 0.22)
-                                      : cs.error.withValues(alpha: 0.14),
-                                  borderRadius: BorderRadius.circular(14),
-                                  border: Border.all(
-                                    color: cs.error.withValues(alpha: 0.35),
-                                  ),
-                                ),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 8,
-                                ),
-                                alignment: Alignment.center,
-                                child: FittedBox(
-                                  fit: BoxFit.scaleDown,
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        Lucide.Trash2,
-                                        color: cs.error,
-                                        size: 18,
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        l10n.quickPhraseDeleteButton,
-                                        style: TextStyle(
-                                          color: cs.error,
-                                          fontWeight: AppFontWeights.emphasis,
+          : Column(
+              children: [
+                if (widget.assistantId == null)
+                  _QuickPhraseScopeSwitch(
+                    showGlobal: _showGlobal,
+                    assistantName: currentAssistant?.name,
+                    onChanged: (global) => setState(() => _showGlobal = global),
+                  ),
+                Expanded(
+                  child: ReorderableListView.builder(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: phrases.length,
+                    buildDefaultDragHandles: false,
+                    proxyDecorator: (child, index, animation) {
+                      // Smooth scale, no shadow/elevation
+                      return AnimatedBuilder(
+                        animation: animation,
+                        builder: (context, _) {
+                          final t = Curves.easeOut.transform(animation.value);
+                          return Transform.scale(
+                            scale: 0.98 + 0.02 * t,
+                            child: child,
+                          );
+                        },
+                      );
+                    },
+                    onReorderItem: (oldIndex, newIndex) {
+                      // Update immediately for smooth drop animation
+                      context.read<QuickPhraseProvider>().reorderPhrases(
+                        oldIndex: oldIndex,
+                        newIndex: newIndex,
+                        assistantId: assistantId,
+                      );
+                    },
+                    itemBuilder: (context, index) {
+                      final phrase = phrases[index];
+                      return KeyedSubtree(
+                        key: ValueKey('reorder-quick-phrase-${phrase.id}'),
+                        child: ReorderableDelayedDragStartListener(
+                          index: index,
+                          child: Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: Slidable(
+                              key: ValueKey(phrase.id),
+                              endActionPane: ActionPane(
+                                motion: const StretchMotion(),
+                                extentRatio: 0.35,
+                                children: [
+                                  CustomSlidableAction(
+                                    autoClose: true,
+                                    backgroundColor: Colors.transparent,
+                                    child: Container(
+                                      width: double.infinity,
+                                      height: double.infinity,
+                                      decoration: BoxDecoration(
+                                        color: isDark
+                                            ? cs.error.withValues(alpha: 0.22)
+                                            : cs.error.withValues(alpha: 0.14),
+                                        borderRadius: BorderRadius.circular(14),
+                                        border: Border.all(
+                                          color: cs.error.withValues(
+                                            alpha: 0.35,
+                                          ),
                                         ),
                                       ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                              onPressed: (_) => _deletePhrase(phrase),
-                            ),
-                          ],
-                        ),
-                        child: _TactileCard(
-                          pressedScale: 0.98,
-                          onTap: () => _showAddEditSheet(phrase: phrase),
-                          builder: (pressed, overlay) {
-                            final baseBg = isDark
-                                ? Colors.white10
-                                : Colors.white.withValues(alpha: 0.96);
-                            return Container(
-                              decoration: BoxDecoration(
-                                color: Color.alphaBlend(overlay, baseBg),
-                                borderRadius: BorderRadius.circular(14),
-                                border: Border.all(
-                                  color: cs.outlineVariant.withValues(
-                                    alpha: isDark ? 0.1 : 0.08,
-                                  ),
-                                  width: 0.6,
-                                ),
-                              ),
-                              child: Padding(
-                                padding: const EdgeInsets.all(14),
-                                child: Row(
-                                  crossAxisAlignment: CrossAxisAlignment.center,
-                                  children: [
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Row(
-                                            children: [
-                                              Icon(
-                                                Lucide.Zap,
-                                                size: 18,
-                                                color: cs.primary,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 8,
+                                      ),
+                                      alignment: Alignment.center,
+                                      child: FittedBox(
+                                        fit: BoxFit.scaleDown,
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(
+                                              Lucide.Trash2,
+                                              color: cs.error,
+                                              size: 18,
+                                            ),
+                                            const SizedBox(width: 6),
+                                            Text(
+                                              l10n.quickPhraseDeleteButton,
+                                              style: TextStyle(
+                                                color: cs.error,
+                                                fontWeight:
+                                                    AppFontWeights.emphasis,
                                               ),
-                                              const SizedBox(width: 8),
-                                              Expanded(
-                                                child: Text(
-                                                  phrase.title,
-                                                  maxLines: 1,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                    onPressed: (_) => _deletePhrase(phrase),
+                                  ),
+                                ],
+                              ),
+                              child: _TactileCard(
+                                pressedScale: 0.98,
+                                onTap: () => _showAddEditSheet(phrase: phrase),
+                                builder: (pressed, overlay) {
+                                  final baseBg = context.appColors.surfaceCard;
+                                  return Container(
+                                    decoration: BoxDecoration(
+                                      color: Color.alphaBlend(overlay, baseBg),
+                                      borderRadius: BorderRadius.circular(14),
+                                      border: Border.all(
+                                        color: cs.outlineVariant.withValues(
+                                          alpha: isDark ? 0.1 : 0.08,
+                                        ),
+                                        width: 0.6,
+                                      ),
+                                    ),
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(14),
+                                      child: Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.center,
+                                        children: [
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Row(
+                                                  children: [
+                                                    Icon(
+                                                      Lucide.Zap,
+                                                      size: 18,
+                                                      color: cs.primary,
+                                                    ),
+                                                    const SizedBox(width: 8),
+                                                    Expanded(
+                                                      child: Text(
+                                                        phrase.title,
+                                                        maxLines: 1,
+                                                        overflow: TextOverflow
+                                                            .ellipsis,
+                                                        style: TextStyle(
+                                                          fontSize: 15,
+                                                          fontWeight:
+                                                              AppFontWeights
+                                                                  .semibold,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                                const SizedBox(height: 8),
+                                                Text(
+                                                  phrase.content,
+                                                  maxLines: 2,
                                                   overflow:
                                                       TextOverflow.ellipsis,
                                                   style: TextStyle(
-                                                    fontSize: 15,
-                                                    fontWeight:
-                                                        AppFontWeights.semibold,
+                                                    fontSize: 13,
+                                                    color: Theme.of(context)
+                                                        .colorScheme
+                                                        .onSurface
+                                                        .withValues(alpha: 0.7),
                                                   ),
                                                 ),
-                                              ),
-                                            ],
-                                          ),
-                                          const SizedBox(height: 8),
-                                          Text(
-                                            phrase.content,
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: TextStyle(
-                                              fontSize: 13,
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .onSurface
-                                                  .withValues(alpha: 0.7),
+                                              ],
                                             ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Icon(
+                                            Lucide.ChevronRight,
+                                            size: 16,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurface
+                                                .withValues(alpha: 0.5),
                                           ),
                                         ],
                                       ),
                                     ),
-                                    const SizedBox(width: 8),
-                                    Icon(
-                                      Lucide.ChevronRight,
-                                      size: 16,
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .onSurface
-                                          .withValues(alpha: 0.5),
-                                    ),
-                                  ],
-                                ),
+                                  );
+                                },
                               ),
-                            );
-                          },
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
+                      );
+                    },
                   ),
-                );
-              },
+                ),
+              ],
             ),
     );
   }
+}
+
+class _QuickPhraseScopeSwitch extends StatelessWidget {
+  const _QuickPhraseScopeSwitch({
+    required this.showGlobal,
+    required this.assistantName,
+    required this.onChanged,
+  });
+
+  final bool showGlobal;
+  final String? assistantName;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final assistantLabel = (assistantName == null || assistantName!.isEmpty)
+        ? '当前助手'
+        : assistantName!;
+    Widget option({required bool global, required String label}) => Expanded(
+      child: TextButton(
+        onPressed: () => onChanged(global),
+        style: TextButton.styleFrom(
+          foregroundColor: global == showGlobal ? cs.onPrimary : cs.onSurface,
+          backgroundColor: global == showGlobal
+              ? cs.primary
+              : Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
+        child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+      ),
+    );
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHighest.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          option(global: true, label: '全局'),
+          const SizedBox(width: 4),
+          option(global: false, label: assistantLabel),
+        ],
+      ),
+    );
+  }
+}
+
+class _QuickPhraseEmptyState extends StatelessWidget {
+  const _QuickPhraseEmptyState({
+    required this.l10n,
+    required this.color,
+    required this.showScopeSwitch,
+    required this.showGlobal,
+    required this.assistantName,
+    required this.onScopeChanged,
+  });
+
+  final AppLocalizations l10n;
+  final Color color;
+  final bool showScopeSwitch;
+  final bool showGlobal;
+  final String? assistantName;
+  final ValueChanged<bool> onScopeChanged;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      if (showScopeSwitch)
+        _QuickPhraseScopeSwitch(
+          showGlobal: showGlobal,
+          assistantName: assistantName,
+          onChanged: onScopeChanged,
+        ),
+      Expanded(
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Lucide.Zap, size: 64, color: color.withValues(alpha: 0.5)),
+              const SizedBox(height: 16),
+              Text(
+                l10n.quickPhraseEmptyMessage,
+                style: TextStyle(color: color, fontSize: 14),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ],
+  );
 }
 
 class _QuickPhraseEditSheet extends StatefulWidget {
@@ -352,7 +468,6 @@ class _QuickPhraseEditSheetState extends State<_QuickPhraseEditSheet> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return SafeArea(
       top: false,
@@ -396,7 +511,7 @@ class _QuickPhraseEditSheetState extends State<_QuickPhraseEditSheet> {
               decoration: InputDecoration(
                 labelText: l10n.quickPhraseTitleLabel,
                 filled: true,
-                fillColor: isDark ? Colors.white10 : const Color(0xFFF2F3F5),
+                fillColor: context.appColors.surfaceFill,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide(
@@ -425,7 +540,7 @@ class _QuickPhraseEditSheetState extends State<_QuickPhraseEditSheet> {
                 labelText: l10n.quickPhraseContentLabel,
                 alignLabelWithHint: true,
                 filled: true,
-                fillColor: isDark ? Colors.white10 : const Color(0xFFF2F3F5),
+                fillColor: context.appColors.surfaceFill,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide(
@@ -543,9 +658,9 @@ class _TactileCardState extends State<_TactileCard> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final overlay = _pressed
-        ? (isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.05))
+        ? (Theme.of(
+            context,
+          ).colorScheme.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
         : Colors.transparent;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,

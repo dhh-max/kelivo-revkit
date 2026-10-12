@@ -19,12 +19,31 @@ abstract final class MemoryBlockBuilder {
     MemoryType.instruction,
   ];
 
+  /// 是否属于注入范围内的记忆类型。APK 记忆（apk_patch/apk_note）刻意不在
+  /// 注入范围——它们由 APK 工具按需读取，不进每条消息前缀注入。
+  static bool isInjectableType(MemoryType type) => _typeOrder.contains(type);
+
+  /// 单类超过该条数进入 summary 模式（只列最近 [summaryKeep] 条）。
+  static const int summaryThreshold = 30;
+  static const int summaryKeep = 10;
+
+  /// 注入前缀总字符预算：超限停止追加（记忆污染防护，控制上下文成本）。
+  static const int injectionCharBudget = 8000;
+
   static String buildMemoryBlock({
     required List<MemoryEntry> visible,
     required Map<MemoryType, int> totalByType,
     required MemoryPromptLang lang,
+    required int maxItems,
+    /// 记忆 id → 与当前用户消息的相关性分（空表 = 退回纯时间序）。
+    ///
+    /// 取长补短自 ZCode：它按每条记忆的 description 判断 recall 相关性；我们过去
+    /// 只取最近 N 条，相关的老记忆会被新的无关条目挤掉。这里只影响**选哪些条目**
+    /// （含 summary 截断与字符预算），块内展示顺序仍是稳定的类型/时间序。
+    Map<String, int> relevance = const <String, int>{},
   }) {
     final out = StringBuffer();
+    var budgetChars = 0;
     for (final type in _typeOrder) {
       final list = visible.where((e) => e.type == type).toList();
       if (list.isEmpty) {
@@ -33,23 +52,28 @@ abstract final class MemoryBlockBuilder {
       }
 
       final total = totalByType[type] ?? list.length;
-      final summary = total > 30;
-      List<MemoryEntry> selected;
-      if (!summary) {
-        selected = List<MemoryEntry>.from(list);
-      } else {
-        selected = List<MemoryEntry>.from(list)
-          ..sort((a, b) {
-            final byUpdated = b.updatedAt.compareTo(a.updatedAt);
-            if (byUpdated != 0) return byUpdated;
-            return a.id.compareTo(b.id);
-          });
-        if (selected.length > 10) {
-          selected = selected.sublist(0, 10);
-        }
-      }
+      final summary = total > maxItems;
+      // 最近优先：按 updatedAt 降序（新知识排前面，旧记忆可被 summary 截断）
+      final selected = List<MemoryEntry>.from(list)
+        ..sort((a, b) {
+          // 先相关、再时间：相关的老记忆不该被无关的新记忆挤掉。
+          if (relevance.isNotEmpty) {
+            final byRelevance =
+                (relevance[b.id] ?? 0).compareTo(relevance[a.id] ?? 0);
+            if (byRelevance != 0) return byRelevance;
+          }
+          final byUpdated = b.updatedAt.compareTo(a.updatedAt);
+          if (byUpdated != 0) return byUpdated;
+          final byScope = _scopeRank(a.scope).compareTo(_scopeRank(b.scope));
+          if (byScope != 0) return byScope;
+          return a.id.compareTo(b.id);
+        });
+      // summary 模式只列最近 N 条
+      final kept = summary && selected.length > maxItems
+          ? selected.sublist(0, maxItems)
+          : selected;
 
-      selected.sort((a, b) {
+      kept.sort((a, b) {
         final byScope = _scopeRank(a.scope).compareTo(_scopeRank(b.scope));
         if (byScope != 0) return byScope;
         final byCreated = a.createdAt.compareTo(b.createdAt);
@@ -59,17 +83,22 @@ abstract final class MemoryBlockBuilder {
 
       if (summary) {
         out.writeln(
-          '<user_memory type="${MemoryEntry.typeToString(type)}" mode="summary" total="$total">',
+          '<user_memory type="${MemoryEntry.typeToString(type)}" mode="summary" total="$total" shown="${kept.length}">',
         );
       } else {
         out.writeln('<user_memory type="${MemoryEntry.typeToString(type)}">');
       }
 
-      for (final e in selected) {
+      for (final e in kept) {
         final marker = e.scope == MemoryScope.assistant ? '(assistant) ' : '';
-        out.writeln(
-          '- [${fmtDate(e.updatedAt)}] $marker${flatten(escape(e.content))}',
-        );
+        final line =
+            '- [${fmtDate(e.updatedAt)}] $marker${flatten(escape(e.content))}';
+        // 注入 token 预算：超限停止追加，避免记忆前缀撑爆上下文
+        if (budgetChars + line.length > injectionCharBudget) {
+          break; // 注入 token 预算超限：停止追加本条及后续
+        }
+        budgetChars += line.length;
+        out.writeln(line);
       }
 
       if (summary) {
@@ -137,10 +166,39 @@ abstract final class MemoryBlockBuilder {
         '\n';
   }
 
-  /// Exclusive end index of a prefix at the start of [payload], or null.
+  /// 按需注入模式：只输出「类型 → 条数」索引，不输出记忆内容。
+  ///
+  /// 防止历史记忆污染新对话：内容一律由 AI 判断与当前任务相关时，
+  /// 经 memory_read / memory_search_profile 按需拉取。
+  static String buildMemoryHintBlock(Map<MemoryType, int> totalByType) {
+    final buf = StringBuffer('<user_memory_index>\n');
+    var any = false;
+    for (final type in _typeOrder) {
+      final count = totalByType[type] ?? 0;
+      if (count <= 0) continue;
+      buf.writeln('- ${MemoryEntry.typeToString(type)}: $count');
+      any = true;
+    }
+    if (!any) return '<user_memory_index/>\n';
+    buf.writeln('</user_memory_index>');
+    return buf.toString();
+  }
+
+  static String buildOnDemandPrefix(
+    String profileBlock,
+    String hintBlock,
+    MemoryPromptLang lang,
+  ) {
+    return '${MemoryPrompts.introOnDemandFor(lang)}\n'
+        '$profileBlock$hintBlock\n';
+  }
+
+  /// Exclusive end index of a §7.6 prefix at the start of [payload], or null.
   static int? endOfInjectedPrefix(String payload) {
     if (payload.isEmpty) return null;
-    return _endOfUpdatePrefix(payload) ?? _endOfFullPrefix(payload);
+    return _endOfUpdatePrefix(payload) ??
+        _endOfFullPrefix(payload) ??
+        _endOfOnDemandPrefix(payload);
   }
 
   /// Split a frozen user payload into snapshot prefix + remaining user text.
@@ -163,7 +221,54 @@ abstract final class MemoryBlockBuilder {
         kind: 'full',
       );
     }
+    final onDemandEnd = _endOfOnDemandPrefix(payload);
+    if (onDemandEnd != null) {
+      return (
+        prefix: payload.substring(0, onDemandEnd),
+        rest: payload.substring(onDemandEnd),
+        kind: 'on-demand',
+      );
+    }
     return null;
+  }
+
+  /// 按需注入前缀：intro + profile 块 + 索引块（无 `user_memory` 实体块）。
+  ///
+  /// 本 fork 的注入格式，必须与 [buildOnDemandPrefix] 成对维护——漏解析的
+  /// 话旧快照剥不掉，历史里会同时出现过期索引与新索引。
+  static int? _endOfOnDemandPrefix(String payload) {
+    final intro = _leadingIntro(payload, onDemand: true);
+    if (intro == null) return null;
+    var cursor = intro.length;
+    if (payload.startsWith('\n', cursor)) cursor++;
+
+    final profile = _consumeProfileBlock(payload, cursor);
+    if (profile == null) return null;
+    cursor = profile;
+
+    final hintEnd = _consumeMemoryIndexBlock(payload, cursor);
+    if (hintEnd == null) return null;
+    cursor = hintEnd;
+    // [buildOnDemandPrefix] 在索引块后再补一个换行。
+    if (payload.startsWith('\n', cursor)) cursor++;
+    return cursor;
+  }
+
+  static int? _consumeMemoryIndexBlock(String payload, int start) {
+    const empty = '<user_memory_index/>';
+    if (payload.startsWith(empty, start)) {
+      var end = start + empty.length;
+      if (payload.startsWith('\n', end)) end++;
+      return end;
+    }
+    const open = '<user_memory_index>';
+    const close = '</user_memory_index>';
+    if (!payload.startsWith(open, start)) return null;
+    final closeAt = payload.indexOf(close, start + open.length);
+    if (closeAt < 0) return null;
+    var end = closeAt + close.length;
+    if (payload.startsWith('\n', end)) end++;
+    return end;
   }
 
   static int? _endOfUpdatePrefix(String payload) {
@@ -183,9 +288,11 @@ abstract final class MemoryBlockBuilder {
     if (intro == null) return null;
     var cursor = intro.length;
     if (payload.startsWith('\n', cursor)) cursor++;
+
     final profile = _consumeProfileBlock(payload, cursor);
     if (profile == null) return null;
     cursor = profile;
+
     for (final type in _typeOrder) {
       final next = _consumeMemoryBlock(payload, cursor, type);
       if (next == null) return null;
@@ -195,10 +302,18 @@ abstract final class MemoryBlockBuilder {
     return cursor;
   }
 
-  static String? _leadingIntro(String payload, {required bool update}) {
-    final candidates = update
-        ? [MemoryPrompts.introUpdateZh, MemoryPrompts.introUpdateEn]
-        : [MemoryPrompts.introFullZh, MemoryPrompts.introFullEn];
+  static String? _leadingIntro(
+    String payload, {
+    bool update = false,
+    bool onDemand = false,
+  }) {
+    // on-demand 的 intro 以 full 的 intro 开头（「以下内容由系统提供…」是共同
+    // 前缀），所以必须先匹配更长的那个，否则会把 on-demand 前缀截成 full 前缀。
+    final candidates = onDemand
+        ? <String>[MemoryPrompts.introOnDemandZh, MemoryPrompts.introOnDemandEn]
+        : update
+        ? <String>[MemoryPrompts.introUpdateZh, MemoryPrompts.introUpdateEn]
+        : <String>[MemoryPrompts.introFullZh, MemoryPrompts.introFullEn];
     for (final intro in candidates) {
       if (payload.startsWith(intro)) return intro;
     }

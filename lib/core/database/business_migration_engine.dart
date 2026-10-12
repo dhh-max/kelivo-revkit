@@ -57,15 +57,22 @@ final class BusinessMigrationEngine {
 
   Future<BusinessMigrationResult> run() async {
     final legacy = await legacyPreferences.snapshot();
-    final cleanupKeys = _cleanupKeys(legacy.keys);
+    // 首跑：未知键会在本次 run 里被导出进 SQLite，清 legacy 副本安全。
+    final cleanupKeys = _cleanupKeys(legacy.keys, includeUnknown: true);
     if (await repository.hasMigrationReceipt()) {
-      if (cleanupKeys.isEmpty) {
+      // 收据阶段：只清「有 SQLite 副本或明确作废」的键；未知键一律保留
+      // （见 _cleanupKeys 注释：那是应用自有 Store 的运行时写入）。
+      final receiptCleanup = _cleanupKeys(
+        legacy.keys,
+        includeUnknown: false,
+      );
+      if (receiptCleanup.isEmpty) {
         return BusinessMigrationResult.alreadyComplete;
       }
       if (!await _durabilityBarrierAchieved()) {
         return BusinessMigrationResult.deferredCleanup;
       }
-      await _cleanup(cleanupKeys);
+      await _cleanup(receiptCleanup);
       return BusinessMigrationResult.cleanedAfterReceipt;
     }
 
@@ -121,11 +128,33 @@ final class BusinessMigrationEngine {
     }
   }
 
-  static Set<String> _cleanupKeys(Iterable<String> keys) => {
+  /// 迁移完成后该从 legacy 插件 prefs 里清掉的键。
+  ///
+  /// 只清「**存在 SQLite 副本或明确作废**」的键：entity / providerOrder /
+  /// preference（已迁移）；discarded（显式废弃）；首跑时的 unknownPreference
+  /// （同一次 run 刚把它们导出进 SQLite，清 legacy 副本是既有设计）。
+  ///
+  /// **拿到收据之后不再清未知键**：那时的未知键都是应用自有 Store 的运行时写入
+  /// （如 workflows_v1 —— 2026-10-05 事故里每次开机被清、且没有任何副本，
+  /// 表现为「工作流/目标/待办重启即丢」）。发现未知键应该去注册表登记，
+  /// 而不是删数据。localOnly 两阶段都不清。
+  static Set<String> _cleanupKeys(
+    Iterable<String> keys, {
+    required bool includeUnknown,
+  }) => {
     for (final key in keys)
-      if (BusinessKeyRegistry.classify(key) != BusinessKeyDisposition.localOnly)
+      if (_isMigratedDisposition(BusinessKeyRegistry.classify(key)) ||
+          BusinessKeyRegistry.discardedKeys.contains(key) ||
+          (includeUnknown &&
+              BusinessKeyRegistry.classify(key) ==
+                  BusinessKeyDisposition.unknownPreference))
         key,
   };
+
+  static bool _isMigratedDisposition(BusinessKeyDisposition disposition) =>
+      disposition == BusinessKeyDisposition.entity ||
+      disposition == BusinessKeyDisposition.providerOrder ||
+      disposition == BusinessKeyDisposition.preference;
 
   Future<void> _cleanup(Set<String> keys) async {
     final ordered = keys.toList()..sort();

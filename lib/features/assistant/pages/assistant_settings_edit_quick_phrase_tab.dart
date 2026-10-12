@@ -8,182 +8,8 @@ class _QuickPhraseTab extends StatelessWidget {
     BuildContext context, {
     QuickPhrase? phrase,
   }) async {
-    final l10n = AppLocalizations.of(context)!;
     final cs = Theme.of(context).colorScheme;
 
-    // Desktop: custom dialog; Mobile: bottom sheet
-    final platform = Theme.of(context).platform;
-    final isDesktop =
-        platform == TargetPlatform.macOS ||
-        platform == TargetPlatform.linux ||
-        platform == TargetPlatform.windows;
-    if (isDesktop) {
-      await showDialog<void>(
-        context: context,
-        barrierDismissible: true,
-        builder: (ctx) {
-          final titleCtrl = TextEditingController(text: phrase?.title ?? '');
-          final contentCtrl = TextEditingController(
-            text: phrase?.content ?? '',
-          );
-          return Dialog(
-            backgroundColor: cs.surface,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-            insetPadding: const EdgeInsets.symmetric(
-              horizontal: 24,
-              vertical: 24,
-            ),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 560),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  SizedBox(
-                    height: 44,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              phrase == null
-                                  ? l10n.quickPhraseAddTitle
-                                  : l10n.quickPhraseEditTitle,
-                              style: TextStyle(
-                                fontSize: 13.5,
-                                fontWeight: AppFontWeights.emphasis,
-                              ),
-                            ),
-                          ),
-                          IconButton(
-                            tooltip: MaterialLocalizations.of(
-                              ctx,
-                            ).closeButtonTooltip,
-                            icon: const Icon(Lucide.X, size: 18),
-                            color: cs.onSurface,
-                            onPressed: () => Navigator.of(ctx).maybePop(),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        TextField(
-                          controller: titleCtrl,
-                          decoration: InputDecoration(
-                            labelText: l10n.quickPhraseTitleLabel,
-                            filled: true,
-                            fillColor:
-                                Theme.of(ctx).brightness == Brightness.dark
-                                ? Colors.white10
-                                : const Color(0xFFF2F3F5),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(
-                                color: cs.outlineVariant.withValues(alpha: 0.4),
-                              ),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(
-                                color: cs.primary.withValues(alpha: 0.5),
-                              ),
-                            ),
-                          ),
-                          autofocus: true,
-                        ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: contentCtrl,
-                          maxLines: 5,
-                          decoration: InputDecoration(
-                            labelText: l10n.quickPhraseContentLabel,
-                            alignLabelWithHint: true,
-                            filled: true,
-                            fillColor:
-                                Theme.of(ctx).brightness == Brightness.dark
-                                ? Colors.white10
-                                : const Color(0xFFF2F3F5),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(
-                                color: cs.outlineVariant.withValues(alpha: 0.4),
-                              ),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(
-                                color: cs.primary.withValues(alpha: 0.5),
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            _IosButton(
-                              label: l10n.quickPhraseCancelButton,
-                              onTap: () => Navigator.of(ctx).pop(),
-                              filled: false,
-                              neutral: true,
-                              dense: true,
-                            ),
-                            const SizedBox(width: 8),
-                            _IosButton(
-                              label: l10n.quickPhraseSaveButton,
-                              onTap: () async {
-                                final title = titleCtrl.text.trim();
-                                final content = contentCtrl.text.trim();
-                                if (title.isEmpty || content.isEmpty) return;
-                                if (phrase == null) {
-                                  final newPhrase = QuickPhrase(
-                                    id: const Uuid().v4(),
-                                    title: title,
-                                    content: content,
-                                    isGlobal: false,
-                                    assistantId: assistantId,
-                                  );
-                                  await context.read<QuickPhraseProvider>().add(
-                                    newPhrase,
-                                  );
-                                } else {
-                                  await context
-                                      .read<QuickPhraseProvider>()
-                                      .update(
-                                        phrase.copyWith(
-                                          title: title,
-                                          content: content,
-                                        ),
-                                      );
-                                }
-                                if (context.mounted) Navigator.of(ctx).pop();
-                              },
-                              filled: true,
-                              neutral: false,
-                              dense: true,
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      );
-      return;
-    }
     final quickPhraseProvider = context.read<QuickPhraseProvider>();
     final result = await showModalBottomSheet<Map<String, String>?>(
       context: context,
@@ -361,12 +187,10 @@ class _QuickPhraseTab extends StatelessWidget {
                       onTap: () => _showAddEditSheet(context, phrase: phrase),
                       pressedScale: 0.98,
                       builder: (pressed) {
-                        final bg = isDark
-                            ? Colors.white10
-                            : Colors.white.withValues(alpha: 0.96);
-                        final overlay = isDark
-                            ? Colors.white.withValues(alpha: 0.06)
-                            : Colors.black.withValues(alpha: 0.05);
+                        final bg = context.appColors.surfaceCard;
+                        final overlay = cs.onSurface.withValues(
+                          alpha: isDark ? 0.06 : 0.05,
+                        );
                         final pressedBg = Color.alphaBlend(overlay, bg);
                         return Container(
                           decoration: BoxDecoration(
@@ -475,12 +299,8 @@ class _GlassCircleButtonQPState extends State<_GlassCircleButtonQP> {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
-    final glassBase = isDark
-        ? Colors.black.withValues(alpha: 0.06)
-        : Colors.white.withValues(alpha: 0.06);
-    final overlay = isDark
-        ? Colors.white.withValues(alpha: 0.06)
-        : Colors.black.withValues(alpha: 0.05);
+    final glassBase = cs.surface.withValues(alpha: 0.06);
+    final overlay = cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05);
     final tileColor = _pressed
         ? Color.alphaBlend(overlay, glassBase)
         : glassBase;
@@ -562,7 +382,6 @@ class _QuickPhraseEditSheetState extends State<_QuickPhraseEditSheet> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return SafeArea(
       top: false,
@@ -606,7 +425,7 @@ class _QuickPhraseEditSheetState extends State<_QuickPhraseEditSheet> {
               decoration: InputDecoration(
                 labelText: l10n.quickPhraseTitleLabel,
                 filled: true,
-                fillColor: isDark ? Colors.white10 : const Color(0xFFF2F3F5),
+                fillColor: context.appColors.surfaceFill,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide(
@@ -635,7 +454,7 @@ class _QuickPhraseEditSheetState extends State<_QuickPhraseEditSheet> {
                 labelText: l10n.quickPhraseContentLabel,
                 alignLabelWithHint: true,
                 filled: true,
-                fillColor: isDark ? Colors.white10 : const Color(0xFFF2F3F5),
+                fillColor: context.appColors.surfaceFill,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide(

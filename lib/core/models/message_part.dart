@@ -25,6 +25,8 @@ sealed class MessagePart {
         return ImagePart.fromPayload(payload);
       case 'file':
         return FilePart.fromPayload(payload);
+      case 'provider_auth_error':
+        return ProviderAuthErrorPart.fromPayload(payload);
       default:
         return UnknownPart(rawKind: kind, payload: payload);
     }
@@ -33,6 +35,29 @@ sealed class MessagePart {
   String get kind;
 
   String encodePayload();
+}
+
+/// Durable recovery action for an OAuth failure, excluded from model input.
+final class ProviderAuthErrorPart extends MessagePart {
+  const ProviderAuthErrorPart({required this.providerId});
+  factory ProviderAuthErrorPart.fromPayload(String payload) {
+    final data = _decodeObjectPayload(payload);
+    final providerId = data['providerId'];
+    if (providerId is! String || providerId.isEmpty) {
+      throw const _MessagePartFormatException('missing_provider_id');
+    }
+    return ProviderAuthErrorPart(providerId: providerId);
+  }
+  final String providerId;
+  @override
+  String get kind => 'provider_auth_error';
+  @override
+  String encodePayload() => jsonEncode({'providerId': providerId});
+  @override
+  bool operator ==(Object other) =>
+      other is ProviderAuthErrorPart && other.providerId == providerId;
+  @override
+  int get hashCode => providerId.hashCode;
 }
 
 final class TextPart extends MessagePart {
@@ -98,6 +123,7 @@ final class ImagePart extends MessagePart {
     required this.uri,
     this.mime,
     this.assetId,
+    this.id,
     this.unavailable = false,
   });
 
@@ -118,6 +144,9 @@ final class ImagePart extends MessagePart {
   final String uri;
   final String? mime;
   final String? assetId;
+
+  /// Stream image id. Runtime-only — not written to [encodePayload].
+  final String? id;
   final bool unavailable;
 
   @override
@@ -138,10 +167,11 @@ final class ImagePart extends MessagePart {
           uri == other.uri &&
           mime == other.mime &&
           assetId == other.assetId &&
+          id == other.id &&
           unavailable == other.unavailable;
 
   @override
-  int get hashCode => Object.hash(uri, mime, assetId, unavailable);
+  int get hashCode => Object.hash(uri, mime, assetId, id, unavailable);
 }
 
 final class FilePart extends MessagePart {

@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:drift/drift.dart' show Value;
 // ignore: depend_on_referenced_packages
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 
@@ -156,7 +157,7 @@ void main() {
         conversationId: conversation.id,
         payload: 'assistant A memory',
         carriesMemorySnapshot: true,
-        injectedMemoryHash: 'assistant-a-hash',
+        injectedMemoryHash: Value('assistant-a-hash'),
       );
       await repository.putMessagePrompt(
         revisionId: plainMessage.id,

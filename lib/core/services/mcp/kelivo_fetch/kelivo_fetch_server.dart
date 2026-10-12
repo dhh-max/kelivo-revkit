@@ -307,15 +307,17 @@ class KelivoInMemoryClientTransport implements mcp.ClientTransport {
   Future<void> get onClose => _closeCompleter.future;
 
   @override
-  void send(dynamic message) {
-    if (_closed) return;
+  mcp.TransportSendOperation send(dynamic message) {
+    if (_closed) return mcp.TransportSendOperation.completed();
     // Schedule on microtask queue — required because mcp.Client expects
     // responses asynchronously via the onMessage stream, not synchronously.
     // Using Future.microtask avoids blocking the send() caller.
-    _server.handleMessage(message).then((resp) {
+    Future.microtask(() async {
+      final resp = await _server.handleMessage(message);
       if (_closed || resp == null) return;
       _messageController.add(resp);
     });
+    return mcp.TransportSendOperation.completed();
   }
 
   @override

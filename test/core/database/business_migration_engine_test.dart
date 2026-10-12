@@ -68,6 +68,28 @@ void main() {
   );
 
   test(
+    '收据阶段不再清理未知键（应用自有 Store 的运行时写入必须保留）',
+    () async {
+      final legacy = FakeLegacyBusinessPreferences({'theme_mode_v1': 'dark'});
+      final engine = BusinessMigrationEngine(
+        repository: repository,
+        legacyPreferences: legacy,
+      );
+      await engine.run(); // 首跑：拿到收据，theme_mode_v1 的 legacy 副本被清
+      legacy.values['plugin_future_key_v1'] = 'runtime-write';
+      legacy.values['workflows_v1'] = '["wf"]';
+
+      final result = await engine.run();
+
+      // 2026-10-05 事故回归锁：收据阶段的未知键与应用自有 Store 键都不许删
+      // （它们没有 SQLite 副本，删了就是纯数据销毁——「工作流重启丢失」根因）。
+      expect(legacy.values.containsKey('plugin_future_key_v1'), isTrue);
+      expect(legacy.values.containsKey('workflows_v1'), isTrue);
+      expect(result, BusinessMigrationResult.alreadyComplete);
+    },
+  );
+
+  test(
     'receipt makes a retry cleanup-only and never overwrites newer DB data',
     () async {
       final legacy = FakeLegacyBusinessPreferences({'theme_mode_v1': 'dark'});
@@ -277,6 +299,12 @@ void main() {
                     if (kind == BusinessEntityKind.searchService)
                       'type': 'bing_local',
                     if (kind == BusinessEntityKind.ttsService) 'kind': 'openai',
+                    if (kind == BusinessEntityKind.workspace) 'name': 'Project',
+                    if (kind == BusinessEntityKind.skill) ...{
+                      'source': 'file',
+                      'installedAt': '2026-09-08T00:00:00Z',
+                      'updatedAt': '2026-09-08T00:00:00Z',
+                    },
                     'opaque': kind.name,
                   },
               ]),

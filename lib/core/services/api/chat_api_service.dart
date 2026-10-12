@@ -1,60 +1,52 @@
+import '../auth/provider_oauth_service.dart';
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:dio/dio.dart';
 import 'package:http/http.dart' as http;
-import 'package:http_parser/http_parser.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/model_provider.dart';
-import '../../models/token_usage.dart';
-import '../../../utils/sandbox_path_resolver.dart';
-import '../../../utils/app_directories.dart';
-import '../../utils/openai_model_compat.dart';
-import '../network/dio_http_client.dart';
-import 'google_service_account_auth.dart';
-import '../../services/api_key_manager.dart';
-import 'package:Kelivo/secrets/fallback.dart';
-import '../../../utils/markdown_media_sanitizer.dart';
+import '../network/provider_http_client.dart';
 import '../../../utils/unicode_sanitizer.dart';
-import 'builtin_tools.dart';
-import 'gemini_tool_config.dart';
-import '../logging/flutter_logger.dart';
-import '../model_override_resolver.dart';
-import '../model_override_payload_parser.dart';
-import 'provider_request_headers.dart';
+import '../../models/model_spec.dart';
 import '../../utils/multimodal_input_utils.dart';
+import 'generation/text_generation_result.dart';
+import 'generation/tool_loop_runner.dart';
+import 'stream/stream_chunk.dart';
+import 'stream/stream_chunk_handler.dart';
 
-part 'chat_api_service_shims.dart';
-part 'providers/openai_common.dart';
-part 'providers/openai_chat_completions.dart';
-part 'providers/openai_images.dart';
-part 'providers/openai_responses.dart';
-part 'providers/google_common.dart';
-part 'providers/google_gemini.dart';
-part 'providers/google_vertex.dart';
-part 'providers/claude_official.dart';
+import '../../models/auto_retry_options.dart';
+import '../../models/reasoning_request.dart';
+import '../model_spec/model_spec_resolver.dart';
+import 'chat_api_helpers.dart';
+import 'provider_request_headers.dart';
+import 'providers/claude_official.dart';
+import 'providers/google_gemini.dart';
+import 'providers/google_vertex.dart';
+import 'providers/openai_chat_completions.dart';
+import 'providers/openai_images.dart';
+import 'providers/openai_responses.dart';
+import 'providers/zhipu_layout_parsing.dart';
+import 'retry_policy.dart';
+import 'tool_call_cancellation.dart';
+import 'stream/retrying_stream.dart';
+import 'stream/stream_chunk_emit.dart';
 
-typedef ToolCallHandler =
-    Future<String> Function(
-      String name,
-      Map<String, dynamic> args, {
-      String? toolCallId,
-    });
-
-String _effectiveToolCallId(
-  dynamic rawId,
-  String fallbackPrefix,
-  Object index,
-) {
-  final id = rawId?.toString().trim() ?? '';
-  if (id.isNotEmpty) return id;
-  return '${fallbackPrefix}_${DateTime.now().microsecondsSinceEpoch}_$index';
-}
+export 'chat_api_helpers.dart' show ToolCallHandler;
+export 'generation/text_generation_result.dart';
+export 'generation/tool_loop_runner.dart';
+export 'stream/stream_chunk_emit.dart';
 
 class ChatApiService {
-  static const String _aihubmixAppCode = 'ZKRT3588';
   static final Map<String, CancelToken> _activeCancelTokens =
       <String, CancelToken>{};
+
+  @visibleForTesting
+  static bool shouldAttachVertexMediaAuthForTest(Uri uri) =>
+      shouldAttachVertexMediaAuth(uri);
+
+  @visibleForTesting
+  static String normalizeClaudeImageMimeForTest(String mime) =>
+      normalizeClaudeImageMime(mime);
 
   static bool supportsOpenAIImagesApiRouting(
     ProviderConfig config,
@@ -65,7 +57,7 @@ class ChatApiService {
       explicitType: config.providerType,
     );
     return kind == ProviderKind.openai &&
-        _shouldUseOpenAIImagesApi(config, modelId);
+        shouldUseOpenAIImagesApi(config, modelId);
   }
 
   static void cancelRequest(String requestId) {
@@ -78,411 +70,15 @@ class ChatApiService {
     } catch (_) {}
   }
 
-  /// Resolve the upstream/vendor model id for a given logical model key.
-  /// When per-instance overrides specify `apiModelId`, that value is used for
-  /// outbound HTTP requests and vendor-specific heuristics. Otherwise the
-  /// logical `modelId` key is treated as the upstream id (backwards compatible).
-  static String _apiModelId(ProviderConfig cfg, String modelId) {
-    try {
-      final ov = _modelOverride(cfg, modelId);
-      return resolveApiModelIdOverride(ov, modelId);
-    } catch (_) {}
-    return modelId;
-  }
-
-  static String _apiKeyForRequest(ProviderConfig cfg, String modelId) {
-    final orig = _effectiveApiKey(cfg).trim();
-    if (orig.isNotEmpty) return orig;
-    if ((cfg.id) == 'SiliconFlow') {
-      final host = Uri.tryParse(cfg.baseUrl)?.host.toLowerCase() ?? '';
-      if (!host.contains('siliconflow')) return orig;
-      final m = _apiModelId(cfg, modelId).toLowerCase();
-      final allowed = m == 'thudm/glm-4-9b-0414' || m == 'qwen/qwen3-8b';
-      final fallback = siliconflowFallbackKey.trim();
-      if (allowed && fallback.isNotEmpty) {
-        return fallback;
-      }
-    }
-    return orig;
-  }
-
-  static String _effectiveApiKey(ProviderConfig cfg) {
-    try {
-      if (cfg.multiKeyEnabled == true && (cfg.apiKeys?.isNotEmpty == true)) {
-        final sel = ApiKeyManager().selectForProvider(cfg);
-        if (sel.key != null) return sel.key!.key;
-      }
-    } catch (_) {}
-    return cfg.apiKey;
-  }
-
-  // Read built-in tools configured per model (e.g., ['search', 'url_context']).
-  // Stored under ProviderConfig.modelOverrides[modelId].builtInTools.
-  static Set<String> _builtInTools(ProviderConfig cfg, String modelId) {
-    try {
-      return BuiltInToolNames.parseFromOverride(cfg.modelOverrides[modelId]);
-    } catch (_) {}
-    return const <String>{};
-  }
-
-  // Helpers to read per-model overrides (headers/body) from ProviderConfig
-  static Map<String, dynamic> _modelOverride(
-    ProviderConfig cfg,
-    String modelId,
-  ) {
-    return ModelOverridePayloadParser.modelOverride(
-      cfg.modelOverrides,
-      modelId,
-    );
-  }
-
-  static Map<String, String> _customHeaders(
-    ProviderConfig cfg,
-    String modelId,
-  ) {
-    final ov = _modelOverride(cfg, modelId);
-    final out = <String, String>{
-      ...providerDefaultHeaders(cfg),
-      ...ModelOverridePayloadParser.customHeaders(ov),
-    };
-    // AIhubmix promo header (opt-in per-provider)
-    if (_isAihubmix(cfg) && cfg.aihubmixAppCodeEnabled == true) {
-      out.putIfAbsent('APP-Code', () => _aihubmixAppCode);
-    }
-    return out;
-  }
-
-  static dynamic _parseOverrideValue(String v) {
-    return ModelOverridePayloadParser.parseOverrideValue(v);
-  }
-
-  static Map<String, dynamic> _customBody(ProviderConfig cfg, String modelId) {
-    final ov = _modelOverride(cfg, modelId);
-    return ModelOverridePayloadParser.customBody(ov);
-  }
-
-  static bool _isAihubmix(ProviderConfig cfg) {
-    final base = cfg.baseUrl.toLowerCase();
-    return base.contains('aihubmix.com');
-  }
-
-  // Resolve effective model info by respecting per-model overrides; fallback to inference
-  static ModelInfo _effectiveModelInfo(ProviderConfig cfg, String modelId) {
-    final upstreamId = _apiModelId(cfg, modelId);
-    final base = ModelRegistry.infer(
-      ModelInfo(id: upstreamId, displayName: upstreamId),
-    );
-    final ov = _modelOverride(cfg, modelId);
-    if (ov.isEmpty) return base;
-    try {
-      return ModelOverrideResolver.applyModelOverride(base, ov);
-    } catch (e, st) {
-      FlutterLogger.log(
-        '[ModelOverride] applyModelOverride failed: $e\n$st',
-        tag: 'ModelOverride',
-      );
-      return base;
-    }
-  }
-
-  static String _mimeFromPath(String path) {
-    return inferMediaMimeFromSource(path, fallbackMime: 'image/png');
-  }
-
-  static String _mimeFromDataUrl(String dataUrl) {
-    try {
-      final start = dataUrl.indexOf(':');
-      final semi = dataUrl.indexOf(';');
-      if (start >= 0 && semi > start) {
-        return dataUrl.substring(start + 1, semi);
-      }
-    } catch (_) {}
-    return 'image/png';
-  }
-
-  // Simple container for parsed text + image refs
-  static Future<bool> _isValidRemoteImageUrl(String url) async {
-    try {
-      final uri = Uri.tryParse(url);
-      if (uri == null || !(uri.isScheme('http') || uri.isScheme('https'))) {
-        return false;
-      }
-      final client = http.Client();
-      try {
-        final resp = await client.head(uri).timeout(const Duration(seconds: 5));
-        // Treat standard success / redirect as valid; 4xx/5xx (e.g. 404) as invalid.
-        final code = resp.statusCode;
-        if (code >= 200 && code < 400) return true;
-        // Some servers do not support HEAD and may return 405/501; treat them as indeterminate but valid.
-        if (code == 405 || code == 501) return true;
-        return false;
-      } finally {
-        client.close();
-      }
-    } catch (_) {
-      // Network errors / timeouts → treat as invalid so we fall back to plain text.
-      return false;
-    }
-  }
-
-  // Simple container for parsed text + image refs
-  static Future<_ParsedTextAndImages> _parseTextAndImages(
-    String raw, {
-    required bool allowRemoteImages,
-    required bool allowLocalImages,
-    bool allowDataImages = true,
-    bool keepRemoteMarkdownText = true,
-    bool keepDisallowedImageText = true,
-  }) async {
-    if (raw.isEmpty) return const _ParsedTextAndImages('', <_ImageRef>[]);
-    final mdImg = RegExp(r'!\[[^\]]*\]\(([^)]+)\)');
-    // Match custom inline image markers like: [image:/absolute/path.png]
-    // Use a single backslash in a raw string to escape '[' and ']' in regex.
-    final customImg = RegExp(r"\[image:(.+?)\]");
-    final images = <_ImageRef>[];
-    final buf = StringBuffer();
-    int i = 0;
-    while (i < raw.length) {
-      // Skip fenced code blocks (``` or ~~~): content inside is never an image.
-      if ((raw.startsWith('```', i) || raw.startsWith('~~~', i)) &&
-          (i == 0 || raw[i - 1] == '\n')) {
-        final fence = raw.substring(i, i + 3);
-        buf.write(fence);
-        i += 3;
-        // Skip the rest of the opening fence line (language tag, etc.)
-        while (i < raw.length && raw[i] != '\n') {
-          buf.write(raw[i]);
-          i++;
-        }
-        // Advance until the matching closing fence at the start of a line.
-        bool closed = false;
-        while (i < raw.length) {
-          if (raw[i] == '\n') {
-            buf.write(raw[i]);
-            i++;
-            if (raw.startsWith(fence, i)) {
-              buf.write(fence);
-              i += 3;
-              // Skip trailing content on the closing fence line.
-              while (i < raw.length && raw[i] != '\n') {
-                buf.write(raw[i]);
-                i++;
-              }
-              closed = true;
-              break;
-            }
-          } else {
-            buf.write(raw[i]);
-            i++;
-          }
-        }
-        if (!closed) {
-          // Unclosed fence: rest of text was written as-is already.
-        }
-        continue;
-      }
-      // Skip inline code spans (backtick sequences).
-      if (raw[i] == '`') {
-        // Determine the length of the opening backtick sequence.
-        int tickLen = 0;
-        while (i + tickLen < raw.length && raw[i + tickLen] == '`') {
-          tickLen++;
-        }
-        final openTicks = raw.substring(i, i + tickLen);
-        buf.write(openTicks);
-        i += tickLen;
-        // Advance until the matching closing backtick sequence.
-        bool closedTick = false;
-        while (i < raw.length) {
-          if (raw.startsWith(openTicks, i)) {
-            buf.write(openTicks);
-            i += tickLen;
-            closedTick = true;
-            break;
-          }
-          buf.write(raw[i]);
-          i++;
-        }
-        if (!closedTick) {
-          // Unclosed inline code: content was already written.
-        }
-        continue;
-      }
-
-      final m1 = mdImg.matchAsPrefix(raw, i);
-      final m2 = customImg.matchAsPrefix(raw, i);
-      if (m1 != null) {
-        final full = raw.substring(m1.start, m1.end);
-        final url = (m1.group(1) ?? '').trim();
-        if (url.isEmpty) {
-          // Empty URL: treat as plain text, do not try to interpret as image.
-          buf.write(full);
-          i = m1.end;
-          continue;
-        }
-        // Inline base64 / data URLs: always treat as image but keep them out of text.
-        if (url.startsWith('data:')) {
-          if (allowDataImages) {
-            images.add(_ImageRef('data', url));
-          } else if (keepDisallowedImageText) {
-            buf.write(full);
-          }
-          i = m1.end;
-          continue;
-        }
-        // Remote http(s) URLs
-        if (url.startsWith('http://') || url.startsWith('https://')) {
-          if (!allowRemoteImages) {
-            // Model does not accept image input (or we intentionally skip http images):
-            // keep original markdown so the model can see the template.
-            if (keepDisallowedImageText) buf.write(full);
-            i = m1.end;
-            continue;
-          }
-          final ok = await _isValidRemoteImageUrl(url);
-          if (!ok) {
-            // Invalid / unreachable image URL (e.g. 404) → keep as plain text.
-            buf.write(full);
-            i = m1.end;
-            continue;
-          }
-          images.add(_ImageRef('url', url));
-          if (keepRemoteMarkdownText) {
-            // Keep markdown so the model can see template syntax and URL.
-            buf.write(full);
-          }
-          i = m1.end;
-          continue;
-        }
-        // Local / relative path: only treat as image when the file exists.
-        if (!allowLocalImages) {
-          if (keepDisallowedImageText) buf.write(full);
-          i = m1.end;
-          continue;
-        }
-        try {
-          final fixed = SandboxPathResolver.fix(url);
-          final file = File(fixed);
-          if (!file.existsSync()) {
-            // Missing local file: do NOT treat as image; keep original markdown.
-            buf.write(full);
-            i = m1.end;
-            continue;
-          }
-        } catch (_) {
-          // Any error probing the file → fall back to plain text.
-          buf.write(full);
-          i = m1.end;
-          continue;
-        }
-        images.add(_ImageRef('path', url));
-        // For real local files we keep previous behavior: only attach as image, omit markdown from text.
-        i = m1.end;
-        continue;
-      }
-      if (m2 != null) {
-        final full = raw.substring(m2.start, m2.end);
-        final p = (m2.group(1) ?? '').trim();
-        if (p.isEmpty) {
-          buf.write(full);
-          i = m2.end;
-          continue;
-        }
-        if (p.startsWith('data:')) {
-          if (allowDataImages) {
-            images.add(_ImageRef('data', p));
-          } else if (keepDisallowedImageText) {
-            buf.write(full);
-          }
-          i = m2.end;
-          continue;
-        }
-        if (p.startsWith('http://') || p.startsWith('https://')) {
-          if (!allowRemoteImages) {
-            if (keepDisallowedImageText) buf.write(full);
-            i = m2.end;
-            continue;
-          }
-          images.add(_ImageRef('url', p));
-          i = m2.end;
-          continue;
-        }
-        if (!allowLocalImages) {
-          if (keepDisallowedImageText) buf.write(full);
-          i = m2.end;
-          continue;
-        }
-        try {
-          final fixed = SandboxPathResolver.fix(p);
-          final file = File(fixed);
-          if (!file.existsSync()) {
-            buf.write(full);
-            i = m2.end;
-            continue;
-          }
-        } catch (_) {
-          buf.write(full);
-          i = m2.end;
-          continue;
-        }
-        images.add(_ImageRef('path', p));
-        i = m2.end;
-        continue;
-      }
-      buf.write(raw[i]);
-      i++;
-    }
-    return _ParsedTextAndImages(buf.toString().trim(), images);
-  }
-
-  static Future<String> _encodeBase64File(
-    String path, {
-    bool withPrefix = false,
-  }) async {
-    final fixed = SandboxPathResolver.fix(path);
-    final file = File(fixed);
-    final bytes = await file.readAsBytes();
-    final b64 = base64Encode(bytes);
-    if (withPrefix) {
-      final mime = _mimeFromPath(fixed);
-      return 'data:$mime;base64,$b64';
-    }
-    return b64;
-  }
-
-  static String _textFromContentParts(dynamic content) {
-    if (content is String) return content.trim();
-    if (content is! List) return (content ?? '').toString().trim();
-
-    final buffer = StringBuffer();
-    for (final part in content) {
-      if (part is String) {
-        buffer.write(part);
-        continue;
-      }
-      if (part is! Map) continue;
-      final type = (part['type'] ?? '').toString();
-      if (type.isNotEmpty &&
-          type != 'text' &&
-          type != 'input_text' &&
-          type != 'output_text') {
-        continue;
-      }
-      final text = (part['text'] ?? part['content'] ?? '').toString();
-      if (text.isEmpty) continue;
-      if (buffer.isNotEmpty) buffer.write('\n');
-      buffer.write(text);
-    }
-    return buffer.toString().trim();
-  }
-
   static Future<String> _stripImageMarkersFromText(String raw) async {
-    final parsed = await _parseTextAndImages(
+    final parsed = await parseTextAndImages(
       raw,
       allowRemoteImages: false,
       allowLocalImages: false,
       allowDataImages: false,
-      keepRemoteMarkdownText: false,
+      // Remote links are plain text to a text-only model; only the
+      // payload-carrying data:/local forms are dropped.
+      keepRemoteMarkdownText: true,
       keepDisallowedImageText: false,
     );
     return parsed.text;
@@ -491,22 +87,84 @@ class ChatApiService {
   static Future<dynamic> _stripImageInputsFromContent(dynamic content) async {
     if (content is String) return _stripImageMarkersFromText(content);
     if (content is List) {
-      return _stripImageMarkersFromText(_textFromContentParts(content));
+      return _stripImageMarkersFromText(textFromContentParts(content));
     }
     if (content is Map) {
-      return _stripImageMarkersFromText(_textFromContentParts([content]));
+      return _stripImageMarkersFromText(textFromContentParts([content]));
     }
     return content;
   }
 
-  static Future<List<Map<String, dynamic>>> _stripImageInputsFromMessages(
+  static ModelSpec _stripSpecForRequest({
+    required ModelSpec spec,
+    required bool keepImages,
+  }) {
+    if (!keepImages || spec.supportsImageInput) return spec;
+    return spec.copyWith(input: [...spec.input, Modality.image]);
+  }
+
+  static String _mediaRefMime(InternalMediaRef ref) {
+    final explicit = ref.mime?.trim() ?? '';
+    if (explicit.isNotEmpty) return explicit;
+    return inferMediaMimeFromSource(ref.uri);
+  }
+
+  static bool _specAcceptsMime(ModelSpec spec, String mime) {
+    if (isImageMime(mime)) return spec.supportsImageInput;
+    if (isAudioMime(mime)) return spec.supportsAudioInput;
+    if (isVideoMime(mime)) return spec.supportsVideoInput;
+    return true;
+  }
+
+  static bool _specAcceptsMediaPath(ModelSpec spec, String path) {
+    final mime = inferMediaMimeFromSource(path);
+    if (mime.isEmpty) return spec.supportsImageInput;
+    return _specAcceptsMime(spec, mime);
+  }
+
+  static List<String> _filterUserMediaPaths(
+    List<String> paths,
+    ModelSpec spec,
+  ) {
+    return [
+      for (final path in paths)
+        if (_specAcceptsMediaPath(spec, path)) path,
+    ];
+  }
+
+  /// Drops image / audio / video the [spec] cannot accept. Documents stay.
+  @visibleForTesting
+  static Future<List<Map<String, dynamic>>> stripUnsupportedMediaFromMessages(
     List<Map<String, dynamic>> messages,
+    ModelSpec spec,
   ) async {
+    final keepImage = spec.supportsImageInput;
+    final keepAudio = spec.supportsAudioInput;
+    final keepVideo = spec.supportsVideoInput;
+    if (keepImage && keepAudio && keepVideo) return messages;
+
     final out = <Map<String, dynamic>>[];
     for (final message in messages) {
       final copy = Map<String, dynamic>.from(message);
-      copy.remove(multimodalInternalMediaPathsKey);
-      if (copy.containsKey('content')) {
+      if (copy.containsKey(multimodalInternalMediaPathsKey)) {
+        final refs = parseInternalMediaRefs(
+          copy[multimodalInternalMediaPathsKey],
+          includeUnavailable: true,
+        );
+        final kept = [
+          for (final ref in refs)
+            if (_specAcceptsMime(spec, _mediaRefMime(ref))) ref,
+        ];
+        if (kept.isEmpty) {
+          copy.remove(multimodalInternalMediaPathsKey);
+        } else if (kept.length != refs.length) {
+          copy[multimodalInternalMediaPathsKey] = encodeInternalMediaRefs(
+            kept,
+            includeUnavailable: true,
+          );
+        }
+      }
+      if (!keepImage && copy.containsKey('content')) {
         copy['content'] = await _stripImageInputsFromContent(copy['content']);
       }
       out.add(copy);
@@ -514,46 +172,42 @@ class ChatApiService {
     return out;
   }
 
-  static bool _supportsImageInput(ProviderConfig config, String modelId) {
-    return _effectiveModelInfo(config, modelId).input.contains(Modality.image);
+  /// Apply request restrictions after resolving credentials. OAuth resolution
+  /// reloads the stored provider, so a caller's filtered copy is not sufficient.
+  static ProviderConfig _textOnlyConfig(ProviderConfig config, String modelId) {
+    final raw = config.modelOverrides[modelId];
+    final override = raw is Map ? raw : const <String, dynamic>{};
+    return config.copyWith(
+      customBody: const [],
+      modelOverrides: {
+        modelId: {
+          for (final key in [
+            'apiModelId',
+            'api_model_id',
+            'type',
+            'headers',
+            'abilities',
+            'reasoning',
+            'sampling',
+            'contextWindow',
+            'maxOutput',
+            'oauthProtocol',
+          ])
+            if (override.containsKey(key)) key: override[key],
+          'builtInTools': <String>[],
+          'input': ['text'],
+          'output': ['text'],
+        },
+      },
+    );
   }
 
-  static http.Client _clientFor(ProviderConfig cfg, CancelToken cancelToken) {
-    final enabled = cfg.proxyEnabled == true;
-    final host = (cfg.proxyHost ?? '').trim();
-    final portStr = (cfg.proxyPort ?? '').trim();
-    final user = (cfg.proxyUsername ?? '').trim();
-    final pass = (cfg.proxyPassword ?? '').trim();
-    if (enabled && host.isNotEmpty && portStr.isNotEmpty) {
-      final port = int.tryParse(portStr) ?? 8080;
-      return DioHttpClient(
-        proxy: NetworkProxyConfig(
-          enabled: true,
-          type: ProviderConfig.resolveProxyType(cfg.proxyType),
-          host: host,
-          port: port,
-          username: user.isEmpty ? null : user,
-          password: pass.isEmpty ? null : pass,
-        ),
-        cancelToken: cancelToken,
-      );
-    }
-    return DioHttpClient(cancelToken: cancelToken);
-  }
-
-  static String _decodeUtf8Body(
-    http.Response response, {
-    bool allowMalformed = false,
-  }) {
-    return utf8.decode(response.bodyBytes, allowMalformed: allowMalformed);
-  }
-
-  static Stream<ChatStreamChunk> sendMessageStream({
+  static Stream<StreamChunk> sendMessageStream({
     required ProviderConfig config,
     required String modelId,
     required List<Map<String, dynamic>> messages,
     List<String>? userImagePaths,
-    int? thinkingBudget,
+    ReasoningRequest reasoning = ReasoningRequest.auto,
     double? temperature,
     double? topP,
     int? maxTokens,
@@ -563,59 +217,250 @@ class ChatApiService {
     Map<String, dynamic>? extraBody,
     bool stream = true,
     String? requestId,
+    String? conversationId,
     bool allowImagesApiRouting = true,
     bool ocrActive = false,
+    bool builtInSearchOnly = false,
+    bool skipImageParsing = false,
+    bool parseMarkdownImageLinks = true,
+    // Disallow media, tools and body overrides for detached text generation.
+    bool textOnly = false,
+    AutoRetryOptions? retryOverride,
   }) async* {
-    final kind = ProviderConfig.classify(
-      config.id,
-      explicitType: config.providerType,
+    final sessionToken = CancelToken();
+    final toolCancellation = ToolCallCancellation(
+      isCancelled: () => sessionToken.isCancelled,
+      cancelled: _whenCancelled(sessionToken),
     );
-    final cancelToken = CancelToken();
     final rid = (requestId ?? '').trim();
     if (rid.isNotEmpty) {
       final prev = _activeCancelTokens.remove(rid);
       try {
         prev?.cancel('replaced');
       } catch (_) {}
-      _activeCancelTokens[rid] = cancelToken;
+      _activeCancelTokens[rid] = sessionToken;
     }
-    final useOpenAIImagesApi =
-        kind == ProviderKind.openai &&
-        allowImagesApiRouting &&
-        _shouldUseOpenAIImagesApi(config, modelId);
-    final unicodeSafeMessages = _sanitizeMessages(messages);
-    final stripUnsupportedImageInputs =
-        !ocrActive &&
-        !useOpenAIImagesApi &&
-        !_supportsImageInput(config, modelId);
-    final safeMessages = stripUnsupportedImageInputs
-        ? await _stripImageInputsFromMessages(unicodeSafeMessages)
-        : unicodeSafeMessages;
-    final safeUserImagePaths = stripUnsupportedImageInputs
-        ? const <String>[]
-        : userImagePaths;
-    final client = _clientFor(config, cancelToken);
-
     try {
-      if (kind == ProviderKind.openai) {
+      config = await Future.any<ProviderConfig>([
+        ProviderOAuthService.instance.resolve(config),
+        _whenCancelled(sessionToken).then(
+          (_) => throw const ProviderOAuthException(
+            ProviderOAuthFailure.cancelled,
+          ),
+        ),
+      ]);
+      if (sessionToken.isCancelled) return;
+      if (textOnly) config = _textOnlyConfig(config, modelId);
+      if (config.oauthProvider == OAuthProvider.chatgpt) stream = true;
+      if (config.oauthProvider == OAuthProvider.kimi &&
+          (config.modelOverrides[modelId] as Map?)?['oauthProtocol'] ==
+              'anthropic') {
+        config = config.copyWith(providerType: ProviderKind.claude);
+      }
+      final options = retryOverride ?? AutoRetryConfig.current;
+      final sessionHeaders = providerSessionHeaders(
+        config,
+        conversationId: conversationId,
+        extraHeaders: extraHeaders,
+      );
+      final kind = ProviderConfig.classify(
+        config.id,
+        explicitType: config.providerType,
+      );
+      final useOpenAIImagesApi =
+          !textOnly &&
+          kind == ProviderKind.openai &&
+          allowImagesApiRouting &&
+          shouldUseOpenAIImagesApi(config, modelId);
+      final useZhipuLayoutParsing =
+          !textOnly && shouldUseZhipuLayoutParsing(config, modelId);
+      final unicodeSafeMessages = _sanitizeMessages(messages);
+      final spec = _stripSpecForRequest(
+        spec: ModelSpecResolver.instance.spec(config, modelId),
+        keepImages:
+            !textOnly &&
+            (skipImageParsing ||
+                ocrActive ||
+                useOpenAIImagesApi ||
+                useZhipuLayoutParsing),
+      );
+      final safeMessages = await stripUnsupportedMediaFromMessages(
+        unicodeSafeMessages,
+        spec,
+      );
+      final safeUserImagePaths = userImagePaths == null
+          ? null
+          : _filterUserMediaPaths(userImagePaths, spec);
+      final toolHandler = textOnly ? null : onToolCall;
+
+      final imageOutput = ModelSpecResolver.instance
+          .spec(config, modelId)
+          .output
+          .contains(Modality.image);
+      final retryNetworkErrors =
+          !useOpenAIImagesApi && !useZhipuLayoutParsing && !imageOutput;
+      final emitRetryUi = options.enabled && options.maxRetries > 0;
+      Stream<StreamChunk> retryRound(Stream<StreamChunk> Function() sendRound) {
+        return retryingStream<StreamChunk>(
+          options: options,
+          isCancelled: () => sessionToken.isCancelled,
+          cancelled: _whenCancelled(sessionToken),
+          shouldRetry: (error) => shouldRetryError(
+            error,
+            options,
+            retryOnNetworkError: retryNetworkErrors ? null : false,
+          ),
+          retryEvent: emitRetryUi
+              ? (attempt, delay, error) => RetryPending(
+                  attempt: attempt + 1,
+                  maxRetries: options.maxRetries,
+                  delay: delay,
+                  errorText: error.toString(),
+                  retryAt: DateTime.now().add(delay),
+                )
+              : null,
+          attemptStartEvent: emitRetryUi
+              ? () => const RetryAttemptStart()
+              : null,
+          attempt: (_) => carrySplitSurrogates(sendRound()),
+        );
+      }
+
+      yield* retryRound(
+        () => _sendOnce(
+          config: config,
+          modelId: modelId,
+          messages: safeMessages,
+          userImagePaths: safeUserImagePaths,
+          reasoning: reasoning,
+          temperature: temperature,
+          topP: topP,
+          maxTokens: maxTokens,
+          tools: textOnly ? null : tools,
+          onToolCall: toolHandler == null
+              ? null
+              : (name, args, {toolCallId}) => toolCancellation.run(
+                  () => toolHandler(name, args, toolCallId: toolCallId),
+                ),
+          extraHeaders: sessionHeaders,
+          extraBody: textOnly ? null : extraBody,
+          conversationId: conversationId,
+          stream: stream,
+          builtInSearchOnly: builtInSearchOnly,
+          skipImageParsing:
+              textOnly || skipImageParsing || !parseMarkdownImageLinks,
+          kind: kind,
+          useOpenAIImagesApi: useOpenAIImagesApi,
+          useZhipuLayoutParsing: useZhipuLayoutParsing,
+          sessionToken: sessionToken,
+          retryRound: retryRound,
+        ),
+      );
+    } finally {
+      if (rid.isNotEmpty) {
+        final cur = _activeCancelTokens[rid];
+        if (identical(cur, sessionToken)) {
+          _activeCancelTokens.remove(rid);
+        }
+      }
+    }
+  }
+
+  static Future<void> _whenCancelled(CancelToken token) async {
+    try {
+      await token.whenCancel;
+    } catch (_) {}
+  }
+
+  static void _bridgeCancel(CancelToken parent, CancelToken child) {
+    if (parent.isCancelled) {
+      if (!child.isCancelled) {
+        try {
+          child.cancel('cancelled');
+        } catch (_) {}
+      }
+      return;
+    }
+    parent.whenCancel.then(
+      (_) {
+        if (!child.isCancelled) {
+          try {
+            child.cancel('cancelled');
+          } catch (_) {}
+        }
+      },
+      onError: (_) {
+        if (!child.isCancelled) {
+          try {
+            child.cancel('cancelled');
+          } catch (_) {}
+        }
+      },
+    );
+  }
+
+  static Stream<StreamChunk> _sendOnce({
+    required ProviderConfig config,
+    String? conversationId,
+    required String modelId,
+    required List<Map<String, dynamic>> messages,
+    List<String>? userImagePaths,
+    ReasoningRequest reasoning = ReasoningRequest.auto,
+    double? temperature,
+    double? topP,
+    int? maxTokens,
+    List<Map<String, dynamic>>? tools,
+    ToolCallHandler? onToolCall,
+    Map<String, String>? extraHeaders,
+    Map<String, dynamic>? extraBody,
+    required bool stream,
+    required bool builtInSearchOnly,
+    required bool skipImageParsing,
+    required ProviderKind kind,
+    required bool useOpenAIImagesApi,
+    required bool useZhipuLayoutParsing,
+    required CancelToken sessionToken,
+    required StreamRoundRunner retryRound,
+  }) async* {
+    if (sessionToken.isCancelled) {
+      throw http.ClientException('cancelled');
+    }
+    final cancelToken = CancelToken();
+    _bridgeCancel(sessionToken, cancelToken);
+    final client = ProviderOAuthService.instance.authenticatedClient(
+      providerHttpClient(config, cancelToken: cancelToken),
+      config,
+    );
+    try {
+      if (useZhipuLayoutParsing) {
+        yield* sendZhipuLayoutParsingStream(
+          client,
+          config,
+          modelId,
+          messages,
+          userImagePaths: userImagePaths,
+          extraHeaders: extraHeaders,
+        );
+      } else if (kind == ProviderKind.openai) {
         if (useOpenAIImagesApi) {
-          yield* _sendOpenAIImagesStream(
+          yield* sendOpenAIImagesStream(
             client,
             config,
             modelId,
-            safeMessages,
-            userImagePaths: safeUserImagePaths,
+            messages,
+            userImagePaths: userImagePaths,
             extraHeaders: extraHeaders,
             extraBody: extraBody,
           );
         } else if (config.useResponseApi == true) {
-          yield* _sendOpenAIResponsesStream(
+          yield* sendOpenAIResponsesStream(
             client,
             config,
             modelId,
-            safeMessages,
-            userImagePaths: safeUserImagePaths,
-            thinkingBudget: thinkingBudget,
+            messages,
+            conversationId: conversationId,
+            userImagePaths: userImagePaths,
+            reasoning: reasoning,
             temperature: temperature,
             topP: topP,
             maxTokens: maxTokens,
@@ -624,15 +469,19 @@ class ChatApiService {
             extraHeaders: extraHeaders,
             extraBody: extraBody,
             stream: stream,
+            builtInSearchOnly: builtInSearchOnly,
+            skipImageParsing: skipImageParsing,
+            retryRound: retryRound,
           );
         } else {
-          yield* _sendOpenAIChatCompletionsStream(
+          yield* sendOpenAIChatCompletionsStream(
             client,
             config,
             modelId,
-            safeMessages,
-            userImagePaths: safeUserImagePaths,
-            thinkingBudget: thinkingBudget,
+            messages,
+            conversationId: conversationId,
+            userImagePaths: userImagePaths,
+            reasoning: reasoning,
             temperature: temperature,
             topP: topP,
             maxTokens: maxTokens,
@@ -641,16 +490,19 @@ class ChatApiService {
             extraHeaders: extraHeaders,
             extraBody: extraBody,
             stream: stream,
+            builtInSearchOnly: builtInSearchOnly,
+            skipImageParsing: skipImageParsing,
+            retryRound: retryRound,
           );
         }
       } else if (kind == ProviderKind.claude) {
-        yield* _sendClaudeStream(
+        yield* sendClaudeStream(
           client,
           config,
           modelId,
-          safeMessages,
-          userImagePaths: safeUserImagePaths,
-          thinkingBudget: thinkingBudget,
+          messages,
+          userImagePaths: userImagePaths,
+          reasoning: reasoning,
           temperature: temperature,
           topP: topP,
           maxTokens: maxTokens,
@@ -659,19 +511,22 @@ class ChatApiService {
           extraHeaders: extraHeaders,
           extraBody: extraBody,
           stream: stream,
+          builtInSearchOnly: builtInSearchOnly,
+          skipImageParsing: skipImageParsing,
+          retryRound: retryRound,
         );
       } else if (kind == ProviderKind.google) {
         final isVertex = config.vertexAI == true;
         final isVertexClaude =
             isVertex && modelId.toLowerCase().startsWith('claude-');
         if (isVertexClaude) {
-          yield* _sendGoogleVertexClaudeStream(
+          yield* sendGoogleVertexClaudeStream(
             client: client,
             config: config,
             modelId: modelId,
-            messages: safeMessages,
-            userImagePaths: safeUserImagePaths,
-            thinkingBudget: thinkingBudget,
+            messages: messages,
+            userImagePaths: userImagePaths,
+            reasoning: reasoning,
             temperature: temperature,
             topP: topP,
             maxTokens: maxTokens,
@@ -680,15 +535,17 @@ class ChatApiService {
             extraHeaders: extraHeaders,
             extraBody: extraBody,
             stream: stream,
+            skipImageParsing: skipImageParsing,
+            retryRound: retryRound,
           );
         } else if (isVertex) {
-          yield* _sendGoogleVertexStream(
+          yield* sendGoogleVertexStream(
             client,
             config,
             modelId,
-            safeMessages,
-            userImagePaths: safeUserImagePaths,
-            thinkingBudget: thinkingBudget,
+            messages,
+            userImagePaths: userImagePaths,
+            reasoning: reasoning,
             temperature: temperature,
             topP: topP,
             maxTokens: maxTokens,
@@ -697,15 +554,17 @@ class ChatApiService {
             extraHeaders: extraHeaders,
             extraBody: extraBody,
             stream: stream,
+            skipImageParsing: skipImageParsing,
+            retryRound: retryRound,
           );
         } else {
-          yield* _sendGoogleGeminiStream(
+          yield* sendGoogleGeminiStream(
             client,
             config,
             modelId,
-            safeMessages,
-            userImagePaths: safeUserImagePaths,
-            thinkingBudget: thinkingBudget,
+            messages,
+            userImagePaths: userImagePaths,
+            reasoning: reasoning,
             temperature: temperature,
             topP: topP,
             maxTokens: maxTokens,
@@ -714,18 +573,76 @@ class ChatApiService {
             extraHeaders: extraHeaders,
             extraBody: extraBody,
             stream: stream,
+            skipImageParsing: skipImageParsing,
+            retryRound: retryRound,
           );
         }
       }
     } finally {
       client.close();
-      if (rid.isNotEmpty) {
-        final cur = _activeCancelTokens[rid];
-        if (identical(cur, cancelToken)) {
-          _activeCancelTokens.remove(rid);
-        }
-      }
     }
+  }
+
+  /// Non-stream generation folded through [StreamChunkHandler].
+  static Future<TextGenerationResult> generateMessage({
+    required ProviderConfig config,
+    required String modelId,
+    required List<Map<String, dynamic>> messages,
+    List<String>? userImagePaths,
+    ReasoningRequest reasoning = ReasoningRequest.auto,
+    double? temperature,
+    double? topP,
+    int? maxTokens,
+    List<Map<String, dynamic>>? tools,
+    ToolCallHandler? onToolCall,
+    Map<String, String>? extraHeaders,
+    Map<String, dynamic>? extraBody,
+    String? requestId,
+    String? conversationId,
+    bool allowImagesApiRouting = true,
+    bool ocrActive = false,
+    bool builtInSearchOnly = false,
+    bool skipImageParsing = false,
+    bool parseMarkdownImageLinks = true,
+    bool textOnly = false,
+    AutoRetryOptions? retryOverride,
+    void Function(RetryPending? pending)? onRetry,
+    void Function(Usage update)? onUsage,
+  }) async {
+    final handler = StreamChunkHandler(
+      onRetry: onRetry == null ? null : (pending) => onRetry(pending),
+    );
+    await for (final chunk in sendMessageStream(
+      config: config,
+      modelId: modelId,
+      messages: messages,
+      userImagePaths: userImagePaths,
+      reasoning: reasoning,
+      temperature: temperature,
+      topP: topP,
+      maxTokens: maxTokens,
+      tools: tools,
+      onToolCall: onToolCall,
+      extraHeaders: extraHeaders,
+      extraBody: extraBody,
+      stream: false,
+      requestId: requestId,
+      conversationId: conversationId,
+      allowImagesApiRouting: allowImagesApiRouting,
+      ocrActive: ocrActive,
+      builtInSearchOnly: builtInSearchOnly,
+      skipImageParsing: skipImageParsing,
+      parseMarkdownImageLinks: parseMarkdownImageLinks,
+      textOnly: textOnly,
+      retryOverride: retryOverride,
+    )) {
+      if (chunk is RetryAttemptStart) {
+        onRetry?.call(null);
+      }
+      handler.handle(chunk);
+      if (chunk is Usage) onUsage?.call(chunk);
+    }
+    return handler.toResult();
   }
 
   // Non-streaming text generation for utilities like title summarization
@@ -733,415 +650,29 @@ class ChatApiService {
     required ProviderConfig config,
     required String modelId,
     required String prompt,
+    String? conversationId,
     Map<String, String>? extraHeaders,
     Map<String, dynamic>? extraBody,
-    int? thinkingBudget,
+    ReasoningRequest reasoning = ReasoningRequest.auto,
+    bool skipImageParsing = false,
   }) async {
-    final kind = ProviderConfig.classify(
-      config.id,
-      explicitType: config.providerType,
+    final result = await generateMessage(
+      config: config,
+      modelId: modelId,
+      conversationId: conversationId,
+      messages: [
+        {'role': 'user', 'content': prompt},
+      ],
+      extraHeaders: extraHeaders,
+      extraBody: extraBody,
+      reasoning: reasoning,
+      // Utility calls only ever want search; never image generation or a
+      // code interpreter.
+      builtInSearchOnly: true,
+      skipImageParsing: skipImageParsing,
+      allowImagesApiRouting: !skipImageParsing,
     );
-    final client = _clientFor(config, CancelToken());
-    final upstreamModelId = _apiModelId(config, modelId);
-    final safePrompt = UnicodeSanitizer.sanitize(prompt);
-    try {
-      if (kind == ProviderKind.openai) {
-        final url = _openAICompatibleUrl(config);
-        Map<String, dynamic> body;
-        final effectiveInfo = _effectiveModelInfo(config, modelId);
-        final isReasoning = effectiveInfo.abilities.contains(
-          ModelAbility.reasoning,
-        );
-        final effort = _openAIEffortForBudget(thinkingBudget, upstreamModelId);
-        final info = _OpenAIProviderInfo(
-          host: Uri.tryParse(config.baseUrl)?.host.toLowerCase() ?? '',
-          providerId: config.id.toLowerCase(),
-          upstreamModelId: upstreamModelId,
-        );
-        if (config.useResponseApi == true) {
-          // Inject built-in web_search tool when enabled and supported
-          final toolsList = <Map<String, dynamic>>[];
-          bool isResponsesWebSearchSupported(String id) {
-            if (BuiltInToolsHelper.isOpenAIResponsesBuiltInSearchSupportedModel(
-              id,
-            )) {
-              return true;
-            }
-            if (BuiltInToolsHelper.isDashScopeProvider(config)) {
-              return BuiltInToolsHelper.isDashScopeResponsesBuiltInSearchSupportedModel(
-                id,
-              );
-            }
-            return false;
-          }
-
-          if (isResponsesWebSearchSupported(upstreamModelId)) {
-            final builtIns = _builtInTools(config, modelId);
-            if (builtIns.contains(BuiltInToolNames.search)) {
-              if (BuiltInToolsHelper.isDashScopeProvider(config)) {
-                toolsList.add({'type': 'web_search'});
-              } else {
-                Map<String, dynamic> ws = const <String, dynamic>{};
-                try {
-                  final ov = config.modelOverrides[modelId];
-                  if (ov is Map && ov['webSearch'] is Map) {
-                    ws = (ov['webSearch'] as Map).cast<String, dynamic>();
-                  }
-                } catch (_) {}
-                final usePreview =
-                    (ws['preview'] == true) ||
-                    ((ws['tool'] ?? '').toString() == 'preview');
-                final entry = <String, dynamic>{
-                  'type': usePreview ? 'web_search_preview' : 'web_search',
-                };
-                if (ws['allowed_domains'] is List &&
-                    (ws['allowed_domains'] as List).isNotEmpty) {
-                  entry['filters'] = {
-                    'allowed_domains': List<String>.from(
-                      (ws['allowed_domains'] as List).map((e) => e.toString()),
-                    ),
-                  };
-                }
-                if (ws['user_location'] is Map) {
-                  entry['user_location'] = (ws['user_location'] as Map)
-                      .cast<String, dynamic>();
-                }
-                if (usePreview && ws['search_context_size'] is String) {
-                  entry['search_context_size'] = ws['search_context_size'];
-                }
-                toolsList.add(entry);
-              }
-            }
-          }
-          body = {
-            'model': upstreamModelId,
-            'input': [
-              {'role': 'user', 'content': safePrompt},
-            ],
-            if (toolsList.isNotEmpty)
-              'tools': _toResponsesToolsFormat(toolsList),
-            if (toolsList.isNotEmpty) 'tool_choice': 'auto',
-            if (isReasoning && effort != 'off')
-              'reasoning': {
-                'summary': 'auto',
-                if (effort != 'auto') 'effort': effort,
-              },
-          };
-        } else {
-          body = {
-            'model': upstreamModelId,
-            'messages': [
-              {'role': 'user', 'content': safePrompt},
-            ],
-            'temperature': 0.3,
-            if (isReasoning && effort != 'off' && effort != 'auto')
-              'reasoning_effort': effort,
-          };
-        }
-        _applyCompatibleBuiltInSearch(
-          body,
-          config: config,
-          modelId: modelId,
-          upstreamModelId: upstreamModelId,
-        );
-        _applyOpenRouterClaudePromptCaching(
-          body,
-          config: config,
-          upstreamModelId: upstreamModelId,
-        );
-        _applyCompatibleResponsesReasoning(
-          body,
-          config: config,
-          modelId: modelId,
-          upstreamModelId: upstreamModelId,
-          isReasoning: isReasoning,
-          thinkingBudget: thinkingBudget,
-        );
-        final headers = <String, String>{
-          'Authorization': 'Bearer ${_apiKeyForRequest(config, modelId)}',
-          'Content-Type': 'application/json',
-        };
-        headers.addAll(_customHeaders(config, modelId));
-        if (extraHeaders != null && extraHeaders.isNotEmpty) {
-          headers.addAll(extraHeaders);
-        }
-        final extra = _customBody(config, modelId);
-        if (extra.isNotEmpty) body.addAll(extra);
-        if (extraBody != null && extraBody.isNotEmpty) {
-          (extraBody).forEach((k, v) {
-            body[k] = (v is String) ? _parseOverrideValue(v) : v;
-          });
-        }
-        // Vendor-specific reasoning knobs for chat-completions compatible hosts (non-streaming)
-        if (config.useResponseApi != true) {
-          _applyVendorReasoningKnobs(
-            body,
-            info: info,
-            isReasoning: isReasoning,
-            thinkingBudget: thinkingBudget,
-          );
-          if (info.isKimiThinkingModel) {
-            _normalizeMoonshotKimiChatBody(
-              body,
-              upstreamModelId: upstreamModelId,
-              isReasoning: isReasoning,
-              thinkingBudget: thinkingBudget,
-            );
-          }
-        }
-        // Ensure Responses tools use the flattened schema even if supplied via overrides
-        try {
-          if (config.useResponseApi == true && body['tools'] is List) {
-            final raw = (body['tools'] as List).cast<dynamic>();
-            body['tools'] = _toResponsesToolsFormat(
-              raw.map((e) => (e as Map).cast<String, dynamic>()).toList(),
-            );
-          }
-        } catch (_) {}
-        _sanitizeOpenAIGpt5SamplingParams(
-          body,
-          upstreamModelId,
-          fallbackEffort: effort,
-          isOpenRouter: info.isOpenRouter,
-        );
-        final resp = await client.post(
-          url,
-          headers: headers,
-          body: jsonEncode(body),
-        );
-        if (resp.statusCode < 200 || resp.statusCode >= 300) {
-          final responseText = _decodeUtf8Body(resp, allowMalformed: true);
-          throw HttpException('HTTP ${resp.statusCode}: $responseText');
-        }
-        final responseText = _decodeUtf8Body(resp);
-        final data = jsonDecode(responseText);
-        if (config.useResponseApi == true) {
-          // Prefer SDK-style convenience when present
-          final ot = data['output_text'];
-          if (ot is String && ot.isNotEmpty) return ot;
-          // Aggregate text from `output` list of message blocks
-          final out = data['output'];
-          if (out is List) {
-            final buf = StringBuffer();
-            for (final item in out) {
-              if (item is! Map) continue;
-              final content = item['content'];
-              if (content is List) {
-                for (final c in content) {
-                  if (c is Map &&
-                      (c['type'] == 'output_text') &&
-                      (c['text'] is String)) {
-                    buf.write(c['text']);
-                  }
-                }
-              }
-            }
-            final s = buf.toString();
-            if (s.isNotEmpty) return s;
-          }
-          return '';
-        } else {
-          final choices = data['choices'] as List?;
-          if (choices != null && choices.isNotEmpty) {
-            final msg = choices.first['message'];
-            return (msg?['content'] ?? '').toString();
-          }
-          return '';
-        }
-      } else if (kind == ProviderKind.claude) {
-        final base = config.baseUrl.endsWith('/')
-            ? config.baseUrl.substring(0, config.baseUrl.length - 1)
-            : config.baseUrl;
-        final url = Uri.parse('$base/messages');
-        final effectiveInfo = _effectiveModelInfo(config, modelId);
-        final isReasoning = effectiveInfo.abilities.contains(
-          ModelAbility.reasoning,
-        );
-        final omitSamplingParams = _claudeShouldOmitSamplingParams(
-          upstreamModelId,
-          thinkingBudget,
-        );
-        final thinking = isReasoning
-            ? _claudeThinkingConfig(
-                upstreamModelId,
-                thinkingBudget,
-                config: config,
-              )
-            : null;
-        final outputConfig = isReasoning
-            ? _claudeOutputConfig(
-                upstreamModelId,
-                thinkingBudget,
-                config: config,
-              )
-            : null;
-        final body = <String, dynamic>{
-          'model': upstreamModelId,
-          'max_tokens': 512,
-          if (!omitSamplingParams && !_isClaudeReasoningEnabled(thinkingBudget))
-            'temperature': 0.3,
-          'messages': [
-            {'role': 'user', 'content': safePrompt},
-          ],
-          if (thinking != null) 'thinking': thinking,
-          if (outputConfig != null) 'output_config': outputConfig,
-        };
-        final headers = <String, String>{
-          'x-api-key': _apiKeyForRequest(config, modelId),
-          'anthropic-version': '2023-06-01',
-          'Content-Type': 'application/json',
-        };
-        headers.addAll(_customHeaders(config, modelId));
-        if (extraHeaders != null && extraHeaders.isNotEmpty) {
-          headers.addAll(extraHeaders);
-        }
-        final extra = _customBody(config, modelId);
-        if (extra.isNotEmpty) body.addAll(extra);
-        if (extraBody != null && extraBody.isNotEmpty) {
-          (extraBody).forEach((k, v) {
-            body[k] = (v is String) ? _parseOverrideValue(v) : v;
-          });
-        }
-        final resp = await client.post(
-          url,
-          headers: headers,
-          body: jsonEncode(body),
-        );
-        if (resp.statusCode < 200 || resp.statusCode >= 300) {
-          final responseText = _decodeUtf8Body(resp, allowMalformed: true);
-          throw HttpException('HTTP ${resp.statusCode}: $responseText');
-        }
-        final responseText = _decodeUtf8Body(resp);
-        final data = jsonDecode(responseText);
-        final content = data['content'] as List?;
-        if (content != null && content.isNotEmpty) {
-          final buf = StringBuffer();
-          for (final item in content) {
-            if (item is! Map) continue;
-            if ((item['type'] ?? '').toString() != 'text') continue;
-            final text = item['text'];
-            if (text is String && text.isNotEmpty) {
-              buf.write(text);
-            }
-          }
-          return buf.toString();
-        }
-        return '';
-      } else {
-        // Google
-        // Check for Vertex AI Claude models (prefix "claude-")
-        if ((config.vertexAI == true) &&
-            modelId.toLowerCase().startsWith('claude-')) {
-          // Reuse existing streaming method but buffer the output for non-streaming
-          final stream = _sendGoogleVertexClaudeStream(
-            client: client,
-            config: config,
-            modelId: modelId,
-            messages: [
-              {'role': 'user', 'content': prompt},
-            ],
-            extraHeaders: extraHeaders,
-            extraBody: extraBody,
-            thinkingBudget: thinkingBudget,
-            stream: false,
-          );
-          final chunk = await stream.last;
-          return chunk.content;
-        }
-
-        String url;
-        if (config.vertexAI == true &&
-            (config.location?.isNotEmpty == true) &&
-            (config.projectId?.isNotEmpty == true)) {
-          final loc = config.location!;
-          final proj = config.projectId!;
-          url =
-              'https://aiplatform.googleapis.com/v1/projects/$proj/locations/$loc/publishers/google/models/$upstreamModelId:generateContent';
-        } else {
-          final base = config.baseUrl.endsWith('/')
-              ? config.baseUrl.substring(0, config.baseUrl.length - 1)
-              : config.baseUrl;
-          url = '$base/models/$upstreamModelId:generateContent';
-        }
-        final body = <String, dynamic>{
-          'contents': [
-            {
-              'role': 'user',
-              'parts': [
-                {'text': safePrompt},
-              ],
-            },
-          ],
-          'generationConfig': {'temperature': 0.3},
-        };
-
-        // Inject Gemini built-in tools with version-aware mutual exclusion.
-        // Gemini 2.x: code_execution is exclusive (cannot coexist with others).
-        // Gemini 3: all built-in tools can coexist.
-        final builtIns = _builtInTools(config, modelId);
-        if (builtIns.isNotEmpty) {
-          final bool isGemini3 = upstreamModelId.toLowerCase().contains(
-            'gemini-3',
-          );
-          final toolsArr = _buildGeminiToolsArray(
-            builtIns: builtIns,
-            allowCoexistence: isGemini3,
-          );
-          if (toolsArr.isNotEmpty) {
-            body['tools'] = toolsArr;
-          }
-        }
-        final headers = <String, String>{'Content-Type': 'application/json'};
-        // Add API Key header for non-Vertex
-        if (!(config.vertexAI == true)) {
-          final apiKey = _apiKeyForRequest(config, modelId);
-          if (apiKey.isNotEmpty) {
-            headers['x-goog-api-key'] = apiKey;
-          }
-        }
-        // Add Bearer for Vertex via service account JSON
-        if (config.vertexAI == true) {
-          final token = await _maybeVertexAccessToken(config);
-          if (token != null && token.isNotEmpty) {
-            headers['Authorization'] = 'Bearer $token';
-          }
-          final proj = (config.projectId ?? '').trim();
-          if (proj.isNotEmpty) headers['X-Goog-User-Project'] = proj;
-        }
-        headers.addAll(_customHeaders(config, modelId));
-        if (extraHeaders != null && extraHeaders.isNotEmpty) {
-          headers.addAll(extraHeaders);
-        }
-        final extra = _customBody(config, modelId);
-        if (extra.isNotEmpty) body.addAll(extra);
-        if (extraBody != null && extraBody.isNotEmpty) {
-          (extraBody).forEach((k, v) {
-            body[k] = (v is String) ? _parseOverrideValue(v) : v;
-          });
-        }
-        final resp = await client.post(
-          Uri.parse(url),
-          headers: headers,
-          body: jsonEncode(body),
-        );
-        if (resp.statusCode < 200 || resp.statusCode >= 300) {
-          final responseText = _decodeUtf8Body(resp, allowMalformed: true);
-          throw HttpException('HTTP ${resp.statusCode}: $responseText');
-        }
-        final responseText = _decodeUtf8Body(resp);
-        final data = jsonDecode(responseText);
-        final candidates = data['candidates'] as List?;
-        if (candidates != null && candidates.isNotEmpty) {
-          final parts = candidates.first['content']?['parts'] as List?;
-          if (parts != null && parts.isNotEmpty) {
-            return (parts.first['text'] ?? '').toString();
-          }
-        }
-        return '';
-      }
-    } finally {
-      client.close();
-    }
+    return result.text;
   }
 
   static List<Map<String, dynamic>> _sanitizeMessages(
@@ -1167,359 +698,4 @@ class ChatApiService {
     }
     return out ?? messages;
   }
-
-  static bool _isOff(int? budget) =>
-      (budget != null && budget != -1 && budget < 1024);
-  static String _effortForBudget(int? budget) {
-    if (budget == null || budget == -1) return 'auto';
-    if (_isOff(budget)) return 'off';
-    if (budget <= 2000) return 'low';
-    if (budget <= 20000) return 'medium';
-    return 'high';
-  }
-
-  static bool _isClaudeReasoningEnabled(int? budget) => budget != 0;
-
-  static bool _isDeepSeekClaudeCompatible(
-    String modelId, {
-    ProviderConfig? config,
-  }) {
-    final lowerModelId = modelId.trim().toLowerCase();
-    if (lowerModelId.contains('deepseek')) return true;
-    if (config == null) return false;
-    final baseUrl = config.baseUrl.trim().toLowerCase();
-    final providerId = config.id.trim().toLowerCase();
-    final providerName = config.name.trim().toLowerCase();
-    return baseUrl.contains('api.deepseek.com') ||
-        providerId.contains('deepseek') ||
-        providerName.contains('deepseek');
-  }
-
-  static bool _supportsClaudeAdaptiveThinking(String modelId) {
-    final lower = modelId.trim().toLowerCase();
-    if (!lower.contains('claude-')) return false;
-    if (lower.contains('fable') || lower.contains('mythos')) return true;
-    final m = RegExp(
-      r'claude-(opus|sonnet)-(\d+)[-.](\d+)',
-      caseSensitive: false,
-    ).firstMatch(lower);
-    if (m != null) {
-      final major = int.tryParse(m.group(2) ?? '');
-      final minor = int.tryParse(m.group(3) ?? '');
-      if (major != null && minor != null) {
-        return major > 4 || (major == 4 && minor >= 6);
-      }
-    }
-    return lower.contains('4-6') || lower.contains('4.6');
-  }
-
-  static bool _isClaudeAdaptiveOnlyThinkingModel(String modelId) {
-    final lower = modelId.trim().toLowerCase();
-    if (!lower.contains('claude-')) return false;
-    if (lower.contains('fable') || lower.contains('mythos')) return true;
-    final m = RegExp(
-      r'claude-(opus|sonnet)-(\d+)[-.](\d+)',
-      caseSensitive: false,
-    ).firstMatch(lower);
-    if (m == null) {
-      return lower.contains('4-7') ||
-          lower.contains('4.7') ||
-          lower.contains('4-8') ||
-          lower.contains('4.8');
-    }
-    final family = (m.group(1) ?? '').toLowerCase();
-    final major = int.tryParse(m.group(2) ?? '');
-    final minor = int.tryParse(m.group(3) ?? '');
-    if (major == null || minor == null) return false;
-    if (major > 4) return true;
-    if (major < 4) return false;
-    if (family == 'opus' && minor >= 7) return true;
-    return false;
-  }
-
-  static bool _isClaudeThinkingAlwaysOnModel(String modelId) {
-    final lower = modelId.trim().toLowerCase();
-    return lower.contains('claude-fable') || lower.contains('claude-mythos');
-  }
-
-  static String _claudeEffortForBudget(int? budget) {
-    if (budget == null || budget == -1) return 'auto';
-    if (_isOff(budget)) return 'off';
-    if (budget <= 2000) return 'low';
-    if (budget <= 20000) return 'medium';
-    if (budget <= 32000) return 'high';
-    if (budget <= 64000) return 'xhigh';
-    return 'max';
-  }
-
-  static String _normalizeClaudeEffort(String effort, String modelId) {
-    final normalizedEffort = effort.trim().toLowerCase();
-    if (normalizedEffort.isEmpty) return effort;
-    if (normalizedEffort == 'auto' || normalizedEffort == 'off') {
-      return normalizedEffort;
-    }
-
-    final lower = modelId.trim().toLowerCase();
-    final supportsXhigh =
-        lower.contains('claude-opus-4-7') ||
-        lower.contains('claude-opus-4.7') ||
-        lower.contains('claude-opus-4-8') ||
-        lower.contains('claude-opus-4.8') ||
-        lower.contains('claude-fable') ||
-        lower.contains('claude-mythos');
-    final supportsMax =
-        supportsXhigh ||
-        lower.contains('claude-opus-4-6') ||
-        lower.contains('claude-opus-4.6') ||
-        lower.contains('claude-sonnet-4-6') ||
-        lower.contains('claude-sonnet-4.6') ||
-        lower.contains('mythos');
-
-    switch (normalizedEffort) {
-      case 'max':
-        if (supportsMax) return 'max';
-        return supportsXhigh ? 'xhigh' : 'high';
-      case 'xhigh':
-        if (supportsXhigh) return 'xhigh';
-        if (supportsMax) return 'max';
-        return 'high';
-      case 'high':
-      case 'medium':
-      case 'low':
-        return normalizedEffort;
-      default:
-        return normalizedEffort;
-    }
-  }
-
-  static Map<String, dynamic>? _claudeThinkingConfig(
-    String modelId,
-    int? budget, {
-    ProviderConfig? config,
-  }) {
-    if (_isClaudeThinkingAlwaysOnModel(modelId)) {
-      if (!_isClaudeReasoningEnabled(budget)) return null;
-      return <String, dynamic>{'type': 'adaptive', 'display': 'summarized'};
-    }
-    if (!_isClaudeReasoningEnabled(budget)) {
-      return <String, dynamic>{'type': 'disabled'};
-    }
-    if (_isDeepSeekClaudeCompatible(modelId, config: config)) {
-      return <String, dynamic>{'type': 'enabled'};
-    }
-    if (_supportsClaudeAdaptiveThinking(modelId)) {
-      return <String, dynamic>{'type': 'adaptive', 'display': 'summarized'};
-    }
-    if (budget != null && budget > 0) {
-      return <String, dynamic>{'type': 'enabled', 'budget_tokens': budget};
-    }
-    return <String, dynamic>{'type': 'disabled'};
-  }
-
-  static Map<String, dynamic>? _claudeOutputConfig(
-    String modelId,
-    int? budget, {
-    ProviderConfig? config,
-  }) {
-    if (_isClaudeThinkingAlwaysOnModel(modelId)) {
-      final effort = _normalizeClaudeEffort(
-        _claudeEffortForBudget(budget),
-        modelId,
-      );
-      if (effort == 'auto' || effort == 'off') return null;
-      return <String, dynamic>{'effort': effort};
-    }
-    if (_isDeepSeekClaudeCompatible(modelId, config: config)) {
-      if (!_isClaudeReasoningEnabled(budget)) return null;
-      final effort = _claudeEffortForBudget(budget);
-      if (effort == 'auto' || effort == 'off') return null;
-      return <String, dynamic>{
-        'effort': (effort == 'xhigh' || effort == 'max') ? 'max' : 'high',
-      };
-    }
-    if (!_supportsClaudeAdaptiveThinking(modelId) ||
-        !_isClaudeReasoningEnabled(budget)) {
-      return null;
-    }
-    final effort = _normalizeClaudeEffort(
-      _claudeEffortForBudget(budget),
-      modelId,
-    );
-    if (effort == 'auto' || effort == 'off') return null;
-    return <String, dynamic>{'effort': effort};
-  }
-
-  static bool _claudeShouldOmitSamplingParams(String modelId, int? budget) {
-    if (_isClaudeThinkingAlwaysOnModel(modelId)) return true;
-    return _isClaudeAdaptiveOnlyThinkingModel(modelId) &&
-        _isClaudeReasoningEnabled(budget);
-  }
-
-  static double? _claudeCompatibleTopP(
-    String modelId,
-    int? budget,
-    double? topP,
-  ) {
-    if (topP == null) return null;
-    if (_claudeShouldOmitSamplingParams(modelId, budget)) {
-      return null;
-    }
-    if (!_isClaudeReasoningEnabled(budget)) {
-      return topP;
-    }
-    if (topP < 0.95 || topP > 1.0) {
-      FlutterLogger.log(
-        '[ClaudeCompat] Omit top_p=$topP because thinking requires 0.95 <= top_p <= 1.0.',
-        tag: 'ChatApiService',
-      );
-      return null;
-    }
-    return topP;
-  }
-
-  // Clean JSON Schema for Google Gemini API strict validation
-  // Google requires array types to have 'items' field
-  static Map<String, dynamic> _cleanSchemaForGemini(
-    Map<String, dynamic> schema,
-  ) {
-    final result = Map<String, dynamic>.from(schema);
-
-    // Recursively fix 'properties' if present
-    Map<String, dynamic> props = const <String, dynamic>{};
-    if (result['properties'] is Map) {
-      props = Map<String, dynamic>.from(result['properties'] as Map);
-    } else if ((result['type'] ?? '').toString() == 'object') {
-      // Ensure objects always have a properties map for Gemini validation
-      props = <String, dynamic>{};
-    }
-    if (props.isNotEmpty || result['type'] == 'object') {
-      props.forEach((key, value) {
-        if (value is Map) {
-          final propMap = Map<String, dynamic>.from(value);
-          // print('[ChatApi/Schema] Property $key: type=${propMap['type']}, hasItems=${propMap.containsKey('items')}');
-          // If type is array but items is missing, add a permissive items schema
-          if (propMap['type'] == 'array' && !propMap.containsKey('items')) {
-            // print('[ChatApi/Schema] Adding items to array property: $key');
-            propMap['items'] = {'type': 'string'}; // Default to string array
-          }
-          // Recursively clean nested objects
-          if (propMap['type'] == 'object' &&
-              propMap.containsKey('properties')) {
-            propMap['properties'] = _cleanSchemaForGemini({
-              'properties': propMap['properties'],
-            })['properties'];
-          }
-          props[key] = propMap;
-        }
-      });
-
-      // Gemini requires every entry in `required` to exist in `properties`
-      final req = result['required'];
-      if (req is List) {
-        for (final r in req) {
-          final name = r.toString();
-          if (!props.containsKey(name)) {
-            props[name] = {
-              'type': 'string',
-            }; // Fallback to a simple string field
-          }
-        }
-      }
-      result['properties'] = props;
-    }
-
-    // Handle array items recursively
-    if (result['items'] is Map) {
-      result['items'] = _cleanSchemaForGemini(
-        result['items'] as Map<String, dynamic>,
-      );
-    }
-
-    return result;
-  }
-}
-
-class _ImageRef {
-  final String kind; // 'data' | 'path' | 'url'
-  final String src;
-  const _ImageRef(this.kind, this.src);
-}
-
-class _ParsedTextAndImages {
-  final String text;
-  final List<_ImageRef> images;
-  const _ParsedTextAndImages(this.text, this.images);
-}
-
-class _GeminiSignatureMeta {
-  final String cleanedText;
-  final String? textKey;
-  final dynamic textValue;
-  final List<Map<String, dynamic>> images;
-  const _GeminiSignatureMeta({
-    required this.cleanedText,
-    this.textKey,
-    this.textValue,
-    this.images = const <Map<String, dynamic>>[],
-  });
-
-  bool get hasText => (textKey ?? '').isNotEmpty && textValue != null;
-  bool get hasImages => images.isNotEmpty;
-  bool get hasAny => hasText || hasImages;
-}
-
-class _ResponsesImageGenerationResult {
-  final String base64;
-  final String? outputFormat;
-
-  const _ResponsesImageGenerationResult({this.base64 = '', this.outputFormat});
-}
-
-class ChatStreamChunk {
-  final String content;
-  // Optional reasoning delta (when model supports reasoning)
-  final String? reasoning;
-  final bool isDone;
-  final int totalTokens;
-  final TokenUsage? usage;
-  final List<ToolCallInfo>? toolCalls;
-  final List<ToolResultInfo>? toolResults;
-
-  ChatStreamChunk({
-    required this.content,
-    this.reasoning,
-    required this.isDone,
-    required this.totalTokens,
-    this.usage,
-    this.toolCalls,
-    this.toolResults,
-  });
-}
-
-class ToolCallInfo {
-  final String id;
-  final String name;
-  final Map<String, dynamic> arguments;
-  final Map<String, dynamic>? metadata;
-  ToolCallInfo({
-    required this.id,
-    required this.name,
-    required this.arguments,
-    this.metadata,
-  });
-}
-
-class ToolResultInfo {
-  final String id;
-  final String name;
-  final Map<String, dynamic> arguments;
-  final String content;
-  final Map<String, dynamic>? metadata;
-  ToolResultInfo({
-    required this.id,
-    required this.name,
-    required this.arguments,
-    required this.content,
-    this.metadata,
-  });
 }

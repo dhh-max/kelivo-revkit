@@ -1,182 +1,255 @@
-part of 'assistant_settings_edit_page.dart';
+import 'dart:async';
 
-class _SkillsTab extends StatelessWidget {
-  const _SkillsTab({required this.assistantId});
+import 'package:Kelivo/core/providers/assistant_provider.dart';
+import 'package:Kelivo/core/services/skills/skills_service.dart';
+import 'package:Kelivo/features/workspace/pages/skills_page.dart';
+import 'package:Kelivo/features/workspace/widgets/skills/skill_labels.dart';
+import 'package:Kelivo/icons/lucide_adapter.dart';
+import 'package:Kelivo/l10n/app_localizations.dart';
+import 'package:Kelivo/shared/widgets/ios_checkbox.dart';
+import 'package:Kelivo/shared/widgets/ios_switch.dart';
+import 'package:Kelivo/shared/widgets/ios_tactile.dart';
+import 'package:Kelivo/shared/widgets/ios_tile_button.dart';
+import 'package:Kelivo/shared/widgets/section_card.dart';
+import 'package:Kelivo/theme/app_font_weights.dart';
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+class AssistantSettingsEditSkillsTab extends StatelessWidget {
+  const AssistantSettingsEditSkillsTab({super.key, required this.assistantId});
 
   final String assistantId;
 
+  static const Key useAllKey = SkillsKeys.useAll;
+  static const Key openPageKey = SkillsKeys.openPage;
+
+  static Key skillKey(String id) => SkillsKeys.check(id);
+
+  Future<void> _persist({
+    required BuildContext context,
+    required List<String>? skillIds,
+  }) async {
+    final ap = context.read<AssistantProvider>();
+    final assistant = ap.getById(assistantId);
+    if (assistant == null) return;
+    if (skillIds == null) {
+      await ap.updateAssistant(assistant.copyWith(clearSkillIds: true));
+      return;
+    }
+    await ap.updateAssistant(assistant.copyWith(skillIds: skillIds));
+  }
+
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context)!;
-    final skillProvider = context.watch<SkillProvider>();
-    final assistantProvider = context.watch<AssistantProvider>();
-    final assistant = assistantProvider.getById(assistantId);
-    final skills = skillProvider.skills;
+    final cs = Theme.of(context).colorScheme;
+    final assistant = context.watch<AssistantProvider>().getById(assistantId);
+    final skills = context.watch<SkillsService>().skills;
+    if (assistant == null) return const SizedBox.shrink();
 
-    if (assistant == null) {
-      return const SizedBox.shrink();
-    }
-
-    Future<void> updateBinding(String skillId, bool enabled) async {
-      final ids = assistant.skillIds.toSet();
-      if (enabled) {
-        ids.add(skillId);
-      } else {
-        ids.remove(skillId);
-      }
-      await context.read<AssistantProvider>().updateAssistant(
-        assistant.copyWith(skillIds: ids.toList(growable: false)),
-      );
-    }
-
-    if (skills.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Lucide.Sparkles,
-                size: 64,
-                color: cs.primary.withValues(alpha: 0.6),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                l10n.assistantEditSkillsEmptyMessage,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: cs.onSurface.withValues(alpha: 0.7),
-                ),
-              ),
-              const SizedBox(height: 24),
-              ConstrainedBox(
-                constraints: const BoxConstraints(minWidth: 200),
-                child: _IosButton(
-                  label: l10n.assistantEditManageSkillsButton,
-                  icon: Lucide.Sparkles,
-                  filled: true,
-                  neutral: false,
-                  onTap: () => Navigator.of(
-                    context,
-                  ).push(MaterialPageRoute(builder: (_) => const SkillsPage())),
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
+    final useAll = assistant.skillIds == null;
+    final selected = {...?assistant.skillIds};
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
       children: [
-        _iosSectionCard(
+        SectionCard(
           children: [
-            _iosNavRow(
-              context,
-              icon: Lucide.Sparkles,
-              label: l10n.assistantEditManageSkillsButton,
-              detailText: '${skills.length}',
-              onTap: () => Navigator.of(
-                context,
-              ).push(MaterialPageRoute(builder: (_) => const SkillsPage())),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          l10n.skillsUseAll,
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: AppFontWeights.semibold,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          l10n.skillsUseAllSubtitle,
+                          style: TextStyle(
+                            fontSize: 12,
+                            height: 1.25,
+                            color: cs.onSurface.withValues(alpha: 0.62),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IosSwitch(
+                    key: useAllKey,
+                    value: useAll,
+                    semanticLabel: l10n.skillsUseAll,
+                    onChanged: (value) {
+                      if (value) {
+                        unawaited(_persist(context: context, skillIds: null));
+                        return;
+                      }
+                      final enabledIds = [
+                        for (final skill in skills)
+                          if (skill.record.enabled) skill.record.id,
+                      ];
+                      unawaited(
+                        _persist(context: context, skillIds: enabledIds),
+                      );
+                    },
+                  ),
+                ],
+              ),
             ),
           ],
         ),
-        const SizedBox(height: 14),
-        _iosSectionCard(
-          children: [
-            for (var i = 0; i < skills.length; i++) ...[
-              _SkillBindingRow(
-                skill: skills[i],
-                enabled: assistant.skillIds.contains(skills[i].id),
-                onChanged: (enabled) => updateBinding(skills[i].id, enabled),
-              ),
-              if (i != skills.length - 1) _iosDivider(context),
+        const SizedBox(height: 12),
+        if (skills.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            child: Text(
+              l10n.skillsEmptyTitle,
+              style: TextStyle(color: cs.onSurface.withValues(alpha: 0.6)),
+            ),
+          )
+        else
+          SectionCard(
+            dividers: true,
+            children: [
+              for (final skill in skills)
+                _AssistantSkillRow(
+                  name: skill.name,
+                  description: skill.description,
+                  enabled: useAll || skill.record.enabled,
+                  selected: useAll
+                      ? skill.record.enabled
+                      : selected.contains(skill.record.id),
+                  disabledHint: l10n.skillsDisabledHint,
+                  showDisabledHint: !useAll && !skill.record.enabled,
+                  onChanged: useAll
+                      ? (checked) {
+                          unawaited(
+                            context.read<SkillsService>().setEnabled(
+                              skill.record.id,
+                              checked,
+                            ),
+                          );
+                        }
+                      : (!skill.record.enabled
+                            ? null
+                            : (checked) {
+                                final next = {...selected};
+                                if (checked) {
+                                  next.add(skill.record.id);
+                                } else {
+                                  next.remove(skill.record.id);
+                                }
+                                unawaited(
+                                  _persist(
+                                    context: context,
+                                    skillIds: next.toList(),
+                                  ),
+                                );
+                              }),
+                  rowKey: skillKey(skill.record.id),
+                ),
             ],
-          ],
+          ),
+        const SizedBox(height: 16),
+        IosTileButton(
+          key: openPageKey,
+          icon: Lucide.WandSparkles,
+          label: l10n.skillsOpenPage,
+          onTap: () => unawaited(openSkillsPage(context)),
         ),
       ],
     );
   }
 }
 
-class _SkillBindingRow extends StatelessWidget {
-  const _SkillBindingRow({
-    required this.skill,
+class _AssistantSkillRow extends StatelessWidget {
+  const _AssistantSkillRow({
+    required this.name,
+    required this.description,
     required this.enabled,
+    required this.selected,
+    required this.disabledHint,
+    required this.showDisabledHint,
     required this.onChanged,
+    required this.rowKey,
   });
 
-  final Skill skill;
+  final String name;
+  final String description;
   final bool enabled;
-  final ValueChanged<bool> onChanged;
+  final bool selected;
+  final String disabledHint;
+  final bool showDisabledHint;
+  final ValueChanged<bool>? onChanged;
+  final Key rowKey;
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return _TactileRow(
-      onTap: () => onChanged(!enabled),
-      builder: (pressed) {
-        final baseColor = cs.onSurface.withValues(alpha: 0.9);
-        return _AnimatedPressColor(
-          pressed: pressed,
-          base: baseColor,
-          builder: (color) {
-            return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              child: Row(
-                children: [
-                  SizedBox(
-                    width: 36,
-                    child: Icon(
-                      Lucide.Sparkles,
-                      size: 20,
-                      color: enabled ? cs.primary : color,
+    final dim = !enabled;
+    return IosCardPress(
+      key: rowKey,
+      onTap: onChanged == null ? null : () => onChanged!(!selected),
+      padding: const EdgeInsets.fromLTRB(12, 11, 12, 11),
+      child: Row(
+        children: [
+          IosCheckbox(
+            value: enabled && selected,
+            onChanged: onChanged,
+            semanticLabel: name,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: AppFontWeights.medium,
+                    color: dim
+                        ? cs.onSurface.withValues(alpha: 0.42)
+                        : cs.onSurface,
+                  ),
+                ),
+                if (description.trim().isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    description,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      height: 1.25,
+                      color: cs.onSurface.withValues(alpha: dim ? 0.38 : 0.62),
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          skill.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 15,
-                            color: color,
-                            fontWeight: AppFontWeights.semibold,
-                          ),
-                        ),
-                        if (skill.description.trim().isNotEmpty) ...[
-                          const SizedBox(height: 3),
-                          Text(
-                            skill.description.trim(),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 12,
-                              height: 1.25,
-                              color: cs.onSurface.withValues(alpha: 0.62),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  IosSwitch(value: enabled, onChanged: onChanged),
                 ],
-              ),
-            );
-          },
-        );
-      },
+                if (showDisabledHint) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    disabledHint,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: cs.onSurface.withValues(alpha: 0.45),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

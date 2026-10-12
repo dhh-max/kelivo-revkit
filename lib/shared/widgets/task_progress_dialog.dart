@@ -26,6 +26,8 @@ class TaskProgressDialogCard extends StatelessWidget {
     this.onAcknowledge,
     this.cancelLabel = 'Cancel',
     this.acknowledgeLabel = 'OK',
+    this.onBackground,
+    this.backgroundLabel,
     this.outcome = TaskProgressOutcome.running,
   });
 
@@ -39,14 +41,25 @@ class TaskProgressDialogCard extends StatelessWidget {
   final VoidCallback? onAcknowledge;
   final String cancelLabel;
   final String acknowledgeLabel;
+
+  /// Dismisses the dialog and lets the task keep running. Offered only where
+  /// the caller can carry on without the result.
+  final VoidCallback? onBackground;
+  final String? backgroundLabel;
   final TaskProgressOutcome outcome;
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final showCancel =
-        outcome == TaskProgressOutcome.running && cancellable && onCancel != null;
+        outcome == TaskProgressOutcome.running &&
+        cancellable &&
+        onCancel != null;
     final showAck = outcome == TaskProgressOutcome.failure;
+    final showBackground =
+        outcome == TaskProgressOutcome.running &&
+        onBackground != null &&
+        backgroundLabel != null;
     final resolvedFraction = switch (outcome) {
       TaskProgressOutcome.success => 1.0,
       TaskProgressOutcome.failure => fraction,
@@ -82,8 +95,7 @@ class TaskProgressDialogCard extends StatelessWidget {
                     leadingIcon,
                     size: 18,
                     color: switch (outcome) {
-                      TaskProgressOutcome.success =>
-                        context.appColors.success,
+                      TaskProgressOutcome.success => context.appColors.success,
                       TaskProgressOutcome.failure => cs.error,
                       TaskProgressOutcome.running => cs.onSurface,
                     },
@@ -110,17 +122,15 @@ class TaskProgressDialogCard extends StatelessWidget {
                 Expanded(
                   child: AnimatedTextSwap(
                     text: phaseLabel,
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: cs.onSurfaceVariant,
-                    ),
+                    style: TextStyle(fontSize: 13, color: cs.onSurfaceVariant),
                   ),
                 ),
                 if (resolvedFraction == null)
                   const CupertinoActivityIndicator(radius: 8)
                 else
                   ThrottledProgressLabel(
-                    text: '${((resolvedFraction.clamp(0.0, 1.0)) * 100).round()}%',
+                    text:
+                        '${((resolvedFraction.clamp(0.0, 1.0)) * 100).round()}%',
                     forceImmediate: resolvedFraction >= 1,
                     builder: (context, displayText) {
                       return ReelText(
@@ -161,19 +171,33 @@ class TaskProgressDialogCard extends StatelessWidget {
               child: AnimatedOpacity(
                 duration: kAnim,
                 curve: Curves.easeOutCubic,
-                opacity: (showCancel || showAck) ? 1 : 0,
-                child: (showCancel || showAck)
+                opacity: (showCancel || showAck || showBackground) ? 1 : 0,
+                child: (showCancel || showAck || showBackground)
                     ? Padding(
                         padding: const EdgeInsets.only(top: 14),
-                        child: SizedBox(
-                          width: double.infinity,
-                          child: IosTileButton(
-                            icon: showAck ? Lucide.Check : Lucide.X,
-                            label: showAck ? acknowledgeLabel : cancelLabel,
-                            onTap: showAck
-                                ? () => onAcknowledge?.call()
-                                : () => onCancel?.call(),
-                          ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (showBackground)
+                              IosTileButton(
+                                icon: Lucide.ChevronDown,
+                                label: backgroundLabel!,
+                                onTap: () => onBackground?.call(),
+                              ),
+                            if (showBackground && (showCancel || showAck))
+                              const SizedBox(height: 8),
+                            if (showCancel || showAck)
+                              IosTileButton(
+                                key: showAck
+                                    ? const Key('task_progress_acknowledge')
+                                    : const Key('task_progress_cancel'),
+                                icon: showAck ? Lucide.Check : Lucide.X,
+                                label: showAck ? acknowledgeLabel : cancelLabel,
+                                onTap: showAck
+                                    ? () => onAcknowledge?.call()
+                                    : () => onCancel?.call(),
+                              ),
+                          ],
                         ),
                       )
                     : const SizedBox.shrink(),

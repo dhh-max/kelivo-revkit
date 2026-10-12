@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:Kelivo/theme/app_font_weights.dart';
 
+import '../../../core/utils/model_cost.dart';
 import '../../../icons/lucide_adapter.dart';
 import '../../../l10n/app_localizations.dart';
 import '../models/stats_models.dart';
 import 'stats_section_card.dart';
+import 'package:Kelivo/theme/app_semantic_colors.dart';
 
 class StatsRankSection extends StatelessWidget {
   const StatsRankSection({
@@ -248,19 +250,17 @@ class _RankRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final ratio = maxValue <= 0 ? 0.0 : item.value / maxValue;
     final widthFactor = (0.36 + ratio * 0.64).clamp(0.36, 1.0);
-    final fillColor = isDark
-        ? Colors.white.withValues(alpha: 0.1)
-        : const Color(0xFFF2F3F5);
+    final fillColor = context.appColors.surfaceFill;
     final leading = leadingBuilder?.call(context, item);
 
+    final rowHeight = item.cost == null ? 34.0 : 42.0;
     return Row(
       children: [
         Expanded(
           child: SizedBox(
-            height: 34,
+            height: rowHeight,
             child: Stack(
               clipBehavior: Clip.none,
               alignment: Alignment.centerLeft,
@@ -269,7 +269,7 @@ class _RankRow extends StatelessWidget {
                   alignment: Alignment.centerLeft,
                   widthFactor: widthFactor,
                   child: Container(
-                    height: 34,
+                    height: rowHeight,
                     decoration: BoxDecoration(
                       color: fillColor,
                       borderRadius: BorderRadius.circular(18),
@@ -316,15 +316,33 @@ class _RankRow extends StatelessWidget {
         ),
         const SizedBox(width: 10),
         SizedBox(
-          width: 52,
-          child: Text(
-            item.value.toString(),
-            textAlign: TextAlign.right,
-            style: TextStyle(
-              color: cs.onSurface.withValues(alpha: 0.76),
-              fontSize: 12,
-              fontWeight: AppFontWeights.semibold,
-            ),
+          width: item.cost == null ? 52 : 80,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                item.value.toString(),
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                  color: cs.onSurface.withValues(alpha: 0.76),
+                  fontSize: 12,
+                  fontWeight: AppFontWeights.semibold,
+                ),
+              ),
+              if (item.cost != null)
+                Text(
+                  formatModelCost(item.cost!),
+                  textAlign: TextAlign.right,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: cs.onSurface.withValues(alpha: 0.52),
+                    fontSize: 10,
+                    fontWeight: AppFontWeights.semibold,
+                  ),
+                ),
+            ],
           ),
         ),
       ],

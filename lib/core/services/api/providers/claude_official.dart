@@ -1,32 +1,46 @@
-part of '../chat_api_service.dart';
+import '../../custom_request_merger.dart';
+import '../../../models/provider_oauth.dart';
+import '../../auth/claude_oauth_request.dart';
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
-int _readClaudeUsageInt(dynamic value) {
-  if (value is num) return value.toInt();
-  if (value is String) return int.tryParse(value) ?? 0;
-  return 0;
-}
+import 'package:http/http.dart' as http;
 
-TokenUsage _claudeUsageFromMap(Map<String, dynamic> usage) {
-  final inTok = _readClaudeUsageInt(usage['input_tokens']);
-  final outTok = _readClaudeUsageInt(usage['output_tokens']);
-  final cached =
-      _readClaudeUsageInt(usage['cache_read_input_tokens']) +
-      _readClaudeUsageInt(usage['cache_creation_input_tokens']);
-  return TokenUsage(
-    promptTokens: inTok,
-    completionTokens: outTok,
-    cachedTokens: cached,
-    totalTokens: inTok + outTok,
-  );
-}
+import '../../../models/token_usage.dart';
+import '../../../models/model_spec.dart';
+import '../../../providers/settings_provider.dart';
+import '../../../utils/multimodal_input_utils.dart';
+import '../../../../utils/mcp_structured_image.dart';
+import '../builtin_tools.dart';
+import '../chat_api_helpers.dart';
+import '../native_input_attachments.dart';
+import '../tool_result_content.dart';
+import '../../model_spec/model_spec_resolver.dart';
+import '../reasoning/reasoning_dialects.dart';
+import '../generation/tool_loop_runner.dart';
+import '../stream/sse_framing.dart';
+import '../stream/stream_chunk.dart';
+import '../stream/stream_chunk_emit.dart';
+import '../stream/stream_chunk_ids.dart';
+import 'claude/claude_container.dart';
+import 'claude/claude_decoder.dart';
+import 'claude/claude_files.dart';
+import 'claude/claude_history.dart';
 
-Stream<ChatStreamChunk> _sendClaudeStream(
+export 'claude/claude_history.dart'
+    show
+        normalizeClaudeImageMime,
+        isClaudeSupportedImageMime,
+        claudeToolResultContent;
+
+Stream<StreamChunk> sendClaudeStream(
   http.Client client,
   ProviderConfig config,
   String modelId,
   List<Map<String, dynamic>> messages, {
   List<String>? userImagePaths,
-  int? thinkingBudget,
+  ReasoningRequest reasoning = ReasoningRequest.auto,
   double? temperature,
   double? topP,
   int? maxTokens,
@@ -35,21 +49,23 @@ Stream<ChatStreamChunk> _sendClaudeStream(
   Map<String, String>? extraHeaders,
   Map<String, dynamic>? extraBody,
   bool stream = true,
+  bool builtInSearchOnly = false,
+  bool skipImageParsing = false,
+  StreamRoundRunner? retryRound,
 }) async* {
-  final upstreamModelId = _apiModelId(config, modelId);
+  final upstreamModelId = apiModelId(config, modelId);
   // Endpoint and headers (constant across rounds)
   final base = config.baseUrl.endsWith('/')
       ? config.baseUrl.substring(0, config.baseUrl.length - 1)
       : config.baseUrl;
   final url = Uri.parse('$base/messages');
 
-  final isReasoning = _effectiveModelInfo(
-    config,
-    modelId,
-  ).abilities.contains(ModelAbility.reasoning);
   final skipRedactedThinkingBlocks = BuiltInToolsHelper.isOpenRouterProvider(
     config,
   );
+  final replayServerToolBlocks =
+      BuiltInToolsHelper.isOfficialAnthropicEndpoint(config) ||
+      BuiltInToolsHelper.isVercelProvider(config);
 
   // Extract system prompt (Anthropic uses top-level `system`)
   String systemPrompt = '';
@@ -63,183 +79,33 @@ Stream<ChatStreamChunk> _sendClaudeStream(
       }
       continue;
     }
+    // Keep media-paths through transform; they are not forwarded in the
+    // final Anthropic request body (we rebuild role/content below).
     nonSystemMessages.add(
-      Map<String, dynamic>.from(m)..['role'] = role.isEmpty ? 'user' : role,
+      Map<String, dynamic>.from(m)
+        ..remove(multimodalInternalRevisionIdKey)
+        ..remove(multimodalInternalGeminiThoughtSignatureKey)
+        ..['role'] = role.isEmpty ? 'user' : role,
     );
   }
 
-  // Transform last user message to include images per Anthropic schema
-  final initialMessages = <Map<String, dynamic>>[];
-  final pendingToolResults = <Map<String, dynamic>>[];
-  void flushPendingToolResults() {
-    if (pendingToolResults.isEmpty) return;
-    initialMessages.add({
-      'role': 'user',
-      'content': List<Map<String, dynamic>>.from(pendingToolResults),
-    });
-    pendingToolResults.clear();
-  }
-
-  Map<String, dynamic>? toolUseBlockFromToolCall(Map tc) {
-    final id = (tc['id'] ?? '').toString();
-    final fn = tc['function'];
-    if (id.isEmpty || fn is! Map) return null;
-    Map<String, dynamic> input = const <String, dynamic>{};
-    try {
-      input = (jsonDecode((fn['arguments'] ?? '{}').toString()) as Map)
-          .cast<String, dynamic>();
-    } catch (_) {}
-    return {
-      'type': 'tool_use',
-      'id': id,
-      'name': (fn['name'] ?? '').toString(),
-      'input': input,
-    };
-  }
-
-  Set<String> toolUseIdsInBlocks(List<Map<String, dynamic>> blocks) {
-    return blocks
-        .where((block) => block['type'] == 'tool_use')
-        .map((block) => (block['id'] ?? '').toString())
-        .where((id) => id.isNotEmpty)
-        .toSet();
-  }
-
-  Map<String, dynamic>? assistantBlockForClaudeRequest(Map block) {
-    final type = (block['type'] ?? '').toString();
-    if (skipRedactedThinkingBlocks && type == 'redacted_thinking') {
-      return null;
-    }
-    return block.map((key, value) => MapEntry(key.toString(), value));
-  }
-
-  List<Map<String, dynamic>> assistantBlocksForClaudeRequest(
-    Iterable<Map> blocks,
-  ) {
-    return [
-      for (final block in blocks)
-        if (assistantBlockForClaudeRequest(block) case final sanitized?)
-          sanitized,
-    ];
-  }
-
-  List<Map<String, dynamic>>? anthropicBlocksFromToolCallMetadata(
-    List toolCalls,
-  ) {
-    final expectedIds = toolCalls
-        .whereType<Map>()
-        .map((tc) => (tc['id'] ?? '').toString())
-        .where((id) => id.isNotEmpty)
-        .toSet();
-    List<Map<String, dynamic>>? bestBlocks;
-    var bestMatchCount = -1;
-
-    for (final tc in toolCalls) {
-      if (tc is! Map) continue;
-      final meta = tc['metadata'];
-      if (meta is! Map) continue;
-      final anthropic = meta['anthropic'];
-      if (anthropic is! Map) continue;
-      final blocks = anthropic['assistant_blocks'];
-      if (blocks is! List || blocks.isEmpty) continue;
-      final candidate = assistantBlocksForClaudeRequest(
-        blocks.whereType<Map>(),
-      );
-      final matchCount = toolUseIdsInBlocks(
-        candidate,
-      ).where(expectedIds.contains).length;
-      if (matchCount > bestMatchCount ||
-          (matchCount == bestMatchCount &&
-              candidate.length > (bestBlocks?.length ?? 0))) {
-        bestBlocks = candidate;
-        bestMatchCount = matchCount;
-      }
-    }
-    if (bestBlocks == null) return null;
-    if (expectedIds.isEmpty) return bestBlocks;
-
-    final presentIds = toolUseIdsInBlocks(bestBlocks);
-    if (presentIds.containsAll(expectedIds)) return bestBlocks;
-
-    final completed = <Map<String, dynamic>>[
-      for (final block in bestBlocks) Map<String, dynamic>.from(block),
-    ];
-    for (final tc in toolCalls.whereType<Map>()) {
-      final block = toolUseBlockFromToolCall(tc);
-      if (block == null) continue;
-      final id = (block['id'] ?? '').toString();
-      if (presentIds.contains(id)) continue;
-      completed.add(block);
-      presentIds.add(id);
-    }
-    return completed;
-  }
-
-  for (int i = 0; i < nonSystemMessages.length; i++) {
-    final m = nonSystemMessages[i];
-    final isLast = i == nonSystemMessages.length - 1;
-    final role = (m['role'] ?? 'user').toString();
-    if (role == 'tool') {
-      final id = (m['tool_call_id'] ?? '').toString();
-      if (id.isNotEmpty) {
-        pendingToolResults.add({
-          'type': 'tool_result',
-          'tool_use_id': id,
-          'content': (m['content'] ?? '').toString(),
-        });
-      }
-      continue;
-    }
-    flushPendingToolResults();
-
-    if (role == 'assistant' && m['tool_calls'] is List) {
-      final toolCalls = m['tool_calls'] as List;
-      final blocks =
-          anthropicBlocksFromToolCallMetadata(toolCalls) ??
-          <Map<String, dynamic>>[];
-      if (blocks.isEmpty) {
-        final text = (m['content'] ?? '').toString();
-        if (text.trim().isNotEmpty && text.trim() != '\n\n') {
-          blocks.add({'type': 'text', 'text': text});
-        }
-        for (final tc in toolCalls) {
-          if (tc is! Map) continue;
-          final block = toolUseBlockFromToolCall(tc);
-          if (block != null) blocks.add(block);
-        }
-      }
-      if (blocks.isNotEmpty) {
-        initialMessages.add({'role': 'assistant', 'content': blocks});
-      }
-      continue;
-    }
-    if (isLast &&
-        (userImagePaths?.isNotEmpty == true) &&
-        (m['role'] == 'user')) {
-      final parts = <Map<String, dynamic>>[];
-      final text = (m['content'] ?? '').toString();
-      if (text.isNotEmpty) parts.add({'type': 'text', 'text': text});
-      for (final p in userImagePaths!) {
-        if (p.startsWith('http') || p.startsWith('data:')) {
-          parts.add({'type': 'text', 'text': p});
-        } else {
-          final mime = _mimeFromPath(p);
-          final b64 = await _encodeBase64File(p, withPrefix: false);
-          parts.add({
-            'type': 'image',
-            'source': {'type': 'base64', 'media_type': mime, 'data': b64},
-          });
-        }
-      }
-      initialMessages.add({'role': 'user', 'content': parts});
-    } else {
-      initialMessages.add({
-        'role': m['role'] ?? 'user',
-        'content': m['content'] ?? '',
-      });
-    }
-  }
-  flushPendingToolResults();
+  final canImageInput = ModelSpecResolver.instance
+      .spec(config, modelId)
+      .input
+      .contains(Modality.image);
+  final history = ClaudeHistory(
+    replayServerToolBlocks: replayServerToolBlocks,
+    skipRedactedThinkingBlocks: skipRedactedThinkingBlocks,
+    skipImageParsing: skipImageParsing,
+    canImageInput: canImageInput,
+    nativeInputs: NativeInputAttachments(
+      config: config,
+      spec: ModelSpecResolver.instance.spec(config, modelId),
+      protocol: NativeInputProtocol.claude,
+    ),
+    userImagePaths: userImagePaths,
+  );
+  final initialMessages = await history.build(nonSystemMessages);
 
   // Map OpenAI-style tools to Anthropic custom tools (client tools)
   List<Map<String, dynamic>>? anthropicTools;
@@ -248,7 +114,7 @@ Stream<ChatStreamChunk> _sendClaudeStream(
     for (final t in tools) {
       final fn = (t['function'] as Map<String, dynamic>?);
       if (fn == null) continue;
-      final name = (fn['name'] ?? '').toString();
+      final name = BuiltInToolsHelper.claimedToolName(t);
       if (name.isEmpty) continue;
       final desc = (fn['description'] ?? '').toString();
       final params =
@@ -267,16 +133,47 @@ Stream<ChatStreamChunk> _sendClaudeStream(
   if (anthropicTools != null && anthropicTools.isNotEmpty) {
     allTools.addAll(anthropicTools);
   }
+  // Anthropic rejects a `tools` array holding two entries of the same name, and
+  // an MCP server is free to expose one called `web_search`, `web_fetch`, or
+  // `code_execution`. The client tools are the ones the caller asked for by
+  // name, so a hosted entry that collides with one is dropped instead of sent
+  // alongside it.
+  final claimedToolNames = <String>{
+    for (final t in allTools) (t['name'] ?? '').toString(),
+  };
+  void addHostedTool(Map<String, dynamic> tool) {
+    if (claimedToolNames.add((tool['name'] ?? '').toString())) {
+      allTools.add(tool);
+    }
+  }
+
   if (tools != null && tools.isNotEmpty) {
     for (final t in tools) {
       final type = (t['type'] ?? '').toString();
       if (type.startsWith('web_search_')) {
-        allTools.add(t);
+        addHostedTool(t);
       }
     }
   }
-  final builtIns = _builtInTools(config, modelId);
+  // Utility calls (title / summary generation) only want search injected; a
+  // hosted fetch or container run on one of those is both off-contract and
+  // billed.
+  final builtIns = builtInSearchOnly
+      ? builtInTools(
+          config,
+          modelId,
+        ).where((name) => name == BuiltInToolNames.search).toSet()
+      : builtInTools(config, modelId);
   if (builtIns.contains(BuiltInToolNames.search)) {
+    if (BuiltInToolsHelper.isVercelProvider(config) &&
+        !BuiltInToolsHelper.supportsBuiltInSearchForModel(
+          cfg: config,
+          modelId: modelId,
+        )) {
+      throw UnsupportedError(
+        'Vercel Messages native web search requires an Anthropic model.',
+      );
+    }
     Map<String, dynamic> ws = const <String, dynamic>{};
     try {
       final ov = config.modelOverrides[modelId];
@@ -292,12 +189,6 @@ Stream<ChatStreamChunk> _sendClaudeStream(
       'type': searchToolType,
       'name': 'web_search',
     };
-    if (searchToolType == 'web_search_20260209') {
-      allTools.add(<String, dynamic>{
-        'type': 'code_execution_20250825',
-        'name': 'code_execution',
-      });
-    }
     if (ws['max_uses'] is int && (ws['max_uses'] as int) > 0) {
       entry['max_uses'] = ws['max_uses'];
     }
@@ -315,682 +206,498 @@ Stream<ChatStreamChunk> _sendClaudeStream(
       entry['user_location'] = (ws['user_location'] as Map)
           .cast<String, dynamic>();
     }
-    allTools.add(entry);
+    addHostedTool(entry);
+  }
+  for (final entry in BuiltInToolsHelper.claudeServerToolEntries(
+    cfg: config,
+    modelId: modelId,
+    enabled: builtIns,
+  )) {
+    addHostedTool(entry);
   }
 
+  // Client tools are declared by `input_schema`, the Anthropic-hosted ones by
+  // `type`. The decoder needs the latter to recognise a downgraded block.
+  final declaredServerToolNames = <String>{
+    for (final t in allTools)
+      if (t['input_schema'] == null && (t['type'] ?? '').toString().isNotEmpty)
+        (t['name'] ?? '').toString(),
+  }..remove('');
+  // The `container` parameter is only accepted alongside the tool that uses it.
+  final hasCodeExecution = declaredServerToolNames.contains('code_execution');
+  // The data files the message builder left out of the prompt, on the
+  // strength of the same predicate, go up to the container instead. The tool
+  // has to be in this request for a `container_upload` to be accepted, and a
+  // utility call never declares it.
+  final uploadsDataFiles =
+      hasCodeExecution &&
+      BuiltInToolsHelper.sendsDataFilesToSandbox(
+        cfg: config,
+        modelId: modelId,
+        clientTools: tools ?? const [],
+      );
+
   // Headers (constant across rounds)
-  final baseHeaders = <String, String>{
-    'x-api-key': _effectiveApiKey(config),
-    'anthropic-version': '2023-06-01',
-    'Content-Type': 'application/json',
-    'Accept': stream ? 'text/event-stream' : 'application/json',
-  };
-  baseHeaders.addAll(_customHeaders(config, modelId));
-  if (extraHeaders != null && extraHeaders.isNotEmpty) {
-    baseHeaders.addAll(extraHeaders);
-  }
+  final baseHeaders = customHeaders(
+    config,
+    modelId,
+    baseHeaders: <String, String>{
+      'x-api-key': effectiveApiKey(config),
+      'anthropic-version': '2023-06-01',
+      'Content-Type': 'application/json',
+      'Accept': stream ? 'text/event-stream' : 'application/json',
+    },
+    assistantHeaders: extraHeaders,
+  );
 
   // Running conversation across rounds
   List<Map<String, dynamic>> convo = List<Map<String, dynamic>>.from(
     initialMessages,
   );
   TokenUsage? totalUsage;
-
-  while (true) {
-    final omitSamplingParams = _claudeShouldOmitSamplingParams(
-      upstreamModelId,
-      thinkingBudget,
-    );
-    final compatibleTopP = _claudeCompatibleTopP(
-      upstreamModelId,
-      thinkingBudget,
-      topP,
-    );
-    final thinking = isReasoning
-        ? _claudeThinkingConfig(upstreamModelId, thinkingBudget, config: config)
-        : null;
-    final outputConfig = isReasoning
-        ? _claudeOutputConfig(upstreamModelId, thinkingBudget, config: config)
-        : null;
-
-    // Prepare request body per round
-    final body = <String, dynamic>{
-      'model': upstreamModelId,
-      'max_tokens': maxTokens ?? 64000,
-      'messages': convo,
-      'stream': stream,
-      if (systemPrompt.isNotEmpty) 'system': systemPrompt,
-      if (config.claudePromptCachingEnabled == true)
-        'cache_control': ProviderConfig.claudePromptCacheControl(
-          config.claudePromptCachingTtl,
-        ),
-      if (!omitSamplingParams &&
-          !_isClaudeReasoningEnabled(thinkingBudget) &&
-          temperature != null)
-        'temperature': temperature,
-      if (compatibleTopP != null) 'top_p': compatibleTopP,
-      if (allTools.isNotEmpty) 'tools': allTools,
-      if (allTools.isNotEmpty) 'tool_choice': {'type': 'auto'},
-      if (thinking != null) 'thinking': thinking,
-      if (outputConfig != null) 'output_config': outputConfig,
-    };
-    final extraClaude = _customBody(config, modelId);
-    if (extraClaude.isNotEmpty) {
-      body.addAll(extraClaude);
-    }
-    if (extraBody != null && extraBody.isNotEmpty) {
-      extraBody.forEach((k, v) {
-        body[k] = (v is String) ? _parseOverrideValue(v) : v;
-      });
-    }
-
-    final request = http.Request('POST', url);
-    request.headers.addAll(baseHeaders);
-    request.body = jsonEncode(body);
-
-    final response = await client.send(request);
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      final errorBody = await response.stream.bytesToString();
-      throw HttpException('HTTP ${response.statusCode}: $errorBody');
-    }
-
-    // Non-streaming path: parse full JSON, handle tool_use, then continue loop if needed.
-    if (!stream) {
-      final txt = await response.stream.bytesToString();
-      final obj = jsonDecode(txt) as Map;
-      // Usage
-      try {
-        final u = (obj['usage'] as Map?)?.cast<String, dynamic>();
-        if (u != null) {
-          totalUsage = (totalUsage ?? const TokenUsage()).merge(
-            _claudeUsageFromMap(u),
-          );
-        }
-      } catch (_) {}
-      final content = (obj['content'] as List?) ?? const <dynamic>[];
-      final List<Map<String, dynamic>> assistantBlocks =
-          <Map<String, dynamic>>[];
-      final Map<String, Map<String, dynamic>> toolUses =
-          <String, Map<String, dynamic>>{}; // id -> {name,args}
-      final buf = StringBuffer();
-      for (final it in content) {
-        if (it is! Map) continue;
-        final type = (it['type'] ?? '').toString();
-        if (type == 'text') {
-          final t = (it['text'] ?? '').toString();
-          if (t.isNotEmpty) {
-            assistantBlocks.add({'type': 'text', 'text': t});
-            buf.write(t);
-          }
-        } else if (type == 'thinking' ||
-            (type == 'redacted_thinking' && !skipRedactedThinkingBlocks)) {
-          // Preserve thinking blocks unmodified for tool-use continuation.
-          // When thinking is enabled, the next request must include the last assistant
-          // message starting with a thinking/redacted_thinking block.
-          try {
-            assistantBlocks.add(
-              Map<String, dynamic>.from(it.cast<String, dynamic>()),
-            );
-          } catch (_) {}
-        } else if (type == 'tool_use') {
-          final id = (it['id'] ?? '').toString();
-          final name = (it['name'] ?? '').toString();
-          final args =
-              (it['input'] as Map?)?.cast<String, dynamic>() ??
-              const <String, dynamic>{};
-          if (id.isNotEmpty) {
-            toolUses[id] = {'name': name, 'args': args};
-            assistantBlocks.add({
-              'type': 'tool_use',
-              'id': id,
-              'name': name,
-              'input': args,
-            });
-          }
-        }
-      }
-      if (toolUses.isNotEmpty && onToolCall != null) {
-        final callInfos = <ToolCallInfo>[];
-        for (final e in toolUses.entries) {
-          callInfos.add(
-            ToolCallInfo(
-              id: e.key,
-              name: (e.value['name'] ?? '').toString(),
-              arguments: (e.value['args'] as Map<String, dynamic>),
-              metadata: {
-                'anthropic': {'assistant_blocks': assistantBlocks},
-              },
-            ),
-          );
-        }
-        yield ChatStreamChunk(
-          content: '',
-          isDone: false,
-          totalTokens: (totalUsage?.totalTokens ?? 0),
-          usage: totalUsage,
-          toolCalls: callInfos,
-        );
-        final results = <Map<String, dynamic>>[];
-        final resultsInfo = <ToolResultInfo>[];
-        for (final e in toolUses.entries) {
-          final name = (e.value['name'] ?? '').toString();
-          final args = (e.value['args'] as Map<String, dynamic>);
-          final res = await onToolCall(name, args, toolCallId: e.key);
-          results.add({
-            'type': 'tool_result',
-            'tool_use_id': e.key,
-            'content': res,
-          });
-          resultsInfo.add(
-            ToolResultInfo(
-              id: e.key,
-              name: name,
-              arguments: args,
-              content: res,
-              metadata: {
-                'anthropic': {'assistant_blocks': assistantBlocks},
-              },
-            ),
-          );
-        }
-        if (resultsInfo.isNotEmpty) {
-          yield ChatStreamChunk(
-            content: '',
-            isDone: false,
-            totalTokens: (totalUsage?.totalTokens ?? 0),
-            usage: totalUsage,
-            toolResults: resultsInfo,
-          );
-        }
-        // Extend convo: assistant + user tool_result, loop
-        final assistantMsg = {'role': 'assistant', 'content': assistantBlocks};
-        final userToolMsg = {'role': 'user', 'content': results};
-        convo = [...convo, assistantMsg, userToolMsg];
-        continue; // next round
-      }
-      // No tool use -> return final text
-      yield ChatStreamChunk(
-        content: buf.toString(),
-        isDone: true,
-        totalTokens: (totalUsage?.totalTokens ?? 0),
-        usage: totalUsage,
+  var streamRound = 0;
+  var pendingCalls = <EmitToolCall>[];
+  var lastAssistantBlocks = <Map<String, dynamic>>[];
+  // Carried through every round of this turn — after a client tool, after a
+  // pause — and stored after each so the next turn resumes in it too.
+  ClaudeContainerRef? container = history.storedContainer;
+  // Every response of this turn so far, stored against the message after each
+  // so the turn replays as the responses it was. A turn without a tool call
+  // replays from its text alone and stores nothing.
+  final turnResponses = <List<Map<String, dynamic>>>[];
+  Stream<StreamChunk> recordTurn(List<Map<String, dynamic>> response) async* {
+    turnResponses.add(response);
+    if (toolUseIdsInBlocks(turnResponses.expand((b) => b)).isNotEmpty) {
+      yield ProviderArtifact(
+        kind: claudeTurnArtifactKind,
+        payload: encodeClaudeTurn(turnResponses),
       );
-      return;
     }
-
-    final sse = response.stream.transform(utf8.decoder);
-    String buffer = '';
-    int roundTokens = 0;
-    TokenUsage? usage;
-    String? lastStopReason;
-
-    // Per-round accumulation
-    final Map<String, Map<String, dynamic>> anthToolUse =
-        <String, Map<String, dynamic>>{}; // id -> {name, args}
-    final Map<int, String> cliIndexToId =
-        <int, String>{}; // client tool: index -> id
-    final Map<String, String> toolResultsContent =
-        <String, String>{}; // id -> result text
-    final List<Map<String, dynamic>> assistantBlocks = <Map<String, dynamic>>[];
-    final StringBuffer textBuf = StringBuffer();
-
-    // Track thinking blocks so they can be sent back for tool-use continuation.
-    final Map<int, int> thinkingIndexToAssistantBlock = <int, int>{};
-    final Map<int, StringBuffer> thinkingText = <int, StringBuffer>{};
-    final Map<int, StringBuffer> thinkingSig = <int, StringBuffer>{};
-    final Map<int, int> redactedThinkingIndexToAssistantBlock = <int, int>{};
-    final Map<int, StringBuffer> redactedThinkingData = <int, StringBuffer>{};
-
-    int? parseIndex(dynamic raw) {
-      if (raw == null) return null;
-      if (raw is int) return raw;
-      return int.tryParse(raw.toString());
+    // Stored against this turn's message so the next turn can resume in the
+    // same container — now rather than at the end, which a cancelled turn
+    // never reaches.
+    if (hasCodeExecution && container != null) {
+      yield ProviderArtifact(
+        kind: claudeContainerArtifactKind,
+        payload: container!.encode(),
+      );
     }
+  }
 
-    void flushTextBlock() {
-      final t = textBuf.toString();
-      if (t.isNotEmpty) {
-        assistantBlocks.add({'type': 'text', 'text': t});
-        textBuf.clear();
+  final downloadedFileIds = <String>{};
+  var lastStreamResults = <Map<String, dynamic>>[];
+  final nonStreamText = StringBuffer();
+  var pauseTurn = false;
+
+  // A container the conversation goes on using gets the files it has not
+  // seen; a fresh one — none stored, or the stored one found expired — gets
+  // every file the user attached. Either way the uploads ride the last user
+  // message, and each file goes once. A file this turn is about that cannot
+  // go up fails the turn before any request is made; an earlier turn's is
+  // reported in its place instead, so one lost attachment from long ago does
+  // not end the conversation.
+  final uploadedPaths = <String>{};
+  final turnFileUris = {for (final doc in history.turnDataFiles) doc.uri};
+  Future<void> uploadDataFiles() async {
+    if (!uploadsDataFiles) return;
+    final blocks = <Map<String, dynamic>>[];
+    for (final doc
+        in container == null ? history.dataFiles : history.unseenDataFiles) {
+      if (!uploadedPaths.add(doc.uri)) continue;
+      try {
+        final fileId = await uploadClaudeFile(
+          client: client,
+          base: base,
+          headers: baseHeaders,
+          path: doc.uri,
+          name: doc.name,
+          mime: doc.mime,
+        );
+        blocks.add({'type': 'container_upload', 'file_id': fileId});
+      } on ClaudeFileUploadException catch (e) {
+        if (turnFileUris.contains(doc.uri)) rethrow;
+        blocks.add({'type': 'text', 'text': e.toString()});
       }
     }
+    if (blocks.isEmpty) return;
+    final last = convo.last;
+    final content = last['content'];
+    convo[convo.length - 1] = {
+      ...last,
+      'content': [
+        if (content is List)
+          ...content
+        else if ((content ?? '').toString().isNotEmpty)
+          {'type': 'text', 'text': content.toString()},
+        ...blocks,
+      ],
+    };
+  }
 
-    // Server tool helpers (web_search)
-    final Map<int, String> srvIndexToId = <int, String>{};
-    final Map<String, String> srvArgsStr = <String, String>{};
-    final Map<String, Map<String, dynamic>> srvArgs =
-        <String, Map<String, dynamic>>{};
+  await uploadDataFiles();
 
-    bool messageStopped = false;
+  yield* runProviderToolRounds(
+    retryRound: retryRound,
+    sendRound: () async* {
+      totalUsage = null;
+      final spec = ModelSpecResolver.instance.spec(config, modelId);
+      final body = <String, dynamic>{
+        'model': upstreamModelId,
+        'max_tokens': maxTokens ?? spec.maxOutput ?? 64000,
+        if (config.claudePromptCachingEnabled == true)
+          'cache_control': ProviderConfig.claudePromptCacheControl(
+            config.claudePromptCachingTtl,
+          ),
+        if (systemPrompt.isNotEmpty) 'system': systemPrompt,
+        'messages': convo,
+        'stream': stream,
+        if (temperature != null) 'temperature': temperature,
+        if (topP != null) 'top_p': topP,
+        if (allTools.isNotEmpty) 'tools': allTools,
+        if (allTools.isNotEmpty) 'tool_choice': {'type': 'auto'},
+        if (hasCodeExecution && container != null) 'container': container!.id,
+      };
+      applyReasoning(
+        body,
+        spec,
+        reasoning,
+        transport: ReasoningTransport.anthropicMessages,
+      );
+      final resolution = resolveReasoning(spec, reasoning);
+      applySamplingPolicy(
+        body,
+        spec,
+        resolution,
+        transport: ReasoningTransport.anthropicMessages,
+      );
+      // Custom body keys win over the reasoning dialect.
+      final extraClaude = customBody(config, modelId, assistantBody: extraBody);
+      CustomRequestMerger.applyBody(body, extraClaude);
+      applyAnthropicMessagesProtocolConstraints(body);
 
-    await for (final chunk in _ensureTrailingNewline(sse)) {
-      buffer += chunk;
-      final lines = buffer.split('\n');
-      buffer = lines.last;
+      http.Request buildRequest() {
+        final request = http.Request('POST', url);
+        request.headers.addAll(baseHeaders);
+        request.body = jsonEncode(body);
+        return request;
+      }
 
-      for (int i = 0; i < lines.length - 1; i++) {
-        final line = lines[i].trim();
-        if (line.isEmpty || !line.startsWith('data:')) continue;
+      var response = await client.send(buildRequest());
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        final errorBody = await response.stream.bytesToString();
+        // A stored container can have expired since the last turn; forget
+        // it and let this round start a fresh one.
+        final staleContainer =
+            body.containsKey('container') &&
+            isClaudeStaleContainerError(response.statusCode, errorBody);
+        if (!staleContainer) {
+          throw HttpException('HTTP ${response.statusCode}: $errorBody');
+        }
+        container = null;
+        body.remove('container');
+        await uploadDataFiles();
+        response = await client.send(buildRequest());
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          final retryBody = await response.stream.bytesToString();
+          throw HttpException('HTTP ${response.statusCode}: $retryBody');
+        }
+      }
 
-        final data = line.substring(5).trimLeft();
+      pendingCalls = [];
+      lastStreamResults = [];
+      lastAssistantBlocks = [];
+      pauseTurn = false;
+
+      // Non-streaming path: parse full JSON, handle tool_use, then continue loop if needed.
+      if (!stream) {
+        final txt = await decodeUtf8Stream(response.stream);
+        final obj = jsonDecode(txt) as Map;
+        // Usage
         try {
-          final obj = jsonDecode(data);
-          final type = obj['type'];
-
-          if (type == 'content_block_start') {
-            final cb = obj['content_block'];
-            final idx = parseIndex(obj['index']);
-            if (cb is Map && (cb['type'] == 'thinking')) {
-              // Preserve thinking blocks (with signature) for tool-use continuation.
-              flushTextBlock();
-              if (idx != null) {
-                assistantBlocks.add({
-                  'type': 'thinking',
-                  'thinking': '',
-                  'signature': '',
-                });
-                thinkingIndexToAssistantBlock[idx] = assistantBlocks.length - 1;
-                thinkingText[idx] = StringBuffer();
-                thinkingSig[idx] = StringBuffer();
-              }
-            } else if (cb is Map && (cb['type'] == 'redacted_thinking')) {
-              flushTextBlock();
-              if (!skipRedactedThinkingBlocks && idx != null) {
-                assistantBlocks.add({'type': 'redacted_thinking', 'data': ''});
-                redactedThinkingIndexToAssistantBlock[idx] =
-                    assistantBlocks.length - 1;
-                redactedThinkingData[idx] = StringBuffer();
-              }
-            } else if (cb is Map && (cb['type'] == 'tool_use')) {
-              // Flush text block before tool_use
-              flushTextBlock();
-              final id = (cb['id'] ?? '').toString();
-              final name = (cb['name'] ?? '').toString();
-              final idx2 = idx ?? -1;
-              if (id.isNotEmpty) {
-                anthToolUse.putIfAbsent(id, () => {'name': name, 'args': ''});
-                assistantBlocks.add({
-                  'type': 'tool_use',
-                  'id': id,
-                  'name': name,
-                  'input': {},
-                });
-                if (idx2 >= 0) cliIndexToId[idx2] = id;
-                // Emit placeholder tool-call card immediately
-                yield ChatStreamChunk(
-                  content: '',
-                  isDone: false,
-                  totalTokens: roundTokens,
-                  usage: usage,
-                  toolCalls: [
-                    ToolCallInfo(
-                      id: id,
-                      name: name,
-                      arguments: const <String, dynamic>{},
-                      metadata: {
-                        'anthropic': {'assistant_blocks': assistantBlocks},
-                      },
-                    ),
-                  ],
-                );
-              }
-            } else if (cb is Map && (cb['type'] == 'server_tool_use')) {
-              final id = (cb['id'] ?? '').toString();
-              final name = (cb['name'] ?? '').toString();
-              final idx2 = idx ?? -1;
-              if (id.isNotEmpty && idx2 >= 0) {
-                srvIndexToId[idx2] = id;
-                srvArgsStr[id] = '';
-              }
-              // Emit placeholder for server tool to show card (e.g., built-in web_search)
-              if (id.isNotEmpty && name == 'web_search') {
-                yield ChatStreamChunk(
-                  content: '',
-                  isDone: false,
-                  totalTokens: roundTokens,
-                  usage: usage,
-                  toolCalls: [
-                    ToolCallInfo(
-                      id: id,
-                      name: 'search_web',
-                      arguments: const <String, dynamic>{},
-                      metadata: {
-                        'anthropic': {'assistant_blocks': assistantBlocks},
-                      },
-                    ),
-                  ],
-                );
-              }
-            } else if (cb is Map && (cb['type'] == 'web_search_tool_result')) {
-              // Emit simplified search results to UI
-              final toolUseId = (cb['tool_use_id'] ?? '').toString();
-              final contentBlock = cb['content'];
-              final items = <Map<String, dynamic>>[];
-              String? errorCode;
-              if (contentBlock is List) {
-                for (int j = 0; j < contentBlock.length; j++) {
-                  final it = contentBlock[j];
-                  if (it is Map && (it['type'] == 'web_search_result')) {
-                    items.add({
-                      'index': j + 1,
-                      'title': (it['title'] ?? '').toString(),
-                      'url': (it['url'] ?? '').toString(),
-                      if ((it['page_age'] ?? '').toString().isNotEmpty)
-                        'page_age': (it['page_age'] ?? '').toString(),
-                    });
-                  }
-                }
-              } else if (contentBlock is Map &&
-                  (contentBlock['type'] == 'web_search_tool_result_error')) {
-                errorCode = (contentBlock['error_code'] ?? '').toString();
-              }
-              Map<String, dynamic> args = const <String, dynamic>{};
-              if (srvArgs.containsKey(toolUseId)) args = srvArgs[toolUseId]!;
-              final payload = jsonEncode({
-                'items': items,
-                if ((errorCode ?? '').isNotEmpty) 'error': errorCode,
-              });
-              yield ChatStreamChunk(
-                content: '',
-                isDone: false,
-                totalTokens: roundTokens,
-                usage: usage,
-                toolResults: [
-                  ToolResultInfo(
-                    id: toolUseId.isEmpty ? 'builtin_search' : toolUseId,
-                    name: 'search_web',
-                    arguments: args,
-                    content: payload,
-                    metadata: {
-                      'anthropic': {'assistant_blocks': assistantBlocks},
-                    },
-                  ),
-                ],
-              );
-            }
-          } else if (type == 'content_block_delta') {
-            final delta = obj['delta'];
-            if (delta != null) {
-              if (delta['type'] == 'text_delta') {
-                final content = delta['text'] ?? '';
-                if (content is String && content.isNotEmpty) {
-                  textBuf.write(content);
-                  yield ChatStreamChunk(
-                    content: content,
-                    isDone: false,
-                    totalTokens: roundTokens,
-                  );
-                }
-              } else if (delta['type'] == 'thinking_delta') {
-                final idx = parseIndex(obj['index']);
-                final thinking =
-                    (delta['thinking'] ?? delta['text'] ?? '') as String;
-                if (thinking.isNotEmpty) {
-                  yield ChatStreamChunk(
-                    content: '',
-                    reasoning: thinking,
-                    isDone: false,
-                    totalTokens: roundTokens,
-                  );
-                  if (idx != null && thinkingText.containsKey(idx)) {
-                    thinkingText[idx]!.write(thinking);
-                  }
-                }
-              } else if (delta['type'] == 'signature_delta') {
-                final idx = parseIndex(obj['index']);
-                final sig = (delta['signature'] ?? '').toString();
-                if (sig.isNotEmpty &&
-                    idx != null &&
-                    thinkingSig.containsKey(idx)) {
-                  thinkingSig[idx]!.write(sig);
-                }
-              } else if (delta['type'] == 'redacted_thinking_delta') {
-                final idx = parseIndex(obj['index']);
-                final data = (delta['data'] ?? '').toString();
-                if (data.isNotEmpty &&
-                    idx != null &&
-                    redactedThinkingData.containsKey(idx)) {
-                  redactedThinkingData[idx]!.write(data);
-                }
-              } else if (delta['type'] == 'tool_use_delta') {
-                // Client tool input fragments stream under the same content_block index
-                final idx = (obj['index'] is int)
-                    ? obj['index'] as int
-                    : int.tryParse((obj['index'] ?? '').toString());
-                final id = (idx != null && cliIndexToId.containsKey(idx))
-                    ? cliIndexToId[idx]!
-                    : '';
-                if (id.isNotEmpty) {
-                  final argsDelta =
-                      (delta['partial_json'] ??
-                              delta['input'] ??
-                              delta['text'] ??
-                              '')
-                          .toString();
-                  final entry = anthToolUse.putIfAbsent(
-                    id,
-                    () => {'name': '', 'args': ''},
-                  );
-                  if (argsDelta.isNotEmpty) {
-                    entry['args'] = (entry['args'] ?? '') + argsDelta;
-                  }
-                }
-              } else if (delta['type'] == 'input_json_delta') {
-                final idxRaw = obj['index'];
-                final index = (idxRaw is int)
-                    ? idxRaw
-                    : int.tryParse((idxRaw ?? '').toString());
-                final part = (delta['partial_json'] ?? '').toString();
-                if (index != null && part.isNotEmpty) {
-                  if (cliIndexToId.containsKey(index)) {
-                    final id = cliIndexToId[index]!;
-                    final entry = anthToolUse.putIfAbsent(
-                      id,
-                      () => {'name': '', 'args': ''},
-                    );
-                    entry['args'] = (entry['args'] ?? '') + part;
-                  } else if (srvIndexToId.containsKey(index)) {
-                    final id = srvIndexToId[index]!;
-                    srvArgsStr[id] = (srvArgsStr[id] ?? '') + part;
-                  }
-                }
-              }
-            }
-          } else if (type == 'content_block_stop') {
-            final idx = parseIndex(obj['index']);
-            // Finalize thinking blocks so they can be sent back unmodified.
-            if (idx != null && thinkingIndexToAssistantBlock.containsKey(idx)) {
-              final pos = thinkingIndexToAssistantBlock.remove(idx)!;
-              final t = thinkingText.remove(idx)?.toString() ?? '';
-              final sig = thinkingSig.remove(idx)?.toString() ?? '';
-              assistantBlocks[pos] = {
-                'type': 'thinking',
-                'thinking': t,
-                'signature': sig,
-              };
-            }
-            if (idx != null &&
-                redactedThinkingIndexToAssistantBlock.containsKey(idx)) {
-              final pos = redactedThinkingIndexToAssistantBlock.remove(idx)!;
-              final data = redactedThinkingData.remove(idx)?.toString() ?? '';
-              assistantBlocks[pos] = {
-                'type': 'redacted_thinking',
-                'data': data,
-              };
-            }
-            String id = (obj['content_block']?['id'] ?? obj['id'] ?? '')
-                .toString();
-            if (id.isEmpty && idx != null && cliIndexToId.containsKey(idx)) {
-              id = cliIndexToId[idx]!;
-            }
-            if (id.isNotEmpty && anthToolUse.containsKey(id)) {
-              final name = (anthToolUse[id]!['name'] ?? '').toString();
-              Map<String, dynamic> args;
-              try {
-                args =
-                    (jsonDecode((anthToolUse[id]!['args'] ?? '{}') as String)
-                            as Map)
-                        .cast<String, dynamic>();
-              } catch (_) {
-                args = <String, dynamic>{};
-              }
-              // Update last assistant tool_use block input
-              for (int k = assistantBlocks.length - 1; k >= 0; k--) {
-                final b = assistantBlocks[k];
-                if (b['type'] == 'tool_use' &&
-                    (b['id']?.toString() ?? '') == id) {
-                  assistantBlocks[k] = {
-                    'type': 'tool_use',
-                    'id': id,
-                    'name': name,
-                    'input': args,
-                  };
-                  break;
-                }
-              }
-              // Emit tool result to UI (placeholder was emitted at start)
-              if (onToolCall != null) {
-                final res = await onToolCall(name, args, toolCallId: id);
-                toolResultsContent[id] = res;
-                yield ChatStreamChunk(
-                  content: '',
-                  isDone: false,
-                  totalTokens: roundTokens,
-                  toolResults: [
-                    ToolResultInfo(
-                      id: id,
-                      name: name,
-                      arguments: args,
-                      content: res,
-                      metadata: {
-                        'anthropic': {'assistant_blocks': assistantBlocks},
-                      },
-                    ),
-                  ],
-                  usage: usage,
-                );
-              }
-            } else {
-              if (idx != null && srvIndexToId.containsKey(idx)) {
-                final sid = srvIndexToId[idx]!;
-                Map<String, dynamic> args;
-                try {
-                  args = jsonDecode(
-                    srvArgsStr[sid] ?? '{}',
-                  ).cast<String, dynamic>();
-                } catch (_) {
-                  args = <String, dynamic>{};
-                }
-                srvArgs[sid] = args;
-                yield ChatStreamChunk(
-                  content: '',
-                  isDone: false,
-                  totalTokens: roundTokens,
-                  usage: usage,
-                  toolCalls: [
-                    ToolCallInfo(
-                      id: sid,
-                      name: 'search_web',
-                      arguments: args,
-                      metadata: {
-                        'anthropic': {'assistant_blocks': assistantBlocks},
-                      },
-                    ),
-                  ],
-                );
-              }
-            }
-          } else if (type == 'message_delta') {
-            final u = obj['usage'] ?? obj['message']?['usage'];
-            if (u is Map) {
-              usage = (usage ?? const TokenUsage()).merge(
-                _claudeUsageFromMap(u.cast<String, dynamic>()),
-              );
-              roundTokens = usage.totalTokens;
-            }
-            // Capture stop reason to handle pause_turn for server tools
-            try {
-              final d = obj['delta'];
-              final sr = (d is Map)
-                  ? (d['stop_reason'] ?? d['stopReason'])
-                  : null;
-              if (sr is String && sr.isNotEmpty) {
-                lastStopReason = sr;
-              }
-            } catch (_) {}
-          } else if (type == 'message_stop') {
-            // Flush remaining text
-            final t = textBuf.toString();
+          final u = (obj['usage'] as Map?)?.cast<String, dynamic>();
+          if (u != null) {
+            final next = claudeUsageFromMap(u);
+            if (next.hasReportedTokens) totalUsage = next.asSnapshot();
+          }
+        } catch (_) {}
+        container =
+            ClaudeContainerRef.fromResponse(obj['container']) ?? container;
+        final content = (obj['content'] as List?) ?? const <dynamic>[];
+        final List<Map<String, dynamic>> assistantBlocks =
+            <Map<String, dynamic>>[];
+        final Map<String, Map<String, dynamic>> toolUses =
+            <String, Map<String, dynamic>>{}; // id -> {name,args}
+        for (final it in content) {
+          if (it is! Map) continue;
+          final type = (it['type'] ?? '').toString();
+          if (type == 'text') {
+            final t = (it['text'] ?? '').toString();
             if (t.isNotEmpty) {
               assistantBlocks.add({'type': 'text', 'text': t});
             }
-            messageStopped = true;
+          } else if (type == 'thinking' ||
+              (type == 'redacted_thinking' && !skipRedactedThinkingBlocks)) {
+            // Preserve thinking blocks unmodified for tool-use continuation.
+            // When thinking is enabled, the next request must include the last assistant
+            // message starting with a thinking/redacted_thinking block.
+            try {
+              assistantBlocks.add(
+                Map<String, dynamic>.from(it.cast<String, dynamic>()),
+              );
+            } catch (_) {}
+          } else if (type == 'tool_use') {
+            final id = (it['id'] ?? '').toString();
+            final rawName = (it['name'] ?? '').toString();
+            final name = config.oauthProvider == OAuthProvider.claude
+                ? decodeClaudeOAuthToolName(rawName)
+                : rawName;
+            final args =
+                (it['input'] as Map?)?.cast<String, dynamic>() ??
+                const <String, dynamic>{};
+            if (id.isNotEmpty) {
+              toolUses[id] = {'name': name, 'args': args};
+              assistantBlocks.add({
+                'type': 'tool_use',
+                'id': id,
+                'name': name,
+                'input': args,
+              });
+            }
+          } else if (type == 'server_tool_use' ||
+              type.endsWith('_tool_result')) {
+            // The hosted call and its result are the model's own turn: a
+            // continuation round that drops either is rejected.
+            try {
+              assistantBlocks.add(
+                Map<String, dynamic>.from(it.cast<String, dynamic>()),
+              );
+            } catch (_) {}
+            for (final fileId in claudeGeneratedFileIds(it['content'])) {
+              if (!downloadedFileIds.add(fileId)) continue;
+              final file = await downloadClaudeGeneratedFile(
+                client: client,
+                base: base,
+                headers: baseHeaders,
+                fileId: fileId,
+              );
+              if (file != null) yield file;
+            }
           }
-        } catch (_) {
-          // ignore malformed chunk
         }
-      }
-      if (messageStopped) {
-        break; // break await-for
-      }
-    }
-
-    // Merge usage across rounds for final token count
-    if (usage != null) {
-      totalUsage = (totalUsage ?? const TokenUsage()).merge(usage);
-    }
-
-    // If no client tool calls, decide whether to continue (pause_turn/server tool) or finalize
-    if (anthToolUse.isEmpty) {
-      final sr = lastStopReason ?? '';
-      if (sr == 'pause_turn') {
-        // Continue this turn with assistant content only
-        convo = [
-          ...convo,
-          {'role': 'assistant', 'content': assistantBlocks},
-        ];
-        // Loop to next round
-        continue;
-      } else {
-        yield ChatStreamChunk(
-          content: '',
-          isDone: true,
-          totalTokens: (totalUsage?.totalTokens ?? roundTokens),
-          usage: totalUsage ?? usage,
+        // The continuation round sends these, so they go through the same
+        // sanitising as replayed history; the stored copy stays whole.
+        lastAssistantBlocks = history.sanitize(assistantBlocks);
+        nonStreamText.write(joinedTextOfBlocks(assistantBlocks));
+        final decoder = ClaudeStreamDecoder(
+          skipRedactedThinkingBlocks: skipRedactedThinkingBlocks,
+          serverToolNames: declaredServerToolNames,
+          sourceId: 'round-${streamRound++}',
         );
+        for (final chunk in decoder.decodeCompleteServerTools(
+          assistantBlocks,
+        )) {
+          yield chunk;
+        }
+        yield* recordTurn(assistantBlocks);
+        if (toolUses.isEmpty) {
+          // A hosted tool that ran past the turn limit asks to be resumed,
+          // with no client tool to answer first.
+          pauseTurn = (obj['stop_reason'] ?? '').toString() == 'pause_turn';
+        }
+        if (toolUses.isNotEmpty && onToolCall != null) {
+          pendingCalls = [
+            for (final e in toolUses.entries)
+              emitToolCall(
+                id: e.key,
+                name: (e.value['name'] ?? '').toString(),
+                arguments: (e.value['args'] as Map<String, dynamic>),
+              ),
+          ];
+        }
         return;
       }
-    }
 
-    // Build tool_result blocks in a single user message (parallel-safe)
-    final toolResultsBlocks = <Map<String, dynamic>>[];
-    for (final entry in anthToolUse.entries) {
-      final id = entry.key;
-      final name = (entry.value['name'] ?? '').toString();
-      Map<String, dynamic> args;
+      final sse = response.stream.transform(utf8.decoder);
+      final decoder = ClaudeStreamDecoder(
+        decodeToolName: config.oauthProvider == OAuthProvider.claude
+            ? decodeClaudeOAuthToolName
+            : null,
+        skipRedactedThinkingBlocks: skipRedactedThinkingBlocks,
+        initialUsage: totalUsage,
+        serverToolNames: declaredServerToolNames,
+        sourceId: 'round-${streamRound++}',
+      );
+      final executedToolIds = <String>{};
+      // Downloads run alongside the stream: awaiting one here would leave the
+      // SSE events unread, and the text after the tool frozen, for as long as
+      // the file takes.
+      final downloads = <Future<GeneratedFile?>>[];
+      var streamCompleted = false;
+
       try {
-        args = (jsonDecode((entry.value['args'] ?? '{}') as String) as Map)
-            .cast<String, dynamic>();
-      } catch (_) {
-        args = <String, dynamic>{};
+        await for (final event in parseSseEventStrings(sse)) {
+          throwIfInBandStreamError(event.data);
+          final decoded = decoder.accept(event);
+          for (final chunk in decoded.chunks) {
+            yield chunk;
+            if (chunk is ServerToolEnd) {
+              // Code execution reports what it wrote as ids the card cannot do
+              // anything with, so the bytes are fetched here and the message
+              // carries the file itself.
+              for (final fileId in claudeGeneratedFileIds(chunk.output)) {
+                if (!downloadedFileIds.add(fileId)) continue;
+                downloads.add(
+                  downloadClaudeGeneratedFile(
+                    client: client,
+                    base: base,
+                    headers: baseHeaders,
+                    fileId: fileId,
+                  ),
+                );
+              }
+            }
+            if (chunk is ToolCallEnd &&
+                decoder.isClientTool(chunk.id) &&
+                onToolCall != null &&
+                executedToolIds.add(chunk.id)) {
+              final tool = decoder.clientTools[chunk.id]!;
+              final args = tool.decodedArguments;
+              final call = emitToolCall(
+                id: tool.id,
+                name: tool.name,
+                arguments: args,
+              );
+              await for (final resultChunk in executeClientTools(
+                calls: [call],
+                onToolCall: onToolCall,
+                usage: decoder.usage,
+                totalTokens: decoder.usage?.totalTokens ?? 0,
+              )) {
+                if (resultChunk is ToolCallResult) {
+                  decoder.recordToolResult(
+                    tool.id,
+                    ClientToolResult(
+                      (resultChunk.output ?? '').toString(),
+                      metadata: resultChunk.metadata,
+                    ),
+                  );
+                }
+                yield resultChunk;
+              }
+            }
+          }
+          if (decoded.completed) break;
+        }
+        streamCompleted = true;
+      } finally {
+        // A turn that stops here — cancelled, or on an in-band error — still
+        // sees its downloads out rather than closing the client under them;
+        // what they wrote has no message to go to, so it is removed again.
+        final files = await Future.wait(downloads);
+        if (!streamCompleted) {
+          for (final file in files) {
+            if (file != null) await discardClaudeGeneratedFile(file);
+          }
+        }
       }
-      String res = toolResultsContent[id] ?? '';
-      if (res.isEmpty && onToolCall != null) {
-        res = await onToolCall(name, args, toolCallId: id);
+      for (final chunk in decoder.onClosed()) {
+        yield chunk;
       }
-      toolResultsBlocks.add({
-        'type': 'tool_result',
-        'tool_use_id': id,
-        if (res.isNotEmpty) 'content': res,
-      });
-    }
+      for (final download in downloads) {
+        final file = await download;
+        if (file != null) yield file;
+      }
 
-    // Extend conversation: assistant content (with tool_use blocks) + user tool_results
-    convo = [
-      ...convo,
-      {'role': 'assistant', 'content': assistantBlocks},
-      {'role': 'user', 'content': toolResultsBlocks},
-    ];
-    // Loop to next round; the next response will stream more assistant content
-  }
+      final usage = decoder.usage;
+      final assistantBlocks = decoder.assistantBlocks;
+      final lastStopReason = decoder.lastStopReason;
+      final toolResultsContent = decoder.toolResults;
+
+      totalUsage = usage ?? totalUsage;
+      container = decoder.container ?? container;
+
+      // The continuation round sends these as they are, so they go through the
+      // same sanitising as replayed history — the stored copy stays whole.
+      lastAssistantBlocks = history.sanitize(assistantBlocks);
+      yield* recordTurn(assistantBlocks);
+      if (decoder.clientTools.isEmpty) {
+        pauseTurn = (lastStopReason ?? '') == 'pause_turn';
+        return;
+      }
+
+      pendingCalls = [
+        for (final tool in decoder.clientTools.values)
+          emitToolCall(
+            id: tool.id,
+            name: tool.name,
+            arguments: tool.decodedArguments,
+          ),
+      ];
+      for (final tool in decoder.clientTools.values) {
+        var res = toolResultsContent[tool.id];
+        if (res == null && onToolCall != null) {
+          res = ClientToolResult.fromHandler(
+            await onToolCall(
+              tool.name,
+              tool.decodedArguments,
+              toolCallId: tool.id,
+            ),
+          );
+        }
+        lastStreamResults.add({
+          'type': 'tool_result',
+          'tool_use_id': tool.id,
+          'content': (await ToolResultContent.read(
+            tool.name,
+            res?.content ?? '',
+            metadata: res?.metadata,
+            canImageInput: canImageInput,
+          )).claudeContent,
+        });
+      }
+    },
+    takeCalls: () => pendingCalls,
+    continueWithoutCalls: () => pauseTurn,
+    executeAfterRound: !stream,
+    emitCalls: !stream,
+    onToolCall: onToolCall,
+    append: (executed) async {
+      if (pauseTurn) {
+        convo = [
+          ...convo,
+          {'role': 'assistant', 'content': lastAssistantBlocks},
+        ];
+        return;
+      }
+      final results = stream
+          ? lastStreamResults
+          : [
+              for (final item in executed)
+                <String, dynamic>{
+                  'type': 'tool_result',
+                  'tool_use_id': item.call.id,
+                  'content': (await ToolResultContent.read(
+                    item.call.name,
+                    item.content,
+                    metadata: item.metadata,
+                    canImageInput: canImageInput,
+                  )).claudeContent,
+                },
+            ];
+      convo = [
+        ...convo,
+        {'role': 'assistant', 'content': lastAssistantBlocks},
+        {'role': 'user', 'content': results},
+      ];
+    },
+    finish: () async* {
+      yield* emitDone(
+        ids: StreamChunkIds('finish'),
+        content: nonStreamText.toString(),
+        usage: totalUsage,
+        totalTokens: totalUsage?.totalTokens ?? 0,
+      );
+    },
+    usageOf: () => totalUsage,
+  );
 }

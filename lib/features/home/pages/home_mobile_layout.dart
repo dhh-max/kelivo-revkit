@@ -14,10 +14,11 @@ import '../../../icons/lucide_adapter.dart';
 import '../../../core/providers/user_provider.dart';
 import '../../../core/providers/settings_provider.dart';
 import '../../../core/providers/assistant_provider.dart';
-import '../../../core/services/haptics.dart';
+import 'package:Kelivo/shared/services/haptics.dart';
 import '../../../shared/animations/widgets.dart';
 import '../../../shared/widgets/ios_tactile.dart';
 import '../../../utils/sandbox_path_resolver.dart';
+import '../../chat/widgets/frosted/chat_frosted_backdrop.dart';
 import '../widgets/assistant_avatar.dart';
 import '../widgets/assistant_entry_actions.dart';
 import 'package:Kelivo/theme/app_font_weights.dart';
@@ -116,12 +117,16 @@ class HomeMobileScaffold extends StatelessWidget {
           if (closeDrawer) drawerController.close();
         },
       ),
-      child: Scaffold(
-        key: scaffoldKey,
-        resizeToAvoidBottomInset: true,
-        extendBodyBehindAppBar: true,
-        appBar: appBarOverride ?? _buildAppBar(context, cs),
-        body: body,
+      child: ChatFrostedBackdrop(
+        backdrop: const MobileBackgroundLayer(),
+        child: Scaffold(
+          key: scaffoldKey,
+          resizeToAvoidBottomInset: true,
+          extendBodyBehindAppBar: true,
+          backgroundColor: Colors.transparent,
+          appBar: appBarOverride ?? _buildAppBar(context, cs),
+          body: body,
+        ),
       ),
     );
   }
@@ -338,7 +343,7 @@ class MobileBackgroundLayer extends StatelessWidget {
         .watch<SettingsProvider>()
         .chatBackgroundMaskStrength;
 
-    if (bg == null || bg.trim().isEmpty) return const SizedBox.shrink();
+    if (bg == null || bg.trim().isEmpty) return const SizedBox.expand();
 
     ImageProvider provider;
     if (bg.startsWith('http')) {
@@ -346,195 +351,44 @@ class MobileBackgroundLayer extends StatelessWidget {
     } else {
       final localPath = SandboxPathResolver.fix(bg);
       final file = File(localPath);
-      if (!file.existsSync()) return const SizedBox.shrink();
+      if (!file.existsSync()) return const SizedBox.expand();
       provider = FileImage(file);
     }
 
-    return Positioned.fill(
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                image: DecorationImage(
-                  image: provider,
-                  fit: BoxFit.cover,
-                  colorFilter: ColorFilter.mode(
-                    Colors.black.withValues(alpha: 0.04),
-                    BlendMode.srcATop,
-                  ),
-                ),
-              ),
-            ),
-          ),
-          Positioned.fill(
-            child: IgnorePointer(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      cs.surface.withValues(
-                        alpha: (0.20 * maskStrength).clamp(0.0, 1.0),
-                      ),
-                      cs.surface.withValues(
-                        alpha: (0.50 * maskStrength).clamp(0.0, 1.0),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Scroll navigation buttons (scroll to bottom + scroll to previous question)
-class ScrollNavigationButtons extends StatelessWidget {
-  const ScrollNavigationButtons({
-    super.key,
-    required this.showJumpToBottom,
-    required this.inputBarHeight,
-    required this.hasMessages,
-    required this.onScrollToBottom,
-    required this.onScrollToPreviousQuestion,
-  });
-
-  final bool showJumpToBottom;
-  final double inputBarHeight;
-  final bool hasMessages;
-  final VoidCallback onScrollToBottom;
-  final VoidCallback onScrollToPreviousQuestion;
-
-  @override
-  Widget build(BuildContext context) {
-    final showSetting = context.watch<SettingsProvider>().showMessageNavButtons;
-    if (!showSetting || !hasMessages) return const SizedBox.shrink();
-
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bottomOffset = inputBarHeight + 12;
-
     return Stack(
+      fit: StackFit.expand,
       children: [
-        // Scroll to bottom button
-        Align(
-          alignment: Alignment.bottomRight,
-          child: SafeArea(
-            top: false,
-            bottom: false,
-            child: IgnorePointer(
-              ignoring: !showJumpToBottom,
-              child: AnimatedScale(
-                scale: showJumpToBottom ? 1.0 : 0.9,
-                duration: const Duration(milliseconds: 220),
-                curve: Curves.easeOutCubic,
-                child: AnimatedOpacity(
-                  duration: const Duration(milliseconds: 220),
-                  curve: Curves.easeOutCubic,
-                  opacity: showJumpToBottom ? 1 : 0,
-                  child: Padding(
-                    padding: EdgeInsets.only(right: 16, bottom: bottomOffset),
-                    child: _ScrollButton(
-                      isDark: isDark,
-                      icon: Lucide.ChevronDown,
-                      onTap: onScrollToBottom,
-                    ),
-                  ),
-                ),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            image: DecorationImage(
+              image: provider,
+              fit: BoxFit.cover,
+              colorFilter: ColorFilter.mode(
+                cs.shadow.withValues(alpha: 0.04),
+                BlendMode.srcATop,
               ),
             ),
           ),
         ),
-        // Scroll to previous question button
-        Align(
-          alignment: Alignment.bottomRight,
-          child: SafeArea(
-            top: false,
-            bottom: false,
-            child: IgnorePointer(
-              ignoring: !showJumpToBottom,
-              child: AnimatedScale(
-                scale: showJumpToBottom ? 1.0 : 0.9,
-                duration: const Duration(milliseconds: 220),
-                curve: Curves.easeOutCubic,
-                child: AnimatedOpacity(
-                  duration: const Duration(milliseconds: 220),
-                  curve: Curves.easeOutCubic,
-                  opacity: showJumpToBottom ? 1 : 0,
-                  child: Padding(
-                    padding: EdgeInsets.only(
-                      right: 16,
-                      bottom: bottomOffset + 52,
-                    ),
-                    child: _ScrollButton(
-                      isDark: isDark,
-                      icon: Lucide.ChevronUp,
-                      onTap: onScrollToPreviousQuestion,
-                    ),
+        IgnorePointer(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  cs.surface.withValues(
+                    alpha: (0.20 * maskStrength).clamp(0.0, 1.0),
                   ),
-                ),
+                  cs.surface.withValues(
+                    alpha: (0.50 * maskStrength).clamp(0.0, 1.0),
+                  ),
+                ],
               ),
             ),
           ),
         ),
       ],
-    );
-  }
-}
-
-class _ScrollButton extends StatelessWidget {
-  const _ScrollButton({
-    required this.isDark,
-    required this.icon,
-    required this.onTap,
-  });
-
-  final bool isDark;
-  final IconData icon;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return ClipOval(
-      child: BackdropFilter(
-        filter: ui.ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-        child: Container(
-          decoration: BoxDecoration(
-            color: isDark
-                ? Colors.white.withValues(alpha: 0.06)
-                : Colors.white.withValues(alpha: 0.07),
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: isDark
-                  ? Colors.white.withValues(alpha: 0.10)
-                  : Theme.of(
-                      context,
-                    ).colorScheme.outline.withValues(alpha: 0.20),
-              width: 1,
-            ),
-          ),
-          child: Material(
-            type: MaterialType.transparency,
-            shape: const CircleBorder(),
-            child: InkWell(
-              customBorder: const CircleBorder(),
-              onTap: onTap,
-              child: Padding(
-                padding: const EdgeInsets.all(6),
-                child: Icon(
-                  icon,
-                  size: 16,
-                  color: isDark ? Colors.white : Colors.black87,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
     );
   }
 }
@@ -625,12 +479,8 @@ class _GlassCircleButtonState extends State<_GlassCircleButton> {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
-    final glassBase = isDark
-        ? Colors.black.withValues(alpha: 0.06)
-        : Colors.white.withValues(alpha: 0.06);
-    final overlay = isDark
-        ? Colors.white.withValues(alpha: 0.06)
-        : Colors.black.withValues(alpha: 0.05);
+    final glassBase = cs.surface.withValues(alpha: 0.06);
+    final overlay = cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05);
     final tileColor = _pressed
         ? Color.alphaBlend(overlay, glassBase)
         : glassBase;

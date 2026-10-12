@@ -2,10 +2,71 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/providers/settings_provider.dart';
-import '../../../core/services/haptics.dart';
+import 'package:Kelivo/shared/services/haptics.dart';
 import '../../../icons/lucide_adapter.dart';
 import '../../../theme/app_font_weights.dart';
 import 'package:Kelivo/theme/app_semantic_colors.dart';
+
+/// Reorders [items] using the index reported by [SliverReorderableList].
+///
+/// [newIndex] is already the insertion index after [oldIndex] is removed.
+/// Returns [items] unchanged when the move is a no-op.
+List<T> reorderVoiceServiceList<T>(List<T> items, int oldIndex, int newIndex) {
+  if (oldIndex < 0 ||
+      newIndex < 0 ||
+      oldIndex >= items.length ||
+      newIndex >= items.length ||
+      oldIndex == newIndex) {
+    return items;
+  }
+  final next = List<T>.from(items);
+  next.insert(newIndex, next.removeAt(oldIndex));
+  return next;
+}
+
+Widget voiceServiceDragProxy(
+  Widget child,
+  int index,
+  Animation<double> animation,
+) {
+  return AnimatedBuilder(
+    animation: animation,
+    builder: (context, child) {
+      final t = Curves.easeOutCubic.transform(animation.value);
+      return DecoratedBox(
+        decoration: BoxDecoration(
+          color: context.appColors.surfaceCard,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Transform.scale(scale: 0.985 + 0.015 * t, child: child),
+      );
+    },
+    child: child,
+  );
+}
+
+/// iOS-style section card that can wrap a [SliverReorderableList].
+class VoiceServiceCardSliver extends StatelessWidget {
+  const VoiceServiceCardSliver({super.key, required this.sliver});
+
+  final Widget sliver;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return DecoratedSliver(
+      decoration: BoxDecoration(
+        color: colors.surfaceCard,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colors.hairline, width: 0.6),
+      ),
+      sliver: SliverPadding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        sliver: sliver,
+      ),
+    );
+  }
+}
 
 /// Shared visual vocabulary for the TTS and ASR halves of Voice Services.
 ///

@@ -4,7 +4,7 @@ import '../../../core/models/chat_message.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/snackbar.dart';
 import '../../../shared/widgets/ios_tactile.dart';
-import '../../../core/services/haptics.dart';
+import 'package:Kelivo/shared/services/haptics.dart';
 import '../../../theme/app_font_weights.dart';
 
 Future<void> showSelectCopySheet(

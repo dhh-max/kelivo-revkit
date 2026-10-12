@@ -31,12 +31,9 @@ htmlcov/
 coverage.xml
 .tox/
 
-# Test files (local dev only; canonical tests under tests/ are tracked)
+# Test files
 test_*
 *_test.py
-!tests/
-!tests/__init__.py
-!tests/test_*.py
 
 # Project specific
 *.dex

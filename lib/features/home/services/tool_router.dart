@@ -3,9 +3,12 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 
 import '../../../core/utils/token_estimator.dart';
+import '../../../core/services/local_tools/local_tool_names.dart';
 import '../../../core/services/local_tools/local_tool_registry.dart';
+import '../../solab_apk/analyzer/analyzer_tools.dart';
 import '../../solab_apk/services/apk_agent_policy.dart';
 import 'tool_handler_service.dart' show ToolLoadPolicy;
+import 'tool_load_policy.dart';
 
 /// route_task 返回的轨道（决定 Tier2 追加哪组工具）。
 enum ToolTrack { flutterVip, dexNative, soAnalysis, fileOps }
@@ -28,28 +31,42 @@ class ToolRouter {
   ///
   /// 必须含任务分流，避免普通任务只拿到“提问/分页”两个工具后无法进入
   /// 对应能力域；纯闲聊仍由 [ToolLoadPolicy.none] 保持零工具。
+  ///
+  /// subagent/todo/file 常驻（用户 2026-09-29 真机实测回归）：能力策略段
+  /// 按「助手配置了就承诺」生成，轻轮不挂载就会策略段与工具面脱节（模型
+  /// 照提示承诺派发/建清单/写计划，实际调不到）。挂载仍与助手
+  /// localToolIds 求交，没配这些工具的助手不受影响。
   static const Set<String> coreNames = <String>{
-    'route_task',
-    'ask_user_input_v0',
-    'get_agent_runtime_guide',
-    'get_solab_tool_map',
-    'list_workspace_apks',
-    'get_apk_project_info',
-    'list_apk_builds',
-    'memory_read',
-    'memory_update',
-    'memory_search_profile',
-    'get_tool_result',
+    LocalToolNames.routeTask,
+    LocalToolNames.askUser,
+    LocalToolNames.agentRuntimeGuide,
+    LocalToolNames.apkToolMap,
+    LocalToolNames.apkListWorkspace,
+    LocalToolNames.apkProjectInfo,
+    LocalToolNames.apkListBuilds,
+    LocalToolNames.memoryRead,
+    LocalToolNames.memoryUpdate,
+    LocalToolNames.memorySearchProfile,
+    LocalToolNames.getToolResult,
+    LocalToolNames.subagent,
+    LocalToolNames.todoWrite,
+    LocalToolNames.todoRead,
+    LocalToolNames.file,
+    // run_workflow 常驻（同 subagent/todo/file）：能力策略段按「助手挂了
+    // run_workflow」就注入 ## Workflows，策略段点名的调用必须真的挂上——
+    // 轻轮不挂载就是教模型调用当轮不存在的工具（判据 19/25）。注册表里
+    // 它是 tier0，与这里的常驻语义一致；挂载仍与助手 localToolIds 求交。
+    LocalToolNames.runWorkflow,
   };
 
   static const Set<String> _memoryNames = <String>{
-    'memory_read',
-    'memory_update',
-    'memory_search_profile',
-    'memory_edit',
-    'memory_delete',
-    'update_user_profile',
-    'chat_search',
+    LocalToolNames.memoryRead,
+    LocalToolNames.memoryUpdate,
+    LocalToolNames.memorySearchProfile,
+    LocalToolNames.memoryEdit,
+    LocalToolNames.memoryDelete,
+    LocalToolNames.updateUserProfile,
+    LocalToolNames.chatSearch,
   };
 
   static const Set<String> _memoryKeywords = <String>{
@@ -68,12 +85,12 @@ class ToolRouter {
 
   /// 设备域（与 APK 无关的设备工具）。
   static const Set<String> deviceNames = <String>{
-    'get_time_info',
-    'clipboard_tool',
-    'text_to_speech',
-    'get_screen_time',
-    'calendar_query',
-    'calendar_create',
+    LocalToolNames.timeInfo,
+    LocalToolNames.clipboard,
+    LocalToolNames.textToSpeech,
+    LocalToolNames.screenTime,
+    LocalToolNames.calendarQuery,
+    LocalToolNames.calendarCreate,
   };
 
   static const Set<String> _deviceKeywords = <String>{
@@ -102,11 +119,13 @@ class ToolRouter {
 
   /// 工作区域（APK 工作区/项目/报告相关，轻量级——不含重型分析）。
   static const Set<String> workspaceNames = <String>{
-    'get_current_apk_report',
-    'list_apk_rules',
-    'analyze_apk_workspace',
-    'get_apk_patch_memory',
-    'apk_note_read',
+    LocalToolNames.apkReport,
+    LocalToolNames.apkRules,
+    LocalToolNames.apkAnalyzeWorkspace,
+    LocalToolNames.apkArchive,
+    LocalToolNames.apkExportReport,
+    LocalToolNames.apkPatchMemory,
+    LocalToolNames.apkNoteRead,
   };
 
   static const Set<String> _workspaceKeywords = <String>{
@@ -130,32 +149,53 @@ class ToolRouter {
   // ---- ④ Schema 懒加载 ----
 
   /// 必须保留完整 parameters 的工具（参数契约严格、模型不能瞎猜）。
+  ///
+  /// 2026-09-13 补齐：写工具与 analyzer 高阶 API 之前被懒加载砍成空参数
+  /// ——agent 面模型看不到参数名（MCP 面参数始终全量，两面不一致），
+  /// 首调只能靠猜（patch_apk_dex_strings 的兄弟 apkPatchDex 在清单里，
+  /// 它不在，属清单漏项而非设计）。
   static const Set<String> schemaCriticalNames = <String>{
-    'ask_user_input_v0',
-    'route_task',
-    'patch_apk_dex_methods',
-    'patch_apk_manifest',
-    'memory_read',
-    'memory_update',
-    'memory_search_profile',
-    'memory_edit',
-    'memory_delete',
-    'update_user_profile',
-    'chat_search',
-    'search_web',
-    'get_tool_result',
-    'smali_read',
-    'dex_xref',
-    'class_outline',
-    'dex_search',
-    'so_analyze',
-    'get_solab_skill',
-    'get_apk_knowledge',
-    'get_installed_skills',
-    'apk_sign',
-    'file',
-    'record_apk_patch_verification',
-    'save_apk_patch_memory',
+    LocalToolNames.askUser,
+    LocalToolNames.routeTask,
+    LocalToolNames.apkPatchDex,
+    LocalToolNames.apkPatchDexStrings,
+    LocalToolNames.apkSignatureBypass,
+    LocalToolNames.apkPatchManifest,
+    LocalToolNames.soPatchIntoApk,
+    LocalToolNames.apkRebuild,
+    LocalToolNames.apkSign,
+    LocalToolNames.apkCleanupBuilds,
+    LocalToolNames.runTaskCommand,
+    LocalToolNames.apkNoteWrite,
+    LocalToolNames.memoryRead,
+    LocalToolNames.memoryUpdate,
+    LocalToolNames.memorySearchProfile,
+    LocalToolNames.memoryEdit,
+    LocalToolNames.memoryDelete,
+    LocalToolNames.updateUserProfile,
+    LocalToolNames.chatSearch,
+    LocalToolNames.searchWeb,
+    LocalToolNames.getToolResult,
+    LocalToolNames.smaliRead,
+    LocalToolNames.dexXref,
+    LocalToolNames.classOutline,
+    LocalToolNames.dexSearch,
+    LocalToolNames.apkToolMap,
+    LocalToolNames.soAnalyze,
+    LocalToolNames.apkSkill,
+    LocalToolNames.apkKnowledge,
+    LocalToolNames.installedSkills,
+    LocalToolNames.file,
+    LocalToolNames.apkArchive,
+    LocalToolNames.apkExportReport,
+    LocalToolNames.apkRecordPatchVerification,
+    LocalToolNames.apkSavePatchMemory,
+    // analyzer 声明层输出发布名（点号名被严格网关拒绝），
+    // isSchemaCritical 按声明名匹配，这里必须登记发布名。
+    'analyzer_open',
+    'analyzer_global_search',
+    'analyzer_find_field_usage',
+    'analyzer_analyze_business_state',
   };
 
   /// 工具是否需要携带完整 parameters（否则懒加载：只给名字+一句话）。
@@ -196,6 +236,9 @@ class ToolRouter {
     final selected = <String>{...coreNames};
     final lower = userText.toLowerCase();
     selected.addAll(resolveMemorySelection(userText));
+    // 点名即挂载（用户实测缺陷：点名 signature_bypass 首轮工具未挂载，
+    // 需先 route_task 绕一圈）。用户消息里直接出现工具发布名 = 明确点名。
+    selected.addAll(resolveNamedToolMentions(userText));
     final extras = <String>[
       if (_anyHit(_deviceKeywords, lower)) ...deviceNames,
       if (_anyHit(_workspaceKeywords, lower)) ...workspaceNames,
@@ -207,6 +250,22 @@ class ToolRouter {
       n++;
     }
     return selected;
+  }
+
+  /// 点名直挂：用户消息包含某工具的发布名（如 signature_bypass /
+  /// patch_apk_dex_methods / run_task_command）→ 该工具本轮直接声明，
+  /// 不再等 route_task 轨道加载。只匹配发布名全串（snake_case，≥6 字符），
+  /// 避免子串误命中。
+  static Set<String> resolveNamedToolMentions(String userText) {
+    final lower = userText.toLowerCase();
+    if (lower.length < 6 || !lower.contains('_')) {
+      return const <String>{};
+    }
+    final hits = <String>{};
+    for (final spec in LocalToolRegistry.specs) {
+      if (lower.contains(spec.name)) hits.add(spec.name);
+    }
+    return hits;
   }
 
   /// 记忆工具只在用户明确提及记忆、偏好或历史时加入本轮声明。
@@ -242,6 +301,20 @@ class ToolRouter {
     }
   }
 
+  static Set<String> resolveForExpansion({
+    required ToolLoadPolicy initialPolicy,
+    required ToolExpansion expansion,
+    required String userText,
+  }) {
+    if (initialPolicy == ToolLoadPolicy.none) return const <String>{};
+    if (!expansion.isApkTask) return resolveLightSelection(userText);
+    return <String>{
+      ...expansion.names(),
+      ...resolveMemorySelection(userText),
+      ...resolveNamedToolMentions(userText),
+    };
+  }
+
   // ---- ⑦ 系统提示分段（静态核心 + 动态领域） ----
 
   /// 本次策略下应激活的系统提示段（对应
@@ -272,10 +345,10 @@ class ToolRouter {
   /// Tier0：chat 与 apk 请求都常驻的基础工具（3 个路由 + 记忆/结果分页基础设施）。
   static final Set<String> tier0Names = Set<String>.unmodifiable(<String>{
     ...LocalToolRegistry.namesAtTier(LocalToolTier.tier0),
-    'memory_read',
-    'memory_update',
-    'memory_search_profile',
-    'get_tool_result',
+    LocalToolNames.memoryRead,
+    LocalToolNames.memoryUpdate,
+    LocalToolNames.memorySearchProfile,
+    LocalToolNames.getToolResult,
   });
 
   /// Tier1：识别为 apk_task 后追加的 APK 基础/知识/工作区工具。
@@ -303,10 +376,10 @@ class ToolRouter {
 
   static Set<String> _tier2For(String track) => Set<String>.unmodifiable({
     ...LocalToolRegistry.namesAtTier(LocalToolTier.tier2, track: track),
-    'analyzer.open',
-    'analyzer.global_search',
-    'analyzer.find_field_usage',
-    'analyzer.analyze_business_state',
+    AnalyzerToolNames.open,
+    AnalyzerToolNames.globalSearch,
+    AnalyzerToolNames.fieldUsage,
+    AnalyzerToolNames.businessState,
   });
 
   /// 意图分类（代码层，零 LLM）：是否 apk_task（而非 chat）。
@@ -314,10 +387,67 @@ class ToolRouter {
     final t = text.toLowerCase();
     return RegExp(
           r'apk|安装包|分析|修改|反向|逆向|反编译|vip|svip|会员|订阅|去广告|'
-          r'解锁|精简|签名|脱壳|flutter|sonative|dex|smali|native|权限|启动',
+          r'解锁|精简|签名|脱壳|flutter|sonative|dex|smali|native|权限|启动|'
+          r'flag[_\s-]?secure|截屏|录屏',
           caseSensitive: false,
         ).hasMatch(t) ||
         _anyHit(_workspaceKeywords, t);
+  }
+
+  /// 首轮按用户目标预挂最小分析轨道，避免 route_task 已成功而目标工具要等
+  /// 到下一轮才出现。后续 route_task/工作区报告仍可补充或修正轨道。
+  static Set<ToolTrack> inferInitialTracks(String text) {
+    if (!isApkTaskIntent(text)) return const <ToolTrack>{};
+    final lower = text.toLowerCase();
+    final tracks = <ToolTrack>{ToolTrack.dexNative};
+    if (RegExp(
+      r'flutter|dart|blutter|libapp',
+      caseSensitive: false,
+    ).hasMatch(lower)) {
+      tracks.add(ToolTrack.flutterVip);
+    }
+    if (RegExp(
+      r'\bso\b|native|elf|libflutter|arm64|\.so',
+      caseSensitive: false,
+    ).hasMatch(lower)) {
+      tracks.add(ToolTrack.soAnalysis);
+    }
+    if (RegExp(
+      r'文件|资源|asset|manifest|权限|组件|目录|压缩|大小|abi',
+      caseSensitive: false,
+    ).hasMatch(lower)) {
+      tracks.add(ToolTrack.fileOps);
+    }
+    return tracks;
+  }
+
+  static bool shouldResumeApkTask({
+    required bool hasValidRoute,
+    required String userText,
+  }) => hasValidRoute && !isCasualText(userText);
+
+  static bool isApkTaskContinuation(String text) {
+    final t = text.trim();
+    if (t.isEmpty || t.length > 80 || isCasualText(t)) return false;
+    return RegExp(
+      r'继续|接着|重试|再试|修复|修改|改好|解决|写回|打包|签名|验证|搜索|'
+      r'查找|定位|执行|应用|完成|优化|替换|删除|保留',
+      caseSensitive: false,
+    ).hasMatch(t);
+  }
+
+  static String? latestValidRouteResult(
+    List<Map<String, dynamic>> apiMessages,
+  ) {
+    for (final message in apiMessages.reversed) {
+      if (message['role'] != 'tool' ||
+          message['name'] != LocalToolNames.routeTask) {
+        continue;
+      }
+      final content = message['content']?.toString() ?? '';
+      if (resolveTrackFromText(content) != null) return content;
+    }
+    return null;
   }
 
   /// 从 route_task 的返回文本里解析轨道（关键词兜底，支持 JSON track 字段）。
@@ -352,7 +482,10 @@ class ToolRouter {
     }
     if (text.contains('so_') ||
         text.contains('rz_') ||
-        text.contains('lib') ||
+        // 词边界匹配：旧实现 text.contains('lib') 会把 clipboard_tool、
+        // library 等无关文本误判进 SO 轨（2026-09-15 审核修复）。只认
+        // lib*.so 文件名、libs/lib 目录与 jni 这类 SO 语境信号。
+        RegExp(r'\blib[\w./-]*\.so\b|\blibs?\b|\blib/|\bjni\b').hasMatch(text) ||
         text.contains('native') ||
         text.contains('elf')) {
       return ToolTrack.soAnalysis;
@@ -378,11 +511,13 @@ class ToolRouter {
 class ToolExpansion {
   ToolExpansion({
     required bool apkTask,
-    this.executionMode = ApkExecutionMode.modify,
-  }) : _apkTask = apkTask; // ignore: prefer_initializing_formals
+    ApkExecutionMode executionMode = ApkExecutionMode.modify,
+  }) : _apkTask = apkTask, // ignore: prefer_initializing_formals
+       _executionMode = executionMode; // ignore: prefer_initializing_formals
 
   bool _apkTask;
-  final ApkExecutionMode executionMode;
+  ApkExecutionMode _executionMode;
+  ApkExecutionMode get executionMode => _executionMode;
   ToolTrack? _track;
   final Set<ToolTrack> _tracks = <ToolTrack>{};
   bool _completion = false;
@@ -410,6 +545,17 @@ class ToolExpansion {
         _routeTools.addAll(
           (value['recommendedTools'] as List).map((item) => item.toString()),
         );
+      }
+      // 执行模式升级（2026-09-15 真机）：此前只允许 analyzeOnly → modify，
+      // 于是 reportOnly 任务即使下一句明确要求「写回/签名」也永远拿不到
+      // mutation 工具（so_patch_into_apk / apk_sign / signature_bypass 被
+      // names() 整组剥掉，连续三轮 route_task 都挂不上）。route_task 的
+      // 模式来自它自己的 goal 文本，是**本轮最新请求**，必须能覆盖早先
+      // 的 report/analyze 意图。
+      if (value is Map &&
+          value['executionMode'] == ApkExecutionMode.modify.name &&
+          _executionMode != ApkExecutionMode.modify) {
+        _executionMode = ApkExecutionMode.modify;
       }
     } catch (_) {}
   }

@@ -11,7 +11,7 @@ abstract final class MemoryGatekeeper {
   MemoryGatekeeper._();
 
   static final RegExp _userMemoryRe = RegExp(
-    r'<user_memory>\s*(true|false)',
+    r'<user_memory[^>]*>\s*(true|false)\s*<\s*/\s*user_memory\s*>',
     caseSensitive: false,
   );
 

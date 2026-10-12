@@ -31,10 +31,8 @@ class LogRedactor {
   ];
 
   static const Set<String> _bodyIgnoredNames = {
-    'token',
-    'tokens',
-    'key',
-    'keys',
+    // T1.4：仅保留确无敏感性的字段名（session 会话标识、author 作者）。
+    // token/key 已移除——它们此前被精确名白名单豁免、恰好最敏感不脱敏。
     'session',
     'author',
     'authors',

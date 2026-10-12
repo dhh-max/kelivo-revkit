@@ -2,20 +2,11 @@ import 'dart:math';
 
 enum MemoryScope { global, assistant }
 
-enum MemoryType { identity, workflow, voice, instruction, apkPatch, apkNote }
+enum MemoryType { identity, workflow, voice, instruction, apkPatch, apkNote, apkFailure }
 
 enum MemoryStatus { active, archived }
 
 enum MemorySource { manual, tool, extracted, distilled }
-/// Smart Add execution mode per-item or batched LLM judgement.
-enum MemorySmartAddMode { batched, perItem }
-/// Write-scope policy for memory tools.
-enum MemoryWriteScope {
-  alwaysGlobal,
-  alwaysAssistant,
-  toolDefaultGlobal,
-  toolDefaultAssistant,
-}
 
 class MemoryEntry {
   final String id;
@@ -33,6 +24,69 @@ class MemoryEntry {
   /// 结构化扩展数据（APK 经验指纹 / 笔记 locator 等）。经 toPayload 序列化进
   /// payload JSON，由 drift 镜像表的 payload 列原样承载，无需独立列。
   final Map<String, dynamic>? extraJson;
+
+  /// APK 三类（经验/笔记/失败）：都是**工具管理**的结构化记忆。
+  ///
+  /// 用户 2026-10-04「APK 三种类型会不会过多」：类型本身没错（生命周期不同：
+  /// 经验=验证后的长期资产、笔记=按 locator 的改动台账、失败=自动落库的诊断
+  /// 计数器），但它们在管理面应当归成一组，且不能走通用记忆编辑器
+  /// （通用编辑器只改 content，会让 extraJson 与正文脱节）。
+  static const Set<MemoryType> apkTypes = <MemoryType>{
+    MemoryType.apkPatch,
+    MemoryType.apkNote,
+    MemoryType.apkFailure,
+  };
+
+  /// 参与**项目（工作区）隔离**的记忆类型（用户 2026-10-03 口径）。
+  ///
+  /// 「一般的话可以按照工作区来搞记忆；不用某个工作区就不要相应的记忆」——
+  /// 身份/工作流/语气/指令这类一般记忆在写入时按当前工作区打标，只在同一工作区
+  /// 可见；未绑定工作区时写入的不打标，照旧全局共享（老数据同理）。
+  ///
+  /// APK 三种（apkPatch/apkNote/apkFailure）是**软件逆向经验**，用户明确要求
+  /// 「这个是经验，所以需要保留」——不参与项目隔离，任何工作区都可见可读。
+  static const Set<MemoryType> projectScopedTypes = <MemoryType>{
+    MemoryType.identity,
+    MemoryType.workflow,
+    MemoryType.voice,
+    MemoryType.instruction,
+  };
+
+  /// 记忆所属**项目**（工作区）id；null = 全局（跨项目可见）。
+  ///
+  /// null 也代表「老数据/未标记」：一律按全局可见处理，不丢历史记忆。
+  String? get projectId {
+    final raw = extraJson?['projectId'];
+    final value = raw?.toString().trim() ?? '';
+    return value.isEmpty ? null : value;
+  }
+
+  /// 这条记忆在 [currentProjectId] 的项目里是否可见。
+  ///
+  /// - 非项目隔离类型（逆向经验等）：任何项目都可见（经验跨工作区保留）；
+  /// - 项目隔离类型：无标记（全局）可见；有标记则只在同一项目里可见，
+  ///   无项目上下文时不可见（不能串到别的项目）。
+  bool visibleInProject(String? currentProjectId) {
+    if (!projectScopedTypes.contains(type)) return true;
+    final owner = projectId;
+    if (owner == null) return true;
+    final current = currentProjectId?.trim() ?? '';
+    return current.isNotEmpty && current == owner;
+  }
+
+  /// 一行式摘要（取长补短自 ZCode 的 `description`）：写入时的 `extraJson['summary']`
+  /// 优先，其次正文首个非空行。用于**相关性打分**与列表展示——注入时据此选条目，
+  /// 不必把每条正文都塞进上下文。
+  String get summary {
+    final explicit = extraJson?['summary']?.toString().trim() ?? '';
+    if (explicit.isNotEmpty) return explicit;
+    for (final line in content.split('\n')) {
+      final trimmed = line.trim();
+      if (trimmed.isEmpty) continue;
+      return trimmed.length <= 80 ? trimmed : '${trimmed.substring(0, 80)}…';
+    }
+    return content.length <= 80 ? content : '${content.substring(0, 80)}…';
+  }
 
   const MemoryEntry({
     required this.id,
@@ -170,6 +224,8 @@ class MemoryEntry {
         return 'apk_patch';
       case MemoryType.apkNote:
         return 'apk_note';
+      case MemoryType.apkFailure:
+        return 'apk_failure';
     }
   }
 
@@ -187,6 +243,8 @@ class MemoryEntry {
         return MemoryType.apkPatch;
       case 'apk_note':
         return MemoryType.apkNote;
+      case 'apk_failure':
+        return MemoryType.apkFailure;
       default:
         throw FormatException('Unknown MemoryType: $value');
     }

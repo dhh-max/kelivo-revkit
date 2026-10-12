@@ -1,22 +1,27 @@
+import '../widgets/settings_search_target.dart';
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
+import 'mobile_background_settings_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'dart:io' show Platform;
-import '../../../core/services/android_background.dart';
-import '../../../core/services/ios_background_generation.dart';
-import '../../../core/services/notification_service.dart';
 import '../../../icons/lucide_adapter.dart';
 import 'package:syncfusion_flutter_sliders/sliders.dart';
 import 'package:syncfusion_flutter_core/theme.dart';
 import '../../../core/providers/settings_provider.dart';
+import 'auto_retry_page.dart';
+import 'google_fonts_picker_page.dart';
+import 'image_settings_page.dart';
+import 'message_style_settings_page.dart';
 import 'theme_settings_page.dart';
 import '../../../theme/palettes.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/ios_switch.dart';
+import '../../../shared/widgets/tip_icon.dart';
 import '../../../core/services/haptics.dart';
 import 'package:file_picker/file_picker.dart';
-import 'google_fonts_picker_page.dart';
 import 'package:Kelivo/theme/app_font_weights.dart';
+import 'package:Kelivo/theme/app_semantic_colors.dart';
+import 'package:Kelivo/shared/widgets/section_card.dart';
 
 enum _FontTarget { app, code }
 
@@ -59,7 +64,7 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
         children: [
           // header(l10n.displaySettingsPageThemeSettingsTitle),
-          _iosSectionCard(
+          SectionCard(
             children: [
               _iosNavRow(
                 context,
@@ -138,6 +143,35 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
               _iosDivider(context),
               _iosNavRow(
                 context,
+                icon: Lucide.Image,
+                label: l10n.imageSettingsPageTitle,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const ImageSettingsPage()),
+                ),
+              ),
+              _iosDivider(context),
+              _iosNavRow(
+                context,
+                icon: Lucide.MessageSquare,
+                label: l10n.messageStyleSettingsPageTitle,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const MessageStyleSettingsPage(),
+                  ),
+                ),
+              ),
+              _iosDivider(context),
+              _iosNavRow(
+                context,
+                icon: Lucide.RefreshCw,
+                label: l10n.settingsPageAutoRetry,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const AutoRetryPage()),
+                ),
+              ),
+              _iosDivider(context),
+              _iosNavRow(
+                context,
                 icon: Lucide.Vibrate,
                 label: l10n.displaySettingsPageHapticsSettingsTitle,
                 onTap: () => Navigator.of(context).push(
@@ -147,131 +181,20 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
                 ),
               ),
               _iosDivider(context),
-              if (Platform.isAndroid)
-                _iosNavRow(
-                  context,
-                  icon: Lucide.Monitor,
-                  label: l10n.displaySettingsPageAndroidBackgroundChatTitle,
-                  detailBuilder: (ctx) {
-                    final sp = ctx.watch<SettingsProvider>();
-                    switch (sp.androidBackgroundChatMode) {
-                      case AndroidBackgroundChatMode.off:
-                        return Text(
-                          l10n.androidBackgroundStatusOff,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          softWrap: false,
-                          style: TextStyle(
-                            color: cs.onSurface.withValues(alpha: 0.6),
-                            fontSize: 13,
-                          ),
-                        );
-                      case AndroidBackgroundChatMode.on:
-                        return Text(
-                          l10n.androidBackgroundStatusOn,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          softWrap: false,
-                          style: TextStyle(
-                            color: cs.onSurface.withValues(alpha: 0.6),
-                            fontSize: 13,
-                          ),
-                        );
-                      case AndroidBackgroundChatMode.onNotify:
-                        return Text(
-                          l10n.androidBackgroundStatusOther,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          softWrap: false,
-                          style: TextStyle(
-                            color: cs.onSurface.withValues(alpha: 0.6),
-                            fontSize: 13,
-                          ),
-                        );
-                    }
-                  },
-                  onTap: () => _showAndroidBackgroundChatSheet(context),
-                ),
-              if (Platform.isAndroid) _iosDivider(context),
-              if (Platform.isAndroid)
-                _iosNavRow(
-                  context,
-                  icon: Lucide.BellRing,
-                  label: 'Real-time Chat Notification',
-                  detailBuilder: (ctx) {
-                    final sp = ctx.watch<SettingsProvider>();
-                    return Switch(
-                      value: sp.chatRealtimeNotificationEnabled,
-                      onChanged: (v) =>
-                          sp.setChatRealtimeNotificationEnabled(v),
-                    );
-                  },
-                  onTap: () {
-                    final sp = context.read<SettingsProvider>();
-                    sp.setChatRealtimeNotificationEnabled(
-                      !sp.chatRealtimeNotificationEnabled,
-                    );
-                  },
-                ),
-              if (Platform.isAndroid) _iosDivider(context),
-              if (Platform.isIOS)
+              if (defaultTargetPlatform == TargetPlatform.android ||
+                  defaultTargetPlatform == TargetPlatform.iOS) ...[
                 _iosNavRow(
                   context,
                   icon: Lucide.Activity,
-                  label: l10n.displaySettingsPageIosBackgroundChatTitle,
-                  detailBuilder: (ctx) {
-                    final sp = ctx.watch<SettingsProvider>();
-                    return Text(
-                      sp.iosBackgroundGenerationEnabled
-                          ? l10n.iosBackgroundStatusOn
-                          : l10n.iosBackgroundStatusOff,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      softWrap: false,
-                      style: TextStyle(
-                        color: cs.onSurface.withValues(alpha: 0.6),
-                        fontSize: 13,
-                      ),
-                    );
-                  },
+                  label: l10n.backgroundSettingsTitle,
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute(
-                      builder: (_) => const IosBackgroundSettingsPage(),
+                      builder: (_) => const MobileBackgroundSettingsPage(),
                     ),
                   ),
                 ),
-              if (Platform.isIOS) _iosDivider(context),
-              _iosNavRow(
-                context,
-                icon: Lucide.MessageSquare,
-                label: l10n.displaySettingsPageChatMessageBackgroundTitle,
-                detailBuilder: (ctx) {
-                  final sp = ctx.watch<SettingsProvider>();
-                  String labelOf() {
-                    switch (sp.chatMessageBackgroundStyle) {
-                      case ChatMessageBackgroundStyle.frosted:
-                        return l10n
-                            .displaySettingsPageChatMessageBackgroundFrosted;
-                      case ChatMessageBackgroundStyle.solid:
-                        return l10n
-                            .displaySettingsPageChatMessageBackgroundSolid;
-                      case ChatMessageBackgroundStyle.defaultStyle:
-                        return l10n
-                            .displaySettingsPageChatMessageBackgroundDefault;
-                    }
-                  }
-
-                  return Text(
-                    labelOf(),
-                    style: TextStyle(
-                      color: cs.onSurface.withValues(alpha: 0.6),
-                      fontSize: 13,
-                    ),
-                  );
-                },
-                onTap: () => _showChatMessageBackgroundSheet(context),
-              ),
-              _iosDivider(context),
+                _iosDivider(context),
+              ],
               _iosNavRow(
                 context,
                 icon: Lucide.Type,
@@ -427,11 +350,10 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
     BuildContext context, {
     required _FontTarget target,
   }) async {
-    final cs = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context)!;
     final choice = await showModalBottomSheet<String>(
       context: context,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -443,14 +365,14 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
             children: [
               _sheetOption(
                 ctx,
-                label: l10n.fontPickerChooseLocalFile,
-                onTap: () => Navigator.of(ctx).pop('local'),
+                label: l10n.googleFontsTitle,
+                onTap: () => Navigator.of(ctx).pop('google'),
               ),
               _sheetDividerNoIcon(ctx),
               _sheetOption(
                 ctx,
-                label: l10n.fontPickerGetFromGoogleFonts,
-                onTap: () => Navigator.of(ctx).pop('google'),
+                label: l10n.fontPickerChooseLocalFile,
+                onTap: () => Navigator.of(ctx).pop('local'),
               ),
               _sheetDividerNoIcon(ctx),
               _sheetOption(
@@ -467,6 +389,10 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
     if (!context.mounted) return;
 
     final settings = context.read<SettingsProvider>();
+    if (choice == 'google') {
+      await showGoogleFontsPicker(context, forCode: target == _FontTarget.code);
+      return;
+    }
     if (choice == 'local') {
       final res = await FilePicker.platform.pickFiles(
         type: FileType.custom,
@@ -482,22 +408,6 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
       }
       return;
     }
-    if (choice == 'google') {
-      final title = target == _FontTarget.app
-          ? l10n.displaySettingsPageAppFontTitle
-          : l10n.displaySettingsPageCodeFontTitle;
-      final selected = await Navigator.of(context).push<String>(
-        MaterialPageRoute(builder: (_) => GoogleFontsPickerPage(title: title)),
-      );
-      if (selected == null || selected.isEmpty) return;
-      if (!context.mounted) return;
-      if (target == _FontTarget.app) {
-        await settings.setAppFontFromGoogle(selected);
-      } else {
-        await settings.setCodeFontFromGoogle(selected);
-      }
-      return;
-    }
     if (choice == 'reset') {
       if (target == _FontTarget.app) {
         await settings.clearAppFont();
@@ -507,149 +417,11 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
     }
   }
 
-  Future<void> _showChatMessageBackgroundSheet(BuildContext context) async {
-    final cs = Theme.of(context).colorScheme;
-    final l10n = AppLocalizations.of(context)!;
-    final choice = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: cs.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.only(bottom: 10),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _sheetOption(
-                ctx,
-                label: l10n.displaySettingsPageChatMessageBackgroundDefault,
-                onTap: () => Navigator.of(ctx).pop('default'),
-              ),
-              _sheetDividerNoIcon(ctx),
-              _sheetOption(
-                ctx,
-                label: l10n.displaySettingsPageChatMessageBackgroundFrosted,
-                onTap: () => Navigator.of(ctx).pop('frosted'),
-              ),
-              _sheetDividerNoIcon(ctx),
-              _sheetOption(
-                ctx,
-                label: l10n.displaySettingsPageChatMessageBackgroundSolid,
-                onTap: () => Navigator.of(ctx).pop('solid'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-    if (choice == null) return;
-    if (!context.mounted) return;
-
-    final sp = context.read<SettingsProvider>();
-    switch (choice) {
-      case 'frosted':
-        await sp.setChatMessageBackgroundStyle(
-          ChatMessageBackgroundStyle.frosted,
-        );
-        break;
-      case 'solid':
-        await sp.setChatMessageBackgroundStyle(
-          ChatMessageBackgroundStyle.solid,
-        );
-        break;
-      default:
-        await sp.setChatMessageBackgroundStyle(
-          ChatMessageBackgroundStyle.defaultStyle,
-        );
-    }
-  }
-
-  Future<void> _showAndroidBackgroundChatSheet(BuildContext context) async {
-    final cs = Theme.of(context).colorScheme;
-    final l10n = AppLocalizations.of(context)!;
-    final choice = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: cs.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.only(bottom: 10),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _sheetOption(
-                ctx,
-                label: l10n.androidBackgroundOptionOn,
-                onTap: () => Navigator.of(ctx).pop('on'),
-              ),
-              _sheetDividerNoIcon(ctx),
-              _sheetOption(
-                ctx,
-                label: l10n.androidBackgroundOptionOnNotify,
-                onTap: () => Navigator.of(ctx).pop('on_notify'),
-              ),
-              _sheetDividerNoIcon(ctx),
-              _sheetOption(
-                ctx,
-                label: l10n.androidBackgroundOptionOff,
-                onTap: () => Navigator.of(ctx).pop('off'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-    if (choice == null) return;
-    if (!context.mounted) return;
-
-    final sp = context.read<SettingsProvider>();
-    final notificationTitle = l10n.androidBackgroundNotificationTitle;
-    final notificationText = l10n.androidBackgroundNotificationText;
-    switch (choice) {
-      case 'on_notify':
-        await sp.setAndroidBackgroundChatMode(
-          AndroidBackgroundChatMode.onNotify,
-        );
-        try {
-          await AndroidBackgroundManager.ensureInitialized(
-            notificationTitle: notificationTitle,
-            notificationText: notificationText,
-          );
-          await AndroidBackgroundManager.setEnabled(true);
-          await NotificationService.ensureInitialized();
-          await NotificationService.ensureAndroidNotificationsPermission();
-        } catch (_) {}
-        break;
-      case 'on':
-        await sp.setAndroidBackgroundChatMode(AndroidBackgroundChatMode.on);
-        try {
-          await AndroidBackgroundManager.ensureInitialized(
-            notificationTitle: notificationTitle,
-            notificationText: notificationText,
-          );
-          await AndroidBackgroundManager.setEnabled(true);
-          // Prepare notification channel as well to avoid FGS notification issues on some ROMs
-          await NotificationService.ensureInitialized();
-        } catch (_) {}
-        break;
-      default:
-        await sp.setAndroidBackgroundChatMode(AndroidBackgroundChatMode.off);
-        try {
-          await AndroidBackgroundManager.setEnabled(false);
-        } catch (_) {}
-    }
-  }
-
   Future<void> _showLanguageSheet(BuildContext context) async {
-    final cs = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context)!;
     final selected = await showModalBottomSheet<String>(
       context: context,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -712,11 +484,10 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
   }
 
   Future<void> _showChatFontSizeSheet(BuildContext context) async {
-    final cs = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context)!;
     await showModalBottomSheet(
       context: context,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -797,7 +568,7 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
                                       ? []
                                       : [
                                           BoxShadow(
-                                            color: Colors.black.withValues(
+                                            color: cs.shadow.withValues(
                                               alpha: 0.08,
                                             ),
                                             blurRadius: 8,
@@ -826,9 +597,7 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
                       width: double.infinity,
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: Theme.of(context).brightness == Brightness.dark
-                            ? Colors.white12
-                            : const Color(0xFFF2F3F5),
+                        color: context.appColors.surfaceFill,
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Text(
@@ -851,11 +620,10 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
   }
 
   Future<void> _showAutoScrollIdleSheet(BuildContext context) async {
-    final cs = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context)!;
     await showModalBottomSheet(
       context: context,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -954,7 +722,7 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
                                       ? []
                                       : [
                                           BoxShadow(
-                                            color: Colors.black.withValues(
+                                            color: cs.shadow.withValues(
                                               alpha: 0.08,
                                             ),
                                             blurRadius: 8,
@@ -1006,10 +774,9 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
   }
 
   Future<void> _showChatBackgroundMaskSheet(BuildContext context) async {
-    final cs = Theme.of(context).colorScheme;
     await showModalBottomSheet(
       context: context,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -1092,7 +859,7 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
                                       ? []
                                       : [
                                           BoxShadow(
-                                            color: Colors.black.withValues(
+                                            color: cs.shadow.withValues(
                                               alpha: 0.08,
                                             ),
                                             blurRadius: 8,
@@ -1129,10 +896,9 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
   Future<void> _showChatInputBackgroundOpacitySheet(
     BuildContext context,
   ) async {
-    final cs = Theme.of(context).colorScheme;
     await showModalBottomSheet(
       context: context,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -1258,7 +1024,7 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
                           ? []
                           : [
                               BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.08),
+                                color: cs.shadow.withValues(alpha: 0.08),
                                 blurRadius: 8,
                                 offset: Offset(0, 2),
                               ),
@@ -1288,34 +1054,6 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
 
 // --- iOS-style helpers ---
 
-Widget _iosSectionCard({required List<Widget> children}) {
-  return Builder(
-    builder: (context) {
-      final theme = Theme.of(context);
-      final cs = theme.colorScheme;
-      final isDark = theme.brightness == Brightness.dark;
-      final Color bg = isDark
-          ? Colors.white10
-          : Colors.white.withValues(alpha: 0.96);
-      return Container(
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: cs.outlineVariant.withValues(alpha: isDark ? 0.08 : 0.06),
-            width: 0.6,
-          ),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          child: Column(children: children),
-        ),
-      );
-    },
-  );
-}
-
 Widget _iosDivider(BuildContext context) {
   final cs = Theme.of(context).colorScheme;
   return Divider(
@@ -1324,69 +1062,6 @@ Widget _iosDivider(BuildContext context) {
     indent: 54,
     endIndent: 12,
     color: cs.outlineVariant.withValues(alpha: 0.18),
-  );
-}
-
-Widget _noticeCard(
-  BuildContext context, {
-  required String title,
-  required String body,
-}) {
-  final cs = Theme.of(context).colorScheme;
-  final isDark = Theme.of(context).brightness == Brightness.dark;
-  return Container(
-    padding: const EdgeInsets.all(12),
-    decoration: BoxDecoration(
-      color: cs.primaryContainer.withValues(alpha: isDark ? 0.20 : 0.35),
-      borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: cs.primary.withValues(alpha: 0.10), width: 0.6),
-    ),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(Lucide.BadgeInfo, size: 18, color: cs.primary),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: TextStyle(
-                  color: cs.onSurface,
-                  fontSize: 13,
-                  fontWeight: AppFontWeights.semibold,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                body,
-                style: TextStyle(
-                  color: cs.onSurface.withValues(alpha: 0.72),
-                  fontSize: 12,
-                  height: 1.35,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
-Widget _plainFootnote(BuildContext context, String text) {
-  final cs = Theme.of(context).colorScheme;
-  return Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 12),
-    child: Text(
-      text,
-      style: TextStyle(
-        color: cs.onSurface.withValues(alpha: 0.58),
-        fontSize: 12,
-        height: 1.35,
-      ),
-    ),
   );
 }
 
@@ -1401,9 +1076,9 @@ class _AnimatedPressColor extends StatelessWidget {
   final Widget Function(Color color) builder;
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cs = Theme.of(context).colorScheme;
     final target = pressed
-        ? (Color.lerp(base, isDark ? Colors.black : Colors.white, 0.55) ?? base)
+        ? (Color.lerp(base, cs.surface, 0.55) ?? base)
         : base;
     return TweenAnimationBuilder<Color?>(
       tween: ColorTween(end: target),
@@ -1506,7 +1181,7 @@ Widget _iosNavRow(
 }) {
   final cs = Theme.of(context).colorScheme;
   final interactive = onTap != null;
-  return _TactileRow(
+  final row = _TactileRow(
     onTap: onTap,
     haptics: true,
     builder: (pressed) {
@@ -1573,6 +1248,7 @@ Widget _iosNavRow(
       );
     },
   );
+  return SettingsSearchTarget.wrap(context, label, row);
 }
 
 Widget _iosSwitchRow(
@@ -1580,59 +1256,74 @@ Widget _iosSwitchRow(
   IconData? icon,
   required String label,
   String? subtitle,
+  String? tip,
   required bool value,
   required ValueChanged<bool> onChanged,
 }) {
   final cs = Theme.of(context).colorScheme;
-  return _TactileRow(
-    onTap: () => onChanged(!value),
-    builder: (pressed) {
-      final baseColor = cs.onSurface.withValues(alpha: 0.9);
-      return _AnimatedPressColor(
-        pressed: pressed,
-        base: baseColor,
-        builder: (c) {
-          return Padding(
-            padding: EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: subtitle == null ? 2 : 8,
-            ),
-            child: Row(
-              children: [
-                if (icon != null) ...[
-                  SizedBox(width: 36, child: Icon(icon, size: 20, color: c)),
-                  const SizedBox(width: 12),
-                ],
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+  final row = Padding(
+    padding: EdgeInsets.symmetric(
+      horizontal: 12,
+      vertical: subtitle == null ? 2 : 8,
+    ),
+    child: Row(
+      children: [
+        Expanded(
+          child: _TactileRow(
+            onTap: () => onChanged(!value),
+            builder: (pressed) {
+              final baseColor = cs.onSurface.withValues(alpha: 0.9);
+              return _AnimatedPressColor(
+                pressed: pressed,
+                base: baseColor,
+                builder: (c) {
+                  return Row(
                     children: [
-                      Text(label, style: TextStyle(fontSize: 15, color: c)),
-                      if (subtitle != null && subtitle.isNotEmpty) ...[
-                        const SizedBox(height: 3),
-                        Text(
-                          subtitle,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 12,
-                            height: 1.2,
-                            color: cs.onSurface.withValues(alpha: 0.56),
-                          ),
+                      if (icon != null) ...[
+                        SizedBox(
+                          width: 36,
+                          child: Icon(icon, size: 20, color: c),
                         ),
+                        const SizedBox(width: 12),
                       ],
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              label,
+                              style: TextStyle(fontSize: 15, color: c),
+                            ),
+                            if (subtitle != null && subtitle.isNotEmpty) ...[
+                              const SizedBox(height: 3),
+                              Text(
+                                subtitle,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  height: 1.2,
+                                  color: cs.onSurface.withValues(alpha: 0.56),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
                     ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-                IosSwitch(value: value, onChanged: onChanged),
-              ],
-            ),
-          );
-        },
-      );
-    },
+                  );
+                },
+              );
+            },
+          ),
+        ),
+        if (tip != null) TipIcon(message: tip),
+        const SizedBox(width: 12),
+        IosSwitch(value: value, onChanged: onChanged),
+      ],
+    ),
   );
+  return SettingsSearchTarget.wrap(context, label, row);
 }
 
 Widget _sheetOption(
@@ -1648,13 +1339,10 @@ Widget _sheetOption(
     builder: (pressed) {
       final base = cs.onSurface;
       final target = pressed
-          ? (Color.lerp(base, isDark ? Colors.black : Colors.white, 0.55) ??
-                base)
+          ? (Color.lerp(base, cs.surface, 0.55) ?? base)
           : base;
       final bgTarget = pressed
-          ? (isDark
-                ? Colors.white.withValues(alpha: 0.06)
-                : Colors.black.withValues(alpha: 0.05))
+          ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
           : Colors.transparent;
       return TweenAnimationBuilder<Color?>(
         tween: ColorTween(end: target),
@@ -1697,11 +1385,10 @@ Widget _sheetDividerNoIcon(BuildContext context) {
 }
 
 Future<void> _showMobileMessageNavModeSheet(BuildContext context) async {
-  final cs = Theme.of(context).colorScheme;
   final l10n = AppLocalizations.of(context)!;
   final choice = await showModalBottomSheet<MobileMessageNavButtonsMode>(
     context: context,
-    backgroundColor: cs.surface,
+    backgroundColor: context.overlaySurface,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
     ),
@@ -1766,7 +1453,7 @@ class ChatItemDisplaySettingsPage extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
         children: [
-          _iosSectionCard(
+          SectionCard(
             children: [
               _iosSwitchRow(
                 context,
@@ -1816,6 +1503,26 @@ class ChatItemDisplaySettingsPage extends StatelessWidget {
               _iosDivider(context),
               _iosSwitchRow(
                 context,
+                icon: Lucide.Calculator,
+                label: l10n.displaySettingsPageShowTotalTokensTitle,
+                subtitle: l10n.displaySettingsPageShowTotalTokensSubtitle,
+                value: sp.showTotalTokens,
+                onChanged: (v) =>
+                    context.read<SettingsProvider>().setShowTotalTokens(v),
+              ),
+              _iosDivider(context),
+              _iosSwitchRow(
+                context,
+                icon: Lucide.ListTree,
+                label: l10n.displaySettingsPageSharedStepsBubbleTitle,
+                subtitle: l10n.displaySettingsPageSharedStepsBubbleSubtitle,
+                value: sp.chatStepsSharedBubble,
+                onChanged: (v) =>
+                    context.read<SettingsProvider>().setChatStepsSharedBubble(v),
+              ),
+              _iosDivider(context),
+              _iosSwitchRow(
+                context,
                 icon: Lucide.Bot,
                 label: l10n.displaySettingsPageUseNewAssistantAvatarUxTitle,
                 value: sp.useNewAssistantAvatarUx,
@@ -1860,6 +1567,57 @@ class ChatItemDisplaySettingsPage extends StatelessWidget {
                 onChanged: (v) =>
                     context.read<SettingsProvider>().setShowTokenStats(v),
               ),
+              _iosDivider(context),
+              _iosSwitchRow(
+                context,
+                icon: Lucide.Calculator,
+                label: l10n.displaySettingsPageShowTotalTokensTitle,
+                tip: l10n.displaySettingsPageShowTotalTokensSubtitle,
+                value: sp.showTotalTokens,
+                onChanged: (v) =>
+                    context.read<SettingsProvider>().setShowTotalTokens(v),
+              ),
+              _iosDivider(context),
+              _iosSwitchRow(
+                context,
+                icon: Lucide.Sparkles,
+                label: l10n.displaySettingsPageShowThinkingCardsTitle,
+                tip: l10n.displaySettingsPageShowThinkingCardsSubtitle,
+                value: sp.showThinkingCards,
+                onChanged: (v) =>
+                    context.read<SettingsProvider>().setShowThinkingCards(v),
+              ),
+              _iosDivider(context),
+              _iosSwitchRow(
+                context,
+                icon: Lucide.Wrench,
+                label: l10n.displaySettingsPageShowToolCardsTitle,
+                tip: l10n.displaySettingsPageShowToolCardsSubtitle,
+                value: sp.showToolCards,
+                onChanged: (v) =>
+                    context.read<SettingsProvider>().setShowToolCards(v),
+              ),
+              _iosDivider(context),
+              _iosSwitchRow(
+                context,
+                icon: Lucide.FileText,
+                label: l10n.displaySettingsPageShowProducedFilesTitle,
+                tip: l10n.displaySettingsPageShowProducedFilesSubtitle,
+                value: sp.showProducedFiles,
+                onChanged: (v) =>
+                    context.read<SettingsProvider>().setShowProducedFiles(v),
+              ),
+              _iosDivider(context),
+              _iosSwitchRow(
+                context,
+                icon: Lucide.Lightbulb,
+                label: l10n.displaySettingsShowReasoningLevelBadge,
+                tip: l10n.displaySettingsShowReasoningLevelBadgeSubtitle,
+                value: sp.showReasoningLevelBadge,
+                onChanged: (v) => context
+                    .read<SettingsProvider>()
+                    .setShowReasoningLevelBadge(v),
+              ),
             ],
           ),
         ],
@@ -1891,7 +1649,7 @@ class RenderingSettingsPage extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
         children: [
-          _iosSectionCard(
+          SectionCard(
             children: [
               _iosSwitchRow(
                 context,
@@ -1951,9 +1709,21 @@ class RenderingSettingsPage extends StatelessWidget {
               ),
               if (sp.autoCollapseCodeBlock) ...[
                 _iosDivider(context),
-                const _AutoCollapseCodeBlockLinesRow(),
+                _NumberFieldRow(
+                  icon: Lucide.ListOrdered,
+                  label:
+                      l10n.displaySettingsPageAutoCollapseCodeBlockLinesTitle,
+                  unit: l10n.displaySettingsPageAutoCollapseCodeBlockLinesUnit,
+                  value: sp.autoCollapseCodeBlockLines,
+                  min: 1,
+                  max: 999,
+                  onChanged: (v) => context
+                      .read<SettingsProvider>()
+                      .setAutoCollapseCodeBlockLines(v),
+                ),
               ],
-              if (Platform.isAndroid || Platform.isIOS) ...[
+              if (defaultTargetPlatform == TargetPlatform.android ||
+                  defaultTargetPlatform == TargetPlatform.iOS) ...[
                 _iosDivider(context),
                 _iosSwitchRow(
                   context,
@@ -1973,25 +1743,37 @@ class RenderingSettingsPage extends StatelessWidget {
   }
 }
 
-class _AutoCollapseCodeBlockLinesRow extends StatefulWidget {
-  const _AutoCollapseCodeBlockLinesRow();
+class _NumberFieldRow extends StatefulWidget {
+  const _NumberFieldRow({
+    required this.icon,
+    required this.label,
+    required this.unit,
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.onChanged,
+  });
+
+  final IconData icon;
+  final String label;
+  final String unit;
+  final int value;
+  final int min;
+  final int max;
+  final ValueChanged<int> onChanged;
+
   @override
-  State<_AutoCollapseCodeBlockLinesRow> createState() =>
-      _AutoCollapseCodeBlockLinesRowState();
+  State<_NumberFieldRow> createState() => _NumberFieldRowState();
 }
 
-class _AutoCollapseCodeBlockLinesRowState
-    extends State<_AutoCollapseCodeBlockLinesRow> {
+class _NumberFieldRowState extends State<_NumberFieldRow> {
   late final TextEditingController _controller;
   late final FocusNode _focusNode;
 
   @override
   void initState() {
     super.initState();
-    final sp = context.read<SettingsProvider>();
-    _controller = TextEditingController(
-      text: '${sp.autoCollapseCodeBlockLines}',
-    );
+    _controller = TextEditingController(text: '${widget.value}');
     _focusNode = FocusNode()
       ..addListener(() {
         if (!_focusNode.hasFocus) _commit();
@@ -2006,11 +1788,9 @@ class _AutoCollapseCodeBlockLinesRowState
   }
 
   void _commit() {
-    final sp = context.read<SettingsProvider>();
-    final raw = _controller.text.trim();
-    final parsed = int.tryParse(raw) ?? sp.autoCollapseCodeBlockLines;
-    final next = parsed.clamp(1, 999);
-    sp.setAutoCollapseCodeBlockLines(next);
+    final parsed = int.tryParse(_controller.text.trim()) ?? widget.value;
+    final next = parsed.clamp(widget.min, widget.max);
+    widget.onChanged(next);
     final text = '$next';
     if (_controller.text != text) {
       _controller.value = _controller.value.copyWith(
@@ -2022,14 +1802,11 @@ class _AutoCollapseCodeBlockLinesRowState
 
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
     final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final sp = context.watch<SettingsProvider>();
 
     // Keep controller in sync when not editing
     if (!_focusNode.hasFocus) {
-      final t = '${sp.autoCollapseCodeBlockLines}';
+      final t = '${widget.value}';
       if (_controller.text != t) _controller.text = t;
     }
 
@@ -2052,12 +1829,12 @@ class _AutoCollapseCodeBlockLinesRowState
         children: [
           SizedBox(
             width: 36,
-            child: Icon(Lucide.ListOrdered, size: 20, color: baseColor),
+            child: Icon(widget.icon, size: 20, color: baseColor),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              l10n.displaySettingsPageAutoCollapseCodeBlockLinesTitle,
+              widget.label,
               style: TextStyle(fontSize: 15, color: baseColor),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
@@ -2075,7 +1852,7 @@ class _AutoCollapseCodeBlockLinesRowState
                 decoration: InputDecoration(
                   isDense: true,
                   filled: true,
-                  fillColor: isDark ? Colors.white10 : Colors.white,
+                  fillColor: context.appColors.surfaceCard,
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: 8,
                     vertical: 8,
@@ -2090,7 +1867,7 @@ class _AutoCollapseCodeBlockLinesRowState
           ),
           const SizedBox(width: 8),
           Text(
-            l10n.displaySettingsPageAutoCollapseCodeBlockLinesUnit,
+            widget.unit,
             style: TextStyle(
               fontSize: 13,
               color: cs.onSurface.withValues(alpha: 0.6),
@@ -2125,7 +1902,7 @@ class BehaviorStartupSettingsPage extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
         children: [
-          _iosSectionCard(
+          SectionCard(
             children: [
               _iosSwitchRow(
                 context,
@@ -2158,6 +1935,15 @@ class BehaviorStartupSettingsPage extends StatelessWidget {
               _iosDivider(context),
               _iosSwitchRow(
                 context,
+                icon: Lucide.ImageOff,
+                label: l10n.displaySettingsPageHideToolResultImagesTitle,
+                value: sp.hideToolResultImages,
+                onChanged: (v) =>
+                    context.read<SettingsProvider>().setHideToolResultImages(v),
+              ),
+              _iosDivider(context),
+              _iosSwitchRow(
+                context,
                 icon: Lucide.TextSelect,
                 label: l10n.displaySettingsPageInsertSuggestionOnlyTitle,
                 value: sp.insertSuggestionOnTapOnly,
@@ -2165,6 +1951,33 @@ class BehaviorStartupSettingsPage extends StatelessWidget {
                     .read<SettingsProvider>()
                     .setInsertSuggestionOnTapOnly(v),
               ),
+              _iosDivider(context),
+              _iosSwitchRow(
+                context,
+                icon: Lucide.FoldVertical,
+                label: l10n.displaySettingsPageCollapseLongUserMessagesTitle,
+                tip: l10n.displaySettingsPageCollapseLongUserMessagesSubtitle,
+                value: sp.collapseLongUserMessages,
+                onChanged: (v) => context
+                    .read<SettingsProvider>()
+                    .setCollapseLongUserMessages(v),
+              ),
+              if (sp.collapseLongUserMessages) ...[
+                _iosDivider(context),
+                _NumberFieldRow(
+                  icon: Lucide.ListOrdered,
+                  label: l10n
+                      .displaySettingsPageCollapseLongUserMessagesCharsTitle,
+                  unit:
+                      l10n.displaySettingsPageCollapseLongUserMessagesCharsUnit,
+                  value: sp.collapseLongUserMessageChars,
+                  min: SettingsProvider.minCollapseLongUserMessageChars,
+                  max: SettingsProvider.maxCollapseLongUserMessageChars,
+                  onChanged: (v) => context
+                      .read<SettingsProvider>()
+                      .setCollapseLongUserMessageChars(v),
+                ),
+              ],
               _iosDivider(context),
               _iosSwitchRow(
                 context,
@@ -2189,12 +2002,51 @@ class BehaviorStartupSettingsPage extends StatelessWidget {
               _iosDivider(context),
               _iosSwitchRow(
                 context,
+                icon: Lucide.GitFork,
+                label: l10n.displaySettingsPageForkKeepMessageVersionsTitle,
+                value: sp.forkKeepMessageVersions,
+                onChanged: (v) => context
+                    .read<SettingsProvider>()
+                    .setForkKeepMessageVersions(v),
+              ),
+              _iosDivider(context),
+              _iosSwitchRow(
+                context,
+                icon: Lucide.Pencil,
+                label: l10n
+                    .displaySettingsPageEditAssistantKeepThinkingToolCardsTitle,
+                tip: l10n
+                    .displaySettingsPageEditAssistantKeepThinkingToolCardsSubtitle,
+                value: sp.keepThinkingAndToolCardsWhenEditingAssistant,
+                onChanged: (v) => context
+                    .read<SettingsProvider>()
+                    .setKeepThinkingAndToolCardsWhenEditingAssistant(v),
+              ),
+              _iosDivider(context),
+              _iosSwitchRow(
+                context,
                 icon: Lucide.BadgeInfo,
                 label: l10n.displaySettingsPageShowUpdatesTitle,
                 value: sp.showAppUpdates,
                 onChanged: (v) =>
                     context.read<SettingsProvider>().setShowAppUpdates(v),
               ),
+              if (defaultTargetPlatform == TargetPlatform.android ||
+                  defaultTargetPlatform == TargetPlatform.iOS) ...[
+                _iosDivider(context),
+                _iosSwitchRow(
+                  context,
+                  icon: Lucide.Sun,
+                  label:
+                      l10n.displaySettingsPageKeepScreenOnDuringGenerationTitle,
+                  tip: l10n
+                      .displaySettingsPageKeepScreenOnDuringGenerationSubtitle,
+                  value: sp.keepScreenOnDuringGeneration,
+                  onChanged: (v) => context
+                      .read<SettingsProvider>()
+                      .setKeepScreenOnDuringGeneration(v),
+                ),
+              ],
               _iosDivider(context),
               _iosNavRow(
                 context,
@@ -2219,16 +2071,6 @@ class BehaviorStartupSettingsPage extends StatelessWidget {
                 value: sp.showChatListDate,
                 onChanged: (v) =>
                     context.read<SettingsProvider>().setShowChatListDate(v),
-              ),
-              _iosDivider(context),
-              _iosSwitchRow(
-                context,
-                icon: Lucide.Crop,
-                label: l10n.displaySettingsPageEnableImageCropperTitle,
-                subtitle: l10n.displaySettingsPageEnableImageCropperSubtitle,
-                value: sp.imageCropperEnabled,
-                onChanged: (v) =>
-                    context.read<SettingsProvider>().setImageCropperEnabled(v),
               ),
               _iosDivider(context),
               _iosSwitchRow(
@@ -2299,6 +2141,19 @@ class BehaviorStartupSettingsPage extends StatelessWidget {
                 onChanged: (v) =>
                     context.read<SettingsProvider>().setEnterToSendOnMobile(v),
               ),
+              _iosDivider(context),
+              _iosSwitchRow(
+                context,
+                icon: Lucide.Clipboard,
+                label: l10n.displaySettingsPageLongPasteAsFileTitle,
+                value: sp.longPasteAsFile,
+                onChanged: (v) =>
+                    context.read<SettingsProvider>().setLongPasteAsFile(v),
+              ),
+              if (sp.longPasteAsFile) ...[
+                _iosDivider(context),
+                const _LongPasteAsFileThresholdRow(),
+              ],
             ],
           ),
         ],
@@ -2307,164 +2162,133 @@ class BehaviorStartupSettingsPage extends StatelessWidget {
   }
 }
 
-class IosBackgroundSettingsPage extends StatefulWidget {
-  const IosBackgroundSettingsPage({super.key});
+class _LongPasteAsFileThresholdRow extends StatefulWidget {
+  const _LongPasteAsFileThresholdRow();
 
   @override
-  State<IosBackgroundSettingsPage> createState() =>
-      _IosBackgroundSettingsPageState();
+  State<_LongPasteAsFileThresholdRow> createState() =>
+      _LongPasteAsFileThresholdRowState();
 }
 
-class _IosBackgroundSettingsPageState extends State<IosBackgroundSettingsPage> {
-  late Future<IosBackgroundGenerationStatus> _statusFuture;
+class _LongPasteAsFileThresholdRowState
+    extends State<_LongPasteAsFileThresholdRow> {
+  late final SettingsProvider _settings;
+  late final TextEditingController _controller;
+  late final FocusNode _focusNode;
 
   @override
   void initState() {
     super.initState();
-    _statusFuture = IosBackgroundGenerationService.instance.getStatus();
+    _settings = context.read<SettingsProvider>();
+    _controller = TextEditingController(
+      text: '${_settings.longPasteAsFileThreshold}',
+    );
+    _focusNode = FocusNode()
+      ..addListener(() {
+        if (!_focusNode.hasFocus) _commit();
+      });
   }
 
-  void _refreshStatus() {
-    setState(() {
-      _statusFuture = IosBackgroundGenerationService.instance.getStatus();
-    });
+  @override
+  void dispose() {
+    // Back / toggling the switch often skips unfocus on mobile.
+    _commit(syncField: false);
+    _focusNode.dispose();
+    _controller.dispose();
+    super.dispose();
   }
 
-  Future<void> _setBackgroundNotificationsEnabled(bool enabled) async {
-    final settings = context.read<SettingsProvider>();
-    if (!enabled) {
-      await settings.setIosBackgroundNotificationsEnabled(false);
-      _refreshStatus();
-      return;
+  void _commit({bool syncField = true}) {
+    final next = SettingsProvider.resolveLongPasteAsFileThreshold(
+      _controller.text,
+      fallback: _settings.longPasteAsFileThreshold,
+    );
+    _settings.setLongPasteAsFileThreshold(next);
+    if (!syncField) return;
+    final text = '$next';
+    if (_controller.text != text) {
+      _controller.value = _controller.value.copyWith(
+        text: text,
+        selection: TextSelection.collapsed(offset: text.length),
+      );
     }
-
-    final granted = await IosBackgroundGenerationService.instance
-        .requestNotificationAuthorization();
-    if (!mounted) return;
-    await settings.setIosBackgroundNotificationsEnabled(granted);
-    _refreshStatus();
-  }
-
-  Future<void> _openAppSettings() async {
-    await IosBackgroundGenerationService.instance.openAppSettings();
-    if (!mounted) return;
-    _refreshStatus();
-  }
-
-  Future<void> _openNotificationSettings() async {
-    await IosBackgroundGenerationService.instance.openNotificationSettings();
-    if (!mounted) return;
-    _refreshStatus();
   }
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context)!;
+    final cs = Theme.of(context).colorScheme;
     final sp = context.watch<SettingsProvider>();
 
-    return Scaffold(
-      appBar: AppBar(
-        leading: Tooltip(
-          message: l10n.settingsPageBackButton,
-          child: _TactileIconButton(
-            icon: Lucide.ArrowLeft,
-            color: cs.onSurface,
-            size: 22,
-            onTap: () => Navigator.of(context).maybePop(),
-          ),
-        ),
-        title: Text(l10n.iosBackgroundSettingsPageTitle),
+    if (!_focusNode.hasFocus) {
+      final t = '${sp.longPasteAsFileThreshold}';
+      if (_controller.text != t) _controller.text = t;
+    }
+
+    final baseColor = cs.onSurface.withValues(alpha: 0.9);
+    final baseBorder = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(10),
+      borderSide: BorderSide(
+        color: cs.outlineVariant.withValues(alpha: 0.28),
+        width: 0.8,
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+    );
+    final focusBorder = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(10),
+      borderSide: BorderSide(color: cs.primary, width: 1.0),
+    );
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Row(
         children: [
-          _noticeCard(
-            context,
-            title: l10n.iosBackgroundLimitNoticeTitle,
-            body: l10n.iosBackgroundLimitNoticeBody,
+          SizedBox(
+            width: 36,
+            child: Icon(Lucide.ListOrdered, size: 20, color: baseColor),
           ),
-          const SizedBox(height: 12),
-          _iosSectionCard(
-            children: [
-              _iosSwitchRow(
-                context,
-                icon: Lucide.Activity,
-                label: l10n.iosBackgroundGenerationEnableTitle,
-                subtitle: l10n.iosBackgroundGenerationEnableSubtitle,
-                value: sp.iosBackgroundGenerationEnabled,
-                onChanged: (v) => context
-                    .read<SettingsProvider>()
-                    .setIosBackgroundGenerationEnabled(v),
-              ),
-              _iosDivider(context),
-              _iosSwitchRow(
-                context,
-                icon: Lucide.RefreshCw,
-                label: l10n.iosBackgroundTaskRefreshTitle,
-                subtitle: l10n.iosBackgroundTaskRefreshSubtitle,
-                value: sp.iosBackgroundTaskRefreshEnabled,
-                onChanged: (v) => context
-                    .read<SettingsProvider>()
-                    .setIosBackgroundTaskRefreshEnabled(v),
-              ),
-              _iosDivider(context),
-              _iosSwitchRow(
-                context,
-                icon: Lucide.Timer,
-                label: l10n.iosLiveActivityTitle,
-                subtitle: l10n.iosLiveActivitySubtitle,
-                value: sp.iosLiveActivityEnabled,
-                onChanged: (v) => context
-                    .read<SettingsProvider>()
-                    .setIosLiveActivityEnabled(v),
-              ),
-              _iosDivider(context),
-              _iosSwitchRow(
-                context,
-                icon: Lucide.MessageCircle,
-                label: l10n.iosBackgroundNotificationsTitle,
-                subtitle: l10n.iosBackgroundNotificationsSubtitle,
-                value: sp.iosBackgroundNotificationsEnabled,
-                onChanged: _setBackgroundNotificationsEnabled,
-              ),
-            ],
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              l10n.displaySettingsPageLongPasteAsFileThresholdTitle,
+              style: TextStyle(fontSize: 15, color: baseColor),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
-          const SizedBox(height: 12),
-          FutureBuilder<IosBackgroundGenerationStatus>(
-            future: _statusFuture,
-            builder: (context, snapshot) {
-              final status = snapshot.data;
-              return _iosSectionCard(
-                children: [
-                  _iosNavRow(
-                    context,
-                    icon: Lucide.BadgeInfo,
-                    label: l10n.iosBackgroundNativeStatusTitle,
-                    detailText: status == null
-                        ? l10n.iosBackgroundNativeStatusUnavailable
-                        : status.liveActivitiesEnabled
-                        ? l10n.iosBackgroundLiveActivityAvailable
-                        : l10n.iosBackgroundLiveActivityUnavailable,
-                    onTap: _openAppSettings,
+          IntrinsicWidth(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minWidth: 56, maxWidth: 96),
+              child: TextField(
+                controller: _controller,
+                focusNode: _focusNode,
+                textAlign: TextAlign.center,
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: InputDecoration(
+                  isDense: true,
+                  filled: true,
+                  fillColor: context.appColors.surfaceCard,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 8,
                   ),
-                  _iosDivider(context),
-                  _iosNavRow(
-                    context,
-                    icon: Lucide.MessageCircle,
-                    label: status?.notificationsAuthorized == true
-                        ? l10n.iosBackgroundNotificationsAuthorized
-                        : l10n.iosBackgroundNotificationsNotAuthorized,
-                    onTap: _openNotificationSettings,
-                  ),
-                ],
-              );
-            },
+                  border: baseBorder,
+                  enabledBorder: baseBorder,
+                  focusedBorder: focusBorder,
+                ),
+                onChanged: (_) => _commit(syncField: false),
+                onSubmitted: (_) => _commit(),
+              ),
+            ),
           ),
-          if (sp.iosLiveActivityEnabled) ...[
-            const SizedBox(height: 12),
-            _plainFootnote(context, l10n.iosBackgroundUnsupportedLiveActivity),
-          ],
+          const SizedBox(width: 8),
+          Text(
+            l10n.displaySettingsPageLongPasteAsFileThresholdUnit,
+            style: TextStyle(
+              fontSize: 13,
+              color: cs.onSurface.withValues(alpha: 0.6),
+            ),
+          ),
         ],
       ),
     );
@@ -2494,7 +2318,7 @@ class HapticsSettingsPage extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
         children: [
-          _iosSectionCard(
+          SectionCard(
             children: [
               _iosSwitchRow(
                 context,

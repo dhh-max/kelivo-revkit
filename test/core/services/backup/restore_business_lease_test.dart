@@ -346,6 +346,11 @@ void main() {
         expect(lease.isClosed, isFalse);
         expect(lease.processId, pid);
       },
+      // Windows 上 isolate 遗留文件句柄导致锁目录清理失败（errno 32），
+      // 平台环境限制（与 restore_lease_lock_test 同源）。
+      skip: Platform.isWindows
+          ? 'Windows cannot delete files whose handles an isolate left open.'
+          : false,
     );
 
     test('rejects a duplicate acquire from another isolate', () async {

@@ -1,8 +1,9 @@
 import 'dart:math' as math;
-import 'package:flutter/foundation.dart'
-    show kIsWeb, defaultTargetPlatform, TargetPlatform;
+import '../../core/services/mcp/stdio_arguments.dart';
+import '../../features/mcp/widgets/mcp_environment_picker.dart';
 
 import 'package:flutter/material.dart';
+import '../../features/mcp/widgets/mcp_workspace_binding_field.dart';
 import 'package:provider/provider.dart';
 
 import '../../icons/lucide_adapter.dart' as lucide;
@@ -11,17 +12,18 @@ import '../../core/providers/mcp_provider.dart';
 import '../../shared/widgets/snackbar.dart';
 import '../../shared/widgets/ios_switch.dart';
 import '../../theme/app_font_weights.dart';
+import 'package:Kelivo/theme/app_semantic_colors.dart';
+import 'package:Kelivo/shared/widgets/section_card.dart';
 
 Future<void> showDesktopMcpEditDialog(
   BuildContext context, {
   String? serverId,
 }) async {
-  final cs = Theme.of(context).colorScheme;
   await showDialog<void>(
     context: context,
     barrierDismissible: true,
     builder: (ctx) => Dialog(
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: ConstrainedBox(
@@ -52,10 +54,11 @@ class _DesktopMcpEditDialogState extends State<_DesktopMcpEditDialog>
   McpTransportType _transport = McpTransportType.http;
   final _urlCtrl = TextEditingController();
   final List<_HeaderEntry> _headers = [];
-  // STDIO fields (desktop only)
+  // STDIO fields
   final _cmdCtrl = TextEditingController();
   final _argsCtrl = TextEditingController(); // space-separated args
   final _cwdCtrl = TextEditingController();
+  String? _workspaceId;
   final List<_HeaderEntry> _env = [];
 
   @override
@@ -77,8 +80,9 @@ class _DesktopMcpEditDialogState extends State<_DesktopMcpEditDialog>
       });
       if (server.transport == McpTransportType.stdio) {
         _cmdCtrl.text = server.command ?? '';
-        _argsCtrl.text = server.args.join(' ');
+        _argsCtrl.text = StdioArguments.format(server.args);
         _cwdCtrl.text = server.workingDirectory ?? '';
+        _workspaceId = server.workspaceId;
         server.env.forEach((k, v) {
           _env.add(
             _HeaderEntry(
@@ -114,7 +118,7 @@ class _DesktopMcpEditDialogState extends State<_DesktopMcpEditDialog>
     // Built-in server: only allow toggling enabled, no other changes
     if (isEdit && _transport == McpTransportType.inmemory) {
       final old = mcp.getById(widget.serverId!)!;
-      await mcp.updateServer(old.copyWith(enabled: _enabled));
+      await mcp.updateServerMetadata(old.copyWith(enabled: _enabled));
       if (mounted) Navigator.of(context).maybePop();
       return;
     }
@@ -125,12 +129,10 @@ class _DesktopMcpEditDialogState extends State<_DesktopMcpEditDialog>
           h.key.text.trim(): h.value.text.trim(),
     };
     if (_transport == McpTransportType.stdio) {
-      if (!_isDesktopPlatform()) {
+      if (!mcp.supportsStdio) {
         showAppSnackBar(
           context,
-          message: AppLocalizations.of(
-            context,
-          )!.mcpServerEditSheetStdioOnlyDesktop,
+          message: AppLocalizations.of(context)!.mcpStdioEnvironmentRequired,
           type: NotificationType.warning,
         );
         return;
@@ -146,7 +148,17 @@ class _DesktopMcpEditDialogState extends State<_DesktopMcpEditDialog>
         );
         return;
       }
-      final args = _parseArgs(_argsCtrl.text.trim());
+      final List<String> args;
+      try {
+        args = StdioArguments.parse(_argsCtrl.text);
+      } on FormatException {
+        showAppSnackBar(
+          context,
+          message: AppLocalizations.of(context)!.mcpArgumentsInvalid,
+          type: NotificationType.warning,
+        );
+        return;
+      }
       final env = <String, String>{
         for (final e in _env)
           if (e.key.text.trim().isNotEmpty)
@@ -156,7 +168,7 @@ class _DesktopMcpEditDialogState extends State<_DesktopMcpEditDialog>
       if (isEdit) {
         final old = mcp.getById(widget.serverId!)!;
         final clearing = cwd.isEmpty;
-        await mcp.updateServer(
+        await mcp.updateServerMetadata(
           old.copyWith(
             enabled: _enabled,
             name: name,
@@ -168,6 +180,8 @@ class _DesktopMcpEditDialogState extends State<_DesktopMcpEditDialog>
             env: env,
             workingDirectory: clearing ? null : cwd,
             clearWorkingDirectory: clearing,
+            workspaceId: _workspaceId,
+            clearWorkspace: _workspaceId == null,
           ),
         );
       } else {
@@ -179,6 +193,7 @@ class _DesktopMcpEditDialogState extends State<_DesktopMcpEditDialog>
           args: args,
           env: env,
           workingDirectory: cwd.isEmpty ? null : cwd,
+          workspaceId: _workspaceId,
         );
       }
     } else {
@@ -193,13 +208,14 @@ class _DesktopMcpEditDialogState extends State<_DesktopMcpEditDialog>
       }
       if (isEdit) {
         final old = mcp.getById(widget.serverId!)!;
-        await mcp.updateServer(
+        await mcp.updateServerMetadata(
           old.copyWith(
             enabled: _enabled,
             name: name,
             transport: _transport,
             url: url,
             headers: headers,
+            clearWorkspace: true,
           ),
         );
       } else {
@@ -327,10 +343,10 @@ class _DesktopMcpEditDialogState extends State<_DesktopMcpEditDialog>
           const SizedBox(height: 6),
           Builder(
             builder: (context) {
-              final isDesktop = _isDesktopPlatform();
+              final isDesktop = context.watch<McpProvider>().supportsStdio;
               final labels = isDesktop
-                  ? ['Streamable HTTP', 'SSE', l10n.mcpTransportOptionStdio]
-                  : ['Streamable HTTP', 'SSE'];
+                  ? ['HTTP', 'SSE', l10n.mcpTransportOptionStdio]
+                  : ['HTTP', 'SSE'];
               int selectedIdx;
               if (_transport == McpTransportType.http) {
                 selectedIdx = 0;
@@ -358,17 +374,6 @@ class _DesktopMcpEditDialogState extends State<_DesktopMcpEditDialog>
           ),
         ],
         const SizedBox(height: 10),
-        if (!isBuiltin && _transport == McpTransportType.sse)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: Text(
-              l10n.mcpServerEditSheetSseRetryHint,
-              style: TextStyle(
-                fontSize: 12,
-                color: cs.onSurface.withValues(alpha: 0.7),
-              ),
-            ),
-          ),
         if (!isBuiltin && _transport != McpTransportType.stdio)
           _labeledField(
             label: l10n.mcpServerEditSheetUrlLabel,
@@ -379,6 +384,10 @@ class _DesktopMcpEditDialogState extends State<_DesktopMcpEditDialog>
             bold: true,
           ),
         if (!isBuiltin && _transport == McpTransportType.stdio) ...[
+          McpWorkspaceBindingField(
+            workspaceId: _workspaceId,
+            onChanged: (id) => setState(() => _workspaceId = id),
+          ),
           _labeledField(
             label: l10n.mcpServerEditSheetStdioCommandLabel,
             controller: _cmdCtrl,
@@ -389,7 +398,8 @@ class _DesktopMcpEditDialogState extends State<_DesktopMcpEditDialog>
           _labeledField(
             label: l10n.mcpServerEditSheetStdioArgumentsLabel,
             controller: _argsCtrl,
-            hint: "-y @modelcontextprotocol/server-filesystem",
+            hint: l10n.mcpArgumentsHint,
+            maxLines: 4,
             bold: false,
           ),
           const SizedBox(height: 10),
@@ -405,10 +415,44 @@ class _DesktopMcpEditDialogState extends State<_DesktopMcpEditDialog>
             style: TextStyle(fontSize: 13, fontWeight: AppFontWeights.semibold),
           ),
           const SizedBox(height: 8),
+          Text(
+            l10n.mcpEnvironmentHint,
+            style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              icon: const Icon(lucide.Lucide.Download, size: 16),
+              label: Text(l10n.mcpImportEnvironment),
+              onPressed: () async {
+                final variable = await pickMcpEnvironmentVariable(context);
+                if (variable == null || !mounted) return;
+                setState(() {
+                  final index = _env.indexWhere(
+                    (entry) => entry.key.text.trim() == variable.name,
+                  );
+                  if (index < 0) {
+                    _env.add(
+                      _HeaderEntry(
+                        TextEditingController(text: variable.name),
+                        TextEditingController(text: variable.value),
+                      ),
+                    );
+                  } else {
+                    _env[index].value.text = variable.value;
+                  }
+                });
+              },
+            ),
+          ),
           Column(
             children: [
               for (int i = 0; i < _env.length; i++) ...[
-                _card(
+                SectionCard(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -460,9 +504,9 @@ class _DesktopMcpEditDialogState extends State<_DesktopMcpEditDialog>
                           states,
                         ) {
                           if (states.contains(WidgetState.hovered)) {
-                            return isDark
-                                ? Colors.white.withValues(alpha: 0.06)
-                                : Colors.black.withValues(alpha: 0.05);
+                            return cs.onSurface.withValues(
+                              alpha: isDark ? 0.06 : 0.05,
+                            );
                           }
                           return Colors.transparent;
                         }),
@@ -490,7 +534,11 @@ class _DesktopMcpEditDialogState extends State<_DesktopMcpEditDialog>
           Column(
             children: [
               for (int i = 0; i < _headers.length; i++) ...[
-                _card(
+                SectionCard(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -542,9 +590,9 @@ class _DesktopMcpEditDialogState extends State<_DesktopMcpEditDialog>
                           states,
                         ) {
                           if (states.contains(WidgetState.hovered)) {
-                            return isDark
-                                ? Colors.white.withValues(alpha: 0.06)
-                                : Colors.black.withValues(alpha: 0.05);
+                            return cs.onSurface.withValues(
+                              alpha: isDark ? 0.06 : 0.05,
+                            );
                           }
                           return Colors.transparent;
                         }),
@@ -586,7 +634,8 @@ class _DesktopMcpEditDialogState extends State<_DesktopMcpEditDialog>
     return ListView(
       children: [
         for (final tool in tools) ...[
-          _card(
+          SectionCard(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -702,20 +751,6 @@ class _DesktopMcpEditDialogState extends State<_DesktopMcpEditDialog>
     );
   }
 
-  bool _isDesktopPlatform() {
-    if (kIsWeb) return false;
-    return defaultTargetPlatform == TargetPlatform.windows ||
-        defaultTargetPlatform == TargetPlatform.macOS ||
-        defaultTargetPlatform == TargetPlatform.linux;
-  }
-
-  List<String> _parseArgs(String text) {
-    if (text.isEmpty) return const <String>[];
-    // Simple whitespace split; users can provide quoted args as a single token for now.
-    // For advanced quoting, consider a shell-like parser later.
-    return text.split(RegExp(r"\s+")).where((e) => e.isNotEmpty).toList();
-  }
-
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -780,12 +815,12 @@ class _DesktopMcpEditDialogState extends State<_DesktopMcpEditDialog>
                         states,
                       ) {
                         if (states.contains(WidgetState.hovered)) {
+                          final isDark =
+                              Theme.of(context).brightness == Brightness.dark;
                           return Color.lerp(
                             cs.primary,
-                            Colors.white,
-                            Theme.of(context).brightness == Brightness.dark
-                                ? 0.06
-                                : 0.08,
+                            isDark ? cs.onSurface : cs.surface,
+                            isDark ? 0.06 : 0.08,
                           );
                         }
                         return cs.primary;
@@ -805,9 +840,9 @@ class _DesktopMcpEditDialogState extends State<_DesktopMcpEditDialog>
     required TextEditingController controller,
     String? hint,
     bool bold = false,
+    int maxLines = 1,
   }) {
     final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -822,6 +857,12 @@ class _DesktopMcpEditDialogState extends State<_DesktopMcpEditDialog>
         const SizedBox(height: 6),
         TextField(
           controller: controller,
+          maxLines: maxLines,
+          minLines: 1,
+          autocorrect: false,
+          enableSuggestions: false,
+          smartDashesType: SmartDashesType.disabled,
+          smartQuotesType: SmartQuotesType.disabled,
           style: TextStyle(
             fontSize: 14,
             fontWeight: AppFontWeights.regular,
@@ -830,7 +871,7 @@ class _DesktopMcpEditDialogState extends State<_DesktopMcpEditDialog>
           decoration: InputDecoration(
             hintText: hint,
             filled: true,
-            fillColor: isDark ? Colors.white10 : Colors.white,
+            fillColor: context.appColors.surfaceCard,
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
               borderSide: BorderSide(
@@ -854,23 +895,6 @@ class _DesktopMcpEditDialogState extends State<_DesktopMcpEditDialog>
           ),
         ),
       ],
-    );
-  }
-
-  Widget _card({required Widget child}) {
-    final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
-      decoration: BoxDecoration(
-        color: isDark ? Colors.white10 : Colors.white.withValues(alpha: 0.96),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: cs.outlineVariant.withValues(alpha: isDark ? 0.08 : 0.06),
-          width: 0.6,
-        ),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      child: child,
     );
   }
 }
@@ -901,9 +925,7 @@ class _SmallIconBtnState extends State<_SmallIconBtn> {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = _hover
-        ? (isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.05))
+        ? (cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
         : Colors.transparent;
     final btn = Container(
       width: 28,
@@ -941,9 +963,7 @@ class _SegChoiceBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final isDark = theme.brightness == Brightness.dark;
+    final cs = Theme.of(context).colorScheme;
 
     const double outerHeight = 44;
     const double innerPadding = 4;
@@ -966,9 +986,7 @@ class _SegChoiceBar extends StatelessWidget {
         final double rowWidth =
             segWidth * labels.length + gap * (labels.length - 1);
 
-        final Color shellBg = isDark
-            ? Colors.white.withValues(alpha: 0.08)
-            : Colors.white;
+        final Color shellBg = context.appColors.surfaceCard;
 
         List<Widget> children = [];
         for (int index = 0; index < labels.length; index++) {
@@ -1049,9 +1067,7 @@ class _SegTabBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final isDark = theme.brightness == Brightness.dark;
+    final cs = Theme.of(context).colorScheme;
 
     const double outerHeight = 44;
     const double innerPadding = 4;
@@ -1074,9 +1090,7 @@ class _SegTabBar extends StatelessWidget {
         final double rowWidth =
             segWidth * tabs.length + gap * (tabs.length - 1);
 
-        final Color shellBg = isDark
-            ? Colors.white.withValues(alpha: 0.08)
-            : Colors.white;
+        final Color shellBg = context.appColors.surfaceCard;
 
         List<Widget> children = [];
         for (int index = 0; index < tabs.length; index++) {

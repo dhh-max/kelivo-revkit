@@ -1,9 +1,5 @@
 import 'package:flutter/material.dart';
 
-class AppColors {
-  static const Color textMuted = Colors.black54;
-}
-
 class AppShadows {
   static List<BoxShadow> soft = [
     BoxShadow(
@@ -16,6 +12,22 @@ class AppShadows {
 
 class AppRadii {
   static const double capsule = 28;
+}
+
+/// 覆盖层（桌面 popover / 弹层）配色（上游 1.2.6 引入）。
+///
+/// 本 fork 是 Android-only，桌面 popover 虽已裁剪入口，但这些文件仍在上游
+/// 同步面内、被 import 链引用，故保留定义以免编译断裂。
+class AppOverlayColors {
+  static const double desktopPopoverAlphaDark = 0.28;
+  static const double desktopPopoverAlphaLight = 0.56;
+
+  static Color desktopPopoverSurface(ColorScheme cs) {
+    final isDark = cs.brightness == Brightness.dark;
+    return cs.surface.withValues(
+      alpha: isDark ? desktopPopoverAlphaDark : desktopPopoverAlphaLight,
+    );
+  }
 }
 
 class AppSpacing {

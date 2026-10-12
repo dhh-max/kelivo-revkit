@@ -1,3 +1,4 @@
+import '../widgets/prompt_cache_ttl_control.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -13,14 +14,14 @@ import 'package:image_picker/image_picker.dart';
 import '../../../icons/lucide_adapter.dart';
 import '../../../core/providers/model_provider.dart';
 import '../../../core/providers/assistant_provider.dart';
-import '../../model/widgets/model_detail_sheet.dart';
+import '../../model/pages/model_spec_edit_page.dart';
 import '../../model/widgets/model_select_sheet.dart';
 import '../widgets/share_provider_sheet.dart';
 import '../widgets/provider_group_picker_sheet.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../core/services/logging/flutter_logger.dart';
-import '../../../core/services/model_override_resolver.dart';
+import '../../../core/services/model_spec/model_spec_resolver.dart';
 import '../../../shared/widgets/snackbar.dart';
 import '../../../shared/widgets/model_tag_wrap.dart';
 import '../../../shared/widgets/ios_checkbox.dart';
@@ -28,12 +29,15 @@ import '../../../shared/widgets/ios_switch.dart';
 import '../../../shared/widgets/ios_tactile.dart';
 import 'multi_key_manager_page.dart';
 import 'provider_balance_page.dart';
+import 'provider_custom_request_page.dart';
 import 'provider_network_page.dart';
-import '../../../core/services/haptics.dart';
+import 'package:Kelivo/shared/services/haptics.dart';
 import '../../provider/widgets/provider_balance_badge.dart';
 import '../../provider/widgets/provider_avatar.dart';
 import '../../../utils/model_grouping.dart';
 import '../../../theme/app_font_weights.dart';
+import 'package:Kelivo/theme/app_semantic_colors.dart';
+import '../../solab_apk/config/builtin_providers.dart';
 
 class ProviderDetailPage extends StatefulWidget {
   const ProviderDetailPage({
@@ -63,8 +67,8 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
   final _saJsonCtrl = TextEditingController();
   bool _enabled = true;
   bool _useResp = false; // openai
+  bool _promptCacheKeyEnabled = false; // openai
   bool _vertexAI = false; // google
-  bool _showApiKey = false; // toggle visibility
   bool _multiKeyEnabled = false; // single/multi key mode
 
   // 模型选择模式相关
@@ -98,6 +102,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     _baseCtrl.text = _cfg.baseUrl;
     _pathCtrl.text = _cfg.chatPath ?? '/chat/completions';
     _useResp = _cfg.useResponseApi ?? false;
+    _promptCacheKeyEnabled = _cfg.promptCacheKeyEnabled;
     _vertexAI = _cfg.vertexAI ?? false;
     _locationCtrl.text = _cfg.location ?? '';
     _projectCtrl.text = _cfg.projectId ?? '';
@@ -129,14 +134,16 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     final l10n = AppLocalizations.of(context)!;
     bool isUserAdded(String key) {
       const fixed = {
-        'KelivoIN',
+        'SoLabIN',
         'OpenAI',
         'Gemini',
         'SiliconFlow',
         'OpenRouter',
+        'Vercel',
         'DeepSeek',
         'Tensdaq',
         'AIhubmix',
+        '随想AI中转站',
         'Aliyun',
         'Zhipu AI',
         'Claude',
@@ -264,7 +271,9 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                           onPressed: () => Navigator.of(ctx).pop(true),
                           child: Text(
                             l10n.providerDetailPageDeleteButton,
-                            style: TextStyle(color: Colors.red),
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.error,
+                            ),
                           ),
                         ),
                       ],
@@ -463,9 +472,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                 decoration: InputDecoration(
                   hintText: l10n.sideDrawerImageUrlDialogHint,
                   filled: true,
-                  fillColor: Theme.of(ctx2).brightness == Brightness.dark
-                      ? Colors.white10
-                      : const Color(0xFFF2F3F5),
+                  fillColor: ctx2.appColors.surfaceFill,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                     borderSide: const BorderSide(color: Colors.transparent),
@@ -545,9 +552,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                   decoration: InputDecoration(
                     hintText: l10n.providerAvatarLobehubDialogHint,
                     filled: true,
-                    fillColor: Theme.of(ctx2).brightness == Brightness.dark
-                        ? Colors.white10
-                        : const Color(0xFFF2F3F5),
+                    fillColor: ctx2.appColors.surfaceFill,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                       borderSide: const BorderSide(color: Colors.transparent),
@@ -662,9 +667,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                         prefixIcon: const Icon(Lucide.Search, size: 18),
                         isDense: true,
                         filled: true,
-                        fillColor: isDark
-                            ? Colors.white10
-                            : const Color(0xFFF2F3F5),
+                        fillColor: context.appColors.surfaceFill,
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                           borderSide: const BorderSide(
@@ -739,11 +742,9 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                                           aspectRatio: 1,
                                           child: Container(
                                             decoration: BoxDecoration(
-                                              color: isDark
-                                                  ? Colors.white10
-                                                  : cs.primary.withValues(
-                                                      alpha: 0.1,
-                                                    ),
+                                              color: cs.primary.withValues(
+                                                alpha: isDark ? 0.18 : 0.10,
+                                              ),
                                               shape: BoxShape.circle,
                                               border: selected
                                                   ? Border.all(
@@ -761,8 +762,8 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                                                       opt.asset,
                                                       fit: BoxFit.contain,
                                                       colorFilter: needsMono
-                                                          ? const ColorFilter.mode(
-                                                              Colors.white,
+                                                          ? ColorFilter.mode(
+                                                              cs.onSurface,
                                                               BlendMode.srcIn,
                                                             )
                                                           : null,
@@ -771,7 +772,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                                                       opt.asset,
                                                       fit: BoxFit.contain,
                                                       color: needsMono
-                                                          ? Colors.white
+                                                          ? cs.onSurface
                                                           : null,
                                                       colorBlendMode: needsMono
                                                           ? BlendMode.srcIn
@@ -817,7 +818,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
       children: [
-        if (widget.keyName.toLowerCase() == 'kelivoin') ...[
+        if (isSolabInProvider(widget.keyName)) ...[
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
@@ -966,6 +967,59 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
           ),
           const SizedBox(height: 12),
         ],
+        if (widget.keyName.toLowerCase() == '随想ai中转站') ...[
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: cs.primary.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: cs.primary.withValues(alpha: 0.35)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '可靠高效的 API 中继服务，提供 Claude、Codex、Gemini 等中继服务。注重隐私·无数据倒卖·无模型掺水，充值额度 1:1，按量付费。多线路冗余、跨区域容灾、自动故障切换，长链路 SSE 不中断。',
+                  style: TextStyle(color: cs.onSurface.withValues(alpha: 0.8)),
+                ),
+                const SizedBox(height: 6),
+                Text.rich(
+                  TextSpan(
+                    text: '官网：',
+                    style: TextStyle(
+                      color: cs.onSurface.withValues(alpha: 0.8),
+                    ),
+                    children: [
+                      TextSpan(
+                        text: 'https://sui-xiang.com',
+                        style: TextStyle(
+                          color: cs.primary,
+                          fontWeight: AppFontWeights.emphasis,
+                        ),
+                        recognizer: TapGestureRecognizer()
+                          ..onTap = () async {
+                            final uri = Uri.parse('https://sui-xiang.com');
+                            try {
+                              final ok = await launchUrl(
+                                uri,
+                                mode: LaunchMode.externalApplication,
+                              );
+                              if (!ok) {
+                                await launchUrl(uri);
+                              }
+                            } catch (_) {
+                              await launchUrl(uri);
+                            }
+                          },
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
         // 顶部管理分组标题（左侧缩进以对齐卡片内容）
         Padding(
           padding: const EdgeInsets.only(left: 12),
@@ -981,7 +1035,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
         // Top iOS-style section card for key settings
         _iosSectionCard(
           children: [
-            if (widget.keyName.toLowerCase() != 'kelivoin')
+            if (!isSolabInProvider(widget.keyName))
               _providerKindRow(context),
             _providerGroupRow(context, groupName: groupName),
             _iosRow(
@@ -1021,12 +1075,10 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                 },
                 builder: (pressed) {
                   final base = Theme.of(context).colorScheme.onSurface;
-                  final isDark =
-                      Theme.of(context).brightness == Brightness.dark;
                   final target = pressed
                       ? (Color.lerp(
                               base,
-                              isDark ? Colors.black : Colors.white,
+                              Theme.of(context).colorScheme.surface,
                               0.55,
                             ) ??
                             base)
@@ -1066,6 +1118,20 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                   value: _useResp,
                   onChanged: (v) {
                     setState(() => _useResp = v);
+                    _save();
+                  },
+                ),
+              ),
+            if (_kind == ProviderKind.openai && !_cfg.isOAuth)
+              _iosRowWithHelp(
+                context,
+                label: l10n.providerDetailPagePromptCacheKeyTitle,
+                helpText: l10n.providerDetailPagePromptCacheKeyHelp,
+                trailing: IosSwitch(
+                  value: _promptCacheKeyEnabled,
+                  semanticLabel: l10n.providerDetailPagePromptCacheKeyTitle,
+                  onChanged: (value) {
+                    setState(() => _promptCacheKeyEnabled = value);
                     _save();
                   },
                 ),
@@ -1116,7 +1182,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                 context,
                 label: l10n.providerDetailPageClaudePromptCachingTtlTitle,
                 helpText: l10n.providerDetailPageClaudePromptCachingTtlHelp,
-                trailing: _PromptCachingTtlSegmentedControl(
+                trailing: PromptCachingTtlSegmentedControl(
                   value: _claudePromptCachingTtl,
                   fiveMinuteLabel:
                       l10n.providerDetailPageClaudePromptCachingTtl5m,
@@ -1143,14 +1209,8 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
               builder: (pressed) {
                 final cs2 = Theme.of(context).colorScheme;
                 final base = cs2.onSurface;
-                final isDark = Theme.of(context).brightness == Brightness.dark;
                 final target = pressed
-                    ? (Color.lerp(
-                            base,
-                            isDark ? Colors.black : Colors.white,
-                            0.55,
-                          ) ??
-                          base)
+                    ? (Color.lerp(base, cs2.surface, 0.55) ?? base)
                     : base;
                 return TweenAnimationBuilder<Color?>(
                   tween: ColorTween(end: target),
@@ -1179,6 +1239,50 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                 );
               },
             ),
+            _TactileRow(
+              onTap: () async {
+                await Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => ProviderCustomRequestPage(
+                      providerKey: widget.keyName,
+                      providerDisplayName: widget.displayName,
+                    ),
+                  ),
+                );
+              },
+              builder: (pressed) {
+                final cs2 = Theme.of(context).colorScheme;
+                final base = cs2.onSurface;
+                final target = pressed
+                    ? (Color.lerp(base, cs2.surface, 0.55) ?? base)
+                    : base;
+                return TweenAnimationBuilder<Color?>(
+                  tween: ColorTween(end: target),
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOutCubic,
+                  builder: (context, color, _) {
+                    final c = color ?? base;
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 12,
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              l10n.providerDetailPageCustomRequestTitle,
+                              style: TextStyle(fontSize: 15, color: c),
+                            ),
+                          ),
+                          Icon(Lucide.ChevronRight, size: 16, color: c),
+                        ],
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
           ],
         ),
         const SizedBox(height: 12),
@@ -1187,33 +1291,25 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
           label: l10n.providerDetailPageNameLabel,
           controller: _nameCtrl,
           hint: widget.displayName,
-          enabled: widget.keyName.toLowerCase() != 'kelivoin',
+          enabled: !isSolabInProvider(widget.keyName),
           onChanged: (_) => _save(),
         ),
         const SizedBox(height: 12),
         if (!(_kind == ProviderKind.google && _vertexAI)) ...[
-          if (widget.keyName.toLowerCase() != 'kelivoin' &&
+          if (!isSolabInProvider(widget.keyName) &&
               !_multiKeyEnabled) ...[
             _inputRow(
               context,
               label: l10n.multiKeyPageKey,
               controller: _keyCtrl,
               hint: l10n.providerDetailPageApiKeyHint,
-              obscure: !_showApiKey,
-              suffix: IconButton(
-                tooltip: _showApiKey
-                    ? l10n.providerDetailPageHideTooltip
-                    : l10n.providerDetailPageShowTooltip,
-                icon: Icon(
-                  _showApiKey ? Lucide.EyeOff : Lucide.Eye,
-                  color: cs.onSurface.withValues(alpha: 0.7),
-                  size: 18,
-                ),
-                onPressed: () => setState(() => _showApiKey = !_showApiKey),
-              ),
               onChanged: (_) => _save(),
             ),
             const SizedBox(height: 12),
+          ],
+          if (widget.keyName.toLowerCase().contains('opencode')) ...[
+            const SizedBox(height: 12),
+            _opencodeEndpointSelector(context),
           ],
           _inputRow(
             context,
@@ -1223,12 +1319,12 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
               widget.keyName,
               displayName: widget.displayName,
             ).baseUrl,
-            enabled: widget.keyName.toLowerCase() != 'kelivoin',
+            enabled: !isSolabInProvider(widget.keyName),
             onChanged: (_) => _save(),
           ),
         ],
         if (_kind == ProviderKind.openai &&
-            widget.keyName.toLowerCase() != 'kelivoin' &&
+            !isSolabInProvider(widget.keyName) &&
             !_useResp) ...[
           const SizedBox(height: 12),
           _inputRow(
@@ -1364,7 +1460,17 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                 );
                 await settings.setProviderConfig(
                   widget.keyName,
-                  latest.copyWith(models: list),
+                  // 用户手动加回的模型要清掉"手动剔除"墓碑，否则自动刷新
+                  // 永远不会再管理它们（见 SettingsProvider.deleteModels）。
+                  () {
+                    final added = list
+                        .where((id) => !latest.models.contains(id))
+                        .toSet();
+                    if (added.isNotEmpty) {
+                      settings.clearModelAutoExclusions(widget.keyName, added);
+                    }
+                    return latest.copyWith(models: list);
+                  }(),
                 );
               });
             },
@@ -1608,6 +1714,62 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
 
   // Legacy network tab removed (replaced by ProviderNetworkPage)
 
+  /// OpenCode 请求线路切换：Zen（标准网关）与 Go（订阅专用）双链路。
+  /// 紧凑行内选择，选中即写入 baseUrl 输入框并保存。
+  Widget _opencodeEndpointSelector(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    const zenUrl = 'https://opencode.ai/zen/v1';
+    const goUrl = 'https://opencode.ai/zen/go/v1';
+    final isGo = _baseCtrl.text.trim().contains('/zen/go/');
+    void pick(String url) {
+      if (_baseCtrl.text.trim() == url) return;
+      _baseCtrl.text = url;
+      setState(() {});
+      _save();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: Row(
+        children: [
+          Text(
+            'API 线路',
+            style: TextStyle(
+              fontSize: 13,
+              color: cs.onSurface.withValues(alpha: 0.8),
+            ),
+          ),
+          const Spacer(),
+          ChoiceChip(
+            label: const Text('Zen'),
+            labelStyle: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: isGo ? null : cs.primary,
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+            visualDensity: VisualDensity.compact,
+            selected: !isGo,
+            onSelected: (_) => pick(zenUrl),
+          ),
+          const SizedBox(width: 8),
+          ChoiceChip(
+            label: const Text('Go'),
+            labelStyle: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: isGo ? cs.primary : null,
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+            visualDensity: VisualDensity.compact,
+            selected: isGo,
+            onSelected: (_) => pick(goUrl),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _inputRow(
     BuildContext context, {
     required String label,
@@ -1618,7 +1780,6 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     Widget? suffix,
     ValueChanged<String>? onChanged,
   }) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final cs = Theme.of(context).colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1642,7 +1803,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
           decoration: InputDecoration(
             hintText: hint,
             filled: true,
-            fillColor: isDark ? Colors.white10 : Colors.white,
+            fillColor: context.appColors.surfaceCard,
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(14),
               borderSide: BorderSide(
@@ -1698,11 +1859,9 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
         });
       },
       builder: (pressed) {
-        final isDark = Theme.of(context).brightness == Brightness.dark;
         final base = cs.onSurface;
         final target = pressed
-            ? (Color.lerp(base, isDark ? Colors.black : Colors.white, 0.55) ??
-                  base)
+            ? (Color.lerp(base, cs.surface, 0.55) ?? base)
             : base;
         return TweenAnimationBuilder<Color?>(
           tween: ColorTween(end: target),
@@ -1755,10 +1914,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
-    final Color base = cs.surface;
-    final Color bg = isDark
-        ? Color.lerp(base, Colors.white, 0.06)!
-        : Color.lerp(base, Colors.white, 0.92)!;
+    final Color bg = context.appColors.surfaceCard;
     return Container(
       decoration: BoxDecoration(
         color: bg,
@@ -1767,9 +1923,6 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
           color: cs.outlineVariant.withValues(alpha: isDark ? 0.08 : 0.06),
           width: 0.6,
         ),
-        // boxShadow: [
-        //   if (!isDark) BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 6, offset: const Offset(0, 1)),
-        // ],
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(children: children),
@@ -1786,11 +1939,9 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     return _TactileRow(
       onTap: onTap,
       builder: (pressed) {
-        final isDark = Theme.of(context).brightness == Brightness.dark;
         final base = cs.onSurface;
         final target = pressed
-            ? (Color.lerp(base, isDark ? Colors.black : Colors.white, 0.55) ??
-                  base)
+            ? (Color.lerp(base, cs.surface, 0.55) ?? base)
             : base;
         return TweenAnimationBuilder<Color?>(
           tween: ColorTween(end: target),
@@ -1828,11 +1979,9 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     return _TactileRow(
       onTap: null,
       builder: (pressed) {
-        final isDark = Theme.of(context).brightness == Brightness.dark;
         final base = cs.onSurface;
         final target = pressed
-            ? (Color.lerp(base, isDark ? Colors.black : Colors.white, 0.55) ??
-                  base)
+            ? (Color.lerp(base, cs.surface, 0.55) ?? base)
             : base;
         return TweenAnimationBuilder<Color?>(
           tween: ColorTween(end: target),
@@ -1911,10 +2060,8 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
       builder: (pressed) {
         final cs = Theme.of(context).colorScheme;
         final base = cs.onSurface;
-        final isDark = Theme.of(context).brightness == Brightness.dark;
         final target = pressed
-            ? (Color.lerp(base, isDark ? Colors.black : Colors.white, 0.55) ??
-                  base)
+            ? (Color.lerp(base, cs.surface, 0.55) ?? base)
             : base;
         return TweenAnimationBuilder<Color?>(
           tween: ColorTween(end: target),
@@ -1963,10 +2110,8 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
       builder: (pressed) {
         final cs = Theme.of(context).colorScheme;
         final base = cs.onSurface;
-        final isDark = Theme.of(context).brightness == Brightness.dark;
         final target = pressed
-            ? (Color.lerp(base, isDark ? Colors.black : Colors.white, 0.55) ??
-                  base)
+            ? (Color.lerp(base, cs.surface, 0.55) ?? base)
             : base;
         return TweenAnimationBuilder<Color?>(
           tween: ColorTween(end: target),
@@ -2063,10 +2208,8 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
       onTap: () => Navigator.of(ctx).pop(k),
       builder: (pressed) {
         final base = cs.onSurface;
-        final isDark = Theme.of(ctx).brightness == Brightness.dark;
         final target = pressed
-            ? (Color.lerp(base, isDark ? Colors.black : Colors.white, 0.55) ??
-                  base)
+            ? (Color.lerp(base, cs.surface, 0.55) ?? base)
             : base;
         return TweenAnimationBuilder<Color?>(
           tween: ColorTween(end: target),
@@ -2122,6 +2265,9 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
       useResponseApi: _kind == ProviderKind.openai
           ? _useResp
           : old.useResponseApi,
+      promptCacheKeyEnabled: _kind == ProviderKind.openai
+          ? _promptCacheKeyEnabled
+          : old.promptCacheKeyEnabled,
       vertexAI: _kind == ProviderKind.google ? _vertexAI : old.vertexAI,
       location: _kind == ProviderKind.google
           ? _locationCtrl.text.trim()
@@ -2169,7 +2315,6 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     List<Widget>? actions,
     ValueChanged<String>? onChanged,
   }) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final cs = Theme.of(context).colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2201,7 +2346,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
             hintText: hint,
             filled: true,
             alignLabelWithHint: true,
-            fillColor: isDark ? Colors.white10 : Colors.white,
+            fillColor: context.appColors.surfaceCard,
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(14),
               borderSide: BorderSide(
@@ -2281,12 +2426,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     required EdgeInsetsGeometry padding,
     required double maxWidth,
   }) {
-    final toolbarColor = Theme.of(context).brightness == Brightness.dark
-        ? Color.alphaBlend(
-            Colors.white.withValues(alpha: 0.12),
-            colorScheme.surface,
-          )
-        : const Color(0xFFF2F3F5);
+    final toolbarColor = context.appColors.surfaceFill;
 
     return Align(
       alignment: Alignment.bottomCenter,
@@ -2361,7 +2501,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                   padding: compact ? iconButtonPadding : textButtonPadding,
                   colorScheme: cs,
                   onTap: () async {
-                    await showCreateModelSheet(
+                    await showCreateModelSpecPage(
                       context,
                       providerKey: widget.keyName,
                     );
@@ -3237,19 +3377,21 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
             Future<void> loadModels() async {
               try {
                 if (restrictToFree) {
-                  final list = <ModelInfo>[
-                    ModelRegistry.infer(
-                      ModelInfo(
-                        id: 'THUDM/GLM-4-9B-0414',
-                        displayName: 'THUDM/GLM-4-9B-0414',
-                      ),
-                    ),
-                    ModelRegistry.infer(
-                      ModelInfo(
-                        id: 'Qwen/Qwen3-8B',
-                        displayName: 'Qwen/Qwen3-8B',
-                      ),
-                    ),
+                  final list = <ModelSpec>[
+                    ModelSpecResolver.instance
+                        .resolve(
+                          cfg,
+                          'THUDM/GLM-4-9B-0414',
+                          displayName: 'THUDM/GLM-4-9B-0414',
+                        )
+                        .spec,
+                    ModelSpecResolver.instance
+                        .resolve(
+                          cfg,
+                          'Qwen/Qwen3-8B',
+                          displayName: 'Qwen/Qwen3-8B',
+                        )
+                        .spec,
                   ];
                   setLocal(() {
                     items = list;
@@ -3284,16 +3426,16 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                 .models
                 .toSet();
             final query = controller.text.trim().toLowerCase();
-            final filtered = <ModelInfo>[
+            final filtered = <ModelSpec>[
               for (final m in items)
-                if (m is ModelInfo &&
+                if (m is ModelSpec &&
                     (query.isEmpty ||
                         m.id.toLowerCase().contains(query) ||
                         m.displayName.toLowerCase().contains(query)))
                   m,
             ];
 
-            String groupFor(ModelInfo m) {
+            String groupFor(ModelSpec m) {
               return ModelGrouping.groupFor(
                 m,
                 embeddingsLabel: l10n.providerDetailPageEmbeddingsGroupTitle,
@@ -3301,7 +3443,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
               );
             }
 
-            final Map<String, List<ModelInfo>> grouped = {};
+            final Map<String, List<ModelSpec>> grouped = {};
             for (final m in filtered) {
               final g = groupFor(m);
               (grouped[g] ??= []).add(m);
@@ -3345,10 +3487,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                             decoration: InputDecoration(
                               hintText: l10n.providerDetailPageFilterHint,
                               filled: true,
-                              fillColor:
-                                  Theme.of(ctx).brightness == Brightness.dark
-                                  ? Colors.white10
-                                  : const Color(0xFFF2F3F5),
+                              fillColor: ctx.appColors.surfaceFill,
                               prefixIcon: Icon(
                                 Lucide.Search,
                                 size: 20,
@@ -3447,9 +3586,9 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                                         final q = controller.text
                                             .trim()
                                             .toLowerCase();
-                                        final filteredNow = <ModelInfo>[
+                                        final filteredNow = <ModelSpec>[
                                           for (final m in items)
-                                            if (m is ModelInfo &&
+                                            if (m is ModelSpec &&
                                                 (q.isEmpty ||
                                                     m.id.toLowerCase().contains(
                                                       q,
@@ -3537,13 +3676,9 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                                           builder: (_) {
                                             return Container(
                                               decoration: BoxDecoration(
-                                                color:
-                                                    Theme.of(
-                                                          context,
-                                                        ).brightness ==
-                                                        Brightness.dark
-                                                    ? Colors.white10
-                                                    : const Color(0xFFF2F3F5),
+                                                color: context
+                                                    .appColors
+                                                    .surfaceFill,
                                                 borderRadius:
                                                     BorderRadius.circular(12),
                                               ),
@@ -3732,6 +3867,35 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                                                       builder: (c2) {
                                                         final added = selected
                                                             .contains(m.id);
+                                                        // 行点击与右侧 +/- 按钮共用同一切换逻辑。
+                                                        Future<void>
+                                                        toggleModel() async {
+                                                          final old = settings
+                                                              .getProviderConfig(
+                                                                widget.keyName,
+                                                                defaultName: widget
+                                                                    .displayName,
+                                                              );
+                                                          final list = old
+                                                              .models
+                                                              .toList();
+                                                          if (added) {
+                                                            list.removeWhere(
+                                                              (e) => e == m.id,
+                                                            );
+                                                          } else {
+                                                            list.add(m.id);
+                                                          }
+                                                          await settings
+                                                              .setProviderConfig(
+                                                                widget.keyName,
+                                                                old.copyWith(
+                                                                  models: list,
+                                                                ),
+                                                              );
+                                                          setLocal(() {});
+                                                        }
+
                                                         return Padding(
                                                           padding:
                                                               const EdgeInsets.fromLTRB(
@@ -3743,7 +3907,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                                                           child: _TactileRow(
                                                             pressedScale: 0.98,
                                                             haptics: false,
-                                                            onTap: () {},
+                                                            onTap: toggleModel,
                                                             builder: (_) {
                                                               return Container(
                                                                 decoration:
@@ -3793,6 +3957,39 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                                                                               maxLines: 1,
                                                                               overflow: TextOverflow.ellipsis,
                                                                             ),
+                                                                            if (m.id.toLowerCase().endsWith(
+                                                                              '-free',
+                                                                            ))
+                                                                              Container(
+                                                                                margin: const EdgeInsets.only(
+                                                                                  left: 6,
+                                                                                ),
+                                                                                padding: const EdgeInsets.symmetric(
+                                                                                  horizontal: 6,
+                                                                                  vertical: 1,
+                                                                                ),
+                                                                                decoration: BoxDecoration(
+                                                                                  color:
+                                                                                      Theme.of(
+                                                                                        context,
+                                                                                      ).colorScheme.primary.withValues(
+                                                                                        alpha: 0.12,
+                                                                                      ),
+                                                                                  borderRadius: BorderRadius.circular(
+                                                                                    6,
+                                                                                  ),
+                                                                                ),
+                                                                                child: Text(
+                                                                                  'free',
+                                                                                  style: TextStyle(
+                                                                                    fontSize: 10,
+                                                                                    color: Theme.of(
+                                                                                      context,
+                                                                                    ).colorScheme.primary,
+                                                                                    fontWeight: AppFontWeights.semibold,
+                                                                                  ),
+                                                                                ),
+                                                                              ),
                                                                             const SizedBox(
                                                                               height: 4,
                                                                             ),
@@ -3815,38 +4012,8 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                                                                           minHeight:
                                                                               40,
                                                                         ),
-                                                                        onPressed: () async {
-                                                                          final old = settings.getProviderConfig(
-                                                                            widget.keyName,
-                                                                            defaultName:
-                                                                                widget.displayName,
-                                                                          );
-                                                                          final list = old
-                                                                              .models
-                                                                              .toList();
-                                                                          if (added) {
-                                                                            list.removeWhere(
-                                                                              (
-                                                                                e,
-                                                                              ) =>
-                                                                                  e ==
-                                                                                  m.id,
-                                                                            );
-                                                                          } else {
-                                                                            list.add(
-                                                                              m.id,
-                                                                            );
-                                                                          }
-                                                                          await settings.setProviderConfig(
-                                                                            widget.keyName,
-                                                                            old.copyWith(
-                                                                              models: list,
-                                                                            ),
-                                                                          );
-                                                                          setLocal(
-                                                                            () {},
-                                                                          );
-                                                                        },
+                                                                        onPressed:
+                                                                            toggleModel,
                                                                         icon: Icon(
                                                                           added
                                                                               ? Lucide.Minus
@@ -3918,14 +4085,8 @@ class _ModelCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final cs = Theme.of(context).colorScheme;
-    final resolved = _resolveBaseAndOverride(context);
-    final effective = resolved.ov == null
-        ? resolved.base
-        : _applyModelOverride(
-            resolved.base,
-            resolved.ov!,
-            applyDisplayName: true,
-          );
+    final resolved = _resolveModel(context);
+    final effective = resolved.spec;
     String displayName = effective.displayName.trim();
     if (displayName.isEmpty) displayName = modelId;
     final Widget? detectionIndicator = isDetecting
@@ -3957,7 +4118,7 @@ class _ModelCard extends StatelessWidget {
               child: Icon(
                 detectionResult! ? Lucide.CheckCircle : Lucide.XCircle,
                 size: 16,
-                color: detectionResult! ? Colors.green : cs.error,
+                color: detectionResult! ? context.appColors.success : cs.error,
               ),
             ),
           )
@@ -3985,7 +4146,7 @@ class _ModelCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 12),
                 ],
-                _BrandAvatar(name: resolved.baseId, size: 28),
+                _BrandAvatar(name: resolved.upstreamId, size: 28),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
@@ -4016,10 +4177,10 @@ class _ModelCard extends StatelessWidget {
                     semanticLabel: l10n.providerDetailPageEditTooltip,
                     haptics: false,
                     onTap: () async {
-                      await showModelDetailSheet(
+                      await showModelSpecEditPage(
                         context,
                         providerKey: providerKey,
-                        modelId: modelId,
+                        modelKey: modelId,
                       );
                     },
                   ),
@@ -4032,42 +4193,23 @@ class _ModelCard extends StatelessWidget {
     );
   }
 
-  ModelInfo _infer(String id) {
-    // build a minimal ModelInfo and let registry infer
-    return ModelRegistry.infer(ModelInfo(id: id, displayName: id));
-  }
-
-  _ResolvedModelOverride _resolveBaseAndOverride(BuildContext context) {
-    final configs = context.watch<SettingsProvider>().providerConfigs;
-    final cfg = configs[providerKey];
-    if (cfg == null) {
-      final base = _infer(modelId);
-      return _ResolvedModelOverride(base: base, ov: null, baseId: modelId);
-    }
-    final rawOv = cfg.modelOverrides[modelId];
-    final Map<String, dynamic>? ov = rawOv is Map
-        ? {for (final e in rawOv.entries) e.key.toString(): e.value}
-        : null;
-    String baseId = modelId;
-    if (ov != null) {
-      final raw = (ov['apiModelId'] ?? ov['api_model_id'])?.toString().trim();
-      if (raw != null && raw.isNotEmpty) baseId = raw;
-    }
-    final base = _infer(baseId);
-    return _ResolvedModelOverride(base: base, ov: ov, baseId: baseId);
+  _ResolvedListedModel _resolveModel(BuildContext context) {
+    final cfg = context.watch<SettingsProvider>().getProviderConfig(
+      providerKey,
+    );
+    final resolved = ModelSpecResolver.instance.resolve(cfg, modelId);
+    return _ResolvedListedModel(
+      spec: resolved.spec,
+      upstreamId: resolved.spec.upstreamId,
+    );
   }
 }
 
-class _ResolvedModelOverride {
-  const _ResolvedModelOverride({
-    required this.base,
-    required this.ov,
-    required this.baseId,
-  });
+class _ResolvedListedModel {
+  const _ResolvedListedModel({required this.spec, required this.upstreamId});
 
-  final ModelInfo base;
-  final Map<String, dynamic>? ov;
-  final String baseId;
+  final ModelSpec spec;
+  final String upstreamId;
 }
 
 class _ConnectionTestDialog extends StatefulWidget {
@@ -4277,7 +4419,7 @@ class _ConnectionTestDialogState extends State<_ConnectionTestDialog> {
     required bool success,
     required String message,
   }) {
-    final color = success ? Colors.green : cs.error;
+    final color = success ? context.appColors.success : cs.error;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.center,
@@ -4388,30 +4530,6 @@ Future<String?> showModelPickerForTest(
   return sel?.modelId;
 }
 
-ModelInfo _applyModelOverride(
-  ModelInfo base,
-  Map<String, dynamic> ov, {
-  bool applyDisplayName = false,
-}) {
-  try {
-    return ModelOverrideResolver.applyModelOverride(
-      base,
-      ov,
-      applyDisplayName: applyDisplayName,
-    );
-  } catch (e, st) {
-    FlutterLogger.log(
-      '[ModelOverride] applyModelOverride failed: $e\n$st',
-      tag: 'ModelOverride',
-    );
-    assert(() {
-      debugPrint('[ModelOverride] applyModelOverride failed: $e');
-      return true;
-    }());
-    return base;
-  }
-}
-
 // Using flutter_slidable for reliable swipe actions with confirm + undo.
 
 // Legacy page-based implementations removed in favor of swipeable PageView tabs.
@@ -4426,17 +4544,11 @@ class _BrandAvatar extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final asset = BrandAssets.assetForName(name);
-    final lower = name.toLowerCase();
-    final bool mono =
-        isDark &&
-        (RegExp(r'openai|gpt|o\\d').hasMatch(lower) ||
-            RegExp(r'grok|xai').hasMatch(lower) ||
-            RegExp(r'openrouter').hasMatch(lower));
+    final mono =
+        asset != null && isDark && BrandAssets.assetNeedsDarkInvert(asset);
     return CircleAvatar(
       radius: size / 2,
-      backgroundColor: isDark
-          ? Colors.white10
-          : cs.primary.withValues(alpha: 0.1),
+      backgroundColor: cs.primary.withValues(alpha: isDark ? 0.18 : 0.1),
       child: asset == null
           ? Text(
               name.isNotEmpty ? name.characters.first.toUpperCase() : '?',
@@ -4452,7 +4564,7 @@ class _BrandAvatar extends StatelessWidget {
                     width: size * 0.7,
                     height: size * 0.7,
                     colorFilter: mono
-                        ? const ColorFilter.mode(Colors.white, BlendMode.srcIn)
+                        ? ColorFilter.mode(cs.onSurface, BlendMode.srcIn)
                         : null,
                   )
                 : Image.asset(
@@ -4460,7 +4572,7 @@ class _BrandAvatar extends StatelessWidget {
                     width: size * 0.7,
                     height: size * 0.7,
                     fit: BoxFit.contain,
-                    color: mono ? Colors.white : null,
+                    color: mono ? cs.onSurface : null,
                     colorBlendMode: mono ? BlendMode.srcIn : null,
                   )),
     );
@@ -4703,103 +4815,6 @@ class _BottomTabItemState extends State<_BottomTabItem> {
             ),
           );
         },
-      ),
-    );
-  }
-}
-
-class _PromptCachingTtlSegmentedControl extends StatelessWidget {
-  const _PromptCachingTtlSegmentedControl({
-    required this.value,
-    required this.fiveMinuteLabel,
-    required this.oneHourLabel,
-    required this.semanticLabel,
-    required this.onChanged,
-  });
-
-  final String value;
-  final String fiveMinuteLabel;
-  final String oneHourLabel;
-  final String semanticLabel;
-  final ValueChanged<String> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final background = isDark
-        ? Colors.white.withValues(alpha: 0.08)
-        : Colors.black.withValues(alpha: 0.05);
-
-    return Semantics(
-      label: semanticLabel,
-      child: Container(
-        padding: const EdgeInsets.all(2),
-        decoration: BoxDecoration(
-          color: background,
-          borderRadius: BorderRadius.circular(11),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _PromptCachingTtlSegment(
-              label: fiveMinuteLabel,
-              selected: value == ProviderConfig.claudePromptCachingTtl5m,
-              selectedColor: cs.primary,
-              onTap: () => onChanged(ProviderConfig.claudePromptCachingTtl5m),
-            ),
-            _PromptCachingTtlSegment(
-              label: oneHourLabel,
-              selected: value == ProviderConfig.claudePromptCachingTtl1h,
-              selectedColor: cs.primary,
-              onTap: () => onChanged(ProviderConfig.claudePromptCachingTtl1h),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _PromptCachingTtlSegment extends StatelessWidget {
-  const _PromptCachingTtlSegment({
-    required this.label,
-    required this.selected,
-    required this.selectedColor,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool selected;
-  final Color selectedColor;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOutCubic,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: selected ? selectedColor : Colors.transparent,
-          borderRadius: BorderRadius.circular(9),
-        ),
-        child: AnimatedDefaultTextStyle(
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOutCubic,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: AppFontWeights.semibold,
-            color: selected
-                ? cs.onPrimary
-                : cs.onSurface.withValues(alpha: 0.7),
-          ),
-          child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
-        ),
       ),
     );
   }

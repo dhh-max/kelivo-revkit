@@ -409,7 +409,9 @@ void main() {
         expect(action, DatabaseRecoveryAction.rebuildAutomatically);
       });
 
-      test('首启垃圾文件（无法读取 userVersion）可自动重建', () async {
+      test('无法读取 userVersion 的文件不自动重建', () async {
+        // "Unreadable right now" is also what a healthy database looks like
+        // while the OS denies the read, so it may never authorise a delete.
         await databaseFile(directory).writeAsString('not a sqlite database');
 
         final action = await DatabaseInstallationGate.recoveryActionFor(
@@ -418,7 +420,7 @@ void main() {
           legacyHiveDataPresent: false,
         );
 
-        expect(action, DatabaseRecoveryAction.rebuildAutomatically);
+        expect(action, DatabaseRecoveryAction.none);
       });
 
       test('已建 schema 的库即使无 receipt 也不自动重建', () async {

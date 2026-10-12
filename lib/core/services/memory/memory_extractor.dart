@@ -102,6 +102,9 @@ abstract final class MemoryExtractor {
       }
     }
 
+    template =
+        '$template\n\n${lang == MemoryPromptLang.zh ? '- 系统硬约束：同一个 APP、软件或项目的状态必须合并成一个 workflow item，禁止拆成多条。' : '- System constraint: combine the state of the same app, software product, or project into one workflow item; never split it into multiple entries.'}';
+
     return template
         .replaceAll('{{existingMemory}}', existingMemory)
         .replaceAll('{{conversation}}', conversation);

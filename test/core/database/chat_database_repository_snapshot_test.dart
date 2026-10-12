@@ -475,7 +475,8 @@ CREATE TABLE asset_rows (
   height INTEGER CHECK(height > 0),
   thumbnail_path TEXT,
   created_at INTEGER NOT NULL,
-  last_referenced_at INTEGER NOT NULL
+  last_referenced_at INTEGER NOT NULL,
+  extras_json TEXT NOT NULL DEFAULT '{}'
 );
 ''');
         } finally {

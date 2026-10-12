@@ -1,39 +1,95 @@
 import 'dart:convert';
+
 import '../../../models/message_part.dart';
 import '../../../models/token_usage.dart';
 import '../generation/text_generation_result.dart';
 import 'stream_chunk.dart';
+import 'stream_text_buffer.dart';
+
 /// Folds [StreamChunk] events into an ordered [MessagePart] list.
+///
+/// Text, reasoning, and images are located by event [id] so interleaved
+/// arrivals do not clobber the last part. Tool calls are located by tool id.
+/// One instance per response stream; do not reuse after [Finish].
 class StreamChunkHandler {
-  StreamChunkHandler({Iterable<MessagePart> seed = const <MessagePart>[]}) {
+  StreamChunkHandler({
+    Iterable<MessagePart> seed = const <MessagePart>[],
+    this.onRetry,
+  }) {
     for (final part in seed) {
       if (_isBlankPart(part)) continue;
       _seedPart(part);
     }
   }
+
+  /// Control events that are not folded into [parts].
+  final void Function(RetryPending pending)? onRetry;
+
   final List<MessagePart> _parts = <MessagePart>[];
+  final Map<int, StreamTextBuffer> _textBuffers = {};
+  List<MessagePart>? _snapshot;
   final Map<String, int> _textIndex = <String, int>{};
   final Map<String, int> _reasoningIndex = <String, int>{};
   final Map<String, int> _imageIndex = <String, int>{};
+  final Map<String, int> _toolIndex = <String, int>{};
   final Map<String, _ToolBuffer> _tools = <String, _ToolBuffer>{};
   final Map<String, StringBuffer> _serverInput = <String, StringBuffer>{};
   final Map<String, String> _imageMime = <String, String>{};
+  final Map<String, StringBuffer> _imageBuffers = <String, StringBuffer>{};
+
   TokenUsage? usage;
+  TokenUsage? _completedUsage;
+  TokenUsage? _resultTotalUsage;
+
+  /// All API requests in this turn. [usage] remains the latest request only.
+  TokenUsage? get totalUsage =>
+      _resultTotalUsage ??
+      (_completedUsage == null
+          ? usage
+          : _completedUsage! + (usage ?? const TokenUsage()));
   dynamic reasoningDetails;
   bool finished = false;
   String? finishReason;
-  List<MessagePart> get parts => List<MessagePart>.unmodifiable(_parts);
+
+  List<MessagePart> get parts {
+    if (_snapshot != null) return _snapshot!;
+    for (final index in _textBuffers.keys) {
+      _flushText(index);
+    }
+    return _snapshot = List<MessagePart>.unmodifiable(_parts);
+  }
+
+  void _flushText(int index) {
+    final buffer = _textBuffers[index];
+    if (buffer == null) return;
+    final current = _parts[index];
+    final text = buffer.value;
+    if (current is TextPart && current.text != text) {
+      _parts[index] = TextPart(text);
+    } else if (current is ReasoningPart && current.text != text) {
+      _parts[index] = ReasoningPart(text);
+    }
+  }
+
+  void _endText(int? index) {
+    if (index == null) return;
+    _flushText(index);
+    _textBuffers.remove(index);
+  }
+
   TextGenerationResult toResult() {
     return TextGenerationResult(
       parts: [
-        for (final part in _parts)
+        for (final part in parts)
           if (!_isBlankPart(part)) part,
       ],
       usage: usage,
+      totalUsage: totalUsage,
       finishReason: finishReason,
       reasoningDetails: reasoningDetails,
     );
   }
+
   static TextGenerationResult collect(Iterable<StreamChunk> chunks) {
     final handler = StreamChunkHandler();
     for (final chunk in chunks) {
@@ -41,8 +97,11 @@ class StreamChunkHandler {
     }
     return handler.toResult();
   }
+
+  /// Merge a complete non-stream result. Image URIs are kept as-is.
   void handleResult(TextGenerationResult result) {
     if (finished) return;
+    _snapshot = null;
     for (final part in result.parts) {
       switch (part) {
         case TextPart(:final text) when text.isEmpty:
@@ -58,12 +117,14 @@ class StreamChunkHandler {
     if (result.usage != null) {
       usage = (usage ?? const TokenUsage()).merge(result.usage!);
     }
+    _resultTotalUsage = result.totalUsage;
     if (result.reasoningDetails != null) {
       reasoningDetails = result.reasoningDetails;
     }
     finishReason = result.finishReason ?? finishReason;
     finished = true;
   }
+
   void _seedPart(MessagePart part) {
     _parts.add(part);
     if (part is! ToolCallPart) return;
@@ -72,6 +133,7 @@ class StreamChunkHandler {
       if (decoded is! Map) return;
       final id = (decoded['id'] ?? '').toString();
       if (id.isEmpty) return;
+      _toolIndex[id] = _parts.length - 1;
       final buffer = _tools.putIfAbsent(id, _ToolBuffer.new);
       final name = (decoded['name'] ?? '').toString();
       if (name.isNotEmpty) buffer.name = name;
@@ -88,28 +150,28 @@ class StreamChunkHandler {
       }
     } catch (_) {}
   }
+
   void handle(StreamChunk chunk) {
     if (finished) return;
+    _snapshot = null;
     switch (chunk) {
       case TextStart(:final id):
         _ensureText(id);
       case TextDelta(:final id, :final text):
         if (text.isEmpty) return;
         final index = _ensureText(id);
-        final current = _parts[index] as TextPart;
-        _parts[index] = TextPart(current.text + text);
+        _textBuffers.putIfAbsent(index, StreamTextBuffer.new).add(text);
       case TextEnd(:final id):
-        _textIndex.remove(id);
+        _endText(_textIndex.remove(id));
       case ReasoningStart(:final id):
         _ensureReasoning(id);
       case ReasoningDelta(:final id, :final text, :final details):
         if (details != null) reasoningDetails = details;
         if (text.isEmpty) return;
         final index = _ensureReasoning(id);
-        final current = _parts[index] as ReasoningPart;
-        _parts[index] = ReasoningPart(current.text + text);
+        _textBuffers.putIfAbsent(index, StreamTextBuffer.new).add(text);
       case ReasoningEnd(:final id):
-        _reasoningIndex.remove(id);
+        _endText(_reasoningIndex.remove(id));
       case ToolCallStart(:final id, :final toolName, :final metadata):
         _upsertTool(id, name: toolName, metadata: metadata);
       case ToolCallDelta(
@@ -168,41 +230,43 @@ class StreamChunkHandler {
       case ImageDelta(:final id, :final data):
         if (data.isEmpty) return;
         final mime = _imageMime[id] ?? 'image/png';
-        final index = _imageIndex[id];
-        if (isCompleteImageUri(data) ||
-            index == null ||
-            _parts[index] is! ImagePart) {
+        if (isCompleteImageUri(data)) {
           _ensureImage(id, mimeType: mime, data: data);
-        } else {
-          final current = _parts[index] as ImagePart;
-          _parts[index] = ImagePart(
-            uri: '${current.uri}$data',
-            mime: current.mime ?? mime,
-          );
+          return;
         }
+        _imageBuffers.putIfAbsent(id, StringBuffer.new).write(data);
       case ImageSnapshot(:final id, :final data):
         if (data.isEmpty) return;
         final mime = _imageMime[id] ?? 'image/png';
+        _ensureImage(id, mimeType: mime, data: data);
+        if (!isCompleteImageUri(data)) {
+          _imageBuffers[id] = StringBuffer(data);
+        }
+      case ImageEnd(:final id):
+        final mime = _imageMime[id] ?? 'image/png';
+        final buffered = _imageBuffers.remove(id)?.toString() ?? '';
         final index = _imageIndex[id];
         final current = index != null && _parts[index] is ImagePart
             ? _parts[index] as ImagePart
             : null;
-        if (isCompleteImageUri(data) ||
-            current == null ||
-            !current.uri.startsWith('data:')) {
-          _ensureImage(id, mimeType: mime, data: data);
-        } else {
-          final prefix = current.uri.contains(',')
-              ? current.uri.substring(0, current.uri.indexOf(',') + 1)
-              : 'data:$mime;base64,';
-          _parts[index!] = ImagePart(
-            uri: '$prefix$data',
-            mime: current.mime ?? mime,
-          );
+        if (buffered.isNotEmpty &&
+            (current == null || current.uri.startsWith('data:'))) {
+          _ensureImage(id, mimeType: mime, data: buffered);
         }
-      case ImageEnd(:final id):
         _imageIndex.remove(id);
         _imageMime.remove(id);
+      case ProviderArtifact():
+        // Provider state, not message content; the chat stores it separately.
+        break;
+      case GeneratedFile(:final uri, :final name, :final mime):
+        if (uri.isEmpty) return;
+        // An image belongs in an image part so the viewer, the export sheet,
+        // and the next request treat it as a picture rather than a download.
+        _parts.add(
+          (mime ?? '').startsWith('image/')
+              ? ImagePart(uri: uri, mime: mime)
+              : FilePart(uri: uri, name: name, mime: mime),
+        );
       case Annotations(:final id, :final annotations):
         final items = [
           for (final citation in annotations.whereType<UrlCitationAnnotation>())
@@ -224,25 +288,50 @@ class StreamChunkHandler {
           content: _mergeSearchItems(existing?.content, items),
           server: true,
         );
-      case Usage(:final usage):
+      case Usage(:final usage, :final startsRequest):
+        if (startsRequest) {
+          if (this.usage != null) {
+            _completedUsage =
+                (_completedUsage ?? const TokenUsage()) + this.usage!;
+          }
+          this.usage = null;
+        }
         this.usage = (this.usage ?? const TokenUsage()).merge(usage);
+      case final RetryPending pending:
+        onRetry?.call(pending);
+      case RetryAttemptStart():
+        break;
       case Finish(:final finishReason):
+        for (final index in _textBuffers.keys.toList()) {
+          _endText(index);
+        }
         this.finishReason = finishReason;
         finished = true;
+        // Tool payloads were encoded while the turn was still streaming, so
+        // their replay metadata stops at whatever had arrived by then. The
+        // metadata holds a live reference to the provider's block list, so
+        // re-encoding now captures the finished turn.
+        for (final id in _tools.keys.toList()) {
+          _upsertTool(id);
+        }
         _textIndex.clear();
         _reasoningIndex.clear();
         _imageIndex.clear();
+        _toolIndex.clear();
         _tools.clear();
         _serverInput.clear();
         _imageMime.clear();
+        _imageBuffers.clear();
     }
   }
+
   int _ensureText(String id) {
     final existing = _textIndex[id];
     if (existing != null && _parts[existing] is TextPart) return existing;
     _parts.add(const TextPart(''));
     return _textIndex[id] = _parts.length - 1;
   }
+
   int _ensureReasoning(String id) {
     final existing = _reasoningIndex[id];
     if (existing != null && _parts[existing] is ReasoningPart) {
@@ -251,6 +340,7 @@ class StreamChunkHandler {
     _parts.add(const ReasoningPart(''));
     return _reasoningIndex[id] = _parts.length - 1;
   }
+
   int _ensureImage(
     String id, {
     required String mimeType,
@@ -259,7 +349,7 @@ class StreamChunkHandler {
     _imageMime[id] = mimeType;
     final uri = isCompleteImageUri(data) ? data : 'data:$mimeType;base64,$data';
     final index = _imageIndex[id];
-    final part = ImagePart(uri: uri, mime: mimeType);
+    final part = ImagePart(uri: uri, mime: mimeType, id: id);
     if (index != null && _parts[index] is ImagePart) {
       _parts[index] = part;
       return index;
@@ -267,6 +357,7 @@ class StreamChunkHandler {
     _parts.add(part);
     return _imageIndex[id] = _parts.length - 1;
   }
+
   void _upsertTool(
     String id, {
     String? name,
@@ -281,12 +372,18 @@ class StreamChunkHandler {
     if (name != null && name.isNotEmpty) buffer.name = name;
     if (nameDelta.isNotEmpty) buffer.name += nameDelta;
     if (inputDelta.isNotEmpty) buffer.input.write(inputDelta);
-    if (argumentsObject != null) buffer.arguments = argumentsObject;
+    // A decoder that never saw the call reports no arguments; empty ones are
+    // no news either, and would erase the input already streamed for it.
+    if (argumentsObject != null &&
+        !(argumentsObject is Map && argumentsObject.isEmpty)) {
+      buffer.arguments = argumentsObject;
+    }
     if (content != null) buffer.content = content;
     buffer.server = buffer.server || server;
     if (metadata != null && metadata.isNotEmpty) {
       buffer.metadata = <String, dynamic>{...?buffer.metadata, ...metadata};
     }
+
     final payload = jsonEncode(<String, dynamic>{
       'id': id,
       'name': buffer.name,
@@ -296,16 +393,17 @@ class StreamChunkHandler {
       if (buffer.metadata != null && buffer.metadata!.isNotEmpty)
         'metadata': buffer.metadata,
     });
-    final index = _parts.indexWhere(
-      (part) => part is ToolCallPart && _toolId(part) == id,
-    );
+
+    final index = _toolIndex[id];
     final part = ToolCallPart(payload);
-    if (index < 0) {
-      _parts.add(part);
-    } else {
+    if (index != null && _parts[index] is ToolCallPart) {
       _parts[index] = part;
+    } else {
+      _parts.add(part);
+      _toolIndex[id] = _parts.length - 1;
     }
   }
+
   static bool _isBlankPart(MessagePart part) {
     return switch (part) {
       TextPart(:final text) => text.isEmpty,
@@ -314,6 +412,7 @@ class StreamChunkHandler {
       _ => false,
     };
   }
+
   String? _lastSearchToolId() {
     for (final part in _parts.reversed) {
       if (part is! ToolCallPart) continue;
@@ -328,10 +427,13 @@ class StreamChunkHandler {
     }
     return null;
   }
+
+  /// Merge citation [items] onto an existing search payload, de-duplicating by url.
   static Object mergeSearchItems(
     Object? existing,
     List<Map<String, dynamic>> incoming,
   ) => _mergeSearchItems(existing, incoming);
+
   static Object _mergeSearchItems(
     Object? existing,
     List<Map<String, dynamic>> incoming,
@@ -358,6 +460,7 @@ class StreamChunkHandler {
     }
     return <String, dynamic>{'items': items};
   }
+
   static Map<String, dynamic>? _asStringKeyedMap(Object? raw) {
     if (raw is Map<String, dynamic>) return raw;
     if (raw is Map) return Map<String, dynamic>.from(raw);
@@ -369,14 +472,8 @@ class StreamChunkHandler {
     }
     return null;
   }
-  String? _toolId(ToolCallPart part) {
-    try {
-      final decoded = jsonDecode(part.payloadJson);
-      if (decoded is Map) return (decoded['id'] ?? '').toString();
-    } catch (_) {}
-    return null;
-  }
 }
+
 class _ToolBuffer {
   String name = '';
   final StringBuffer input = StringBuffer();
@@ -385,6 +482,7 @@ class _ToolBuffer {
   bool server = false;
   Map<String, dynamic>? metadata;
 }
+
 Object _tryDecode(String raw) {
   final trimmed = raw.trim();
   if (trimmed.isEmpty) return <String, dynamic>{};

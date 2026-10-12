@@ -8,6 +8,23 @@ import 'package:flutter/material.dart';
 class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
   final Color surfaceFill;
   final Color surfaceCard;
+
+  /// 对话框 / 底部弹层 / 菜单面板的填充色（上游 1.2.6 引入的语义名）。
+  ///
+  /// 上游区分 layered/legacy 两种模式：分层模式落在亮层卡片色，legacy 用页面
+  /// [ColorScheme.surface] 以保持旧观感。调用方一般用 `context.overlaySurface`。
+  Color overlaySurface(ColorScheme scheme) =>
+      layered ? surfaceCard : scheme.surface;
+
+  /// 卡片内的次级填充（对齐上游 1.2.7 的语义名；本 fork 由色阶推导）。
+  Color get surfaceCardFill => surfaceFill;
+
+  /// 细分隔线 / 强分隔线（对齐上游 1.2.7 的语义名）。
+  ///
+  /// 上游取自 SurfaceLadder；本 fork 的色阶由 [ColorScheme] 推导，
+  /// 因此这里用 outlineVariant / outline 对应同一语义。
+  Color get hairline => surfaceFill;
+  Color get hairlineStrong => surfaceCard;
   final Color success;
   final Color successContainer;
   final Color onSuccessContainer;
@@ -28,7 +45,14 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
     required this.onWarningContainer,
     required this.searchHighlight,
     required this.chartSeries,
+    this.layered = false,
   });
+
+  /// 是否处于「分层表面」模式（上游 1.2.8 显示选项）。
+  ///
+  /// 影响 [overlaySurface] 的取值：分层模式用卡片色，legacy 模式用页面
+  /// surface（保持旧观感）。由 `buildXThemeForScheme(layeredSurfaces:)` 传入。
+  final bool layered;
 
   /// Subtle fill for text fields, chips, small cards and tag containers.
   /// Replaces the old `isDark ? Colors.white10 : Color(0xFFF2F3F5/F7F7F9)` idiom.
@@ -56,12 +80,13 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
           );
   }
 
-  factory AppSemanticColors.light(ColorScheme cs) {
+  factory AppSemanticColors.light(ColorScheme cs, {bool layered = false}) {
     const successBase = Color(0xFF2E7D32);
     const warningBase = Color(0xFFF57C00);
     return AppSemanticColors(
       surfaceFill: _deriveSurfaceFill(cs),
       surfaceCard: _deriveSurfaceCard(cs),
+      layered: layered,
       success: successBase.harmonizeWith(cs.primary),
       successContainer: const Color(0xFFA5D6A7).harmonizeWith(cs.primary),
       onSuccessContainer: const Color(0xFF1B5E20),
@@ -82,12 +107,13 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
     );
   }
 
-  factory AppSemanticColors.dark(ColorScheme cs) {
+  factory AppSemanticColors.dark(ColorScheme cs, {bool layered = false}) {
     const successBase = Color(0xFF81C784);
     const warningBase = Color(0xFFFFB74D);
     return AppSemanticColors(
       surfaceFill: _deriveSurfaceFill(cs),
       surfaceCard: _deriveSurfaceCard(cs),
+      layered: layered,
       success: successBase.harmonizeWith(cs.primary),
       successContainer: const Color(0xFF1B5E20).harmonizeWith(cs.primary),
       onSuccessContainer: const Color(0xFFC8E6C9),
@@ -145,13 +171,27 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
       surfaceFill: Color.lerp(surfaceFill, other.surfaceFill, t)!,
       surfaceCard: Color.lerp(surfaceCard, other.surfaceCard, t)!,
       success: Color.lerp(success, other.success, t)!,
-      successContainer: Color.lerp(successContainer, other.successContainer, t)!,
-      onSuccessContainer:
-          Color.lerp(onSuccessContainer, other.onSuccessContainer, t)!,
+      successContainer: Color.lerp(
+        successContainer,
+        other.successContainer,
+        t,
+      )!,
+      onSuccessContainer: Color.lerp(
+        onSuccessContainer,
+        other.onSuccessContainer,
+        t,
+      )!,
       warning: Color.lerp(warning, other.warning, t)!,
-      warningContainer: Color.lerp(warningContainer, other.warningContainer, t)!,
-      onWarningContainer:
-          Color.lerp(onWarningContainer, other.onWarningContainer, t)!,
+      warningContainer: Color.lerp(
+        warningContainer,
+        other.warningContainer,
+        t,
+      )!,
+      onWarningContainer: Color.lerp(
+        onWarningContainer,
+        other.onWarningContainer,
+        t,
+      )!,
       searchHighlight: Color.lerp(searchHighlight, other.searchHighlight, t)!,
       chartSeries: List.generate(
         len,
@@ -173,4 +213,8 @@ extension AppSemanticColorsX on BuildContext {
         ? AppSemanticColors.dark(theme.colorScheme)
         : AppSemanticColors.light(theme.colorScheme);
   }
+
+  /// 对话框 / 弹层 / 菜单面板填充色（上游写法：`context.overlaySurface`）。
+  Color get overlaySurface =>
+      appColors.overlaySurface(Theme.of(this).colorScheme);
 }

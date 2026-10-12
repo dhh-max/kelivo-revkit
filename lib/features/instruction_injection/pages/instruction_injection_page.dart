@@ -12,9 +12,10 @@ import '../../../core/models/instruction_injection.dart';
 import '../../../core/providers/instruction_injection_provider.dart';
 import '../../../core/providers/instruction_injection_group_provider.dart';
 import 'package:uuid/uuid.dart';
-import '../../../core/services/haptics.dart';
+import 'package:Kelivo/shared/services/haptics.dart';
 import '../../../shared/widgets/snackbar.dart';
 import '../../../theme/app_font_weights.dart';
+import 'package:Kelivo/theme/app_semantic_colors.dart';
 
 class InstructionInjectionPage extends StatefulWidget {
   const InstructionInjectionPage({super.key});
@@ -77,6 +78,7 @@ class _InstructionInjectionPageState extends State<InstructionInjectionPage> {
     final title = result['title']?.trim() ?? '';
     final prompt = result['prompt']?.trim() ?? '';
     final group = result['group']?.trim() ?? '';
+    final position = InstructionInjectionPosition.fromName(result['position']);
     if (title.isEmpty || prompt.isEmpty) return;
 
     if (item == null) {
@@ -85,11 +87,17 @@ class _InstructionInjectionPageState extends State<InstructionInjectionPage> {
         title: title,
         prompt: prompt,
         group: group,
+        position: position,
       );
       await provider.add(newItem);
     } else {
       await provider.update(
-        item.copyWith(title: title, prompt: prompt, group: group),
+        item.copyWith(
+          title: title,
+          prompt: prompt,
+          group: group,
+          position: position,
+        ),
       );
     }
   }
@@ -373,11 +381,8 @@ class _InstructionInjectionPageState extends State<InstructionInjectionPage> {
                                         onTap: () =>
                                             _showAddEditSheet(item: item),
                                         builder: (pressed, overlay) {
-                                          final baseBg = isDark
-                                              ? Colors.white10
-                                              : Colors.white.withValues(
-                                                  alpha: 0.96,
-                                                );
+                                          final baseBg =
+                                              context.appColors.surfaceCard;
                                           return Container(
                                             decoration: BoxDecoration(
                                               color: Color.alphaBlend(
@@ -436,6 +441,40 @@ class _InstructionInjectionPageState extends State<InstructionInjectionPage> {
                                                               ),
                                                             ),
                                                           ],
+                                                        ),
+                                                        const SizedBox(
+                                                          height: 8,
+                                                        ),
+                                                        // 落点徽标：用户能一眼看到这条注入会进到请求的哪里。
+                                                        Container(
+                                                          padding:
+                                                              const EdgeInsets.symmetric(
+                                                                horizontal: 8,
+                                                                vertical: 2,
+                                                              ),
+                                                          decoration: BoxDecoration(
+                                                            color: cs.primary
+                                                                .withValues(
+                                                                  alpha: 0.12,
+                                                                ),
+                                                            borderRadius:
+                                                                BorderRadius.circular(
+                                                                  999,
+                                                                ),
+                                                          ),
+                                                          child: Text(
+                                                            instructionInjectionPositionLabel(
+                                                              l10n,
+                                                              item.position,
+                                                            ),
+                                                            style: TextStyle(
+                                                              fontSize: 11,
+                                                              fontWeight:
+                                                                  AppFontWeights
+                                                                      .medium,
+                                                              color: cs.primary,
+                                                            ),
+                                                          ),
                                                         ),
                                                         const SizedBox(
                                                           height: 8,
@@ -549,8 +588,22 @@ class _GroupHeader extends StatelessWidget {
   }
 }
 
-class InstructionInjectionEditSheet extends StatefulWidget {
-  const InstructionInjectionEditSheet({super.key, required this.item});
+/// 注入位置的可读文案（列表徽标与编辑器共用）。
+String instructionInjectionPositionLabel(
+  AppLocalizations l10n,
+  InstructionInjectionPosition position,
+) => switch (position) {
+  InstructionInjectionPosition.beforeSystem =>
+    l10n.instructionInjectionPositionBeforeSystem,
+  InstructionInjectionPosition.afterSystem =>
+    l10n.instructionInjectionPositionAfterSystem,
+  InstructionInjectionPosition.conversationStart =>
+    l10n.instructionInjectionPositionConversationStart,
+  InstructionInjectionPosition.beforeLatestUser =>
+    l10n.instructionInjectionPositionBeforeLatestUser,
+};
+
+class InstructionInjectionEditSheet extends StatefulWidget {  const InstructionInjectionEditSheet({super.key, required this.item});
 
   final InstructionInjection? item;
 
@@ -564,6 +617,7 @@ class _InstructionInjectionEditSheetState
   late final TextEditingController _titleController;
   late final TextEditingController _groupController;
   late final TextEditingController _promptController;
+  late InstructionInjectionPosition _position;
 
   @override
   void initState() {
@@ -571,7 +625,14 @@ class _InstructionInjectionEditSheetState
     _titleController = TextEditingController(text: widget.item?.title ?? '');
     _groupController = TextEditingController(text: widget.item?.group ?? '');
     _promptController = TextEditingController(text: widget.item?.prompt ?? '');
+    _position =
+        widget.item?.position ?? InstructionInjectionPosition.afterSystem;
   }
+
+  String _positionLabel(
+    AppLocalizations l10n,
+    InstructionInjectionPosition position,
+  ) => instructionInjectionPositionLabel(l10n, position);
 
   @override
   void dispose() {
@@ -585,7 +646,6 @@ class _InstructionInjectionEditSheetState
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return SafeArea(
       top: false,
@@ -629,7 +689,7 @@ class _InstructionInjectionEditSheetState
               decoration: InputDecoration(
                 labelText: l10n.instructionInjectionNameLabel,
                 filled: true,
-                fillColor: isDark ? Colors.white10 : const Color(0xFFF2F3F5),
+                fillColor: context.appColors.surfaceFill,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide(
@@ -657,7 +717,7 @@ class _InstructionInjectionEditSheetState
                 labelText: l10n.instructionInjectionGroupLabel,
                 hintText: l10n.instructionInjectionGroupHint,
                 filled: true,
-                fillColor: isDark ? Colors.white10 : const Color(0xFFF2F3F5),
+                fillColor: context.appColors.surfaceFill,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide(
@@ -686,7 +746,7 @@ class _InstructionInjectionEditSheetState
                 labelText: l10n.instructionInjectionPromptLabel,
                 alignLabelWithHint: true,
                 filled: true,
-                fillColor: isDark ? Colors.white10 : const Color(0xFFF2F3F5),
+                fillColor: context.appColors.surfaceFill,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide(
@@ -707,6 +767,28 @@ class _InstructionInjectionEditSheetState
                 ),
               ),
             ),
+            const SizedBox(height: 12),
+            Text(
+              l10n.instructionInjectionPositionLabel,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: AppFontWeights.medium,
+                color: cs.onSurface.withValues(alpha: 0.7),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final position in InstructionInjectionPosition.values)
+                  ChoiceChip(
+                    label: Text(_positionLabel(l10n, position)),
+                    selected: position == _position,
+                    onSelected: (_) => setState(() => _position = position),
+                  ),
+              ],
+            ),
             const SizedBox(height: 16),
             Row(
               children: [
@@ -725,6 +807,7 @@ class _InstructionInjectionEditSheetState
                         'title': _titleController.text,
                         'group': _groupController.text,
                         'prompt': _promptController.text,
+                        'position': _position.name,
                       });
                     },
                   ),
@@ -807,9 +890,9 @@ class _TactileCardState extends State<_TactileCard> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final overlay = _pressed
-        ? (isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.05))
+        ? (Theme.of(
+            context,
+          ).colorScheme.onSurface.withValues(alpha: isDark ? 0.06 : 0.05))
         : Colors.transparent;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,

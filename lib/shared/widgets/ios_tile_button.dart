@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
-import '../../core/services/haptics.dart';
+import 'package:Kelivo/shared/services/haptics.dart';
 import 'package:Kelivo/theme/app_font_weights.dart';
+import 'package:Kelivo/theme/app_semantic_colors.dart';
 
 class IosTileButton extends StatefulWidget {
   const IosTileButton({
     super.key,
     required this.label,
-    required this.icon,
+    this.icon,
+    this.leading,
     required this.onTap,
     this.enabled = true,
     this.fontSize = 14,
@@ -14,10 +16,14 @@ class IosTileButton extends StatefulWidget {
     this.backgroundColor,
     this.foregroundColor,
     this.borderColor,
-  });
+  }) : assert(
+         (icon == null) != (leading == null),
+         'Provide exactly one of icon or leading',
+       );
 
   final String label;
-  final IconData icon;
+  final IconData? icon;
+  final Widget? leading;
   final VoidCallback onTap;
   final bool enabled;
   final double fontSize;
@@ -43,10 +49,8 @@ class _IosTileButtonState extends State<IosTileButton> {
     // Use a light primary-tinted background when tinted; otherwise the neutral grey tile
     final Color baseBg = tinted
         ? (isDark ? tint.withValues(alpha: 0.20) : tint.withValues(alpha: 0.12))
-        : (isDark ? Colors.white10 : const Color(0xFFF2F3F5));
-    final overlay = isDark
-        ? Colors.white.withValues(alpha: 0.06)
-        : Colors.black.withValues(alpha: 0.05);
+        : (context.appColors.surfaceFill);
+    final overlay = cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05);
     final pressedBg = Color.alphaBlend(overlay, baseBg);
     // Use primary (or provided foreground) for text/icon when tinted; otherwise neutral onSurface
     final Color defaultFg =
@@ -56,6 +60,9 @@ class _IosTileButtonState extends State<IosTileButton> {
             : cs.onSurface.withValues(alpha: 0.9));
     final iconColor = defaultFg;
     final textColor = defaultFg;
+    final slotColor = widget.enabled
+        ? iconColor
+        : iconColor.withValues(alpha: 0.45);
     // Keep a subtle same-hue border when tinted; otherwise use neutral outline
     final Color effectiveBorder =
         widget.borderColor ??
@@ -93,32 +100,38 @@ class _IosTileButtonState extends State<IosTileButton> {
                   : effectiveBorder.withValues(alpha: 0.45),
             ),
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.only(left: 2.0),
-                child: Icon(
-                  widget.icon,
-                  size: 18,
-                  color: widget.enabled
-                      ? iconColor
-                      : iconColor.withValues(alpha: 0.45),
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(left: 2.0),
+                  child: widget.leading != null
+                      ? IconTheme.merge(
+                          data: IconThemeData(size: 18, color: slotColor),
+                          child: SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: Center(child: widget.leading),
+                          ),
+                        )
+                      : Icon(widget.icon, size: 18, color: slotColor),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                widget.label,
-                style: TextStyle(
-                  fontSize: widget.fontSize,
-                  fontWeight: AppFontWeights.semibold,
-                  color: widget.enabled
-                      ? textColor
-                      : textColor.withValues(alpha: 0.45),
+                const SizedBox(width: 8),
+                Text(
+                  widget.label,
+                  style: TextStyle(
+                    fontSize: widget.fontSize,
+                    fontWeight: AppFontWeights.semibold,
+                    color: widget.enabled
+                        ? textColor
+                        : textColor.withValues(alpha: 0.45),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

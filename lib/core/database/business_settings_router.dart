@@ -21,11 +21,29 @@ final class BusinessKeyRegistry {
     'window_height_v1',
     'window_pos_x_v1',
     'window_pos_y_v1',
+    'window_physical_pos_x_v1',
+    'window_physical_pos_y_v1',
     'window_maximized_v1',
+    'linux_hide_title_bar_v1',
     'desktop_hotkeys_commands_v1',
     'desktop_hotkeys_enabled_v1',
     'display_chat_font_scale_v1',
     'flutter_log_enabled_v1',
+    'model_catalog_auto_update_v1',
+    // 2026-10-05 数据事故修复：这些是**应用自有的插件 prefs 存储**（各自有专门
+    // 的 Store 直接读写 SharedPreferences），不属于业务偏好体系。不登记就会在
+    // 启动迁移的 cleanup 里被当成「已迁移的遗留键」**每次开机删除**——工作流、
+    // 目标(/goal)、待办、子代理、专家团、运行时绑定全部重启即丢（用户实测：
+    // 「工作流没有持久化，重启丢失」）。
+    'workflows_v1',
+    'subagents_v1',
+    'subagent_teams_v1',
+    'session_todos_v1',
+    'session_mode_v1',
+    'session_goals_v1',
+    'runtime_scope_task_v1',
+    'api_install_session_id_v1',
+    'workspace_default_envmode_v2',
   };
 
   static const discardedKeys = <String>{
@@ -38,6 +56,8 @@ final class BusinessKeyRegistry {
   };
 
   static const preferenceKeys = <String>{
+    'desktop_scheduled_tasks_v1',
+    'scheduled_task_results_v1',
     'current_assistant_id_v1',
     'selected_model_v1',
     'pinned_models_v1',
@@ -101,7 +121,7 @@ final class BusinessKeyRegistry {
     'suggestion_insert_on_tap_only_v1',
     'compress_model_v1',
     'compress_prompt_v1',
-    'thinking_budget_v1',
+    'reasoning_choice_by_model_v1',
     'image_cropper_enabled_v1',
     'image_upload_quality_v1',
     'image_compress_custom_quality_v1',
@@ -136,6 +156,9 @@ final class BusinessKeyRegistry {
     'log_save_output_v1',
     'log_auto_delete_days_v1',
     'log_max_size_mb_v1',
+    'per_chat_model_enabled_v1',
+    'suggestion_generation_enabled_v1',
+    'tool_schema_overrides_v1',
     'mcp_request_timeout_ms_v1',
     'learning_mode_enabled_v1',
     'learning_mode_prompt_v1',
@@ -165,6 +188,11 @@ final class BusinessKeyRegistry {
     'memory_migrate_prompt_en_v1',
     'memory_migration_batch_size_v1',
     'chat_bubble_style_overrides_v1',
+    'chat_bubble_style_overrides_user_v1',
+    'environment_state_v1',
+    'environment_mirrors_v1',
+    'environment_variables_v1',
+    'environment_privacy_mode_v1',
   };
 
   /// SoLab APK 知识种子版本 key（instruction_injection/world_book/quick_phrase
@@ -510,16 +538,19 @@ final class BusinessSettingsRouter {
             'allowPastConversationRecall',
             'generateConversationSummary',
             'appendCurrentTimeToUserMessage',
+            'useIso8601TimeFormat',
+            'allowConversationSystemPrompt',
+            'allowConversationPromptInjection',
           },
           numbers: const {
             'temperature',
             'topP',
             'contextMessageSize',
-            'thinkingBudget',
             'maxTokens',
             'recentChatsSummaryMessageCount',
             'memoryOrganizeEveryNTurns',
           },
+          maps: const {'reasoning'},
           lists: const {
             'customHeaders',
             'customBody',
@@ -538,6 +569,8 @@ final class BusinessSettingsRouter {
             'id',
             'name',
             'apiKey',
+            'oauthProvider',
+            'oauthModelsSyncedAt',
             'baseUrl',
             'chatPath',
             'location',
@@ -557,6 +590,7 @@ final class BusinessSettingsRouter {
           booleans: const {
             'enabled',
             'useResponseApi',
+            'promptCacheKeyEnabled',
             'vertexAI',
             'proxyEnabled',
             'multiKeyEnabled',
@@ -565,7 +599,7 @@ final class BusinessSettingsRouter {
             'claudePromptCachingEnabled',
           },
           lists: const {'models', 'apiKeys', 'customHeaders', 'customBody'},
-          maps: const {'modelOverrides', 'keyManagement'},
+          maps: const {'modelOverrides', 'keyManagement', 'oauthCredentials'},
         );
         _validateProviderChildren(kind, payload);
         return;
@@ -653,7 +687,8 @@ final class BusinessSettingsRouter {
             type != 'voice' &&
             type != 'instruction' &&
             type != 'apk_patch' &&
-            type != 'apk_note') {
+            type != 'apk_note' &&
+            type != 'apk_failure') {
           throw FormatException(kind.sourceKey);
         }
         final status = payload['status'];
@@ -683,6 +718,22 @@ final class BusinessSettingsRouter {
         if (content.trim().isEmpty) {
           throw FormatException(kind.sourceKey);
         }
+        return;
+      case BusinessEntityKind.workspace:
+        _validateKnownFields(
+          kind,
+          payload,
+          requiredStrings: const {'id', 'name'},
+        );
+        return;
+      case BusinessEntityKind.skill:
+        _validateKnownFields(
+          kind,
+          payload,
+          requiredStrings: const {'id', 'source', 'installedAt', 'updatedAt'},
+          booleans: const {'enabled'},
+          numbers: const {'useCount'},
+        );
         return;
       case BusinessEntityKind.userProfileField:
         _validateKnownFields(
@@ -786,6 +837,37 @@ final class BusinessSettingsRouter {
     BusinessEntityKind kind,
     Map<String, Object?> payload,
   ) {
+    final oauthProvider = payload['oauthProvider'];
+    if (oauthProvider != null &&
+        !{'chatgpt', 'grok', 'kimi', 'claude'}.contains(oauthProvider)) {
+      throw const FormatException('Invalid OAuth provider');
+    }
+    final credentials = payload['oauthCredentials'];
+    if (credentials is Map) {
+      _validateKnownFields(
+        kind,
+        _stringKeyedMap(credentials),
+        requiredStrings: const {
+          'accessToken',
+          'refreshToken',
+          'expiresAt',
+          'sessionId',
+        },
+        strings: const {
+          'email',
+          'accountId',
+          'plan',
+          'deviceId',
+          'organizationId',
+          'organizationName',
+        },
+        booleans: const {'requiresLogin'},
+      );
+      if (oauthProvider == null ||
+          DateTime.tryParse(credentials['expiresAt'] as String) == null) {
+        throw const FormatException('Invalid OAuth credentials');
+      }
+    }
     for (final child in _mappedObjects(payload['apiKeys'])) {
       _validateKnownFields(
         kind,
@@ -907,7 +989,14 @@ final class BusinessSettingsRouter {
           'caseSensitive',
           'constantActive',
         },
-        integers: const {'priority', 'injectDepth', 'scanDepth'},
+        integers: const {
+          'priority',
+          'injectDepth',
+          'scanDepth',
+          'sticky',
+          'cooldown',
+          'delay',
+        },
         lists: const {'keywords'},
       );
     }
@@ -944,6 +1033,7 @@ final class BusinessSettingsRouter {
       case 'ollama':
       case 'jina':
       case 'doubao':
+      case 'kagi':
         _validateKnownFields(
           kind,
           payload,
@@ -1006,6 +1096,30 @@ final class BusinessSettingsRouter {
             'countries',
             'languages',
           },
+          stringLists: const {'apiKeys'},
+        );
+      case 'anysearch':
+        _validateKnownFields(
+          kind,
+          payload,
+          strings: const {'apiKey', 'url'},
+          stringLists: const {'apiKeys'},
+        );
+      case 'parallel':
+      case 'kimi':
+        _validateKnownFields(
+          kind,
+          payload,
+          requiredStrings: const {'apiKey'},
+          strings: const {'mode'},
+          stringLists: const {'apiKeys'},
+        );
+      case 'you':
+        _validateKnownFields(
+          kind,
+          payload,
+          requiredStrings: const {'apiKey'},
+          strings: const {'contentMode'},
           stringLists: const {'apiKeys'},
         );
     }

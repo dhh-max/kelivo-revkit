@@ -1,8 +1,14 @@
-import 'package:flutter/foundation.dart';
 import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
+
 import '../../logging/flutter_logger.dart';
 import 'sse_event.dart';
+
 /// Parse a UTF-8 SSE byte stream into [SseEvent]s.
+///
+/// Handles `id:` / `event:` / `data:` (multiline joined with `\n`) / `retry:`,
+/// CRLF, comments, and a final frame that lacks a trailing newline.
 Stream<SseEvent> parseSseEvents(
   Stream<List<int>> bytes, {
   bool recoverAdjacentJsonDataRecords = false,
@@ -12,6 +18,7 @@ Stream<SseEvent> parseSseEvents(
     recoverAdjacentJsonDataRecords: recoverAdjacentJsonDataRecords,
   );
 }
+
 /// Parse an already-decoded SSE text stream into [SseEvent]s.
 Stream<SseEvent> parseSseEventStrings(
   Stream<String> chunks, {
@@ -36,10 +43,20 @@ Stream<SseEvent> parseSseEventStrings(
     yield event;
   }
 }
+
 /// Incremental SSE framer. One instance per response stream.
 class SseEventParser {
   SseEventParser({this.recoverAdjacentJsonDataRecords = false});
+
+  /// Compatibility mode for OpenAI-compatible proxies that omit the blank
+  /// delimiter between adjacent, data-only JSON events.
+  ///
+  /// Enabling this assumes each standalone JSON `data:` line is a complete
+  /// event and that `id` / `event` / `retry` fields do not accompany it.
+  /// Keep it disabled for general SSE: multiple `data:` lines normally belong
+  /// to one event and must be joined with a newline.
   final bool recoverAdjacentJsonDataRecords;
+
   final StringBuffer _carry = StringBuffer();
   final List<String> _dataLines = <String>[];
   String? _id;
@@ -48,6 +65,7 @@ class SseEventParser {
   bool _started = false;
   bool _lastLineWasBlank = false;
   bool _reportedAdjacentJsonRecovery = false;
+
   List<SseEvent> add(String chunk) {
     if (chunk.isEmpty) return const <SseEvent>[];
     var text = chunk;
@@ -60,11 +78,13 @@ class SseEventParser {
     _carry.write(text);
     return _drain(flushIncompleteLine: false);
   }
+
   List<SseEvent> close() {
     final events = _drain(flushIncompleteLine: true);
     events.addAll(_takeEvents());
     return events;
   }
+
   List<SseEvent> _drain({required bool flushIncompleteLine}) {
     var buffer = _carry.toString();
     _carry.clear();
@@ -91,6 +111,7 @@ class SseEventParser {
     if (deferTrailingCarriageReturn) _carry.write('\r');
     return events;
   }
+
   void _processLine(String line, List<SseEvent> events) {
     if (_shouldReleasePendingJsonBefore(line)) {
       _reportAdjacentJsonRecovery(1);
@@ -101,6 +122,11 @@ class SseEventParser {
       events.addAll(_takeEvents());
     }
   }
+
+  /// In compatibility mode, one complete JSON record is held as one-line
+  /// lookahead. The next non-empty `data:` line proves that appending more
+  /// payload would no longer be one JSON object, so release the pending record
+  /// before buffering the new line.
   bool _shouldReleasePendingJsonBefore(String line) {
     if (!recoverAdjacentJsonDataRecords ||
         _id != null ||
@@ -113,6 +139,7 @@ class SseEventParser {
     if (nextData == null || nextData.trim().isEmpty) return false;
     return _isStandaloneJsonObjectOrDone(_dataLines.join('\n'));
   }
+
   bool _shouldReleaseDoneNow() =>
       recoverAdjacentJsonDataRecords &&
       _id == null &&
@@ -120,11 +147,13 @@ class SseEventParser {
       _retryMillis == null &&
       _dataLines.length == 1 &&
       _dataLines.single == '[DONE]';
+
   List<SseEvent> _takeEventsBeforeError() {
     final recovered = <SseEvent>[];
     if (_carry.toString().endsWith('\r')) {
       recovered.addAll(_drain(flushIncompleteLine: true));
     }
+
     if (!recoverAdjacentJsonDataRecords ||
         _id != null ||
         _event != null ||
@@ -137,14 +166,17 @@ class SseEventParser {
     recovered.addAll(_takeEvents());
     return recovered;
   }
+
   void _handleLine(String line) {
     _lastLineWasBlank = line.isEmpty;
     if (line.isEmpty) return;
     if (line.startsWith(':')) return;
+
     final colon = line.indexOf(':');
     final field = colon < 0 ? line : line.substring(0, colon);
     var value = colon < 0 ? '' : line.substring(colon + 1);
     if (value.startsWith(' ')) value = value.substring(1);
+
     switch (field) {
       case 'id':
         if (!value.contains('\u0000')) _id = value;
@@ -156,6 +188,7 @@ class SseEventParser {
         _retryMillis = int.tryParse(value);
     }
   }
+
   List<SseEvent> _takeEvents() {
     if (_id == null &&
         _event == null &&
@@ -164,6 +197,12 @@ class SseEventParser {
       return const <SseEvent>[];
     }
     final joinedData = _dataLines.join('\n');
+    // A few OpenAI-compatible proxies occasionally omit the blank line
+    // between adjacent `data:` records. In the opt-in compatibility mode,
+    // recover data-only events when the combined payload is not one JSON
+    // object but every physical data line is. This matches the tolerant line
+    // parser used before the provider-independent streaming refactor while
+    // preserving genuine multiline SSE by default.
     final splitJsonRecords =
         recoverAdjacentJsonDataRecords &&
         _id == null &&
@@ -183,6 +222,7 @@ class SseEventParser {
     _resetFields();
     return events;
   }
+
   void _resetFields() {
     _id = null;
     _event = null;
@@ -190,6 +230,7 @@ class SseEventParser {
     _dataLines.clear();
     _lastLineWasBlank = false;
   }
+
   void _reportAdjacentJsonRecovery(int count) {
     if (_reportedAdjacentJsonRecovery) return;
     _reportedAdjacentJsonRecovery = true;
@@ -198,6 +239,7 @@ class SseEventParser {
     FlutterLogger.log(message, tag: 'SseFramingRecovery');
   }
 }
+
 String? _dataValueOf(String line) {
   if (line.isEmpty || line.startsWith(':')) return null;
   final colon = line.indexOf(':');
@@ -207,10 +249,12 @@ String? _dataValueOf(String line) {
   if (value.startsWith(' ')) value = value.substring(1);
   return value;
 }
+
 bool _isStandaloneJsonObjectOrDone(String data) {
   if (data == '[DONE]') return true;
   return _isStandaloneJsonObject(data);
 }
+
 bool _isStandaloneJsonObject(String data) {
   try {
     final decoded = jsonDecode(data);

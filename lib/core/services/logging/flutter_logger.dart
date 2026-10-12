@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 
 import '../../../utils/app_directories.dart';
+import 'log_redactor.dart';
 
 class FlutterLogger {
   FlutterLogger._();
@@ -35,7 +36,6 @@ class FlutterLogger {
 
   static bool _installed = false;
   static FlutterExceptionHandler? _originalFlutterOnError;
-  static bool Function(Object, StackTrace)? _originalPlatformOnError;
 
   static void installGlobalHandlers() {
     if (_installed) return;
@@ -44,7 +44,10 @@ class FlutterLogger {
     _originalFlutterOnError = FlutterError.onError;
     FlutterError.onError = (FlutterErrorDetails details) {
       try {
-        log(details.toString().trimRight(), tag: 'FlutterError');
+        log(
+          '${details.exceptionAsString()}\n${details.stack ?? ''}'.trimRight(),
+          tag: 'FlutterError',
+        );
       } catch (_) {}
 
       final original = _originalFlutterOnError;
@@ -55,15 +58,17 @@ class FlutterLogger {
       }
     };
 
-    _originalPlatformOnError = ui.PlatformDispatcher.instance.onError;
     ui.PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
       try {
         log('$error\n$stack', tag: 'Uncaught');
       } catch (_) {}
-
-      final original = _originalPlatformOnError;
-      if (original != null) return original(error, stack);
-      return false;
+      // 始终返回 true：未捕获异步异常已记录，不再终止进程——聊天类应用宁可
+      // 丢弃一次错误处理也不闪退。stderr 兜底保证即使日志开关关闭也有痕迹
+      // （Android logcat 可见）。
+      try {
+        stderr.writeln('[Uncaught] $error\n$stack');
+      } catch (_) {}
+      return true;
     };
   }
 
@@ -129,6 +134,7 @@ class FlutterLogger {
 
   static void log(String message, {String? tag}) {
     if (!_enabled) return;
+    message = LogRedactor.redactText(message);
     final now = DateTime.now();
     final prefix = '[${_formatTs(now)}]${tag == null ? '' : ' [$tag]'} ';
     final normalized = message.replaceAll('\r\n', '\n').replaceAll('\r', '\n');

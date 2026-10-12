@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../../../core/services/local_tools/local_tool_names.dart';
+import '../../../utils/keyword_match.dart';
 import '../../solab_apk/analyzer/analyzer_tools.dart';
 import '../../solab_apk/services/apk_agent_policy.dart';
 
@@ -36,8 +37,14 @@ class ApkAnalysisGuard {
     ApkAnalysisPhase.verify: 25000,
     ApkAnalysisPhase.patch: 12000,
   };
-  static const _verifyCallCap = 12;
+  static const _verifyCallCap = 40;
   static const _tokenCap = ApkAgentPolicy.maxEvidenceTokens;
+  // 进度感知自动续期：本轮仍有新证据（新命中、新定位符、成功写入）时
+  // 自动追加预算，不弹用户授权；连续无进展才要求授权。止损防的是
+  // 原地打转的死循环，不是勤奋。
+  static const _autoExtensionLimit = 4;
+  static const _autoExtensionVerifyCalls = 20;
+  static const _autoExtensionTokens = 40000;
   static const _knowledgeTools = <String>{
     LocalToolNames.apkKnowledge,
     LocalToolNames.installedSkills,
@@ -73,18 +80,31 @@ class ApkAnalysisGuard {
   int _budgetRecoveryCalls = 0;
   int _verifyCallExtension = 0;
   int _tokenExtension = 0;
+  int _autoVerifyExtension = 0;
+  int _autoTokenExtension = 0;
+  int _autoExtensionCount = 0;
+  bool _progressSinceAutoExtension = false;
   bool _workspaceAnalyzed = false;
   bool _shellBlocked = false;
   bool _signatureRisk = false;
   bool? _flutterDetected;
   String _apkFingerprint = '';
   String _reportFreshness = 'missing';
+  // F-51（2026-10-04）：epoch = begin() 真正重置的次数（同 goal 幂等跳过不增）。
+  // callsUsed/tokenUsedEst 是「自最近一次 route_task 重置」的**回合累计**，
+  // 相邻两次读数 2→1 曾被当成故障——那是 epoch 切换。快照带 epoch/resetAt，
+  // 调用方就能判断「读数属于哪个回合」。totalToolCalls 跨 epoch 永续单调。
+  int _epoch = 0;
+  DateTime? _resetAt;
+  int _totalToolCalls = 0;
 
   void begin(String goal) {
     final normalized = goal.trim().toLowerCase();
     if (_startedAt != null && normalized == _goal) return;
     _goal = normalized;
     _startedAt = DateTime.now();
+    _epoch++;
+    _resetAt = _startedAt;
     _sharedCalls.clear();
     _trackCalls.clear();
     _sharedTokens.clear();
@@ -108,6 +128,10 @@ class ApkAnalysisGuard {
     _budgetRecoveryCalls = 0;
     _verifyCallExtension = 0;
     _tokenExtension = 0;
+    _autoVerifyExtension = 0;
+    _autoTokenExtension = 0;
+    _autoExtensionCount = 0;
+    _progressSinceAutoExtension = false;
     _workspaceAnalyzed = false;
     _shellBlocked = false;
     _signatureRisk = false;
@@ -154,7 +178,9 @@ class ApkAnalysisGuard {
       return const ApkAnalysisGuardDecision.allow();
     }
     if (_tokenEstimate >= _effectiveTokenCap) {
-      if (_budgetRecoveryCalls < 3 && _isNarrowBudgetRecovery(name, args)) {
+      if (_maybeAutoExtend()) {
+        // 本轮仍有新证据：自动续期后放行，不打扰用户。
+      } else if (_budgetRecoveryCalls < 3 && _isNarrowBudgetRecovery(name, args)) {
         _budgetRecoveryCalls++;
       } else {
         return const ApkAnalysisGuardDecision.block(
@@ -165,7 +191,9 @@ class ApkAnalysisGuard {
     }
     if (phase == ApkAnalysisPhase.verify &&
         (calls[phase] ?? 0) >= _effectiveVerifyCallCap) {
-      if (_budgetRecoveryCalls < 3 && _isNarrowBudgetRecovery(name, args)) {
+      if (_maybeAutoExtend()) {
+        // 同上：有进展先自动续期。
+      } else if (_budgetRecoveryCalls < 3 && _isNarrowBudgetRecovery(name, args)) {
         _budgetRecoveryCalls++;
       } else {
         return const ApkAnalysisGuardDecision.block(
@@ -187,6 +215,8 @@ class ApkAnalysisGuard {
               .clamp(0, _maxDeliveredToolTokens)
               .toInt();
     _tokenEstimate += estimate;
+    // F-51：跨 epoch 单调的全量调用计数（phase 分类之外的工具也计入）。
+    _totalToolCalls++;
     final phase = _phaseFor(name, args);
     final track = phase == null
         ? _trackFromPayload(args)
@@ -203,15 +233,48 @@ class ApkAnalysisGuard {
         final payload = decoded.map(
           (key, value) => MapEntry(key.toString(), value),
         );
+        final evidenceBefore = track == null
+            ? 0
+            : (_evidence[track]?.length ?? 0);
+        final locatorBefore = track == null ? null : _lastLocator[track];
         _updateState(name, args, payload, track);
         if (_isSuccessfulStateChange(name, args, payload)) {
           _restoreVerificationWindow(track);
+          _progressSinceAutoExtension = true;
+        } else if (track != null &&
+            ((_evidence[track]?.length ?? 0) > evidenceBefore ||
+                (_lastLocator[track] != null &&
+                    _lastLocator[track] != locatorBefore))) {
+          _progressSinceAutoExtension = true;
         }
         final recovery = _recoveryFor(name, args, payload, track);
+        // —— 结果噪音压实（Agent 反馈清单 A 类，2026-08-28）——
+        // 1) analysisGuard 统计尾巴只在真正需要时附加（预算拦截/恢复、
+        //    blocked 轨道、或结果文本命中 blocked/exceeded/violation）；
+        //    正常成功结果不带，返回体积可砍 40-60%。
+        // 2) 纯样板字段删除：空 nextActions、mcpFallback、memoryState。
+        // 3) workspaceSync 仅在 apkCount 变化时保留（每次原样重复=纯噪音）。
+        // 4) 同一 question id 只保留首次出现（patch/sign/save 各自回带同一
+        //    安装确认问题，照单执行会让用户被重复询问）。
+        final compacted = _compactPayload(payload);
+        // 尾巴只在"真正拦截/越限"时附加；ambiguous 等状态恢复提示只保留
+        // recovery 字段本身，不再携带整段统计（Agent：仅 blocked/exceeded/
+        // violation 字样时保留统计）。
+        // F-37（2026-10-04）：文本扫描只在**失败**结果上生效。过去成功结果
+        // 里只要出现 blocked/exceeded/violation 字样（如 so_analyze 的 schema
+        // 描述 "previewed but blocked from apply"、policy 的 alwaysBlocked
+        // 键名）就会附加 guard 统计尾巴——analysisGuard 字段因此带上带下
+        // 不可预期（v8 D2 附带观察），且回显的是状态机种子值而非真实状态。
+        final failedPayload =
+            payload['ok'] == false || payload['error'] != null;
+        final needsGuard =
+            _firstBlockedTrack() != null ||
+            (failedPayload && _blockedWords.hasMatch(result));
         return jsonEncode(<String, dynamic>{
-          ...payload,
+          ...compacted,
           if (recovery != null) 'recovery': recovery,
-          'analysisGuard': snapshot(),
+          if (needsGuard)
+            'analysisGuard': _guardSnapshot(includeElapsed: false),
         });
       }
     } catch (_) {}
@@ -279,14 +342,29 @@ class ApkAnalysisGuard {
   }
 
   void grantBudget(int additionalCalls) {
-    final granted = additionalCalls.clamp(1, 20);
+    final granted = additionalCalls.clamp(1, 80);
     _verifyCallExtension += granted;
     _tokenExtension += granted * 2000;
     _budgetRecoveryCalls = 0;
+    _progressSinceAutoExtension = false;
   }
 
-  int get _effectiveVerifyCallCap => _verifyCallCap + _verifyCallExtension;
-  int get _effectiveTokenCap => _tokenCap + _tokenExtension;
+  int get _effectiveVerifyCallCap =>
+      _verifyCallCap + _verifyCallExtension + _autoVerifyExtension;
+  int get _effectiveTokenCap => _tokenCap + _tokenExtension + _autoTokenExtension;
+
+  /// 上限触顶时调用：本轮仍在产出新证据（或用户授权后尚未消耗）就自动
+  /// 追加一档预算并放行；无进展或已到自动续期次数上限则返回 false，
+  /// 由调用方走窄收口或用户授权路径。
+  bool _maybeAutoExtend() {
+    if (!_progressSinceAutoExtension) return false;
+    if (_autoExtensionCount >= _autoExtensionLimit) return false;
+    _autoExtensionCount++;
+    _autoVerifyExtension += _autoExtensionVerifyCalls;
+    _autoTokenExtension += _autoExtensionTokens;
+    _progressSinceAutoExtension = false;
+    return true;
+  }
 
   /// 用户在 ask_user_input_v0 中给出了回答。用户确认属于高位证据：
   /// 若当前分析正因 ambiguous/clues_only/not_found 而被阻断，就把对应轨道
@@ -310,6 +388,79 @@ class ApkAnalysisGuard {
     return null;
   }
 
+  /// 结果里需要暴露守卫信息的关键词（其余统计尾巴一律不附加）。
+  static final RegExp _blockedWords = RegExp(
+    r'blocked|exceeded|violation',
+    caseSensitive: false,
+  );
+
+  /// 会话级样板去重状态：question id 首次出现保留，之后重复的删除。
+  final Set<String> _seenQuestionIds = <String>{};
+  int? _lastWorkspaceApkCount;
+
+  /// 按 Agent 噪音清单压实 payload：只删除明确列出的样板键，其余一律保留
+  /// （保守原则：宁可少删不误删，误删=丢失证据）。
+  Map<String, dynamic> _compactPayload(Map<String, dynamic> payload) {
+    payload.removeWhere((key, value) {
+      switch (key) {
+        case 'nextActions':
+          return value is List && value.isEmpty;
+        case 'mcpFallback':
+        case 'memoryState':
+          return true;
+        case 'workspaceSync':
+          final count = value is Map ? value['apkCount'] : null;
+          if (count is int) {
+            if (count == _lastWorkspaceApkCount) return true;
+            _lastWorkspaceApkCount = count;
+          }
+          return false;
+        default:
+          return false;
+      }
+    });
+    _stripRepeatedQuestion(payload);
+    return payload;
+  }
+
+  /// questionArguments 的同一 question id 只保留首次出现；重复时连带
+  /// 删除 nextRequiredTool（避免链路里每个工具都提示再问一次用户）。
+  void _stripRepeatedQuestion(Map<String, dynamic> payload) {
+    final qa = payload['questionArguments'];
+    final raw = qa is Map ? qa['questions'] : null;
+    var questions = const <Object?>[];
+    if (raw is String && raw.trim().isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is List) questions = decoded;
+      } catch (_) {}
+    } else if (raw is List) {
+      questions = raw;
+    } else {
+      return;
+    }
+    final ids = <String>[
+      for (final q in questions)
+        if (q is Map) (q['id'] ?? '').toString().trim(),
+    ].where((id) => id.isNotEmpty).toList();
+    if (ids.isEmpty) return;
+    final anySeen = ids.any(_seenQuestionIds.contains);
+    for (final id in ids) {
+      if (!_seenQuestionIds.contains(id)) _seenQuestionIds.add(id);
+    }
+    if (anySeen) {
+      payload.remove('questionArguments');
+      payload.remove('nextRequiredTool');
+    }
+  }
+
+  /// 附加给结果的守卫快照（可选剔除 elapsedMs——Agent 要求永远可删）。
+  Map<String, dynamic> _guardSnapshot({required bool includeElapsed}) {
+    final snapshot = this.snapshot();
+    if (!includeElapsed) snapshot.remove('elapsedMs');
+    return snapshot;
+  }
+
   Map<String, dynamic> snapshot() => {
     'apkFingerprint': _apkFingerprint,
     'reportFreshness': _reportFreshness,
@@ -322,11 +473,20 @@ class ApkAnalysisGuard {
     },
     'budget': {
       'enabled': true,
+      // F-51（2026-10-04）：epoch/resetAt 钉死「读数属于哪个回合」——
+      // callsUsed/tokenUsedEst 是自最近一次 route_task 重置的回合累计，
+      // 相邻读数 2→1 是 epoch 切换不是故障；totalToolCalls 跨回合单调。
+      'epoch': _epoch,
+      if (_resetAt != null) 'resetAt': _resetAt!.toIso8601String(),
+      'totalToolCalls': _totalToolCalls,
       'callsUsed': _allCalls,
       'callsCap': {
         'verify': _effectiveVerifyCallCap,
         'narrowRecovery': 3,
         'userGranted': _verifyCallExtension,
+        'autoGranted': _autoVerifyExtension,
+        'autoExtensions': _autoExtensionCount,
+        'autoExtensionMax': _autoExtensionLimit,
       },
       'tokenUsedEst': _tokenEstimate,
       'tokenCap': _effectiveTokenCap,
@@ -407,6 +567,11 @@ class ApkAnalysisGuard {
     final freshness = _asMap(payload['reportFreshness']);
     if (freshness != null) {
       _reportFreshness = freshness['status']?.toString() ?? _reportFreshness;
+    } else if (payload['reportFreshness'] is String &&
+        (payload['reportFreshness'] as String).trim().isNotEmpty) {
+      // F-37（2026-10-04）：policy 等自算方回传字符串口径（fresh/stale/…），
+      // 守卫照单全收——它的回显从此与报告工具同源。
+      _reportFreshness = (payload['reportFreshness'] as String).trim();
     } else if (name == LocalToolNames.apkReport && payload['error'] == null) {
       _reportFreshness = 'fresh';
     }
@@ -417,6 +582,10 @@ class ApkAnalysisGuard {
     ].where((value) => value.isNotEmpty).toList(growable: false);
     if (fingerprintParts.isNotEmpty) {
       _apkFingerprint = fingerprintParts.join('+');
+    } else {
+      // F-37：policy 回传的是 sha256 直读口径（无 pkg/version 拆分），照收。
+      final direct = payload['apkFingerprint']?.toString().trim() ?? '';
+      if (direct.isNotEmpty) _apkFingerprint = direct;
     }
     final flutter = _asMap(facts['flutterApp']);
     if (flutter != null && flutter['detected'] is bool) {
@@ -550,7 +719,10 @@ class ApkAnalysisGuard {
     Map<String, dynamic> payload,
     String? track,
   ) {
-    final error = payload['error']?.toString();
+    final errorValue = payload['error'];
+    final error = errorValue is Map
+        ? errorValue['code']?.toString()
+        : errorValue?.toString();
     final warning = _asMap(payload['warning']);
     final warningType = warning?['type']?.toString();
     final status = track == null ? null : _reportStatus[track];
@@ -725,21 +897,10 @@ class ApkAnalysisGuard {
     return tracks;
   }
 
-  static bool _containsTerms(String text, List<String> terms) => terms.any((
-    term,
-  ) {
-    final shortAscii =
-        term.length <= 3 &&
-        term.codeUnits.every(
-          (unit) =>
-              (unit >= 0x61 && unit <= 0x7a) || (unit >= 0x30 && unit <= 0x39),
-        );
-    return shortAscii
-        ? RegExp(
-            '(^|[^a-z0-9])${RegExp.escape(term)}([^a-z0-9]|\$)',
-          ).hasMatch(text)
-        : text.contains(term);
-  });
+  /// 词边界规则见 [containsAnyKeyword]（T4.2：与两个任务路由器共用一份
+  /// 实现，避免裸子串把 'isvip'、'apk' 之类的短词命中到无关文本上）。
+  static bool _containsTerms(String text, List<String> terms) =>
+      containsAnyKeyword(text, terms);
 
   static String _statusRecovery(String status) => switch (status) {
     'ambiguous' => '体系有歧义。一次展示前两类样本并询问用户已知文案、等级值或广告出现位置，不再自行加调用硬猜。',

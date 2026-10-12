@@ -1,3 +1,5 @@
+import '../../../core/services/local_tools/local_tool_names.dart';
+import '../../../utils/keyword_match.dart';
 import 'apk_agent_policy.dart';
 
 /// 根据用户目标选择最小的 APK 分析分区和工具集合。
@@ -12,12 +14,14 @@ class ApkTaskRouter {
     void add({
       required String name,
       String? skill,
+      List<String> skills = const <String>[],
       required List<String> sections,
       required List<String> tools,
     }) {
       tracks.add({
         'name': name,
         if (skill != null) 'skill': skill,
+        if (skills.isNotEmpty) 'skills': skills,
         'reportSections': sections,
         'preferredTools': tools,
         'knowledgeTopics': <String>[],
@@ -43,13 +47,15 @@ class ApkTaskRouter {
         skill: 'apk_ad_review',
         sections: ['decision', 'ads', 'components'],
         tools: [
-          'dex_search',
-          'class_outline',
-          'dex_xref',
-          'smali_read',
-          'so_analyze',
-          'patch_apk_dex_methods',
-          'patch_apk_manifest',
+          LocalToolNames.dexSearch,
+          LocalToolNames.classOutline,
+          LocalToolNames.dexXref,
+          LocalToolNames.smaliRead,
+          LocalToolNames.soAnalyze,
+          LocalToolNames.apkPatchDex,
+          LocalToolNames.apkPatchDexStrings,
+          LocalToolNames.apkPatchManifest,
+          LocalToolNames.runTaskCommand,
         ],
       );
       tracks.last['knowledgeTopics'] = ['广告', '定位', '工具'];
@@ -75,9 +81,13 @@ class ApkTaskRouter {
         skill: 'apk_change_plan',
         sections: ['decision', 'ads'],
         tools: [
-          'get_current_apk_report',
-          'analyze_apk_workspace',
-          'so_analyze',
+          LocalToolNames.apkReport,
+          LocalToolNames.apkAnalyzeWorkspace,
+          // B 类固定链入口：字段状态定位（FIELD_STATE_LOCATE）是本轨道
+          // 的首选执行路径——此前 preferredTools 从不含它，端内 Agent
+          // 点名也不注入（复测实测 5 轮 unknown_function）。
+          LocalToolNames.runTaskCommand,
+          LocalToolNames.soAnalyze,
         ],
       );
       tracks.last['knowledgeTopics'] = ['会员', '检测', '定位'];
@@ -99,16 +109,90 @@ class ApkTaskRouter {
         name: '抓包与网络检测',
         skill: 'apk_change_plan',
         sections: ['decision'],
-        tools: ['get_current_apk_report', 'so_analyze'],
+        tools: [LocalToolNames.apkReport, LocalToolNames.soAnalyze],
       );
       tracks.last['knowledgeTopics'] = ['抓包', '代理', '证书', '定位'];
+    }
+    if (_containsAny(query, [
+      '加密',
+      '解密',
+      'crypto',
+      'cipher',
+      'aes',
+      'rsa',
+      '签名校验',
+    ])) {
+      add(
+        name: '加解密实现审查',
+        sections: ['decision'],
+        tools: [LocalToolNames.soAnalyze, LocalToolNames.dexSearch, LocalToolNames.classOutline, LocalToolNames.dexXref],
+      );
+      tracks.last['knowledgeTopics'] = ['加密', '解密', 'JNI', '定位'];
+    }
+    if (_containsAny(query, [
+      'vpn',
+      '代理检测',
+      '模拟器',
+      '虚拟机',
+      '设备检测',
+      '截屏',
+      '录屏',
+      'screen capture',
+      'media projection',
+    ])) {
+      add(
+        name: '环境与屏幕策略审查',
+        sections: ['decision', 'components'],
+        tools: [
+          LocalToolNames.dexSearch,
+          LocalToolNames.classOutline,
+          LocalToolNames.dexXref,
+          LocalToolNames.smaliRead,
+          LocalToolNames.soAnalyze,
+        ],
+      );
+      tracks.last['knowledgeTopics'] = ['设备检测', '屏幕策略', '定位'];
+    }
+    if (_containsAny(query, [
+      '公告',
+      '弹窗',
+      '更新',
+      '登录',
+      '登录页',
+      '强制更新',
+      'dialog',
+      'update',
+      'login',
+    ])) {
+      add(
+        name: '界面与登录流程审查',
+        sections: ['decision', 'components'],
+        tools: [LocalToolNames.dexSearch, LocalToolNames.classOutline, LocalToolNames.dexXref, LocalToolNames.smaliRead],
+      );
+      tracks.last['knowledgeTopics'] = ['公告', '弹窗', '更新', '登录', '定位'];
+    }
+    if (_containsAny(query, [
+      '脱壳',
+      '加固',
+      '壳',
+      'packer',
+      'packed',
+      'unpack',
+      'shell',
+    ])) {
+      add(
+        name: '加固与运行时载荷审查',
+        sections: ['summary', 'files'],
+        tools: [LocalToolNames.apkAnalyzeWorkspace, LocalToolNames.soAnalyze, LocalToolNames.dexSearch, LocalToolNames.file],
+      );
+      tracks.last['knowledgeTopics'] = ['加固壳', '动态加载', 'SO', '定位'];
     }
     if (_containsAny(query, ['权限', '组件', 'manifest', '导出'])) {
       add(
         name: '组件与权限',
         skill: 'apk_permission_review',
         sections: ['decision', 'permissions', 'components'],
-        tools: ['patch_apk_manifest'],
+        tools: [LocalToolNames.apkPatchManifest],
       );
       tracks.last['knowledgeTopics'] = ['权限', '组件', '修改计划'];
     }
@@ -117,7 +201,7 @@ class ApkTaskRouter {
         name: '安装包精简',
         skill: 'apk_cleanup_review',
         sections: ['decision', 'files'],
-        tools: ['file', 'apk_rebuild', 'apk_sign'],
+        tools: [LocalToolNames.file, LocalToolNames.apkRebuild, LocalToolNames.apkSign],
       );
       tracks.last['knowledgeTopics'] = ['精简', '引用分析', 'SO'];
     }
@@ -126,7 +210,12 @@ class ApkTaskRouter {
         name: '签名与验证',
         skill: 'apk_verify_patch',
         sections: ['summary', 'components'],
-        tools: ['get_current_apk_report', 'signature_bypass', 'apk_sign'],
+        tools: [
+          LocalToolNames.apkReport,
+          LocalToolNames.apkSignatureBypass,
+          LocalToolNames.apkSign,
+          LocalToolNames.runTaskCommand,
+        ],
       );
       tracks.last['knowledgeTopics'] = ['签名', '验证', '加固', '去签'];
     }
@@ -145,7 +234,17 @@ class ApkTaskRouter {
         name: '逆向与混淆定位',
         skill: 'apk_reverse_playbook',
         sections: ['decision'],
-        tools: ['dex_search', 'class_outline', 'smali_read', 'dex_xref'],
+        tools: [
+          LocalToolNames.dexSearch,
+          LocalToolNames.classOutline,
+          LocalToolNames.smaliRead,
+          LocalToolNames.dexXref,
+          LocalToolNames.jadxDecompile,
+          LocalToolNames.stringScan,
+          // 字段状态定位固定链入口（同「会员与检测」轨道：缺失会让端内
+          // Agent 永远收不到 B 类链声明）。
+          LocalToolNames.runTaskCommand,
+        ],
       );
       tracks.last['knowledgeTopics'] = ['逆向', '混淆', '定位'];
     }
@@ -153,7 +252,29 @@ class ApkTaskRouter {
     // 关键词刻意收窄：'so'/'dart' 等裸短词会误匹配英文子串，一律用带边界
     // 的 token（.so 后缀/中文词），宁可少命中交给基础分析兜底也不误路由。
     if (_containsAny(query, ['.so', 'so文件', 'so库', 'native', 'elf', '动态库'])) {
-      add(name: 'SO 分析', sections: <String>[], tools: ['so_analyze']);
+      add(
+        name: 'SO 分析',
+        // 2026-09-14：SO 轨道此前无技能绑定——三个 SO 方法论技能（符号恢复/
+        // 结构体恢复/模拟执行预验证）来自 reverse-skills（MIT）改写，作为
+        // 轨道默认技能激活；正文按需 get_solab_skill 读取。
+        skills: const [
+          'apk_symbol_recovery',
+          'apk_struct_recovery',
+          'apk_emulation_verify',
+        ],
+        sections: <String>[],
+        tools: [
+          LocalToolNames.soAnalyze,
+          // SO 补丁写回工具：so_analyze 的写侧对应物，漏推荐会让 SO 修改
+          // 意图永远拿不到工具声明（tier2 覆盖守卫拦截项）。
+          LocalToolNames.soPatchIntoApk,
+          // Frida 动态插桩：registry 已声明它属于 soAnalysis/dexNative 轨
+          // （local_tool_registry.dart:391），但首选工具里一直没有它 —— 又是
+          // 一个 tier2 覆盖缺口：不推荐则端内 Agent 永远收不到 frida 的声明
+          // （与 run_task_command 事故同型，2026-09-29 覆盖守卫实测捕获）。
+          LocalToolNames.frida,
+        ],
+      );
       tracks.last['knowledgeTopics'] = ['SO', 'Rizin', '定位'];
     }
     if (_containsAny(query, ['flutter', 'libapp', 'blutter'])) {
@@ -161,12 +282,12 @@ class ApkTaskRouter {
         name: 'Flutter 逆向',
         skill: 'apk_flutter_locate',
         sections: <String>[],
-        tools: ['so_analyze'],
+        tools: [LocalToolNames.soAnalyze],
       );
       tracks.last['knowledgeTopics'] = ['Flutter', 'Blutter', 'SO'];
     }
     if (_containsAny(query, ['文件管理', '文件操作', '解压', '压缩', 'zip', '工作目录'])) {
-      add(name: '文件操作', sections: <String>[], tools: ['file']);
+      add(name: '文件操作', sections: <String>[], tools: [LocalToolNames.file]);
       tracks.last['knowledgeTopics'] = ['文件', '工作目录'];
     }
     if (tracks.isEmpty) {
@@ -174,7 +295,7 @@ class ApkTaskRouter {
         name: '基础分析',
         skill: 'apk_base_analysis',
         sections: ['decision'],
-        tools: ['get_current_apk_report'],
+        tools: [LocalToolNames.apkReport],
       );
       tracks.last['knowledgeTopics'] = ['分析', '定位', '工具'];
     }
@@ -184,7 +305,15 @@ class ApkTaskRouter {
       'executionMode': executionMode.name,
       'allowedBoundary': switch (executionMode) {
         ApkExecutionMode.reportOnly => '只读取现有事实并输出报告, 不启动修改或产物流程。',
-        ApkExecutionMode.analyzeOnly => '只分析并输出结论, 不预览或执行任何修改。',
+        // F-47（2026-10-04）：这里只陈述**授权**，不断言工具面事实——写工具
+        // 实际都已下发且带完整 schema（真机 v8 D12：同轮 get_solab_tool_map
+        // (filter=write) 列出 11 个写工具全 declaredNow:true），旧文案「未下发」
+        // 会让人误答「我现在没有改包工具」。能力清单以 get_solab_tool_map 为
+        // 单一事实源。
+        ApkExecutionMode.analyzeOnly =>
+          '本次 goal 为分析模式：只分析并输出结论，不预览或执行任何修改。'
+              '写类工具（写回/签名/去签）已下发但**本 goal 未授权调用**；'
+              '需要改包时把 route_task 的 goal 写成含「修改/写入/回填/重打包/签名」的目标重跑一次。',
         ApkExecutionMode.modify => '可按证据执行用户明确要求的修改并生成产物。',
       },
       'tracks': tracks,
@@ -215,17 +344,17 @@ class ApkTaskRouter {
         {
           'name': '字符串或资源锚点',
           'canStartAlone': true,
-          'tools': ['dex_search', 'string_scan', 'so_analyze(search/xref)'],
+          'tools': [LocalToolNames.dexSearch, LocalToolNames.stringScan, 'so_analyze(search/xref)'],
           'produces': ['字符串使用者', '对象池偏移', '资源到代码引用'],
         },
         {
           'name': '结构与数据流',
           'canStartAlone': true,
           'tools': [
-            'class_outline',
-            'dex_xref',
+            LocalToolNames.classOutline,
+            LocalToolNames.dexXref,
             'analyzer_find_field_usage',
-            'smali_read',
+            LocalToolNames.smaliRead,
           ],
           'produces': ['字段读写者', '调用关系', '返回类型与真实分支'],
         },
@@ -238,7 +367,7 @@ class ApkTaskRouter {
         {
           'name': '产物或对照差异',
           'canStartAlone': true,
-          'tools': ['file', 'get_current_apk_report'],
+          'tools': [LocalToolNames.file, LocalToolNames.apkReport],
           'produces': ['当前产物事实', '版本差异', '已有精确定位符'],
         },
       ],
@@ -259,6 +388,7 @@ class ApkTaskRouter {
         '任一证据路线可单独执行；结果不够区分假设时，再组合另一条独立路线。',
         'Blutter 专项 report 可直接复用；REPORT_NOT_READY 时可 locate，确无成功索引时才 analyze。缓存规则只避免重复计算，不限制证据路线。',
         '写入前只预览选中的工具；用户已授权精确修改时用 dryRun=true+applyAfterPreview=true 一次完成。纯预览则原样调用返回的 applyArguments，禁止重复 dryRun。',
+        '交付链路是 一次分析→修改→签名→成品；签名落地后中间包已自动清理。修改无效时直接在上一版成品上叠改（它就是新基底）：不重跑 analyze_apk_workspace、不重做签名兼容、不从原包重开。',
       ],
       'performanceRule':
           '默认只返回结论、定位符、关键证据和下一种可区分假设的动作。工具说明按需读取；长清单只在用户明确要求导出时分页。约${ApkAgentPolicy.maxEvidenceTokens} token结果文本是防失控上限，不是要求用满的步骤预算。',
@@ -267,8 +397,8 @@ class ApkTaskRouter {
           tracks.any((track) => track['name'] == '会员与检测'))
         'dualTargetPolicy': {
           'shared': [
-            'route_task',
-            'get_apk_project_info',
+            LocalToolNames.routeTask,
+            LocalToolNames.apkProjectInfo,
             'get_current_apk_report(section=decision)',
             '同一 APK 的一次 Blutter analyze/index',
           ],
@@ -290,18 +420,8 @@ class ApkTaskRouter {
     };
   }
 
-  static bool _containsAny(String text, List<String> values) => values.any((
-    value,
-  ) {
-    final shortAscii =
-        value.length <= 3 &&
-        value.codeUnits.every(
-          (unit) =>
-              (unit >= 0x61 && unit <= 0x7a) || (unit >= 0x30 && unit <= 0x39),
-        );
-    return shortAscii
-        ? RegExp('(^|[^a-z0-9])${RegExp.escape(value)}([^a-z0-9]|\$)')
-              .hasMatch(text)
-        : text.contains(value);
-  });
+  /// 词边界规则见 [containsAnyKeyword]（T4.2：三个路由器共用一份实现，
+  /// 不再各自复制这段正则）。
+  static bool _containsAny(String text, List<String> values) =>
+      containsAnyKeyword(text, values);
 }

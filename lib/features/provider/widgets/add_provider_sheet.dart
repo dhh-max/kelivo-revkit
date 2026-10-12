@@ -1,3 +1,5 @@
+import 'oauth_login_panel.dart';
+import '../pages/oauth_provider_detail_page.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
@@ -8,9 +10,10 @@ import '../../../core/providers/settings_provider.dart';
 import '../../../icons/lucide_adapter.dart';
 import 'package:file_picker/file_picker.dart';
 import '../../../l10n/app_localizations.dart';
-import '../../../core/services/haptics.dart';
+import 'package:Kelivo/shared/services/haptics.dart';
 import '../../../shared/widgets/ios_tile_button.dart';
 import 'package:Kelivo/theme/app_font_weights.dart';
+import 'package:Kelivo/theme/app_semantic_colors.dart';
 
 Future<String?> showAddProviderSheet(BuildContext context) async {
   final cs = Theme.of(context).colorScheme;
@@ -49,6 +52,25 @@ class _AddProviderSheetState extends State<_AddProviderSheet>
   void dispose() {
     _tab.removeListener(_onTabChanged);
     _tab.dispose();
+    // 13 个输入框控制器必须一并释放；旧实现只处理了 _tab，
+    // 每次开关这个弹层都会漏掉一批 TextEditingController。
+    for (final controller in <TextEditingController>[
+      _openaiName,
+      _openaiKey,
+      _openaiBase,
+      _openaiPath,
+      _googleName,
+      _googleKey,
+      _googleBase,
+      _googleLocation,
+      _googleProject,
+      _googleSaJson,
+      _claudeName,
+      _claudeKey,
+      _claudeBase,
+    ]) {
+      controller.dispose();
+    }
     super.dispose();
   }
 
@@ -99,7 +121,6 @@ class _AddProviderSheetState extends State<_AddProviderSheet>
     bool obscure = false,
     bool enabled = true,
   }) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final cs = Theme.of(context).colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -119,7 +140,7 @@ class _AddProviderSheetState extends State<_AddProviderSheet>
           decoration: InputDecoration(
             hintText: hint,
             filled: true,
-            fillColor: isDark ? Colors.white10 : Colors.white,
+            fillColor: context.appColors.surfaceCard,
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
               borderSide: BorderSide(
@@ -146,44 +167,6 @@ class _AddProviderSheetState extends State<_AddProviderSheet>
     );
   }
 
-  late final TextEditingController _ollamaName = TextEditingController(
-    text: 'Ollama',
-  );
-  late final TextEditingController _ollamaBase = TextEditingController(
-    text: 'http://localhost:11434',
-  );
-  late final TextEditingController _ollamaPath = TextEditingController(
-    text: '/v1/chat/completions',
-  );
-
-  Widget _ollamaForm(AppLocalizations l10n) {
-    return _iosCard(
-      children: [
-        _inputRow(label: l10n.addProviderSheetNameLabel, controller: _ollamaName),
-        const SizedBox(height: 12),
-        _inputRow(label: 'Ollama Base URL', controller: _ollamaBase, hint: 'http://localhost:11434'),
-        const SizedBox(height: 12),
-        _inputRow(label: 'API Path', controller: _ollamaPath, hint: '/v1/chat/completions'),
-        const SizedBox(height: 12),
-        _infoText('Install Ollama and run: ollama pull qwen3.5:9b, then connect here'),
-      ],
-    );
-  }
-
-  Widget _infoText(String text) {
-    final cs = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.only(top: 4),
-      child: Text(
-        text,
-        style: TextStyle(
-          fontSize: 12,
-          color: cs.onSurface.withValues(alpha: 0.5),
-        ),
-      ),
-    );
-  }
-
   Widget _switchRow({
     required String label,
     required bool value,
@@ -207,7 +190,7 @@ class _AddProviderSheetState extends State<_AddProviderSheet>
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       decoration: BoxDecoration(
-        color: isDark ? Colors.white10 : Colors.white.withValues(alpha: 0.96),
+        color: context.appColors.surfaceCard,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: cs.outlineVariant.withValues(alpha: isDark ? 0.08 : 0.06),
@@ -555,7 +538,7 @@ class _AddProviderSheetState extends State<_AddProviderSheet>
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: _SegTabBar(
                   controller: _tab,
-                  tabs: const ['OpenAI', 'Google', 'Claude', 'Ollama'],
+                  tabs: ['OpenAI', 'Google', 'Claude', l10n.oauthAccountsTab],
                 ),
               ),
               const SizedBox(height: 12),
@@ -574,7 +557,11 @@ class _AddProviderSheetState extends State<_AddProviderSheet>
                               if (idx == 0) _openaiForm(l10n),
                               if (idx == 1) _googleForm(l10n),
                               if (idx == 2) _claudeForm(l10n),
-                              if (idx == 3) _ollamaForm(l10n),
+                              if (idx == 3)
+                                OAuthLoginPanel(
+                                  onViewDetails: (id) =>
+                                      showOAuthProviderDetails(context, id),
+                                ),
                             ],
                           );
                         },
@@ -584,20 +571,21 @@ class _AddProviderSheetState extends State<_AddProviderSheet>
                   ),
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: IosTileButton(
-                    icon: Lucide.Plus,
-                    label: l10n.addProviderSheetAddButton,
-                    backgroundColor: cs.primary,
-                    // No need to set foreground/border; component tints background lightly,
-                    // uses theme color for text, and draws a subtle same-hue border.
-                    onTap: _onAdd,
+              if (_tab.index < 3)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: IosTileButton(
+                      icon: Lucide.Plus,
+                      label: l10n.addProviderSheetAddButton,
+                      backgroundColor: cs.primary,
+                      // No need to set foreground/border; component tints background lightly,
+                      // uses theme color for text, and draws a subtle same-hue border.
+                      onTap: _onAdd,
+                    ),
                   ),
                 ),
-              ),
             ],
           ),
         ),
@@ -611,7 +599,6 @@ class _AddProviderSheetState extends State<_AddProviderSheet>
     String? hint,
     List<Widget>? actions,
   }) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final cs = Theme.of(context).colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -638,7 +625,7 @@ class _AddProviderSheetState extends State<_AddProviderSheet>
           decoration: InputDecoration(
             hintText: hint,
             filled: true,
-            fillColor: isDark ? Colors.white10 : Colors.white,
+            fillColor: context.appColors.surfaceCard,
             border: const OutlineInputBorder(
               borderRadius: BorderRadius.all(Radius.circular(12)),
               borderSide: BorderSide(color: Colors.transparent),
@@ -701,7 +688,7 @@ class _SegTabBar extends StatelessWidget {
     const double outerHeight = 44;
     const double innerPadding = 4;
     const double gap = 6;
-    const double minSegWidth = 88;
+    const double minSegWidth = 76;
     final double pillRadius = 18;
     final double innerRadius = ((pillRadius - innerPadding).clamp(
       0.0,
@@ -720,8 +707,8 @@ class _SegTabBar extends StatelessWidget {
             segWidth * tabs.length + gap * (tabs.length - 1);
 
         final Color shellBg = isDark
-            ? Colors.white.withValues(alpha: 0.08)
-            : Colors.white;
+            ? context.appColors.surfaceFill
+            : context.appColors.surfaceCard;
 
         List<Widget> children = [];
         for (int index = 0; index < tabs.length; index++) {
@@ -744,7 +731,7 @@ class _SegTabBar extends StatelessWidget {
                       ? cs.primary
                       : cs.onSurface.withValues(alpha: 0.82);
                   final Color targetTextColor = pressed
-                      ? Color.lerp(baseTextColor, Colors.white, 0.22) ??
+                      ? Color.lerp(baseTextColor, cs.surface, 0.22) ??
                             baseTextColor
                       : baseTextColor;
 

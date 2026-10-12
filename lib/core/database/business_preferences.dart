@@ -333,4 +333,3 @@ final class BusinessPreferences {
     return value;
   }
 }
-

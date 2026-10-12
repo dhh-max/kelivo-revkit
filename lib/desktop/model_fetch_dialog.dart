@@ -4,12 +4,14 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 import '../core/providers/settings_provider.dart';
 import '../core/providers/model_provider.dart';
+import '../core/services/model_spec/model_spec_resolver.dart';
 import '../l10n/app_localizations.dart';
 import '../icons/lucide_adapter.dart' as lucide;
 import '../utils/brand_assets.dart';
 import '../utils/model_grouping.dart';
 import '../shared/widgets/model_tag_wrap.dart';
 import '../theme/app_font_weights.dart';
+import 'package:Kelivo/theme/app_semantic_colors.dart';
 
 Future<void> showModelFetchDialog(
   BuildContext context, {
@@ -20,7 +22,7 @@ Future<void> showModelFetchDialog(
     context: context,
     barrierDismissible: true,
     barrierLabel: 'model-fetch-dialog',
-    barrierColor: Colors.black.withValues(alpha: 0.25),
+    barrierColor: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.25),
     pageBuilder: (ctx, _, __) {
       return _ModelFetchDialogBody(
         providerKey: providerKey,
@@ -56,7 +58,7 @@ class _ModelFetchDialogBodyState extends State<_ModelFetchDialogBody> {
   final TextEditingController _searchCtrl = TextEditingController();
   bool _loading = true;
   String _error = '';
-  List<ModelInfo> _items = const [];
+  List<ModelSpec> _items = const [];
   final Map<String, bool> _collapsed = <String, bool>{};
 
   @override
@@ -85,16 +87,17 @@ class _ModelFetchDialogBodyState extends State<_ModelFetchDialogBody> {
     final bool restrictToFree = isDefaultSilicon && !hasUserKey;
     try {
       if (restrictToFree) {
-        final list = <ModelInfo>[
-          ModelRegistry.infer(
-            ModelInfo(
-              id: 'THUDM/GLM-4-9B-0414',
-              displayName: 'THUDM/GLM-4-9B-0414',
-            ),
-          ),
-          ModelRegistry.infer(
-            ModelInfo(id: 'Qwen/Qwen3-8B', displayName: 'Qwen/Qwen3-8B'),
-          ),
+        final list = <ModelSpec>[
+          ModelSpecResolver.instance
+              .resolve(
+                cfg,
+                'THUDM/GLM-4-9B-0414',
+                displayName: 'THUDM/GLM-4-9B-0414',
+              )
+              .spec,
+          ModelSpecResolver.instance
+              .resolve(cfg, 'Qwen/Qwen3-8B', displayName: 'Qwen/Qwen3-8B')
+              .spec,
         ];
         setState(() {
           _items = list;
@@ -120,7 +123,7 @@ class _ModelFetchDialogBodyState extends State<_ModelFetchDialogBody> {
     }
   }
 
-  String _groupFor(BuildContext context, ModelInfo m) {
+  String _groupFor(BuildContext context, ModelSpec m) {
     final l10n = AppLocalizations.of(context)!;
     return ModelGrouping.groupFor(
       m,
@@ -138,7 +141,7 @@ class _ModelFetchDialogBodyState extends State<_ModelFetchDialogBody> {
 
     // Compute header filtered list and selection state for toggle icon
     final headerQuery = _searchCtrl.text.trim().toLowerCase();
-    final headerFiltered = <ModelInfo>[
+    final headerFiltered = <ModelSpec>[
       for (final m in _items)
         if (headerQuery.isEmpty ||
             m.id.toLowerCase().contains(headerQuery) ||
@@ -164,13 +167,13 @@ class _ModelFetchDialogBodyState extends State<_ModelFetchDialogBody> {
           maxHeight: 720,
         ),
         child: Material(
-          color: cs.surface,
+          color: context.overlaySurface,
           elevation: 0,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
             side: BorderSide(
               color: isDark
-                  ? Colors.white.withValues(alpha: 0.08)
+                  ? cs.onSurface.withValues(alpha: 0.08)
                   : cs.outlineVariant.withValues(alpha: 0.25),
               width: 1,
             ),
@@ -183,7 +186,7 @@ class _ModelFetchDialogBodyState extends State<_ModelFetchDialogBody> {
                 // Title bar with inset divider
                 Container(
                   height: 48,
-                  decoration: BoxDecoration(color: cs.surface),
+                  decoration: BoxDecoration(color: context.overlaySurface),
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
                     child: Row(
@@ -215,7 +218,7 @@ class _ModelFetchDialogBodyState extends State<_ModelFetchDialogBody> {
                 // Body area uses desktop surface background
                 Expanded(
                   child: Container(
-                    color: cs.surface,
+                    color: context.overlaySurface,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -228,9 +231,7 @@ class _ModelFetchDialogBodyState extends State<_ModelFetchDialogBody> {
                               hintText: l10n.providerDetailPageFilterHint,
                               isDense: true,
                               filled: true,
-                              fillColor: isDark
-                                  ? Colors.white10
-                                  : const Color(0xFFF2F3F5),
+                              fillColor: context.appColors.surfaceFill,
                               prefixIcon: Icon(
                                 lucide.Lucide.Search,
                                 size: 18,
@@ -292,7 +293,7 @@ class _ModelFetchDialogBodyState extends State<_ModelFetchDialogBody> {
                                           final q = _searchCtrl.text
                                               .trim()
                                               .toLowerCase();
-                                          final filtered = <ModelInfo>[
+                                          final filtered = <ModelSpec>[
                                             for (final m in _items)
                                               if (q.isEmpty ||
                                                   m.id.toLowerCase().contains(
@@ -363,7 +364,7 @@ class _ModelFetchDialogBodyState extends State<_ModelFetchDialogBody> {
                                         final q = _searchCtrl.text
                                             .trim()
                                             .toLowerCase();
-                                        final filtered = <ModelInfo>[
+                                        final filtered = <ModelSpec>[
                                           for (final m in _items)
                                             if (q.isEmpty ||
                                                 m.id.toLowerCase().contains(
@@ -458,7 +459,7 @@ class _ModelFetchDialogBodyState extends State<_ModelFetchDialogBody> {
         .toSet();
 
     final q = _searchCtrl.text.trim().toLowerCase();
-    final filtered = <ModelInfo>[
+    final filtered = <ModelSpec>[
       for (final m in _items)
         if (q.isEmpty ||
             m.id.toLowerCase().contains(q) ||
@@ -466,7 +467,7 @@ class _ModelFetchDialogBodyState extends State<_ModelFetchDialogBody> {
           m,
     ];
 
-    final Map<String, List<ModelInfo>> grouped = {};
+    final Map<String, List<ModelSpec>> grouped = {};
     for (final m in filtered) {
       final g = _groupFor(context, m);
       (grouped[g] ??= []).add(m);
@@ -494,9 +495,7 @@ class _ModelFetchDialogBodyState extends State<_ModelFetchDialogBody> {
                 );
                 return Container(
                   decoration: BoxDecoration(
-                    color: Theme.of(context).brightness == Brightness.dark
-                        ? Colors.white10
-                        : const Color(0xFFF2F3F5),
+                    color: context.appColors.surfaceFill,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Padding(
@@ -613,7 +612,7 @@ class _ModelFetchDialogBodyState extends State<_ModelFetchDialogBody> {
     );
   }
 
-  Widget _modelRow(BuildContext context, ModelInfo m) {
+  Widget _modelRow(BuildContext context, ModelSpec m) {
     final cs = Theme.of(context).colorScheme;
     final settings = context.read<SettingsProvider>();
     final selected = settings
@@ -712,14 +711,14 @@ class _TactileRowState extends State<_TactileRow> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final overlay = () {
       if (_pressed) {
-        return isDark
-            ? Colors.white.withValues(alpha: 0.08)
-            : Colors.black.withValues(alpha: 0.06);
+        return Theme.of(
+          context,
+        ).colorScheme.onSurface.withValues(alpha: isDark ? 0.08 : 0.06);
       }
       if (_hovered) {
-        return isDark
-            ? Colors.white.withValues(alpha: 0.04)
-            : Colors.black.withValues(alpha: 0.03);
+        return Theme.of(
+          context,
+        ).colorScheme.onSurface.withValues(alpha: isDark ? 0.04 : 0.03);
       }
       return Colors.transparent;
     }();
@@ -771,9 +770,9 @@ class _BrandAvatar extends StatelessWidget {
     Widget inner;
     if (asset != null) {
       if (asset.endsWith('.svg')) {
-        final isColorful = asset.contains('color');
-        final ColorFilter? tint = (isDark && !isColorful)
-            ? const ColorFilter.mode(Colors.white, BlendMode.srcIn)
+        final ColorFilter? tint =
+            (isDark && BrandAssets.assetNeedsDarkInvert(asset))
+            ? ColorFilter.mode(cs.onSurface, BlendMode.srcIn)
             : null;
         inner = SvgPicture.asset(
           asset,
@@ -803,7 +802,7 @@ class _BrandAvatar extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: isDark ? Colors.white10 : cs.primary.withValues(alpha: 0.1),
+        color: cs.primary.withValues(alpha: isDark ? 0.18 : 0.1),
         shape: BoxShape.circle,
       ),
       alignment: Alignment.center,

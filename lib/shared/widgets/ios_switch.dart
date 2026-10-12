@@ -2,7 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart'
     show Theme; // for Material color scheme primary
-import '../../core/services/haptics.dart';
+import 'package:Kelivo/shared/services/haptics.dart';
 import 'package:provider/provider.dart';
 import '../../core/providers/settings_provider.dart';
 
@@ -57,23 +57,22 @@ class _IosSwitchState extends State<IosSwitch> {
 
   @override
   Widget build(BuildContext context) {
-    final brightness = CupertinoTheme.brightnessOf(context);
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
     // Prefer Material color scheme primary to better match app theme; fall back to Cupertino default
-    final primary =
-        widget.activeColor ?? (Theme.of(context).colorScheme.primary);
+    final primary = widget.activeColor ?? cs.primary;
 
-    final bool isDark = brightness == Brightness.dark;
+    final bool isDark = theme.brightness == Brightness.dark;
     final bool isOn = widget.value;
 
-    // Track color when OFF; dark mode uses a deeper fill
+    // Track color when OFF; dark mode uses a deeper fill.
+    // Matches the original Cupertino look (light: black @ ~0.08,
+    // dark: systemGrey6 #1C1C1E) derived from the active scheme.
     final Color offTrack =
         widget.inactiveColor ??
         (isDark
-            ? CupertinoDynamicColor.resolve(
-                CupertinoColors.systemGrey6,
-                context,
-              )
-            : const Color(0x14000000)); // subtle black overlay on light
+            ? Color.alphaBlend(cs.onSurface.withValues(alpha: 0.02), cs.surface)
+            : cs.onSurface.withValues(alpha: 0.08));
 
     final bool enabled = widget.onChanged != null;
     final double radius = widget.height / 2;
@@ -92,32 +91,32 @@ class _IosSwitchState extends State<IosSwitch> {
       color: offTrack,
       borderRadius: BorderRadius.circular(radius),
       border: Border.all(
-        color:
-            (brightness == Brightness.dark
-                    ? CupertinoColors.systemGrey3
-                    : CupertinoColors.systemGrey4)
-                .withValues(alpha: enabled ? 0.65 : 0.35),
+        // systemGrey3/4 @ 0.65/0.35 in the original design; outlineVariant is
+        // pure black/white in some palettes, so derive from onSurface instead.
+        color: cs.onSurface.withValues(
+          alpha: (isDark ? 0.24 : 0.20) * (enabled ? 0.65 : 0.35),
+        ),
         width: 1,
       ),
     );
 
-    // Thumb color:
-    // - Dark + OFF: medium grey for thumb
-    // - Dark + ON: keep prior non-white thumb to match design
+    // Thumb color (matches the original Cupertino greys):
+    // - Dark + OFF: medium grey (#636366)
+    // - Dark + ON: deep grey (#1C1C1E)
     // - Light: white thumb
     final Color thumb =
         widget.thumbColor ??
         (isDark
             ? (isOn
-                  ? CupertinoDynamicColor.resolve(
-                      CupertinoColors.systemGrey6,
-                      context,
+                  ? Color.alphaBlend(
+                      cs.onSurface.withValues(alpha: 0.02),
+                      cs.surface,
                     )
-                  : CupertinoDynamicColor.resolve(
-                      CupertinoColors.systemGrey2,
-                      context,
+                  : Color.alphaBlend(
+                      cs.onSurface.withValues(alpha: 0.36),
+                      cs.surface,
                     ))
-            : CupertinoColors.white);
+            : cs.surfaceContainerLowest);
 
     return Semantics(
       label: widget.semanticLabel,

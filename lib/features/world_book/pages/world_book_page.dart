@@ -9,14 +9,17 @@ import 'package:uuid/uuid.dart';
 
 import '../../../core/models/world_book.dart';
 import '../../../core/providers/world_book_provider.dart';
-import '../../../core/services/haptics.dart';
+import 'package:Kelivo/shared/services/haptics.dart';
 import '../../../icons/lucide_adapter.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/ios_form_text_field.dart';
 import '../../../shared/widgets/ios_switch.dart';
 import '../../../shared/widgets/ios_tactile.dart';
+import '../../../shared/widgets/settings_section.dart';
 import '../../../shared/widgets/snackbar.dart';
 import '../../../theme/app_font_weights.dart';
+import 'package:Kelivo/theme/app_semantic_colors.dart';
+import 'package:Kelivo/features/world_book/widgets/world_book_entry_widgets.dart';
 
 class WorldBookPage extends StatefulWidget {
   const WorldBookPage({super.key});
@@ -313,7 +316,7 @@ class _WorldBookPageState extends State<WorldBookPage> {
               onPressed: () => Navigator.of(ctx).pop(true),
               child: Text(
                 l10n.worldBookDelete,
-                style: TextStyle(color: Colors.red),
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ),
           ],
@@ -489,7 +492,10 @@ class _WorldBookPageState extends State<WorldBookPage> {
                         );
                       },
                       onReorderEntries: (oldEntryIndex, newEntryIndex) async {
-                        if (newEntryIndex > oldEntryIndex) newEntryIndex -= 1;
+                        // 不要在这里做 `newIndex -= 1` 调整：上游的
+                        // ReorderableListView 回调语义已由此处消费方约定
+                        // （provider.reorderEntries 按最终位置处理），
+                        // 多减一次会让下移一格变成原地不动。
                         Haptics.light();
                         await context.read<WorldBookProvider>().reorderEntries(
                           bookId: book.id,
@@ -754,6 +760,16 @@ class _WorldBookSection extends StatelessWidget {
               ),
             ),
           ),
+          const SizedBox(width: 6),
+          // 已启用条目 / 总条目数（上游头部摘要）。
+          Text(
+            '${book.enabledEntryCount}/${book.entries.length}',
+            style: TextStyle(
+              fontSize: 12,
+              color: cs.onSurface.withValues(alpha: 0.6),
+            ),
+          ),
+          const SizedBox(width: 4),
           _HeaderIconButton(
             icon: Lucide.Plus,
             tooltip: l10n.worldBookAddEntry,
@@ -825,18 +841,32 @@ class _WorldBookSection extends StatelessWidget {
               label: entryTitle,
               detailText: detail,
               enabled: entry.enabled,
-              icon: Lucide.Bookmark,
+              icon: Lucide.GripVertical,
+              // 条目标题 + 位置徽标（上游）：徽标展示注入位置/深度，
+              // 缺失会让条目行只剩纯文本标签。
+              title: WorldBookEntryTitle(entry: entry),
+              // 行尾启用开关（上游）：条目的开/关必须就地可切。
+              trailing: IosSwitch(
+                value: entry.enabled,
+                onChanged: (enabled) {
+                  context.read<WorldBookProvider>().setEntryEnabled(
+                    book.id,
+                    entry.id,
+                    enabled,
+                  );
+                },
+              ),
               onTap: () => onEditEntry(entry),
               onLongPress: () => showEntryActions(entry),
               leadingBuilder: (color) {
-                final icon = Icon(Lucide.Bookmark, size: 20, color: color);
+                final icon = Icon(Lucide.GripVertical, size: 20, color: color);
                 if (!canReorder) return icon;
-                final handle = isDesktop
-                    ? ReorderableDragStartListener(index: index, child: icon)
-                    : ReorderableDelayedDragStartListener(
-                        index: index,
-                        child: icon,
-                      );
+                // 条目级手柄统一用立即拖动（上游同款）：移动端若用延迟版，
+                // 长按会被条目的 onLongPress 抢走，拖不动。
+                final handle = ReorderableDragStartListener(
+                  index: index,
+                  child: icon,
+                );
                 return isDesktop
                     ? MouseRegion(
                         cursor: SystemMouseCursors.grab,
@@ -851,7 +881,6 @@ class _WorldBookSection extends StatelessWidget {
               child: Column(
                 children: [
                   row,
-                  if (index != entries.length - 1) _iosDivider(context),
                 ],
               ),
             );
@@ -891,8 +920,17 @@ class _IosEntryRow extends StatelessWidget {
     this.onTap,
     this.onLongPress,
     this.leadingBuilder,
+    this.title,
+    this.trailing,
   });
 
+  /// 自定义标题组件（上游）：传入时替代 [label] 文本，
+  /// 世界书条目用它渲染「标题 + 注入位置徽标」。
+  final Widget? title;
+
+  /// 行尾控件（上游）：世界书条目用它放启用开关；为 null 时回落到
+  /// 「可点则显示 chevron」的旧行为。
+  final Widget? trailing;
   final IconData icon;
   final String label;
   final String? detailText;
@@ -923,32 +961,46 @@ class _IosEntryRow extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
         child: Row(
           children: [
-            SizedBox(width: 36, child: leading),
-            const SizedBox(width: 12),
+            // 尺寸对齐上游（28/8）：加行尾开关后，36/12 会在 320px 宽 +
+            // 1.4 倍字号的窄屏上溢出渲染。
+            SizedBox(width: 28, child: leading),
+            const SizedBox(width: 8),
             Expanded(
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontSize: 15,
-                  color: baseColor,
-                  fontWeight: AppFontWeights.medium,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
+              child:
+                  title ??
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 15,
+                      color: baseColor,
+                      fontWeight: AppFontWeights.medium,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
             ),
+            const SizedBox(width: 8),
             if (detailText != null)
               Padding(
                 padding: const EdgeInsets.only(right: 6),
-                child: Text(
-                  detailText!,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: cs.onSurface.withValues(alpha: 0.6 * opacity),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 80),
+                  child: Text(
+                    detailText!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: cs.onSurface.withValues(alpha: 0.6 * opacity),
+                    ),
                   ),
                 ),
               ),
-            if (onTap != null)
+            // 行尾优先用调用方给的控件（如启用开关）；
+            // 没给才回落到「可点则显示 chevron」。
+            if (trailing != null)
+              trailing!
+            else if (onTap != null)
               Icon(Lucide.ChevronRight, size: 16, color: baseColor),
           ],
         ),
@@ -964,37 +1016,8 @@ class _IosSectionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final isDark = theme.brightness == Brightness.dark;
-    final bg = isDark ? Colors.white10 : Colors.white.withValues(alpha: 0.96);
-    return Container(
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: cs.outlineVariant.withValues(alpha: isDark ? 0.08 : 0.06),
-          width: 0.6,
-        ),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Column(children: children),
-      ),
-    );
+    return SettingsSectionCard(children: children);
   }
-}
-
-Widget _iosDivider(BuildContext context) {
-  final cs = Theme.of(context).colorScheme;
-  return Divider(
-    height: 6,
-    thickness: 0.6,
-    indent: 54,
-    endIndent: 12,
-    color: cs.outlineVariant.withValues(alpha: 0.18),
-  );
 }
 
 class _HeaderIconButton extends StatelessWidget {
@@ -1268,8 +1291,13 @@ class _WorldBookEntryEditSheetState extends State<_WorldBookEntryEditSheet> {
   bool _useRegex = false;
   bool _caseSensitive = false;
   bool _constantActive = false;
+  bool _showAdvanced = false;
   late WorldBookInjectionPosition _position;
   late WorldBookInjectionRole _role;
+  // 定时效果（上游 1.2.8）：注入后保持条数 / 冷却条数 / 延迟条数。
+  late int _sticky;
+  late int _cooldown;
+  late int _delay;
 
   @override
   void initState() {
@@ -1291,9 +1319,19 @@ class _WorldBookEntryEditSheetState extends State<_WorldBookEntryEditSheet> {
     _useRegex = entry?.useRegex ?? false;
     _caseSensitive = entry?.caseSensitive ?? false;
     _constantActive = entry?.constantActive ?? false;
+    _showAdvanced =
+        entry?.useRegex == true ||
+        entry?.caseSensitive == true ||
+        entry?.scanDepth != 4 ||
+        entry?.position != WorldBookInjectionPosition.afterSystemPrompt ||
+        entry?.role != WorldBookInjectionRole.user ||
+        entry?.priority != 0;
     _keywords = _cleanKeywords(entry?.keywords ?? const <String>[]);
     _position = entry?.position ?? WorldBookInjectionPosition.afterSystemPrompt;
     _role = entry?.role ?? WorldBookInjectionRole.user;
+    _sticky = entry?.sticky ?? 0;
+    _cooldown = entry?.cooldown ?? 0;
+    _delay = entry?.delay ?? 0;
   }
 
   @override
@@ -1777,185 +1815,257 @@ class _WorldBookEntryEditSheetState extends State<_WorldBookEntryEditSheet> {
                           value: _constantActive,
                           onChanged: (v) => setState(() => _constantActive = v),
                         ),
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                l10n.worldBookEntryKeywordsLabel,
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: AppFontWeights.emphasis,
-                                  color: cs.onSurface.withValues(alpha: 0.85),
+                        if (!_constantActive)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  l10n.worldBookEntryKeywordsLabel,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: AppFontWeights.emphasis,
+                                    color: cs.onSurface.withValues(alpha: 0.85),
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(height: 10),
-                              if (_keywords.isNotEmpty)
-                                Wrap(
-                                  spacing: 8,
-                                  runSpacing: 8,
-                                  children: [
-                                    for (final k in _keywords) keywordChip(k),
-                                  ],
-                                ),
-                              if (_keywords.isNotEmpty)
                                 const SizedBox(height: 10),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: SizedBox(
-                                      height: 40,
-                                      child: Container(
-                                        decoration: BoxDecoration(
-                                          color: isDark
-                                              ? Colors.white12
-                                              : const Color(0xFFF2F3F5),
-                                          borderRadius: BorderRadius.circular(
-                                            12,
-                                          ),
-                                        ),
-                                        alignment: Alignment.centerLeft,
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 12,
-                                          vertical: 9,
-                                        ),
-                                        child: TextField(
-                                          controller: _keywordInputController,
-                                          onChanged: (_) => setState(() {}),
-                                          textInputAction: TextInputAction.done,
-                                          onSubmitted: (_) =>
-                                              addKeywordsFromInput(),
-                                          textAlignVertical:
-                                              TextAlignVertical.center,
-                                          style: TextStyle(
-                                            fontSize: 15,
-                                            fontWeight: AppFontWeights.medium,
-                                            color: cs.onSurface.withValues(
-                                              alpha: 0.92,
+                                if (_keywords.isNotEmpty)
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 8,
+                                    children: [
+                                      for (final k in _keywords) keywordChip(k),
+                                    ],
+                                  ),
+                                if (_keywords.isNotEmpty)
+                                  const SizedBox(height: 10),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: SizedBox(
+                                        height: 40,
+                                        child: Container(
+                                          decoration: BoxDecoration(
+                                            color:
+                                                context.appColors.surfaceFill,
+                                            borderRadius: BorderRadius.circular(
+                                              12,
                                             ),
-                                            height: 1.15,
                                           ),
-                                          decoration: InputDecoration(
-                                            isDense: true,
-                                            isCollapsed: true,
-                                            hintText: l10n
-                                                .worldBookEntryKeywordInputHint,
-                                            hintStyle: TextStyle(
+                                          alignment: Alignment.centerLeft,
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 12,
+                                            vertical: 9,
+                                          ),
+                                          child: TextField(
+                                            controller: _keywordInputController,
+                                            onChanged: (_) => setState(() {}),
+                                            textInputAction:
+                                                TextInputAction.done,
+                                            onSubmitted: (_) =>
+                                                addKeywordsFromInput(),
+                                            textAlignVertical:
+                                                TextAlignVertical.center,
+                                            style: TextStyle(
                                               fontSize: 15,
                                               fontWeight: AppFontWeights.medium,
                                               color: cs.onSurface.withValues(
-                                                alpha: isDark ? 0.42 : 0.46,
+                                                alpha: 0.92,
                                               ),
                                               height: 1.15,
                                             ),
-                                            border: InputBorder.none,
-                                            contentPadding: EdgeInsets.zero,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  SizedBox(
-                                    width: 40,
-                                    height: 40,
-                                    child: Tooltip(
-                                      message:
-                                          l10n.worldBookEntryKeywordAddTooltip,
-                                      child: IosCardPress(
-                                        baseColor: isDark
-                                            ? Colors.white12
-                                            : const Color(0xFFF2F3F5),
-                                        borderRadius: BorderRadius.circular(12),
-                                        pressedScale: 0.98,
-                                        haptics: false,
-                                        onTap:
-                                            _keywordInputController.text
-                                                .trim()
-                                                .isEmpty
-                                            ? null
-                                            : () {
-                                                Haptics.light();
-                                                addKeywordsFromInput();
-                                              },
-                                        child: Center(
-                                          child: Icon(
-                                            Lucide.Plus,
-                                            size: 18,
-                                            color: cs.onSurface.withValues(
-                                              alpha:
-                                                  _keywordInputController.text
-                                                      .trim()
-                                                      .isEmpty
-                                                  ? 0.35
-                                                  : 0.9,
+                                            decoration: InputDecoration(
+                                              isDense: true,
+                                              isCollapsed: true,
+                                              hintText: l10n
+                                                  .worldBookEntryKeywordInputHint,
+                                              hintStyle: TextStyle(
+                                                fontSize: 15,
+                                                fontWeight:
+                                                    AppFontWeights.medium,
+                                                color: cs.onSurface.withValues(
+                                                  alpha: isDark ? 0.42 : 0.46,
+                                                ),
+                                                height: 1.15,
+                                              ),
+                                              border: InputBorder.none,
+                                              contentPadding: EdgeInsets.zero,
                                             ),
                                           ),
                                         ),
                                       ),
                                     ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                l10n.worldBookEntryKeywordsHint,
-                                style: TextStyle(
-                                  fontSize: 12.5,
-                                  color: cs.onSurface.withValues(alpha: 0.6),
-                                  height: 1.2,
+                                    const SizedBox(width: 10),
+                                    SizedBox(
+                                      width: 40,
+                                      height: 40,
+                                      child: Tooltip(
+                                        message: l10n
+                                            .worldBookEntryKeywordAddTooltip,
+                                        child: IosCardPress(
+                                          baseColor:
+                                              context.appColors.surfaceFill,
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                          pressedScale: 0.98,
+                                          haptics: false,
+                                          onTap:
+                                              _keywordInputController.text
+                                                  .trim()
+                                                  .isEmpty
+                                              ? null
+                                              : () {
+                                                  Haptics.light();
+                                                  addKeywordsFromInput();
+                                                },
+                                          child: Center(
+                                            child: Icon(
+                                              Lucide.Plus,
+                                              size: 18,
+                                              color: cs.onSurface.withValues(
+                                                alpha:
+                                                    _keywordInputController.text
+                                                        .trim()
+                                                        .isEmpty
+                                                    ? 0.35
+                                                    : 0.9,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                              ),
-                            ],
+                                const SizedBox(height: 8),
+                                Text(
+                                  l10n.worldBookEntryKeywordsHint,
+                                  style: TextStyle(
+                                    fontSize: 12.5,
+                                    color: cs.onSurface.withValues(alpha: 0.6),
+                                    height: 1.2,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                        switchRow(
-                          label: l10n.worldBookEntryUseRegexLabel,
-                          value: _useRegex,
-                          onChanged: (v) => setState(() => _useRegex = v),
-                        ),
-                        switchRow(
-                          label: l10n.worldBookEntryCaseSensitiveLabel,
-                          value: _caseSensitive,
-                          onChanged: (v) => setState(() => _caseSensitive = v),
-                        ),
-                        IosFormTextField(
-                          label: l10n.worldBookEntryScanDepthLabel,
-                          controller: _scanDepthController,
-                          keyboardType: TextInputType.number,
-                          fieldWidth: 64,
-                        ),
                       ],
                     ),
                     const SizedBox(height: 12),
                     _IosSectionCard(
                       children: [
-                        valueRow(
-                          label: l10n.worldBookEntryInjectionPositionLabel,
-                          valueText: positionLabel(_position),
-                          onTap: pickPosition,
+                        IosCardPress(
+                          baseColor: Colors.transparent,
+                          borderRadius: BorderRadius.zero,
+                          pressedBlendStrength: 0,
+                          pressedScale: 1.0,
+                          haptics: false,
+                          onTap: () =>
+                              setState(() => _showAdvanced = !_showAdvanced),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 12,
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        l10n.worldBookEntryAdvancedTitle,
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: AppFontWeights.semibold,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        l10n.worldBookEntryAdvancedSubtitle,
+                                        style: TextStyle(
+                                          fontSize: 12.5,
+                                          color: cs.onSurface.withValues(
+                                            alpha: .6,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Icon(
+                                  _showAdvanced
+                                      ? Lucide.ChevronUp
+                                      : Lucide.ChevronDown,
+                                  size: 18,
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
-                        if (_position ==
-                            WorldBookInjectionPosition.atDepth) ...[
+                        if (_showAdvanced) ...[
+                          if (!_constantActive) ...[
+                            switchRow(
+                              label: l10n.worldBookEntryUseRegexLabel,
+                              hint: l10n.worldBookEntryUseRegexHint,
+                              value: _useRegex,
+                              onChanged: (v) => setState(() => _useRegex = v),
+                            ),
+                            switchRow(
+                              label: l10n.worldBookEntryCaseSensitiveLabel,
+                              hint: l10n.worldBookEntryCaseSensitiveHint,
+                              value: _caseSensitive,
+                              onChanged: (v) =>
+                                  setState(() => _caseSensitive = v),
+                            ),
+                            IosFormTextField(
+                              label: l10n.worldBookEntryScanDepthLabel,
+                              controller: _scanDepthController,
+                              keyboardType: TextInputType.number,
+                              fieldWidth: 64,
+                            ),
+                          ],
+                          valueRow(
+                            label: l10n.worldBookEntryInjectionPositionLabel,
+                            valueText: positionLabel(_position),
+                            onTap: pickPosition,
+                          ),
+                          if (_position ==
+                              WorldBookInjectionPosition.atDepth) ...[
+                            IosFormTextField(
+                              label: l10n.worldBookEntryInjectDepthLabel,
+                              controller: _injectDepthController,
+                              keyboardType: TextInputType.number,
+                              fieldWidth: 64,
+                            ),
+                          ],
+                          // 定时效果（上游 1.2.8）：粘滞/冷却/延迟三个消息数，
+                          // 由 WorldBookActivation 在注入评估时消费。
+                          WorldBookTimedEffectsFields(
+                            entry: base ?? const WorldBookEntry(id: ''),
+                            onChanged: (sticky, cooldown, delay) {
+                              setState(() {
+                                _sticky = sticky;
+                                _cooldown = cooldown;
+                                _delay = delay;
+                              });
+                            },
+                          ),
+                          valueRow(
+                            label: l10n.worldBookEntryInjectionRoleLabel,
+                            valueText: roleLabel(_role),
+                            onTap: pickRole,
+                          ),
                           IosFormTextField(
-                            label: l10n.worldBookEntryInjectDepthLabel,
-                            controller: _injectDepthController,
+                            label: l10n.worldBookEntryPriorityLabel,
+                            controller: _priorityController,
                             keyboardType: TextInputType.number,
                             fieldWidth: 64,
                           ),
                         ],
-                        valueRow(
-                          label: l10n.worldBookEntryInjectionRoleLabel,
-                          valueText: roleLabel(_role),
-                          onTap: pickRole,
-                        ),
-                        IosFormTextField(
-                          label: l10n.worldBookEntryPriorityLabel,
-                          controller: _priorityController,
-                          keyboardType: TextInputType.number,
-                          fieldWidth: 64,
-                        ),
                       ],
                     ),
                   ],
@@ -2003,6 +2113,9 @@ class _WorldBookEntryEditSheetState extends State<_WorldBookEntryEditSheet> {
                         caseSensitive: _caseSensitive,
                         scanDepth: scanDepth.clamp(1, 200).toInt(),
                         constantActive: _constantActive,
+                        sticky: _sticky,
+                        cooldown: _cooldown,
+                        delay: _delay,
                       );
                       Navigator.of(context).pop(result);
                     },
@@ -2032,13 +2145,9 @@ class _IosOutlineButtonState extends State<_IosOutlineButton> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final bg = Theme.of(context).brightness == Brightness.dark
-        ? Colors.white10
-        : const Color(0xFFF2F3F5);
+    final bg = context.appColors.surfaceFill;
     final overlay = _pressed
-        ? (Theme.of(context).brightness == Brightness.dark
-              ? Colors.white12
-              : Colors.black12)
+        ? cs.onSurface.withValues(alpha: 0.12)
         : Colors.transparent;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
@@ -2094,7 +2203,7 @@ class _IosFilledButtonState extends State<_IosFilledButton> {
     final cs = Theme.of(context).colorScheme;
     final bg = widget.enabled ? cs.primary : cs.primary.withValues(alpha: 0.4);
     final overlay = _pressed
-        ? Colors.black.withValues(alpha: 0.12)
+        ? cs.onPrimary.withValues(alpha: 0.12)
         : Colors.transparent;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,

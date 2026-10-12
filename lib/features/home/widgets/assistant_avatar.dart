@@ -59,20 +59,20 @@ class AssistantAvatar extends StatelessWidget {
         );
       } else if (!kIsWeb &&
           (avatarValue.startsWith('/') || avatarValue.contains(':'))) {
+        // 不在 build 里做同步 existsSync：该组件在消息列表/侧栏高频复用，
+        // 每个头像每帧一次主线程 stat。FileImage 自带图像缓存（同文件只解码
+        // 一次），加载失败走 errorBuilder 回落到首字母头像。
         final fixedPath = SandboxPathResolver.fix(avatarValue);
-        final file = File(fixedPath);
-        if (file.existsSync()) {
-          avatar = ClipOval(
-            child: Image(
-              image: FileImage(file),
-              width: size,
-              height: size,
-              fit: BoxFit.cover,
-            ),
-          );
-        } else {
-          avatar = _AssistantInitialAvatar(cs: cs, name: name, size: size);
-        }
+        avatar = ClipOval(
+          child: Image(
+            image: FileImage(File(fixedPath)),
+            width: size,
+            height: size,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) =>
+                _AssistantInitialAvatar(cs: cs, name: name, size: size),
+          ),
+        );
       } else {
         avatar = _AssistantEmojiAvatar(cs: cs, emoji: avatarValue, size: size);
       }
@@ -86,7 +86,7 @@ class AssistantAvatar extends StatelessWidget {
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         border: Border.all(
-          color: isDark ? Colors.white24 : Colors.black12,
+          color: cs.onSurface.withValues(alpha: isDark ? 0.24 : 0.12),
           width: 0.5,
         ),
       ),

@@ -1,19 +1,23 @@
 import 'dart:io';
+
 import 'package:Kelivo/theme/app_font_weights.dart';
 
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../../icons/lucide_adapter.dart';
+
 import 'package:provider/provider.dart';
+
 import '../../../core/providers/settings_provider.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/ios_switch.dart';
-import '../../../core/services/haptics.dart';
+import '../../../shared/widgets/snackbar.dart';
+import '../../../shared/widgets/settings_section.dart';
+import 'package:Kelivo/shared/services/haptics.dart';
 import 'debug_page.dart';
 import 'log_viewer_page.dart';
+import 'open_source_licenses_page.dart';
 
 class AboutPage extends StatefulWidget {
   const AboutPage({super.key});
@@ -25,9 +29,10 @@ class AboutPage extends StatefulWidget {
 class _AboutPageState extends State<AboutPage> {
   String _version = '';
   String _buildNumber = '';
-  String _systemInfo = '';
   int _versionTapCount = 0;
   DateTime? _lastVersionTap;
+  int _appNameTapCount = 0;
+  DateTime? _lastAppNameTap;
 
   @override
   void initState() {
@@ -37,33 +42,34 @@ class _AboutPageState extends State<AboutPage> {
 
   Future<void> _loadInfo() async {
     final pkg = await PackageInfo.fromPlatform();
-    String sys;
-    if (Platform.isAndroid) {
-      sys = 'Android';
-    } else if (Platform.isIOS) {
-      sys = 'iOS';
-    } else if (Platform.isMacOS) {
-      sys = 'macOS';
-    } else if (Platform.isWindows) {
-      sys = 'Windows';
-    } else if (Platform.isLinux) {
-      sys = 'Linux';
-    } else {
-      sys = Platform.operatingSystem;
-    }
     setState(() {
       _version = pkg.version;
       _buildNumber = pkg.buildNumber;
-      _systemInfo = sys;
     });
   }
 
-  Future<void> _openUrl(String url) async {
-    final uri = Uri.parse(url);
-    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
-      // Fallback: try in-app web view
-      await launchUrl(uri, mode: LaunchMode.platformDefault);
+  Future<void> _onAppNameTap() async {
+    final now = DateTime.now();
+    if (_lastAppNameTap == null ||
+        now.difference(_lastAppNameTap!) > const Duration(seconds: 2)) {
+      _appNameTapCount = 0;
     }
+    _lastAppNameTap = now;
+    _appNameTapCount++;
+    if (_appNameTapCount < 7) return;
+
+    _appNameTapCount = 0;
+    Haptics.medium();
+    final added = await context.read<SettingsProvider>().unlockKelivoSearch();
+    if (!mounted) return;
+    final l10n = AppLocalizations.of(context)!;
+    showAppSnackBar(
+      context,
+      message: added
+          ? l10n.aboutPageKelivoSearchUnlocked
+          : l10n.aboutPageKelivoSearchAlreadyUnlocked,
+      type: NotificationType.success,
+    );
   }
 
   void _onVersionTap() {
@@ -130,6 +136,77 @@ class _AboutPageState extends State<AboutPage> {
                                       children: [
                                         Expanded(
                                           child: Text(
+                                            l10n.contextLogSettingTitle,
+                                            style: TextStyle(
+                                              color: cs.onSurface.withValues(
+                                                alpha: 0.9,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        InkWell(
+                                          borderRadius: BorderRadius.circular(
+                                            6,
+                                          ),
+                                          onTap: () {
+                                            Navigator.of(context).push(
+                                              MaterialPageRoute(
+                                                builder: (_) =>
+                                                    const LogViewerPage(
+                                                      initialTab: LogViewerPage
+                                                          .contextTab,
+                                                    ),
+                                              ),
+                                            );
+                                          },
+                                          child: Padding(
+                                            padding: const EdgeInsets.all(6),
+                                            child: Icon(
+                                              Lucide.FolderOpen,
+                                              size: 20,
+                                              color: cs.primary,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        IosSwitch(
+                                          value: dialogContext
+                                              .watch<SettingsProvider>()
+                                              .contextLogEnabled,
+                                          onChanged: (v) => dialogContext
+                                              .read<SettingsProvider>()
+                                              .setContextLogEnabled(v),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: Text(
+                                    l10n.contextLogSettingSubtitle,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: cs.onSurface.withValues(
+                                        alpha: 0.65,
+                                      ),
+                                      height: 1.25,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                Material(
+                                  color: Colors.transparent,
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 4,
+                                      vertical: 6,
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
                                             l10n.requestLogSettingTitle,
                                             style: TextStyle(
                                               color: cs.onSurface.withValues(
@@ -147,7 +224,8 @@ class _AboutPageState extends State<AboutPage> {
                                               MaterialPageRoute(
                                                 builder: (_) =>
                                                     const LogViewerPage(
-                                                      initialTab: 0,
+                                                      initialTab: LogViewerPage
+                                                          .requestTab,
                                                     ),
                                               ),
                                             );
@@ -217,7 +295,8 @@ class _AboutPageState extends State<AboutPage> {
                                               MaterialPageRoute(
                                                 builder: (_) =>
                                                     const LogViewerPage(
-                                                      initialTab: 1,
+                                                      initialTab:
+                                                          LogViewerPage.appTab,
                                                     ),
                                               ),
                                             );
@@ -340,14 +419,19 @@ class _AboutPageState extends State<AboutPage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            'Kelivo',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: AppFontWeights.semibold,
+                          GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: _onAppNameTap,
+                            child: Text(
+                              l10n.aboutPageAppName,
+                              key: const ValueKey('about-page-app-name'),
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: AppFontWeights.semibold,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
                           ),
                           const SizedBox(height: 4),
                           Text(
@@ -371,6 +455,74 @@ class _AboutPageState extends State<AboutPage> {
 
           const SizedBox(height: 12),
 
+          // SoLab 本项目与当前能力
+          _iosSectionCard(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
+                child: Row(
+                  children: [
+                    Icon(Lucide.BadgeInfo, size: 18, color: cs.primary),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '关于 SoLab',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: AppFontWeights.semibold,
+                          color: cs.onSurface.withValues(alpha: 0.9),
+                        ),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: cs.primary.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        'AGPL-3.0',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: cs.primary,
+                          fontWeight: AppFontWeights.semibold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
+                child: Text(
+                  '基于 Kelivo 继续演进，项目代码按 AGPL-3.0 发布。',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    height: 1.5,
+                    color: cs.onSurface.withValues(alpha: 0.6),
+                  ),
+                ),
+              ),
+              ..._solabFeatureRows(context),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 2, 16, 14),
+                child: Text(
+                  '仅处理你拥有或已获明确授权的 APK。许可证、实际组件与历史来源已在下方分组列明。',
+                  style: TextStyle(
+                    fontSize: 12,
+                    height: 1.45,
+                    color: cs.onSurface.withValues(alpha: 0.5),
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 12),
+
           // iOS-style list card
           _iosSectionCard(
             children: [
@@ -387,26 +539,20 @@ class _AboutPageState extends State<AboutPage> {
               _iosDivider(context),
               _iosNavRow(
                 context,
-                icon: Lucide.Phone,
-                label: l10n.aboutPageSystem,
-                detailBuilder: (_) =>
-                    Text(_systemInfo.isEmpty ? '...' : _systemInfo),
-                onTap: null, // informational only
-              ),
-              _iosDivider(context),
-              _iosNavRowSvgLeading(
-                context,
-                svgAsset: 'assets/icons/github.svg',
-                label: l10n.aboutPageGithub,
-                onTap: () => _openUrl('https://github.com/dhh-max/kelivo-revkit'),
+                icon: Lucide.User,
+                label: '软件作者',
+                detailBuilder: (_) => const Text('酷安 Chooseu · MT 永闲居士'),
+                onTap: null,
               ),
               _iosDivider(context),
               _iosNavRow(
                 context,
-                icon: Lucide.FileText,
-                label: l10n.aboutPageLicense,
-                onTap: () => _openUrl(
-                  'https://github.com/dhh-max/kelivo-revkit/blob/main/LICENSE',
+                icon: Lucide.BookOpenText,
+                label: l10n.aboutPageOpenSourceLicenses,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const OpenSourceLicensesPage(),
+                  ),
                 ),
               ),
             ],
@@ -417,47 +563,109 @@ class _AboutPageState extends State<AboutPage> {
       ),
     );
   }
+
+  /// SoLab 当前能力清单（纯展示行，不可点击）。
+  static const List<({String icon, String title, String desc})>
+  _solabFeatures = [
+    (
+      icon: 'toolbox',
+      title: 'APK 工作台',
+      desc: '授权 APK 的解包 / 分析 / 修改 / 重签名，产物在工作目录单独生成',
+    ),
+    (
+      icon: 'server',
+      title: '进程内 MCP 服务器',
+      desc: '可选局域网 HTTP MCP 服务；开启时本地 Agent 工具暂停',
+    ),
+    (
+      icon: 'search',
+      title: 'DEX 分析与修补引擎',
+      desc: 'methods/fields 定位、smali 读写、交叉引用、混淆类反查',
+    ),
+    (icon: 'cpu', title: 'SO 分析引擎', desc: 'ELF 解析、函数/控制流/加密识别、反汇编、模拟执行'),
+    (
+      icon: 'flame',
+      title: 'Flutter AOT 解析工具',
+      desc: '内置隔离 runner 并自动匹配版本；建立对象池、字符串和函数索引，缺失函数体时回退原生反汇编，验证后可写回 libapp.so',
+    ),
+    (icon: 'shield', title: '特征规则库', desc: '广告 SDK 特征、厂商快速开关与可选订阅同步'),
+    (
+      icon: 'report',
+      title: '分析报告体系',
+      desc: 'reportSourceApk / boundApk 一致性与 reportFreshness 新鲜度校验',
+    ),
+    (icon: 'brain', title: 'AI 基础设施', desc: '世界书、助手记忆、指令注入、内置 SoLab 助手'),
+    (icon: 'chat', title: 'AI 对话与多模型接入', desc: '基于开源框架 Kelivo 二次开发'),
+  ];
+
+  List<Widget> _solabFeatureRows(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    const icons = {
+      'toolbox': Lucide.Wrench,
+      'server': Lucide.HardDrive,
+      'search': Lucide.Search,
+      'cpu': Lucide.Cpu,
+      'flame': Lucide.Zap,
+      'shield': Lucide.ShieldCheck,
+      'report': Lucide.FileSearch,
+      'brain': Lucide.Brain,
+      'chat': Lucide.MessageSquare,
+    };
+    return [
+      for (final f in _solabFeatures)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Icon(
+                  icons[f.icon],
+                  size: 16,
+                  color: cs.primary.withValues(alpha: 0.8),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      f.title,
+                      style: TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: AppFontWeights.medium,
+                        color: cs.onSurface.withValues(alpha: 0.85),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      f.desc,
+                      style: TextStyle(
+                        fontSize: 12,
+                        height: 1.4,
+                        color: cs.onSurface.withValues(alpha: 0.5),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+    ];
+  }
 }
 
 // --- iOS-style helpers (mirroring Settings/Display pages) ---
 
 Widget _iosSectionCard({required List<Widget> children}) {
-  return Builder(
-    builder: (context) {
-      final theme = Theme.of(context);
-      final cs = theme.colorScheme;
-      final isDark = theme.brightness == Brightness.dark;
-      final Color bg = isDark
-          ? Colors.white10
-          : Colors.white.withValues(alpha: 0.96);
-      return Container(
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: cs.outlineVariant.withValues(alpha: isDark ? 0.08 : 0.06),
-            width: 0.6,
-          ),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Column(children: children),
-        ),
-      );
-    },
-  );
+  return SettingsSectionCard(children: children);
 }
 
 Widget _iosDivider(BuildContext context) {
-  final cs = Theme.of(context).colorScheme;
-  return Divider(
-    height: 6,
-    thickness: 0.6,
-    indent: 54,
-    endIndent: 12,
-    color: cs.outlineVariant.withValues(alpha: 0.18),
-  );
+  return settingsSectionDivider(context);
 }
 
 class _AnimatedPressColor extends StatelessWidget {
@@ -471,9 +679,9 @@ class _AnimatedPressColor extends StatelessWidget {
   final Widget Function(Color color) builder;
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cs = Theme.of(context).colorScheme;
     final target = pressed
-        ? (Color.lerp(base, isDark ? Colors.black : Colors.white, 0.55) ?? base)
+        ? (Color.lerp(base, cs.surface, 0.55) ?? base)
         : base;
     return TweenAnimationBuilder<Color?>(
       tween: ColorTween(end: target),
@@ -561,80 +769,6 @@ Widget _iosNavRow(
             child: Row(
               children: [
                 SizedBox(width: 36, child: Icon(icon, size: 20, color: c)),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    label,
-                    style: TextStyle(fontSize: 15, color: c),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                if (detailBuilder != null)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: DefaultTextStyle(
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: cs.onSurface.withValues(alpha: 0.6),
-                      ),
-                      child: detailBuilder(context),
-                    ),
-                  )
-                else if (detailText != null)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: Text(
-                      detailText,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: cs.onSurface.withValues(alpha: 0.6),
-                      ),
-                    ),
-                  ),
-                if (interactive) Icon(Lucide.ChevronRight, size: 16, color: c),
-              ],
-            ),
-          );
-        },
-      );
-    },
-  );
-}
-
-Widget _iosNavRowSvgLeading(
-  BuildContext context, {
-  required String svgAsset,
-  required String label,
-  VoidCallback? onTap,
-  String? detailText,
-  Widget Function(BuildContext ctx)? detailBuilder,
-}) {
-  final cs = Theme.of(context).colorScheme;
-  final interactive = onTap != null;
-  return _TactileRow(
-    onTap: onTap,
-    pressedScale: 1.00,
-    haptics: false,
-    builder: (pressed) {
-      final baseColor = cs.onSurface.withValues(alpha: 0.9);
-      return _AnimatedPressColor(
-        pressed: pressed,
-        base: baseColor,
-        builder: (c) {
-          return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-            child: Row(
-              children: [
-                SizedBox(
-                  width: 36,
-                  child: SvgPicture.asset(
-                    svgAsset,
-                    width: 20,
-                    height: 20,
-                    colorFilter: ColorFilter.mode(c, BlendMode.srcIn),
-                  ),
-                ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(

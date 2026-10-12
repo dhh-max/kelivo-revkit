@@ -5,8 +5,8 @@ import 'package:Kelivo/theme/app_font_weights.dart';
 import 'package:Kelivo/theme/app_semantic_colors.dart';
 
 import '../../../core/providers/settings_provider.dart';
+import '../../../core/services/memory/memory_pipeline.dart';
 import '../../../core/services/memory/memory_trace.dart';
-import '../../../desktop/setting/memory_dialogs.dart';
 import '../../../icons/lucide_adapter.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/custom_bottom_sheet.dart';
@@ -14,7 +14,7 @@ import '../../../shared/widgets/ios_switch.dart';
 import '../../../shared/widgets/ios_tactile.dart';
 import '../../../shared/widgets/ios_tile_button.dart';
 import '../../../shared/widgets/snackbar.dart';
-import '../../../utils/platform_utils.dart';
+import '../widgets/memory_ui.dart';
 
 /// Debug viewer for the background memory pipeline (Gatekeeper → Extract →
 /// Smart Add → Distiller, plus summaries, recall and memory tool calls).
@@ -47,7 +47,7 @@ class MemoryTracePage extends StatelessWidget {
   }
 }
 
-/// Body of [MemoryTracePage], reused by the desktop pane.
+/// Body of [MemoryTracePage].
 class MemoryTraceContent extends StatelessWidget {
   const MemoryTraceContent({super.key, this.padding});
 
@@ -126,10 +126,6 @@ class MemoryTraceContent extends StatelessWidget {
   }
 
   Future<void> _openTraceDetail(BuildContext context, MemoryTrace trace) async {
-    if (PlatformUtils.isDesktopTarget) {
-      await showDesktopMemoryTraceDetailDialog(context, trace: trace);
-      return;
-    }
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => MemoryTraceDetailPage(trace: trace)),
     );
@@ -140,56 +136,46 @@ class MemoryTraceContent extends StatelessWidget {
     MemoryTraceRecorder recorder,
   ) async {
     final l10n = AppLocalizations.of(context)!;
-    final bool cleared;
-    if (PlatformUtils.isDesktopTarget) {
-      cleared = await showDesktopMemoryConfirmDialog(
-        context,
-        title: l10n.memoryTraceClearSheetTitle,
-        message: l10n.memoryTraceClearSheetMessage,
-        confirmLabel: l10n.memoryTraceClearConfirm,
-      );
-    } else {
-      cleared =
-          await showCustomBottomSheet<bool>(
-            context: context,
-            title: l10n.memoryTraceClearSheetTitle,
-            partialHeightFactor: 0.36,
-            builder: (sheetContext, controller) {
-              final cs = Theme.of(sheetContext).colorScheme;
-              return SingleChildScrollView(
-                controller: controller,
-                padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      l10n.memoryTraceClearSheetMessage,
-                      style: TextStyle(
-                        fontSize: 13,
-                        height: 1.35,
-                        color: cs.onSurface.withValues(alpha: 0.66),
-                      ),
+    final cleared =
+        await showCustomBottomSheet<bool>(
+          context: context,
+          title: l10n.memoryTraceClearSheetTitle,
+          partialHeightFactor: 0.36,
+          builder: (sheetContext, controller) {
+            final cs = Theme.of(sheetContext).colorScheme;
+            return SingleChildScrollView(
+              controller: controller,
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    l10n.memoryTraceClearSheetMessage,
+                    style: TextStyle(
+                      fontSize: 13,
+                      height: 1.35,
+                      color: cs.onSurface.withValues(alpha: 0.66),
                     ),
-                    const SizedBox(height: 18),
-                    IosTileButton(
-                      label: l10n.memoryTraceClearConfirm,
-                      icon: Lucide.Trash2,
-                      backgroundColor: cs.error,
-                      onTap: () => Navigator.of(sheetContext).pop(true),
-                    ),
-                    const SizedBox(height: 10),
-                    IosTileButton(
-                      label: l10n.memoryTraceCancel,
-                      icon: Lucide.X,
-                      onTap: () => Navigator.of(sheetContext).pop(false),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ) ==
-          true;
-    }
+                  ),
+                  const SizedBox(height: 18),
+                  IosTileButton(
+                    label: l10n.memoryTraceClearConfirm,
+                    icon: Lucide.Trash2,
+                    backgroundColor: cs.error,
+                    onTap: () => Navigator.of(sheetContext).pop(true),
+                  ),
+                  const SizedBox(height: 10),
+                  IosTileButton(
+                    label: l10n.memoryTraceCancel,
+                    icon: Lucide.X,
+                    onTap: () => Navigator.of(sheetContext).pop(false),
+                  ),
+                ],
+              ),
+            );
+          },
+        ) ==
+        true;
     if (!cleared) return;
     recorder.clear();
     if (!context.mounted) return;
@@ -233,9 +219,13 @@ class MemoryTraceDetailPage extends StatelessWidget {
   }
 }
 
-/// Body of [MemoryTraceDetailPage], reused by the desktop dialog.
+/// Body of [MemoryTraceDetailPage].
 class MemoryTraceDetailContent extends StatelessWidget {
-  const MemoryTraceDetailContent({super.key, required this.trace, this.padding});
+  const MemoryTraceDetailContent({
+    super.key,
+    required this.trace,
+    this.padding,
+  });
 
   final MemoryTrace trace;
   final EdgeInsetsGeometry? padding;
@@ -358,7 +348,12 @@ class _TraceCard extends StatelessWidget {
             ),
             if (trace.hasError) ...[
               const SizedBox(height: 10),
-              _ErrorLine(text: trace.error!),
+              _ErrorLine(
+                text: memoryOutcomeLabel(l10n, trace.error!),
+                tone: _isSkipOutcome(trace.error!)
+                    ? _ErrorLineTone.info
+                    : _ErrorLineTone.error,
+              ),
             ],
           ],
         ),
@@ -409,7 +404,12 @@ class _OverviewCard extends StatelessWidget {
         trace.watermark == null ? '—' : '#${trace.watermark}',
       ),
       _Kv(l10n.memoryTraceFieldOutcome, _outcomeLabel(l10n, trace)),
-      if (trace.hasError) _Kv(l10n.memoryTraceFieldError, trace.error!),
+      if (trace.hasError)
+        _Kv(
+          l10n.memoryTraceFieldError,
+          memoryOutcomeLabel(l10n, trace.error!),
+          secondary: trace.error,
+        ),
     ];
 
     return _SectionCard(
@@ -459,7 +459,12 @@ class _StepCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if ((step.error ?? '').isNotEmpty) ...[
-            _ErrorLine(text: step.error!),
+            _ErrorLine(
+              text: memoryOutcomeLabel(l10n, step.error!),
+              tone: _isSkipOutcome(step.error!)
+                  ? _ErrorLineTone.info
+                  : _ErrorLineTone.error,
+            ),
             const SizedBox(height: 12),
           ],
           if (prompt.isNotEmpty) ...[
@@ -906,44 +911,55 @@ class _FieldLabel extends StatelessWidget {
   }
 }
 
+enum _ErrorLineTone { error, info }
+
 class _ErrorLine extends StatelessWidget {
-  const _ErrorLine({required this.text});
+  const _ErrorLine({required this.text, this.tone = _ErrorLineTone.error});
 
   final String text;
+  final _ErrorLineTone tone;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
+    final isInfo = tone == _ErrorLineTone.info;
+    final accent = isInfo
+        ? cs.onSurface.withValues(alpha: isDark ? 0.78 : 0.70)
+        : cs.error.withValues(alpha: isDark ? 0.92 : 0.86);
+    final fill = isInfo
+        ? cs.onSurface.withValues(alpha: isDark ? 0.10 : 0.05)
+        : Color.alphaBlend(
+            cs.error.withValues(alpha: isDark ? 0.12 : 0.07),
+            context.appColors.surfaceFill,
+          );
+    final border = isInfo
+        ? cs.onSurface.withValues(alpha: isDark ? 0.16 : 0.10)
+        : cs.error.withValues(alpha: isDark ? 0.32 : 0.22);
 
     return Container(
       decoration: BoxDecoration(
-        color: Color.alphaBlend(
-          cs.error.withValues(alpha: isDark ? 0.12 : 0.07),
-          context.appColors.surfaceFill,
-        ),
+        color: fill,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: cs.error.withValues(alpha: isDark ? 0.32 : 0.22),
-        ),
+        border: Border.all(color: border),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(
-            Lucide.XCircle,
+            isInfo ? Lucide.BadgeInfo : Lucide.XCircle,
             size: 16,
-            color: cs.error.withValues(alpha: isDark ? 0.92 : 0.86),
+            color: accent,
           ),
           const SizedBox(width: 8),
           Expanded(
             child: SelectableText(
               text,
               style: TextStyle(
-                fontFamily: 'monospace',
-                fontSize: 11.5,
+                fontFamily: isInfo ? null : 'monospace',
+                fontSize: isInfo ? 12.5 : 11.5,
                 height: 1.3,
                 color: cs.onSurface.withValues(alpha: 0.86),
               ),
@@ -1093,18 +1109,21 @@ class _OutcomePill extends StatelessWidget {
         tone: _PillTone.success,
       );
     }
+    final error = trace.error;
+    final skip = error != null && error.isNotEmpty && _isSkipOutcome(error);
     return _Pill(
       label: l10n.memoryTraceOutcomeHeld,
-      tone: trace.hasError ? _PillTone.error : _PillTone.neutral,
+      tone: trace.hasError && !skip ? _PillTone.error : _PillTone.neutral,
     );
   }
 }
 
 class _Kv {
-  const _Kv(this.k, this.v);
+  const _Kv(this.k, this.v, {this.secondary});
 
   final String k;
   final String v;
+  final String? secondary;
 }
 
 class _KvGrid extends StatelessWidget {
@@ -1134,14 +1153,34 @@ class _KvGrid extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: SelectableText(
-                  it.v,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: AppFontWeights.emphasis,
-                    color: cs.onSurface.withValues(alpha: 0.86),
-                    height: 1.2,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SelectableText(
+                      it.v,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: AppFontWeights.emphasis,
+                        color: cs.onSurface.withValues(alpha: 0.86),
+                        height: 1.2,
+                      ),
+                    ),
+                    if (it.secondary != null &&
+                        it.secondary!.isNotEmpty &&
+                        it.secondary != it.v)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: SelectableText(
+                          it.secondary!,
+                          style: TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 11,
+                            color: cs.onSurface.withValues(alpha: 0.48),
+                            height: 1.2,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
             ],
@@ -1185,6 +1224,15 @@ String _outcomeLabel(AppLocalizations l10n, MemoryTrace trace) {
   return trace.advanced
       ? l10n.memoryTraceOutcomeAdvanced
       : l10n.memoryTraceOutcomeHeld;
+}
+
+bool _isSkipOutcome(String code) {
+  if (MemoryPipelineService.skipReasonCodes.contains(code)) return true;
+  final colon = code.indexOf(':');
+  if (colon <= 0) return false;
+  return MemoryPipelineService.skipReasonCodes.contains(
+    code.substring(0, colon),
+  );
 }
 
 String _stepLabel(AppLocalizations l10n, MemoryTraceStep step) {

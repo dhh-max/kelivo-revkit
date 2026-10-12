@@ -2,7 +2,6 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../../../icons/lucide_adapter.dart';
 import '../../../core/providers/mcp_provider.dart';
@@ -10,6 +9,8 @@ import '../../../shared/widgets/snackbar.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../core/providers/settings_provider.dart';
 import '../../../theme/app_font_weights.dart';
+import 'package:Kelivo/theme/app_semantic_colors.dart';
+import 'json_error_text.dart';
 
 Future<void> showMcpJsonEditSheet(BuildContext context) async {
   final cs = Theme.of(context).colorScheme;
@@ -33,11 +34,37 @@ class _McpJsonEditSheetState extends State<_McpJsonEditSheet> {
   final _controller = TextEditingController();
   String? _error;
 
+  /// 打开时的原文：用来判断"有未保存改动"，避免点 X 无声丢掉编辑。
+  late final String _originalText;
+
   @override
   void initState() {
     super.initState();
     final mcp = context.read<McpProvider>();
     _controller.text = mcp.exportServersAsUiJson();
+    _originalText = _controller.text;
+  }
+
+  /// 破坏性操作前的一次确认（整份覆盖 / 丢弃未保存内容）。
+  Future<bool> _confirm(String title, String content, String okLabel) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(content, style: const TextStyle(fontSize: 13, height: 1.6)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(okLabel),
+          ),
+        ],
+      ),
+    );
+    return ok == true;
   }
 
   @override
@@ -52,7 +79,7 @@ class _McpJsonEditSheetState extends State<_McpJsonEditSheet> {
       // Quick JSON check before provider import for immediate feedback
       jsonDecode(_controller.text);
     } catch (e) {
-      setState(() => _error = e.toString());
+      setState(() => _error = describeJsonError(e));
       showAppSnackBar(
         context,
         message: l10n.mcpJsonEditParseFailed,
@@ -60,17 +87,27 @@ class _McpJsonEditSheetState extends State<_McpJsonEditSheet> {
       );
       return;
     }
+    // 保存是"整份覆盖"现有服务器配置：改错了会一次性丢掉所有条目，先确认。
+    if (!await _confirm(
+      '保存整份配置？',
+      '将用当前 JSON 整份替换本机 MCP 服务器配置。',
+      '保存',
+    )) {
+      return;
+    }
+    if (!mounted) return;
     try {
       await context.read<McpProvider>().replaceAllFromJson(_controller.text);
       if (!mounted) return;
       Navigator.of(context).maybePop();
       showAppSnackBar(context, message: l10n.mcpJsonEditSavedApplied);
     } catch (e) {
-      setState(() => _error = e.toString());
+      final friendly = describeJsonError(e);
+      setState(() => _error = friendly);
       if (!mounted) return;
       showAppSnackBar(
         context,
-        message: e.toString(),
+        message: friendly,
         type: NotificationType.warning,
       );
     }
@@ -79,20 +116,11 @@ class _McpJsonEditSheetState extends State<_McpJsonEditSheet> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    // Resolve user-preferred code font family (Google/local/system)
+    // Resolve user-preferred code font family (local/system)
     final settings = context.watch<SettingsProvider>();
     String resolveCodeFont() {
       final fam = settings.codeFontFamily;
       if (fam == null || fam.isEmpty) return 'monospace';
-      if (settings.codeFontIsGoogle) {
-        try {
-          final s = GoogleFonts.getFont(fam);
-          return s.fontFamily ?? fam;
-        } catch (_) {
-          return fam;
-        }
-      }
       return fam;
     }
 
@@ -125,7 +153,18 @@ class _McpJsonEditSheetState extends State<_McpJsonEditSheet> {
               child: Row(
                 children: [
                   IconButton(
-                    onPressed: () => Navigator.of(context).maybePop(),
+                    onPressed: () async {
+                      if (_controller.text != _originalText) {
+                        final discard = await _confirm(
+                          '放弃未保存的修改？',
+                          '当前编辑内容尚未保存，关闭后会丢失。',
+                          '放弃',
+                        );
+                        if (!discard || !context.mounted) return;
+                      }
+                      if (!context.mounted) return;
+                      Navigator.of(context).maybePop();
+                    },
                     icon: Icon(Lucide.X, size: 20, color: cs.onSurface),
                     tooltip: MaterialLocalizations.of(
                       context,
@@ -160,7 +199,7 @@ class _McpJsonEditSheetState extends State<_McpJsonEditSheet> {
                 ),
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    color: isDark ? Colors.white10 : Colors.white,
+                    color: context.appColors.surfaceCard,
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
                       color: cs.outlineVariant.withValues(alpha: 0.3),
@@ -170,6 +209,10 @@ class _McpJsonEditSheetState extends State<_McpJsonEditSheet> {
                     padding: const EdgeInsets.all(12),
                     child: TextField(
                       controller: _controller,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      smartDashesType: SmartDashesType.disabled,
+                      smartQuotesType: SmartQuotesType.disabled,
                       keyboardType: TextInputType.multiline,
                       maxLines: null,
                       style: TextStyle(
@@ -191,7 +234,10 @@ class _McpJsonEditSheetState extends State<_McpJsonEditSheet> {
                 padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
                 child: Text(
                   _error!,
-                  style: TextStyle(color: Colors.redAccent, fontSize: 12),
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.error,
+                    fontSize: 12,
+                  ),
                 ),
               ),
             ],

@@ -116,11 +116,13 @@ class AskUserRequest {
   AskUserRequest({
     required this.toolCallId,
     required this.questions,
+    this.conversationId,
     required this._completer,
   });
 
   final String toolCallId;
   final List<AskUserQuestion> questions;
+  final String? conversationId;
   final Completer<AskUserResult> _completer;
 }
 
@@ -134,6 +136,7 @@ class AskUserInteractionService extends ChangeNotifier {
   Future<AskUserResult> requestAnswer({
     required String toolCallId,
     required Map<String, dynamic> arguments,
+    String? conversationId,
   }) {
     final questions = normalizeQuestions(arguments);
     if (questions.isEmpty) {
@@ -149,6 +152,7 @@ class AskUserInteractionService extends ChangeNotifier {
     _pending[key] = AskUserRequest(
       toolCallId: key,
       questions: questions,
+      conversationId: conversationId,
       completer: completer,
     );
     notifyListeners();
@@ -178,10 +182,45 @@ class AskUserInteractionService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Cancel pending requests that belong to [conversationId]. Requests with
+  /// no recorded conversation are cancelled too (fail-safe against leaking a
+  /// blocked tool handler), but requests owned by other conversations keep
+  /// waiting so cancelling one conversation cannot break another's stream.
+  void cancelForConversation(String conversationId) {
+    final toCancel = _pending.values
+        .where(
+          (request) =>
+              request.conversationId == null ||
+              request.conversationId == conversationId,
+        )
+        .toList();
+    if (toCancel.isEmpty) return;
+    for (final request in toCancel) {
+      _pending.remove(request.toolCallId);
+      if (!request._completer.isCompleted) {
+        request._completer.complete(
+          const AskUserResult.error(
+            error: 'cancelled',
+            message: 'Ask user request was cancelled.',
+          ),
+        );
+      }
+    }
+    notifyListeners();
+  }
+
   static List<AskUserQuestion> normalizeQuestions(
     Map<String, dynamic> arguments,
   ) {
-    final rawQuestions = arguments['questions'];
+    // 兼容双形态：schema 契约是对象数组；部分传输链路会把 questions
+    // 编码成 JSON 字符串（Agent 实测报 schema 与实际不符）。字符串先
+    // decode 再走同一解析，不改变数组路径行为。
+    var rawQuestions = arguments['questions'];
+    if (rawQuestions is String && rawQuestions.trim().isNotEmpty) {
+      try {
+        rawQuestions = jsonDecode(rawQuestions);
+      } catch (_) {}
+    }
     if (rawQuestions is! List) return const <AskUserQuestion>[];
 
     final usedIds = <String>{};
