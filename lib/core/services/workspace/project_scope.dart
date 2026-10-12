@@ -12,8 +12,34 @@ class ProjectScope {
   static String? get currentId => _currentId;
 
   /// 在给定 [root] 下执行 [action]。[force] 为 true 时无条件切作用域。
-  static Future<T> run<T>(
-    String id,
+  ///
+  /// [action] 支持同步或异步两种形式（通过 [runAsync] 显式区分以避免泛型推断歧义）。
+  static T run<T>(
+    String? id,
+    String? root,
+    T Function() action, {
+    bool force = false,
+  }) {
+    final previousRoot = _currentRoot;
+    final previousId = _currentId;
+    final normalizedRoot = root?.trim();
+    final effectiveRoot =
+        (normalizedRoot == null || normalizedRoot.isEmpty) ? null : normalizedRoot;
+    if (force || effectiveRoot != previousRoot) {
+      _currentRoot = effectiveRoot;
+      _currentId = id;
+    }
+    try {
+      return action();
+    } finally {
+      _currentRoot = previousRoot;
+      _currentId = previousId;
+    }
+  }
+
+  /// 异步版本：[action] 返回 Future 时使用。
+  static Future<T> runAsync<T>(
+    String? id,
     String? root,
     Future<T> Function() action, {
     bool force = false,
