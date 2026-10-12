@@ -4212,213 +4212,6 @@ def cmd_popup(args):
     except Exception as e:
         _error(f"弹窗去除失败: {e}")
 
-# ── shell: 加固壳脱壳（np / tosks 统一入口）────────────
-def cmd_shell(args):
-    """加固壳脱壳统一入口 —— 自动识别 np / tosks 并调用对应解包器。
-
-    子命令：
-        shell auto  APK [out]   自动识别并解包
-        shell np    APK [out]   强制 NP
-        shell tosks APK [out]   强制 tosks
-        shell detect APK        只识别不解包
-    """
-    from apk_reverse_engine.lite.shells import (
-        detect as _detect, unpack as _unpack,
-        np_unpacker as _np_mod, tosks_unpacker as _tk_mod,
-    )
-    apk = args.apk
-    if not os.path.isfile(apk):
-        _error(f"文件不存在: {apk}"); return
-    out_dir = getattr(args, 'out_dir', None)
-    mode = getattr(args, 'mode', 'auto')
-    try:
-        if mode == 'detect':
-            name = _detect(apk) or '未识别'
-            console.print(_header(f"🔍 壳类型识别: {name}", os.path.basename(apk), 'cyan'))
-            return
-        if mode == 'np':
-            with console.status(f"🔐 正在解包 NP 加固...", spinner="dots"):
-                r = _np_mod.unpack(apk, out_dir or '/storage/emulated/0')
-        elif mode == 'tosks':
-            with console.status(f"🔐 正在解包 tosks 加固...", spinner="dots"):
-                r = _tk_mod.unpack(apk, base_out=out_dir)
-        else:
-            with console.status(f"🔐 识别并解包加固壳...", spinner="dots"):
-                r = _unpack(apk, out_dir=out_dir)
-        _render_shell_result(r)
-    except Exception as e:
-        _error(f"壳解包失败: {e}")
-
-
-def _render_shell_result(r):
-    if not isinstance(r, dict):
-        console.print(str(r)); return
-    ok = bool(r.get('ok'))
-    shell = r.get('shell', '?') or '未知'
-    pkg = r.get('package', '')
-    color = 'green' if ok else 'red'
-    header_style = f'{ICO["lock"]} {shell.upper()} 壳解包 {"成功" if ok else "失败"}'
-    console.print(_header(header_style, f'{os.path.basename(r.get("apk_path", pkg) or pkg)}' if r.get('apk_path') else '', color))
-    rows = []
-    if pkg: rows.append(('包名', pkg))
-    if r.get('version'): rows.append(('版本', r['version']))
-    if r.get('entry'): rows.append(('入口', r['entry']))
-    if r.get('xor_key'): rows.append(('XOR密钥', r['xor_key']))
-    if r.get('dex_dir'): rows.append(('DEX目录', r['dex_dir']))
-    if r.get('asset_dir'): rows.append(('Assets目录', r['asset_dir']))
-    if r.get('zip_path'): rows.append(('ZIP输出', r['zip_path']))
-    if r.get('note'): rows.append(('备注', r['note']))
-    if rows:
-        console.print(_kv_table(rows, '📋 结果', color))
-
-    # 还原文件列表
-    restored_dex = r.get('restored_dex') or []
-    restored_assets = r.get('restored_assets') or []
-    files = r.get('files') or []
-    if restored_dex or restored_assets:
-        lines = []
-        for d in restored_dex: lines.append(f'  {ICO["dex"]} /{d}')
-        for a in restored_assets: lines.append(f'  📦 /assets/{a}')
-        console.print(Panel('\n'.join(lines), title=f'📂 还原文件 ({len(restored_dex)+len(restored_assets)} 个)',
-                            border_style='cyan', title_align='left'))
-    elif files:
-        console.print(Panel('\n'.join(f'  /{f}' for f in files[:30]),
-                            title=f'📂 资源列表 ({len(files)} 个)',
-                            border_style='cyan', title_align='left'))
-        if len(files) > 30:
-            console.print(f'  [dim]... 还有 {len(files)-30} 个未显示[/]')
-
-    # tosks 功能开关
-    feats = r.get('features') or {}
-    if feats:
-        _section('🛡️ tosks 功能开关', 'magenta')
-        for label, on in feats.items():
-            icon = '[green]√[/]' if on else '[red]×[/]'
-            console.print(f'  {icon} {label}')
-
-    # 说明.txt 路径提示
-    if r.get('note'):
-        console.print(f'\n  [dim]详情说明: {r.get("note")}[/]')
-
-    _spacer()
-
-
-def cmd_np(args):
-    """NP 加固（NP管理器加密资源）解包"""
-    from apk_reverse_engine.lite.shells import np_unpacker as _np_mod
-    apk = args.apk
-    if not os.path.isfile(apk):
-        _error(f"文件不存在: {apk}"); return
-    with console.status(f"🔐 正在解包 NP 加固...", spinner="dots"):
-        r = _np_mod.unpack(apk, args.out_dir or '/storage/emulated/0')
-    _render_shell_result(r)
-
-
-def cmd_tosks(args):
-    """tosks 加固（libtosks*.so）静态脱壳"""
-    from apk_reverse_engine.lite.shells import tosks_unpacker as _tk_mod
-    apk = args.apk
-    if not os.path.isfile(apk):
-        _error(f"文件不存在: {apk}"); return
-    with console.status(f"🔐 正在解包 tosks 加固...", spinner="dots"):
-        r = _tk_mod.unpack(apk, base_out=args.out_dir)
-    _render_shell_result(r)
-
-
-def cmd_flutter(args):
-    """Flutter AOT 反汇编（通过 BlutterAndroid runner）"""
-    from apk_reverse_engine.lite import blutter_bridge as _bl
-    apk = args.apk
-    if not os.path.isfile(apk):
-        _error(f"文件不存在: {apk}"); return
-    runners_dir = getattr(args, 'runners_dir', None)
-    out_dir = getattr(args, 'out_dir', None) or os.path.join(os.path.dirname(os.path.abspath(apk)), 'flutter_out')
-    dart_version = getattr(args, 'dart_version', None)
-    if args.list_runners:
-        runners = _bl.list_runners(runners_dir or '')
-        console.print(_header(f"🔍 Runner 列表 ({len(runners)})", runners_dir or '(空)', 'cyan'))
-        if not runners:
-            console.print(f'  [dim]目录无 libblutter_*.so，请检查 --runners-dir[/]')
-            return
-        for r in runners:
-            console.print(f'  {ICO["so"]} {r["libraryName"]}   [dim]{r["path"]}[/]')
-        _spacer(); return
-    # detect
-    with console.status(f"🔍 识别 Flutter AOT...", spinner="dots"):
-        det = _bl.detect_flutter(apk, requested_abi=getattr(args, 'abi', 'auto') or 'auto')
-    if not det.get('detected'):
-        _warn(f"未识别到 Flutter AOT 产物 (entries={det.get('entry_count', 0)})")
-        console.print(f'  [dim]已扫描 ABI: {det.get("abis", [])}[/]')
-        return
-    sel = det['selected']
-    rows = [
-        ('ABI', sel.get('abi', '')),
-        ('libapp.so', sel.get('libapp', '')),
-        ('libflutter.so', sel.get('libflutter', '') or '[dim]无[/]'),
-        ('libapp 大小', _fmt_size(sel.get('libapp_size', 0))),
-        ('libflutter 大小', _fmt_size(sel.get('libflutter_size', 0))),
-        ('flutter_assets', f'{len(det.get("assets", []))} 项'),
-    ]
-    console.print(_kv_table(rows, f'{ICO["pkg"]} Flutter 检测: {os.path.basename(apk)}', 'cyan'))
-    if not runners_dir:
-        _warn('--runners-dir 未指定，跳过实际反汇编')
-        _spacer(); return
-    runners = _bl.list_runners(runners_dir)
-    if not runners:
-        _warn(f'目录无 libblutter_*.so: {runners_dir}')
-        return
-    with console.status(f"🛠️ 通过 Blutter runner 反汇编中 (out={out_dir})...", spinner="dots"):
-        r = _bl.analyze_flutter(apk, runners_dir, out_dir,
-                                 abi=sel.get('abi', 'arm64-v8a'),
-                                 dart_version=dart_version)
-    _render_flutter_result(r)
-    _spacer()
-
-
-def _render_flutter_result(r):
-    ok = bool(r.get('ok'))
-    color = 'green' if ok else 'red'
-    console.print(_header(f'{"✅" if ok else "❌"} Flutter 反汇编 {"成功" if ok else "失败"}',
-                          os.path.basename(r.get("apk", "")), color))
-    det = r.get('detection') or {}
-    sel = det.get('selected') or {}
-    runner = r.get('runner') or {}
-    fp = r.get('fingerprint') or {}
-    exit_info = r.get('exit') or {}
-    rows = []
-    if sel.get('abi'): rows.append(('ABI', sel['abi']))
-    if sel.get('libapp'): rows.append(('libapp', sel['libapp']))
-    if runner.get('libraryName'):
-        rows.append(('Runner', runner['libraryName']))
-    if runner.get('dartVersion'):
-        rows.append(('Dart 版本', runner['dartVersion']))
-    if fp.get('machine') is not None:
-        rows.append(('ELF machine', f'0x{fp["machine"]:x}'))
-    if fp.get('hasSnapshotSym'):
-        rows.append(('Snapshot 符号', '✅'))
-    if fp.get('hasEngineHashSym'):
-        rows.append(('EngineHash 符号', '✅'))
-    if fp.get('symbolCount') is not None:
-        rows.append(('符号数', str(fp['symbolCount'])))
-    if exit_info.get('exitCode') is not None:
-        rows.append(('exitCode', str(exit_info['exitCode'])))
-    if exit_info.get('error'):
-        rows.append(('错误', exit_info['error']))
-    rows.append(('输出目录', r.get('outDir', '')))
-    if rows:
-        console.print(_kv_table(rows, '📋 结果', color))
-    files = exit_info.get('files') or {}
-    if files:
-        fstr = ', '.join(f'{k}={("✅" if v else "❌")}' for k, v in files.items())
-        console.print(f'  [dim]产物: {fstr}[/]')
-    # evidence
-    evid = fp.get('evidence') or []
-    if evid:
-        _section('🧬 指纹证据', 'magenta')
-        for e in evid[:15]:
-            console.print(f'  • {e}')
-
-
 def cmd_apkinfo(args):
     """APK 一站式信息提取 (深度版) - 包名/版本/权限/组件/签名/SDK/ABI"""
     from apk_reverse_engine.tools.info_extractor import InfoExtractor
@@ -7122,28 +6915,8 @@ def main():
     p = sub.add_parser("popup", help="🧹 弹窗去除 (分享弹窗/推广弹窗SDK)")
     p.add_argument("apk")
     p.add_argument("-o", "--output", default=None)
-    p.add_argument("--sdk", default='tencent_share', help="弹窗SDK类型")
+    p.add_argument("--sdk", default="tencent_share", help="弹窗SDK名称")
     p.set_defaults(func=cmd_popup)
-
-    # ── shell: 加固壳脱壳（np / tosks）──
-    p = sub.add_parser("shell", help="🛡️ 加固壳脱壳 (自动识别 / np / tosks)")
-    p.add_argument("mode", nargs='?', default='auto', choices=['auto', 'np', 'tosks', 'detect'],
-                   help="auto=自动识别 / np / tosks / detect=只识别")
-    p.add_argument("apk", help="APK 文件路径")
-    p.add_argument("-o", "--out-dir", dest='out_dir', default=None, help="输出根目录")
-    p.set_defaults(func=cmd_shell)
-
-    # ── np: NP加固解包 ──
-    p = sub.add_parser("np", help="🔐 NP加固 (NP管理器加密资源3.0/内容) 解包")
-    p.add_argument("apk")
-    p.add_argument("-o", "--out-dir", dest='out_dir', default=None)
-    p.set_defaults(func=cmd_np)
-
-    # ── tosks: tosks加固静态脱壳 ──
-    p = sub.add_parser("tosks", help="🔐 tosks加固 (libtosks*.so) 静态脱壳")
-    p.add_argument("apk")
-    p.add_argument("-o", "--out-dir", dest='out_dir', default=None)
-    p.set_defaults(func=cmd_tosks)
 
     # ── apkinfo: 深度信息提取 ──
     p = sub.add_parser("apkinfo", help="📊 APK 深度信息 (包名/版本/权限/签名/SDK/ABI)")
@@ -7390,17 +7163,14 @@ def main():
                 ("patch", "原生 SO 补丁 (hex/string/ret/nop)"),
             ]),
             ("📦 打包与转换", "green", [
-                 ("unpack", "解压 APK (分类/并行/增量/过滤)"),
-                 ("shell", "🛡️ 加固壳脱壳 (自动识别 np/tosks)"),
-                 ("np", "🔐 NP加固 (NP管理器加密资源) 解包"),
-                 ("tosks", "🔐 tosks加固 (libtosks*.so) 静态脱壳"),
-                 ("verify", "校验解压完整性"),
-                 ("rebuild", "从目录重建 APK (ZIP 打包)"),
-                 ("merge", "合并多个 APK 或 DEX"),
-                 ("convert", "格式转换 (DEX↔JAR / DEX↔Smali)"),
-                 ("zipalign", "4 字节对齐 APK"),
-                 ("sign", "签名 APK (debug key)"),
-             ]),
+                ("unpack", "解压 APK (分类/并行/增量/过滤)"),
+                ("verify", "校验解压完整性"),
+                ("rebuild", "从目录重建 APK (ZIP 打包)"),
+                ("merge", "合并多个 APK 或 DEX"),
+                ("convert", "格式转换 (DEX↔JAR / DEX↔Smali)"),
+                ("zipalign", "4 字节对齐 APK"),
+                ("sign", "签名 APK (debug key)"),
+            ]),
             ("🔧 高级工具", "red", [
                 ("diff", "对比两个 APK 差异"),
                 ("axml", "AXML 反编译/编译 (纯 Python)"),

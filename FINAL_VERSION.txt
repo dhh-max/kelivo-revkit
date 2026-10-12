@@ -1,0 +1,67 @@
+============================================================================
+ kelivo-revkit  FINAL  2026-10-09
+============================================================================
+
+版本组成
+--------
+  BASE   : kelivo-revkit-pro-max-merged  (2026-10-06 KE 基底)
+  +      : APK 逆向工具链 (commit 0b280a8, 2026-10-09)
+           - assets/apk_tools/56al_tuoke.js      (56.al 在线脱壳)
+           - assets/apk_tools/logfox_toolkit.js  (LogFox 崩溃分析)
+           - assets/apk_tools/hardening_db.js    (加固壳识别库)
+           - assets/apk_tools/rolecard.png       (逆向工程师角色卡)
+           - assets/apk_tools/README.md          (安装说明)
+           - lib/core/services/mcp/kelivo_apk_tools/kelivo_apk_tools_server.dart
+             (新增 @kelivo/apk-tools in-memory MCP)
+           - mcp_provider.dart 注册 + pubspec.yaml 声明
+
+  +      : SO 2.5 features (commit d8aae3e, 2026-10-09)
+           - lib/features/runtime          (运行时代码库)
+           - lib/features/workflow         (工作流编排)
+           - lib/features/workspace        (工作区管理)
+           - lib/features/scheduled_tasks  (定时任务)
+           - lib/features/dev_assistant    (开发助手)
+           - lib/features/skills_builtin   (内置技能库)
+           - lib/features/solab_apk        (APK 工作台 delta 同步)
+
+GitHub 主线
+-----------
+  d8aae3e  feat(so2.5): merge SO 2.5 features  <-- 当前 HEAD
+  0b280a8  feat(apk-tools): merge APK reverse toolchain
+  https://github.com/dhh-max/kelivo-revkit/commit/d8aae3e
+
+构建
+----
+  Flutter 3.44.1 (master)
+  flutter pub get
+  flutter build apk --release --split-per-abi
+  产物: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+
+MCP 引擎清单 (11 个 in-memory)
+------------------------------
+  @kelivo/fetch        web 请求
+  @kelivo/files        文件系统
+  @kelivo/github       GitHub API
+  @kelivo/images       图像生成
+  @kelivo/context      上下文管理
+  @kelivo/so           SO 二进制解析
+  @kelivo/dex          DEX 反汇编
+  @kelivo/reverse      通用逆向工具
+  @kelivo/jadx         Java 反编译
+  @kelivo/memory       记忆库
+  @kelivo/apk-tools    APK 工具链读取/导出  <-- 新增
+
+features/lib 目录 (28 个)
+-------------------------
+  assistant  backup      chat       custom_prompt     dev_assistant
+  device_browser  device_path  home  instruction_injection
+  local_models  mcp       migration  model      provider
+  quick_phrase  runtime   scan       scheduled_tasks  search
+  settings      skills    skills_builtin  solab_apk   stats
+  translate     workflow  workspace   world_book
+
+打包方式
+--------
+  tar -czf kelivo-revkit-final-2026-10-09.tar.gz     --exclude=build --exclude=.dart_tool --exclude=.git     --exclude=android/.gradle --exclude=android/app/build     --exclude=android/build --exclude=ios/Pods --exclude=macos/Pods     --exclude=windows/flutter/ephemeral --exclude=*.lock     dhh-max-kelivo-revkit-d8aae3e
+
+============================================================================

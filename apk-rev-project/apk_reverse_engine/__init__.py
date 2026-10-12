@@ -1308,27 +1308,6 @@ def analyze_apk_lite(apk_path, **kwargs):
     from .lite import analyze_apk_lite as _aal
     return _aal(apk_path, **kwargs)
 
-# ── 加固壳脱壳子模块（np / tosks） ─────────────────────────
-def shells_detect(apk_path):
-    """识别加固壳类型（'np' / 'tosks' / None）"""
-    from .lite import shells as _sh
-    return _sh.detect(apk_path)
-
-def shells_auto_unpack(apk_path, out_dir=None, shell=None, log=None):
-    """加固壳自动识别并解包（np / tosks）"""
-    from .lite import shells as _sh
-    return _sh.unpack(apk_path, out_dir=out_dir, shell=shell, log=log)
-
-def np_unpack(apk_path, out_dir, log=None):
-    """NP 加固（NP管理器加密资源）解包入口"""
-    from .lite.shells import np_unpacker as _np
-    return _np.unpack(apk_path, out_dir, log=log)
-
-def tosks_unpack(apk_path, base_out=None, log=None):
-    """tosks 加固（libtosks*.so）静态脱壳入口"""
-    from .lite.shells import tosks_unpacker as _tks
-    return _tks.unpack(apk_path, base_out=base_out, log=log)
-
 def auto_find_apks(search_dir=None, **kwargs):
     """自动搜索目录中的 APK 文件
     Args:
@@ -1423,8 +1402,6 @@ __all__ = [
     'remove_share_popup',
     # Lite（零依赖快速分析）
     'unpack_apk_lite', 'analyze_apk_lite', 'auto_find_apks',
-    # 加固壳脱壳子模块（np / tosks）
-    'shells_detect', 'shells_auto_unpack', 'np_unpack', 'tosks_unpack',
     # 新增增强模块 API
     'analyze_reaching_defs', 'analyze_live_variables', 'infer_types',
     'scan_vulnerabilities', 'scan_vulnerabilities_strings',

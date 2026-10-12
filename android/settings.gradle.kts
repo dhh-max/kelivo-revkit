@@ -23,4 +23,3 @@ plugins {
 }
 
 include(":app")
-include(":bootstrap-demo")

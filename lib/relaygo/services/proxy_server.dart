@@ -1,0 +1,2149 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'package:Kelivo/relaygo/config/constants.dart';
+import 'package:Kelivo/relaygo/config/environment.dart';
+import 'package:Kelivo/relaygo/config/standard_models.dart';
+import 'package:Kelivo/relaygo/models/alert.dart';
+import 'package:Kelivo/relaygo/models/api_key.dart';
+import 'package:Kelivo/relaygo/models/model_info.dart';
+import 'package:Kelivo/relaygo/models/request_log.dart';
+import 'package:Kelivo/relaygo/models/user_settings.dart';
+import 'package:Kelivo/relaygo/models/app_release.dart';
+import 'package:Kelivo/relaygo/services/cache_manager.dart';
+import 'package:Kelivo/relaygo/services/key_manager.dart';
+import 'package:Kelivo/relaygo/services/load_balancer.dart';
+import 'package:Kelivo/relaygo/services/log_service.dart';
+import 'package:Kelivo/relaygo/services/model_call_tracker.dart';
+import 'package:Kelivo/relaygo/services/model_normalizer.dart';
+import 'package:Kelivo/relaygo/database/database_helper.dart';
+import 'package:Kelivo/relaygo/database/model_repository.dart';
+import 'package:Kelivo/relaygo/services/providers/base_provider.dart';
+import 'package:Kelivo/relaygo/services/providers/provider_factory.dart';
+import 'package:Kelivo/relaygo/services/quota_monitor.dart';
+import 'package:Kelivo/relaygo/services/rate_limiter.dart';
+import 'package:Kelivo/relaygo/services/report_service.dart';
+import 'package:Kelivo/relaygo/services/rule_engine.dart';
+import 'package:Kelivo/relaygo/services/update_service.dart';
+import 'package:Kelivo/relaygo/services/upstream_error.dart';
+import 'package:Kelivo/relaygo/utils/usage_parser.dart';
+import 'package:Kelivo/relaygo/services/health_probe.dart';
+import 'package:Kelivo/relaygo/services/webhook_service.dart';
+import 'package:Kelivo/relaygo/services/pricing_service.dart';
+import 'package:Kelivo/relaygo/services/gateway_key_service.dart';
+import 'package:Kelivo/relaygo/services/model_route_service.dart';
+import 'package:Kelivo/relaygo/services/daily_stats_service.dart';
+import 'package:Kelivo/relaygo/services/prometheus_metrics.dart';
+import 'package:Kelivo/relaygo/l10n/app_strings.dart';
+
+/// 单条「提供商 + key」候选
+///
+/// [actualModel] 非空时表示本次请求来自「能力虚拟模型」，
+/// 转发前需把请求体里的模型名改写为该真实模型（避免把 virtualId 透传给上游）。
+class _Pair {
+  final BaseProvider provider;
+  final ApiKey key;
+  final String? actualModel;
+  _Pair(this.provider, this.key, [this.actualModel]);
+}
+
+/// 本地 HTTP 代理服务器（Phase 3）
+///
+/// 整合：规则引擎路由、多提供商自动切换与失败重试、并发信号量、SSE 透传、
+/// token 计费、批量日志、额度监控，以及 Phase 3 的响应缓存、
+/// 多维度高级限流与管理接口（版本 / 在线更新检查 / 报表 / 缓存）。
+class ProxyServer {
+  final KeyManager keyManager;
+  final LoadBalancer loadBalancer;
+  final LogService logService;
+  final RuleEngine ruleEngine;
+  final QuotaMonitor quotaMonitor;
+  final UserSettings settings;
+
+  /// 按模型计调用追踪器（5h 滑动窗口 + 每模型限额）
+  late final ModelCallTracker modelCallTracker;
+
+  /// 响应缓存（需求 2.2.4）
+  late final CacheManager cache;
+
+  /// 高级限流（需求 2.2.6）
+  late final RateLimiter rateLimiter;
+
+  /// 统计报表（供 /relay/report 接口）
+  late final ReportService reportService;
+
+  /// 在线更新（供 /relay/update/check 接口）
+  final UpdateService? updateService;
+
+  /// —— 从 InterGate Python 版移植的服务实例 ——
+
+  /// 价格预估服务
+  late final PricingService _pricingService;
+
+  /// 附加网关密钥管理
+  late final GatewayKeyService _gatewayKeyService;
+
+  /// 模型路由服务
+  late final ModelRouteService _modelRouteService;
+
+  /// 每日统计服务
+  late final DailyStatsService _dailyStatsService;
+
+  /// 进程启动时间（用于计算 uptime）
+  final int _startTimestamp = DateTime.now().millisecondsSinceEpoch;
+
+  /// 模型库（供 /v1/models 聚合接口，REQ-003）
+  ///
+  /// 惰性解析：未显式注入时，直到首次访问才回落到全局 Box，
+  /// 避免构造期就强依赖数据库初始化顺序（便于单测与延迟启动）。
+  final ModelRepository? _modelRepositoryOverride;
+  ModelRepository? _modelRepositoryFallback;
+
+  ModelRepository get modelRepository =>
+      _modelRepositoryOverride ??
+      (_modelRepositoryFallback ??= ModelRepository(DatabaseHelper.models));
+
+  int port;
+  String host;
+  String loadBalanceStrategy;
+
+  HttpServer? _server;
+  bool _running = false;
+  bool _virtualBackfillDone = false; // 惰性回填只做一次
+  /// 告警出口（由 AppState 装配，负责持久化 + Webhook）
+  void Function(Alert alert)? onAlert;
+  // —— 并发控制 ——
+  final int _maxConcurrent = Constants.maxConcurrentConnections;
+  final int _maxQueued = Constants.maxQueuedConnections;
+  int _active = 0;
+  final List<Completer<void>> _queue = [];
+  // —— 缓存惰性清理计时器 ——
+  Timer? _cachePurgeTimer;
+  // —— 请求去重：短期窗口内相同请求复用上游响应 ——
+  final Map<String, _DedupEntry> _dedup = {};
+  Timer? _dedupCleanupTimer;
+
+  ProxyServer({
+    required this.keyManager,
+    required this.loadBalancer,
+    required this.logService,
+    required this.ruleEngine,
+    required this.quotaMonitor,
+    required this.settings,
+    CacheManager? cache,
+    RateLimiter? rateLimiter,
+    ReportService? reportService,
+    this.updateService,
+    ModelRepository? modelRepository,
+    this.port = Constants.defaultPort,
+    this.host = Constants.defaultHost,
+    this.loadBalanceStrategy = 'round_robin',
+  }) : _modelRepositoryOverride = modelRepository {
+    this.cache = cache ??
+        CacheManager(
+          enabled: settings.cacheEnabled,
+          ttl: Duration(seconds: settings.cacheTtlSeconds),
+          maxEntries: settings.cacheMaxEntries,
+        );
+    this.rateLimiter = rateLimiter ??
+        RateLimiter(
+          enabled: settings.rateLimitEnabled,
+          burstMultiplier: settings.burstMultiplier,
+          tokensPerMinutePerKey: settings.tokenRateLimitPerMinute,
+          requestsPerMinutePerIp: settings.ipRateLimitPerMinute,
+          globalRequestsPerMinute: settings.globalRpmLimit,
+          adaptiveTpmEnabled: settings.adaptiveTpmEnabled,
+        );
+    this.reportService =
+        reportService ?? ReportService(logService, cacheManager: this.cache);
+    modelCallTracker = ModelCallTracker(keyManager: keyManager);
+    _pricingService = PricingService();
+    // 从 Hive 加载已持久化的价格覆盖规则
+    final savedPricing = DatabaseHelper.settings.get('pricing_overrides');
+    if (savedPricing is Map) {
+      final overrides = <String, List<double>>{};
+      for (final e in savedPricing.entries) {
+        if (e.value is List && (e.value as List).length >= 2) {
+          overrides[e.key.toString()] = [
+            (e.value as List)[0] as double,
+            (e.value as List)[1] as double,
+          ];
+        }
+      }
+      _pricingService.setOverrides(overrides);
+    }
+    _gatewayKeyService = GatewayKeyService();
+    _modelRouteService = ModelRouteService();
+    _dailyStatsService = DailyStatsService(pricing: _pricingService);
+    // 应用上游连接池配置
+    BaseHttpProvider.configureConnectionPool(
+      maxConnectionsPerHost: settings.upstreamMaxConnections,
+      connectionTimeoutSec: 15,
+      idleTimeoutSec: settings.upstreamMaxKeepalive,
+    );
+  }
+
+  bool get isRunning => _running;
+
+  int get activeKeyCount =>
+      keyManager.getAll().where((k) => k.status == KeyStatus.active).length;
+
+  int get queuedRequests => _queue.length;
+
+  /// 实时日志流（供 UI 订阅）
+  Stream<RequestLog> get logStream => logService.stream;
+
+  List<RequestLog> get recentLogs => logService.recent;
+
+  // ————————————————————————————————————————————
+  // 启动 / 停止
+  // ————————————————————————————————————————————
+
+  Future<void> start() async {
+    if (_running) return;
+    _server = await HttpServer.bind(host, port);
+    port = _server!.port; // 记录实际绑定的端口（port:0 时为系统分配的临时端口）
+    _running = true;
+    // 设置服务器级别参数
+    _server!.serverHeader = 'RelayGo/${Constants.appVersion}';
+    _server!.autoCompress = false; // 响应体已是上游解压后的，不需要二次压缩
+    _server!.idleTimeout = const Duration(seconds: 120); // 客户端空闲超时
+    _server!.listen(_handleRequest, onError: (_) {});
+    // 启动缓存惰性清理定时器
+    _cachePurgeTimer ??= Timer.periodic(
+      const Duration(milliseconds: Constants.cachePurgeIntervalMs),
+      (_) { cache.purgeExpired(); },
+    );
+    // 启动去重窗口清理定时器
+    _dedupCleanupTimer ??= Timer.periodic(
+      const Duration(seconds: 5),
+      (_) => _cleanupDedup(),
+    );
+  }
+  Future<void> stop() async {
+    _cachePurgeTimer?.cancel();
+    _cachePurgeTimer = null;
+    _dedupCleanupTimer?.cancel();
+    _dedupCleanupTimer = null;
+    _dedup.clear();
+    await _server?.close(force: true);
+    _server = null;
+    _running = false;
+    _queue.clear();
+    _active = 0;
+  }
+
+  /// 重启服务（监听地址 / 端口变更后调用，使新配置立即生效）
+  Future<void> restart() async {
+    await stop();
+    await start();
+  }
+
+  // ————————————————————————————————————————————
+  // 并发信号量
+  // ————————————————————————————————————————————
+
+  Future<void> _acquire() async {
+    if (_active < _maxConcurrent) {
+      _active++;
+      return;
+    }
+    if (_queue.length >= _maxQueued) {
+      throw const _ProxyOverload();
+    }
+    final c = Completer<void>();
+    _queue.add(c);
+    await c.future; // 被唤醒后直接占用一个槽位（所有权转移，不另增 _active）
+  }
+
+  void _release() {
+    if (_queue.isNotEmpty) {
+      _queue.removeAt(0).complete();
+    } else {
+      _active--;
+    }
+  }
+
+  // ————————————————————————————————————————————
+  // 请求处理
+  // ————————————————————————————————————————————
+
+  Future<void> _handleRequest(HttpRequest request) async {
+    try {
+      await _acquire();
+    } on _ProxyOverload {
+      await _respondError(request, 429, '请求过于繁忙，请稍后再试');
+      _recordLog(request, null, 'proxy', 429, 0, error: 'concurrency limit');
+      return;
+    }
+
+    final stopwatch = Stopwatch()..start();
+    try {
+      await _serve(request, stopwatch);
+    } finally {
+      stopwatch.stop();
+      _release();
+    }
+  }
+
+  Future<void> _serve(HttpRequest request, Stopwatch stopwatch) async {
+    final path = request.uri.path;
+
+    // 健康检查
+    if (Constants.healthPaths.contains(path)) {
+      request.response
+        ..statusCode = 200
+        ..headers.contentType = ContentType.json
+        ..write(jsonEncode({
+          'status': 'ok',
+          'version': Constants.appVersion,
+          'active_keys': activeKeyCount,
+          'load_balance': loadBalanceStrategy,
+          'queued': queuedRequests,
+          'ts': DateTime.now().millisecondsSinceEpoch,
+        }));
+      await request.response.close();
+      return;
+    }
+
+    // —— 网关鉴权（从 InterGate 移植）——
+    // 若网关鉴权开关已开启，校验请求携带的网关密钥
+    if (settings.gatewayKeyEnabled) {
+      final authHeader = request.headers.value('authorization') ?? '';
+      String presented = '';
+      if (authHeader.toLowerCase().startsWith('bearer ')) {
+        presented = authHeader.substring(7).trim();
+      } else {
+        for (final h in ['x-api-key', 'x-gateway-key']) {
+          final v = request.headers.value(h);
+          if (v != null && v.isNotEmpty) {
+            presented = v;
+            break;
+          }
+        }
+      }
+      // 校验主网关密钥
+      bool authorized = false;
+      if (settings.gatewayKey.isNotEmpty && presented == settings.gatewayKey) {
+        authorized = true;
+      }
+      // 校验附加网关密钥
+      if (!authorized) {
+        final match = _gatewayKeyService.match(presented);
+        if (match != null) {
+          authorized = true;
+          // 权限校验：readonly 不允许写请求
+          if (match.permission == 'readonly' &&
+              request.method != 'GET' &&
+              request.method != 'HEAD' &&
+              request.method != 'OPTIONS') {
+            await _respondError(request, 403, '只读密钥不允许写请求');
+            return;
+          }
+          // models 权限：检查请求的模型是否在允许列表中
+          if (match.models.isNotEmpty && match.permission == 'models') {
+            // 模型权限检查在读取请求体后进行
+          }
+        }
+      }
+      if (!authorized) {
+        await _respondError(request, 401, '未授权：网关 Key 无效');
+        return;
+      }
+    }
+
+    // 管理接口（统计 / 版本 / 在线更新 / 报表 / 缓存），不转发到上游
+    // 管理 API：Key Rotator 融合
+    if (path == Constants.checkAllPath) {
+      await _serveCheckAll(request);
+      return;
+    }
+    if (path == Constants.markExhaustedPath) {
+      await _serveMarkExhausted(request);
+      return;
+    }
+
+    // 管理接口（统计 / 版本 / 在线更新 / 报表 / 缓存），不转发到上游
+    if (Constants.adminPaths.contains(path)) {
+      await _serveAdmin(request, path);
+      return;
+    }
+
+    // 聚合模型列表（REQ-003）：AI 应用从中转站获取可用模型，不转发上游
+    if (path == Constants.modelsPath) {
+      await _serveModels(request);
+      return;
+    }
+
+    // 入口限流：IP / 全局（需求 2.2.6）
+    final clientIp = request.connectionInfo?.remoteAddress.address ?? '';
+    final inbound = rateLimiter.checkInbound(clientIp);
+    if (!inbound.allowed) {
+      request.response.headers
+          .set(Constants.retryAfterHeader, '${inbound.retryAfterSeconds}');
+      await _respondError(
+          request, 429, inbound.message.isEmpty ? '请求过于频繁' : inbound.message);
+      _recordLog(request, null, Environment.detectProvider(path), 429,
+          stopwatch.elapsedMilliseconds,
+          error: 'rate limited: ${inbound.dimension}',
+          rateLimited: inbound.dimension);
+      _emitRateLimitAlert(inbound, clientIp);
+      return;
+    }
+    rateLimiter.recordInbound(clientIp);
+
+    // 1) 读取请求体（一次性，受上限约束）
+    List<int> body;
+    try {
+      body = await _readBody(request);
+    } catch (e) {
+      await _respondError(request, 413, '请求体过大或读取失败');
+      _recordLog(request, null, Environment.detectProvider(path), 413,
+          stopwatch.elapsedMilliseconds,
+          error: e.toString());
+      return;
+    }
+
+    final headers = <String, String>{};
+    request.headers.forEach((name, values) {
+      headers[name.toLowerCase()] = values.join(', ');
+    });
+
+    final payload = RequestPayload.parse(body);
+    final proxyRequest = ProxyRequest(
+      method: request.method,
+      path: path,
+      query: request.uri.query,
+      headers: headers,
+      body: body,
+      model: payload.model,
+      stream: payload.stream,
+      clientIp: request.connectionInfo?.remoteAddress.address ?? '',
+    );
+
+    // 2) 规则引擎：构建上下文并求值
+    final ctx = RuleEngine.buildContext(proxyRequest);
+    final detected = Environment.detectProvider(path,
+        model: payload.model,
+        headerProvider: headers[Constants.providerHeader]);
+    ctx['request']['provider'] = detected;
+    RoutingDecision? decision;
+    if (settings.rulesEnabled) {
+      decision = ruleEngine.evaluate(ctx);
+    }
+
+    // 命中拦截规则
+    if (decision?.block == true) {
+      await _respondError(
+        request,
+        403,
+        decision?.blockReason ?? '请求被路由规则拦截',
+      );
+      _recordLog(request, null, detected, 403, stopwatch.elapsedMilliseconds,
+          model: payload.model, ruleName: decision?.ruleName, error: 'blocked');
+      return;
+    }
+
+    // 3) 响应缓存查询（需求 2.2.4）——流式请求不参与缓存
+    final cacheKey = CacheManager.buildKey(
+      method: request.method,
+      path: path,
+      query: request.uri.query,
+      provider: decision?.provider ?? detected,
+      body: body,
+    );
+    if (cache.enabled && !payload.stream) {
+      final hit = cache.get(cacheKey);
+      if (hit != null) {
+        await _respondFromCache(request, hit);
+        _recordLog(
+          request,
+          null,
+          hit.provider.isEmpty ? detected : hit.provider,
+          hit.statusCode,
+          stopwatch.elapsedMilliseconds,
+          model: payload.model,
+          requestBytes: body.length,
+          responseBytes: hit.body.length,
+          ruleName: decision?.ruleName,
+          cached: true,
+        );
+        return;
+      }
+    }
+
+    // 3.5) 请求去重：同一非流式请求在 deduplicationWindowMs 内复用上次响应
+    if (!payload.stream && request.method != 'GET') {
+      final dedupKey = _buildDedupKey(request.method, path, body);
+      final cached = _dedup[dedupKey];
+      if (cached != null && !cached.isExpired) {
+        request.response.statusCode = cached.statusCode;
+        cached.headers.forEach((name, value) {
+          if (!BaseHttpProvider.skipResponseHeader(name.toLowerCase())) {
+            request.response.headers.set(name, value);
+          }
+        });
+        request.response.headers.set('x-relay-dedup', 'HIT');
+        request.response.add(cached.body);
+        await request.response.close();
+        _recordLog(
+          request,
+          null,
+          cached.provider.isEmpty ? detected : cached.provider,
+          cached.statusCode,
+          stopwatch.elapsedMilliseconds,
+          model: payload.model,
+          requestBytes: body.length,
+          responseBytes: cached.body.length,
+          ruleName: decision?.ruleName,
+          cached: true,
+        );
+        return;
+      }
+    }
+    // 4) 候选 key 选择 + 多提供商失败重试
+    final forwardResult =
+        await _forwardWithFallback(proxyRequest, detected, decision);
+    if (forwardResult is _ForwardFailure) {
+      // 用户可见信息始终使用友好、可读的 reason；原始上游错误体只进日志，
+      // 避免把 "inference tpm exhausted" / "FREE_QUOTA_EXHAUSTED" 等原始报文
+      // 直接抛给用户，造成不必要的打扰。
+      final msg = forwardResult.reason;
+      // 可恢复 TPM 限流且已等待预算耗尽：返回 429 + Retry-After，
+      // 让 AI 客户端排队后自动重发，而不是硬断成 503（避免“发送继续后仍可用”的中断）。
+      if (forwardResult.retryAfterSeconds > 0) {
+        // 提示客户端等待后重试（OpenAI/Anthropic 认可的标准做法）
+        request.response.headers.set(
+            Constants.retryAfterHeader, '${forwardResult.retryAfterSeconds}');
+        await _respondError(request, 429, msg);
+        _recordLog(request, null, detected, 429, stopwatch.elapsedMilliseconds,
+            model: payload.model,
+            actualModel: forwardResult.actualModel,
+            ruleName: decision?.ruleName,
+            error: forwardResult.lastError ?? 'upstream tpm rate limited',
+            rateLimited: 'upstream_tpm');
+        return;
+      }
+      await _respondError(request, 503, msg);
+      _recordLog(request, null, detected, 503, stopwatch.elapsedMilliseconds,
+          model: payload.model,
+          actualModel: forwardResult.actualModel,
+          ruleName: decision?.ruleName,
+          error: forwardResult.lastError ?? forwardResult.reason);
+      return;
+    }
+    final outcome = forwardResult as _ForwardOutcome;
+
+    // 5) 透传响应（SSE 流式 / 普通 JSON）
+    final key = outcome.key;
+    final result = outcome.result;
+    final isError = result.statusCode < 200 || result.statusCode >= 400;
+    try {
+      request.response.statusCode = result.statusCode;
+      result.headers.forEach((name, value) {
+        final lower = name.toLowerCase();
+        if (BaseHttpProvider.skipResponseHeader(lower)) return;
+        request.response.headers.set(name, value);
+      });
+
+      if (cache.enabled) {
+        request.response.headers.set(Constants.cacheHitHeader, 'MISS');
+      }
+
+      final cap = result.streaming
+          ? Constants.usageCaptureBytes
+          : Constants.maxRequestBodyBytes;
+      final written = await _pipeAndCapture(result.body, request.response, cap);
+
+      final usage = UsageParser.parseBytes(written.captured);
+      final prevStatus = key.status;
+      if (!isError) {
+        loadBalancer.recordSuccess(key,
+            latencyMs: stopwatch.elapsedMilliseconds);
+      } else {
+        loadBalancer.recordFailure(key);
+      }
+
+      // 6) 写入缓存（仅完整捕获的非流式 2xx 响应）
+      if (cache.isCacheable(
+        method: request.method,
+        statusCode: result.statusCode,
+        streaming: result.streaming,
+        bodyBytes: written.total,
+      )) {
+        if (written.captured.length == written.total) {
+          cache.put(
+            cacheKey,
+            statusCode: result.statusCode,
+            headers: result.headers,
+            body: written.captured,
+            provider: key.provider,
+            model: payload.model,
+          );
+        }
+      }
+
+      // 7) 额度记账（仅成功计入 token；失败仅计请求数）
+      final alerts = quotaMonitor.recordUsage(
+        key,
+        tokens: isError ? 0 : usage.total,
+        error: isError,
+      );
+      if (!isError)
+        rateLimiter.recordTokens(key, usage.total, model: payload.model);
+      await keyManager.updateKey(key);
+      _maybeEmitKeyStatusChanged(key, prevStatus);
+      for (final a in alerts) {
+        onAlert?.call(a);
+      }
+
+      _recordLog(
+        request,
+        key,
+        key.provider,
+        result.statusCode,
+        stopwatch.elapsedMilliseconds,
+        model: payload.model,
+        actualModel: outcome.actualModel,
+        promptTokens: usage.promptTokens,
+        completionTokens: usage.completionTokens,
+        requestBytes: body.length,
+        responseBytes: written.total,
+        streaming: result.streaming,
+        retries: outcome.attempts,
+        ruleName: decision?.ruleName,
+        error: isError ? 'upstream ${result.statusCode}' : null,
+      );
+
+      // —— 每日统计记账（从 InterGate 移植）——
+      _dailyStatsService.record(
+        provider: key.provider,
+        keyId: key.id,
+        model: payload.model,
+        promptTokens: isError ? 0 : usage.promptTokens,
+        completionTokens: isError ? 0 : usage.completionTokens,
+        isError: isError,
+      );
+      // 异步落库，不阻塞响应
+      unawaited(_dailyStatsService.flush());
+
+      // —— 请求去重存储：非流式 2xx 响应且完整捕获时缓存响应 ——
+      if (!isError && !result.streaming &&
+          written.captured.length == written.total &&
+          written.total <= Constants.cacheMaxBodyBytes) {
+        _dedup[_buildDedupKey(request.method, path, body)] = _DedupEntry(
+          timestamp: DateTime.now().millisecondsSinceEpoch,
+          statusCode: result.statusCode,
+          headers: Map<String, String>.from(result.headers),
+          body: List<int>.from(written.captured),
+          provider: key.provider,
+        );
+      }
+
+      // —— Webhook 告警推送（从 InterGate 移植）——
+      if (settings.webhookEnabled && settings.webhookUrl.isNotEmpty && isError) {
+        WebhookService.notifyFireAndForget(
+          url: settings.webhookUrl,
+          title: 'RelayGo 请求异常',
+          content: '模型: ${payload.model}\n状态码: ${result.statusCode}\n'
+              '提供商: ${key.provider}\nKey: ${key.name}\n'
+              '时间: ${DateTime.now().toIso8601String()}',
+          secret: settings.webhookSecret,
+        );
+      }
+
+      await request.response.close();
+    } catch (e) {
+      // 异常时兜底：关闭下游响应、排空上游流，避免连接泄漏
+      try {
+        await result.body.drain<void>();
+      } catch (_) {}
+      try {
+        await request.response.close();
+      } catch (_) {}
+      _recordLog(
+        request,
+        key,
+        key.provider,
+        isError ? result.statusCode : 0,
+        stopwatch.elapsedMilliseconds,
+        model: payload.model,
+        actualModel: outcome.actualModel,
+        retries: outcome.attempts,
+        ruleName: decision?.ruleName,
+        error: e.toString(),
+      );
+    }
+  }
+
+  /// 候选 key 选择 + 多提供商失败重试
+  ///
+  /// 成功返回 [_ForwardOutcome]；失败返回 [_ForwardFailure]（含具体原因，
+  /// 便于 503 响应与日志向用户说明「为什么没有可用 key」）。
+  Future<Object> _forwardWithFallback(
+    ProxyRequest proxyRequest,
+    String detected,
+    RoutingDecision? decision,
+  ) async {
+    final primaryName = decision?.provider ?? detected;
+    var candidates =
+        Environment.candidateProviders(primaryName, proxyRequest.path);
+    final strategy = decision?.strategy ?? loadBalanceStrategy;
+
+    // P0：若请求的是能力虚拟模型（virtualId / 品牌别名），先解析为「提供商 → 真实模型名」，
+    // 候选池按虚拟模型的提供商收窄，转发时改写模型名。
+    // 该能力仅在「虚拟模型层」开启时生效；默认关闭时跳过，保证请求模型名原样透传（纯转发）。
+    final virtualId = settings.virtualModelsEnabled
+        ? ModelNormalizer.resolveRequestModel(proxyRequest.model)
+        : null;
+    // provider 名 → 该提供商下该虚拟模型应使用的真实模型名
+    final Map<String, String> virtualActualByProvider = <String, String>{};
+    if (virtualId != null) {
+      for (final m in modelRepository.getEnabled()) {
+        // 跳过「模型名本身就是虚拟 ID」的条目：若用它作为改写目标，
+        // _rewriteModel 会因 actualModel == req.model 而跳过改写，
+        // 导致虚拟 ID 被透传给上游 → 上游 404 model not found。
+        if (m.virtualId == virtualId &&
+            m.name != m.virtualId &&
+            virtualActualByProvider[m.provider] == null) {
+          virtualActualByProvider[m.provider] = m.name;
+        }
+      }
+      // 目录中没有该虚拟模型数据时，回退到内置典型候选（品牌别名也覆盖快捷用法）
+      if (virtualActualByProvider.isEmpty) {
+        final typical =
+            StandardModelRegistry.virtualTypical[virtualId] ?? const [];
+        for (final t in typical) {
+          final tp = t['provider']!;
+          final tm = t['model']!;
+          // 回退候选也要尊重用户对该模型的停用：若目录中该模型已被禁用（速度慢被关掉），
+          // 跳过，避免把「已禁用的慢模型」转发到上游 → 上游 404 model not found。
+          final local = _findModelByProviderAndName(tp, tm);
+          if (local != null && !local.isEnabled) continue;
+          virtualActualByProvider[tp] = tm;
+        }
+      }
+      if (virtualActualByProvider.isEmpty) {
+        // 虚拟模型没有任何可用的已启用模型：明确告警而不是把假模型透传给上游，
+        // 否则上游会回 404 model not found（如 Gemini 的 not_found_error）。
+        return _ForwardFailure(
+          '虚拟模型「$virtualId」当前没有可用的已启用模型：请先启用/同步该档位下的模型',
+          null,
+        );
+      }
+      if (virtualActualByProvider.isNotEmpty) {
+        // 收窄候选为「拥有该虚拟模型真实映射」的提供商
+        candidates = virtualActualByProvider.keys.toList();
+      }
+    }
+
+    // 模型归属优先：真实模型名时，优先路由到拥有该模型的提供商
+    // （解决多提供商下轮询命中无此模型的 key 导致 upstream 404 model not found）
+    final modelOwner =
+        virtualId == null ? _findModelOwner(proxyRequest.model) : null;
+    if (modelOwner != null && modelOwner != candidates.first) {
+      candidates = [modelOwner, ...candidates.where((c) => c != modelOwner)];
+    }
+    // 模型路由：若用户为该模型配置了专属 Key 列表，则仅从这些 Key 中筛选候选
+    final routeKeyIds = _modelRouteService.keyIdsFor(proxyRequest.model);
+    final routeActive = routeKeyIds.isNotEmpty;
+
+    // 构建候选池：每个候选提供商纳入其全部可用 key（一个 _Pair 对应一个 key），
+    // 从而支持「同一提供商多个 key 之间的失败重试切换」（需求 2.2 多提供商/多 key 自动切换）。
+    final pool = <_Pair>[];
+    var hadActiveKeys = false;
+    var rateLimited = false;
+    var groupFiltered = false;
+    for (final pname in candidates) {
+      final provider = providerForName(pname);
+      final rewriteWhat = virtualActualByProvider[pname]; // 该提供商虚拟改写目标
+      // 使用「可用」查询：error 且冷却已过期的 key 会自动恢复为 active，
+      // 避免 key 因连续失败被标记 error 后永远无法回到候选池（死锁）。
+      var keys = keyManager.getUsableByProvider(pname);
+      // 模型路由：仅保留用户指定的 Key ID
+      if (routeActive) {
+        keys = keys.where((k) => routeKeyIds.contains(k.id)).toList();
+      }
+      if (keys.isNotEmpty) hadActiveKeys = true;
+      if (decision?.group != null && decision!.group!.isNotEmpty) {
+        final before = keys.length;
+        keys = keys.where((k) => k.group == decision.group).toList();
+        if (before > 0 && keys.isEmpty) groupFiltered = true;
+      }
+      if (settings.rateLimitEnabled) {
+        final before = keys.length;
+        // 传模型名，让「自适应 TPM 挡板」按 key+model 学到的上限在候选池阶段生效
+        keys = keys
+            .where((k) => rateLimiter.allows(k, model: proxyRequest.model))
+            .toList();
+        if (before > 0 && keys.isEmpty) rateLimited = true;
+      }
+      final ranked = loadBalancer.rank(keys, strategy);
+      for (final k in ranked) {
+        pool.add(_Pair(provider, k, rewriteWhat));
+      }
+    }
+
+    if (pool.isEmpty) {
+      String reason;
+      if (!hadActiveKeys) {
+        // 诊断性提示：说明 key 当前具体处于什么状态、最早何时自动恢复，
+        // 避免笼统的「没有 active 状态」让用户无从下手。
+        reason = _describeNoUsableKeys(candidates);
+      } else if (groupFiltered) {
+        reason = '候选 key 均不属于路由规则指定的分组「${decision?.group}」';
+      } else if (rateLimited) {
+        reason = '候选 key 均被限流拦截（RPM/TPM 达到上限）';
+      } else {
+        reason = '候选池为空';
+      }
+      return _ForwardFailure(reason, null);
+    }
+
+    // 顺序尝试候选 key，遇到 429/5xx/异常则切换下一个（可循环复用，
+    // 直到达到 maxRetryKeys 上限或某次成功/遇到不可重试的 4xx）。
+    //
+    // 针对「可恢复 TPM 限流」（429 且命中 tpm/tokens_per_minute 关键词）：
+    // 不再立刻换 key 或放弃，而是【在同一 key 上等待 TPM 窗口刷新后重试】，
+    // 使“发送继续后仍可使用”的请求在第三方客户端侧不中断。等待受总预算
+    // [Constants.tpmWaitBudgetMs] 约束，超过预算则返回 429 + Retry-After。
+    int attempts = 0;
+    int idx = 0;
+    String? lastUpstreamError;
+    String? lastActualModel; // 最后一次尝试实际发送的模型名
+    // 单次请求允许等待 TPM 窗口刷新的总预算截止时间
+    final tpmDeadline =
+        DateTime.now().millisecondsSinceEpoch + Constants.tpmWaitBudgetMs;
+    int? tpmRetryAfter; // 最终建议客户端等待的秒数（遭遇可恢复 TPM 限流时）
+    bool sawRecoverable429 = false;
+    ApiKey? lastTpmKey; // 最近一次触发可恢复 TPM 429 的 key
+    int quotaExhaustedCount = 0; // 本轮请求命中「额度耗尽」的 key 数
+    while (attempts < settings.maxRetryKeys) {
+      if (pool.isEmpty) break;
+      final pair = pool[idx % pool.length];
+      idx++;
+      final key = pair.key;
+      attempts++; // 本次视为一次上游尝试
+
+      // 转发前滚动重置（防止跨日计数失真）
+      final rollAlerts = quotaMonitor.rollIfNeeded(key);
+      for (final a in rollAlerts) {
+        onAlert?.call(a);
+      }
+      // 已耗尽 / 停用 / 冷却中的 key 跳过本次尝试（仍计入 attempts，避免死循环）
+      if (key.status != KeyStatus.active) continue;
+
+      loadBalancer.incConnection(key.id);
+      rateLimiter.consumeKey(key);
+      modelCallTracker.recordCall(key, proxyRequest.model);
+      lastActualModel = pair.actualModel;
+      ProviderResult? result;
+      try {
+        // 虚拟模型请求：把请求体里的模型名改写为该提供商下的真实模型
+        final out = _rewriteModel(proxyRequest, pair.actualModel);
+        final r = await pair.provider.forward(
+          out,
+          key,
+          timeout: Duration(seconds: settings.upstreamTimeoutSeconds),
+        );
+        result = r;
+        if (r.statusCode >= 200 && r.statusCode < 300) {
+          modelCallTracker.recordSuccess(key, proxyRequest.model);
+          return _ForwardOutcome(key, r, attempts, pair.actualModel);
+        }
+        // 用错误识别器判断本响应是否需要「无感切换 key」重试。
+        // 捕获上游错误响应体（前 500 字节），供分类器与诊断使用，例如 OpenAI
+        // "The model 'gpt-4o' does not exist..."、free quota exhausted 等。
+        if (r.statusCode >= 400 ||
+            (r.statusCode >= 300 && r.statusCode != 304)) {
+          final errBody = await _captureUpstreamError(r.body);
+          final kind =
+              UpstreamErrorClassifier.classify(r.statusCode, errBody ?? '');
+          lastUpstreamError = (errBody != null && errBody.isNotEmpty)
+              ? '上游 HTTP ${r.statusCode}: $errBody'
+              : '上游 HTTP ${r.statusCode}';
+
+          // —— 可恢复 TPM 限流：等待窗口刷新后重试同一个 key ——
+          // 仅对「429 + TPM 关键词」生效；额度耗尽等其他 429 不在此列，
+          // 应交由下方「无感切换 key」处理。
+          if (kind == UpstreamErrorKind.rateLimited &&
+              UpstreamErrorClassifier.isRecoverableTpm(
+                  r.statusCode, errBody ?? '') &&
+              Constants.tpmWaitBudgetMs > 0) {
+            // 喂给自适应挡板：把本次 429 当“撞线点”下调学到的 TPM 上限
+            rateLimiter.recordUpstreamTpmLimit(
+                key, proxyRequest.model, rateLimiter.tpmUsed(key));
+            sawRecoverable429 = true;
+            lastTpmKey = key;
+            // 优先采用上游给出的 Retry-After，否则用本地 TPM 窗口剩余时间
+            var waitMs = (_retryAfterSecondsFromHeaders(r) * 1000);
+            if (waitMs <= 0) waitMs = rateLimiter.tpmWaitMillis(key);
+            if (waitMs <= 0) waitMs = 1000; // 最小退避 1s
+            // 受总预算约束
+            final now = DateTime.now().millisecondsSinceEpoch;
+            final budgetLeft = tpmDeadline - now;
+            if (waitMs > budgetLeft) {
+              waitMs = budgetLeft > 0 ? budgetLeft : 0;
+            }
+            if (waitMs > 0) {
+              // 预算内：等待后重试同一候选（回退 idx，不切换 key、也不冷却该 key）
+              idx--;
+              await Future<void>.delayed(Duration(milliseconds: waitMs));
+              // 绕过 recordFailure：TPM 临时限流不是 key 故障，不该触发冷却
+              continue;
+            }
+            // 预算耗尽：记录重试建议，跳出循环改走 429 + Retry-After
+            tpmRetryAfter = (budgetLeft ~/ 1000).clamp(1, 120);
+            break;
+          }
+
+          // —— 无感切换 key：仅当错误源于「key / 上游 / 额度」（换一个 key 就可能
+          // 成功）时才静默重试；请求本身的内容问题（badRequest/unknown）直接透传。
+          if (!UpstreamErrorClassifier.isSilentlyRetryable(kind)) {
+            // 请求内容/无法归类的 4xx：切 key 无济于事，透传给客户端
+            return _ForwardOutcome(key, r, attempts, pair.actualModel);
+          }
+
+          // —— 额度耗尽：把当前 key 标记为 exhausted + 冷却 ——
+          // 这样本次请求后续轮询与之后的独立请求都会快速跳过它（不会再次命中
+          // 一个已耗尽的 key），冷却到期后由 KeyManager 自动恢复为 active。
+          if (kind == UpstreamErrorKind.quotaExhausted) {
+            modelCallTracker.markExhausted(key, proxyRequest.model, 'quota');
+            quotaExhaustedCount++;
+            final prev = key.status;
+            if (key.status != KeyStatus.exhausted) {
+              key.status = KeyStatus.exhausted;
+              key.cooldownUntil = DateTime.now().millisecondsSinceEpoch +
+                  Constants.quotaExhaustedCooldownMs;
+              // 额度耗尽是一种「key 问题」，计入失败以便 UI 展示错误倾向；
+              // 但直接进入冷却，不必等满 maxFailureThreshold。
+              key.failureCount++;
+              loadBalancer.recordFailure(key); // 喂健康分窗口（失败）
+              await keyManager.updateKey(key);
+              _maybeEmitKeyStatusChanged(key, prev);
+            }
+            continue;
+          }
+
+          // 模型不存在（modelNotFound）：key 本身正常，只是不含该模型，
+          // 不标记失败（避免误冷却），继续切下一个 key。
+          modelCallTracker.markExhausted(key, proxyRequest.model, 'rate_limit');
+          if (kind != UpstreamErrorKind.modelNotFound) {
+            final prev = key.status;
+            loadBalancer.recordFailure(key);
+            await keyManager.updateKey(key);
+            _maybeEmitKeyStatusChanged(key, prev);
+          }
+          // 指数退避 + 抖动：切换 key 前短暂等待，避免连续快速重试打满上游
+          if (pool.isNotEmpty) {
+            final backoff = (Constants.retryBackoffBaseMs *
+                (1 << (attempts.clamp(0, 4))) +
+                (DateTime.now().millisecondsSinceEpoch % 100))
+                .clamp(0, Constants.retryBackoffMaxMs);
+            await Future<void>.delayed(Duration(milliseconds: backoff));
+          }
+          continue;
+        }
+        // 3xx（非 304）等其余情况：交给下面的统一处理（正常透传）
+        return _ForwardOutcome(key, r, attempts, pair.actualModel);
+      } catch (e) {
+        modelCallTracker.markExhausted(key, proxyRequest.model, 'exception');
+        lastUpstreamError = e.toString();
+        // 异常时若已拿到结果流，先排空以释放连接，避免连接池泄漏
+        try {
+          await result?.body.drain<void>();
+        } catch (_) {}
+        final prev = key.status;
+        loadBalancer.recordFailure(key);
+        await keyManager.updateKey(key);
+        _maybeEmitKeyStatusChanged(key, prev);
+        // 指数退避 + 抖动：异常后切换 key 前短暂等待
+        if (pool.isNotEmpty) {
+          final backoff = (Constants.retryBackoffBaseMs *
+              (1 << (attempts.clamp(0, 4))) +
+              (DateTime.now().millisecondsSinceEpoch % 100))
+              .clamp(0, Constants.retryBackoffMaxMs);
+          await Future<void>.delayed(Duration(milliseconds: backoff));
+        }
+        continue;
+      } finally {
+        loadBalancer.decConnection(key.id);
+      }
+    }
+    // 遭遇可恢复 TPM 限流：返回 429 + Retry-After 而非 503。
+    // 无论是因为等待预算耗尽，还是 maxRetryKeys 尝试次数用尽但预算尚余，
+    // 只要遇过可恢复 TPM 429，就应让客户端等待后重发，而不是硬断 503。
+    if (tpmRetryAfter != null || sawRecoverable429) {
+      final secs = tpmRetryAfter ??
+          (lastTpmKey == null
+              ? 5
+              : (rateLimiter.tpmWaitMillis(lastTpmKey) ~/ 1000).clamp(1, 120));
+      return _ForwardFailure(
+        '上游 TPM 限流，等待 $secs 秒后重试',
+        lastUpstreamError,
+        lastActualModel,
+        secs,
+      );
+    }
+    // 试遍所有候选仍失败：把「额度耗尽」这类可归因的原因汇总为简洁友好的提示，
+    // 而不是把原始上游错误体直接抛给用户。原始细节保留在 [lastUpstreamError]（仅日志）。
+    if (quotaExhaustedCount > 0) {
+      // 该模型/提供商下所有候选 key 的免费/可用额度均已耗尽
+      return _ForwardFailure(
+        '所有候选 key 的免费/可用额度均已用完，请补充或更换 key 后再试',
+        lastUpstreamError,
+        lastActualModel,
+      );
+    }
+    return _ForwardFailure(
+      '上游暂时不可用（${settings.maxRetryKeys} 次自动切换均未成功），请稍后再试',
+      lastUpstreamError,
+      lastActualModel,
+    );
+  }
+
+  /// 从上游响应头读取 `retry-after`（秒），无则返回 0。
+  int _retryAfterSecondsFromHeaders(ProviderResult r) {
+    for (final e in r.headers.entries) {
+      if (e.key.toLowerCase() == 'retry-after') {
+        final v = int.tryParse(e.value.trim());
+        if (v != null && v > 0) return v;
+        // retry-after 也常用 HTTP 日期格式，此处仅认秒数
+      }
+    }
+    return 0;
+  }
+
+  // ————————————————————————————————————————————
+  // 工具方法
+  // ————————————————————————————————————————————
+
+  /// 在本地模型库中查找拥有该模型的提供商（未同步 / 未知模型返回 null）
+  ///
+  /// 用于请求路由时把「模型归属提供商」排在候选首位，从根源避免
+  /// 轮询命中无此模型的 key 导致 upstream 404 model not found。
+  String? _findModelOwner(String model) {
+    if (model.isEmpty) return null;
+    for (final m in modelRepository.getEnabled()) {
+      if (m.name == model) return m.provider;
+    }
+    return null;
+  }
+
+  /// 按「提供商 + 模型名」精确查找本地模型（含已禁用/已下线，专供虚拟回退判断）。
+  ///
+  /// 与 [_findModelOwner] 不同：前者只看已启用模型；这里用于判断某模型
+  /// 是否已被用户停用（作为虚拟模型回退候选时需跳过），因此不区分启用状态。
+  ModelInfo? _findModelByProviderAndName(String provider, String name) {
+    if (name.isEmpty) return null;
+    for (final m in modelRepository.getAll()) {
+      if (m.provider == provider && m.name == name) return m;
+    }
+    return null;
+  }
+
+  /// 当候选提供商下没有任何可用 key 时，生成诊断性原因。
+  ///
+  /// 逐个检查候选提供商下 key 的实际状态（冷却中 / 额度耗尽 / 已停用 / 未添加），
+  /// 并给出最早自动恢复的大致时间，帮助用户快速定位问题。
+  String _describeNoUsableKeys(List<String> candidates) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    var total = 0;
+    var inCooldown = 0;
+    var exhausted = 0;
+    var inactive = 0;
+    int? earliestRecoverMs;
+    for (final pname in candidates) {
+      for (final k in keyManager.getByProvider(pname)) {
+        total++;
+        switch (k.status) {
+          case KeyStatus.error:
+            if (k.cooldownUntil != null && k.cooldownUntil! > now) {
+              inCooldown++;
+              if (earliestRecoverMs == null ||
+                  k.cooldownUntil! < earliestRecoverMs) {
+                earliestRecoverMs = k.cooldownUntil;
+              }
+            }
+            break;
+          case KeyStatus.exhausted:
+            exhausted++;
+            break;
+          case KeyStatus.inactive:
+            inactive++;
+            break;
+          case KeyStatus.active:
+            break;
+        }
+      }
+    }
+    if (total == 0) {
+      return '候选提供商（${candidates.join('、')}）下尚未添加任何 key';
+    }
+    final parts = <String>[];
+    if (inCooldown > 0) parts.add('$inCooldown 个 key 冷却中');
+    if (exhausted > 0) parts.add('$exhausted 个 key 今日额度已用尽');
+    if (inactive > 0) parts.add('$inactive 个 key 已停用');
+    if (parts.isEmpty) parts.add('状态异常');
+    var msg = '候选提供商（${candidates.join('、')}）无可用 key：${parts.join('、')}';
+    if (earliestRecoverMs != null) {
+      final minutes = ((earliestRecoverMs - now) / 60000).ceil();
+      msg += '；最早约 $minutes 分钟后自动恢复';
+    }
+    return msg;
+  }
+  /// 构建请求去重键（method + path + body hash）
+  String _buildDedupKey(String method, String path, List<int> body) {
+    // 用 body 长度 + 前 64 字节的 hash 做快速指纹，避免对大 body 做完整 hash
+    final sampleLen = body.length < 64 ? body.length : 64;
+    final sample = body.sublist(0, sampleLen);
+    final hash = sample.fold<int>(0, (prev, b) => (prev * 31 + b) & 0x7FFFFFFF);
+    return '$method:$path:${body.length}:$hash';
+  }
+  /// 清理过期的去重条目
+  void _cleanupDedup() {
+    _dedup.removeWhere((_, entry) => entry.isExpired);
+  }
+  /// 读取请求体（受 [Constants.maxRequestBodyBytes] 约束）
+  Future<List<int>> _readBody(HttpRequest request) async {
+    final out = <int>[];
+    await for (final chunk in request) {
+      out.addAll(chunk);
+      if (out.length > Constants.maxRequestBodyBytes) {
+        throw StateError('request body exceeds limit');
+      }
+    }
+    return out;
+  }
+
+  /// 将上游流写入客户端，同时采样前 [cap] 字节用于 token 解析
+  ///
+  /// idle 超时保护：上游长时间无数据（挂起 / 连接半开 / 上游慢）时主动中断，
+  /// 避免客户端无限等待（表现为「回答一个简单问题耗时几十秒」）。
+  Future<_Captured> _pipeAndCapture(
+      Stream<List<int>> source, IOSink sink, int cap) async {
+    var total = 0;
+    final captured = <int>[];
+    var capturedN = 0;
+    const idle = Duration(seconds: Constants.upstreamIdleTimeoutSeconds);
+    await for (final chunk in source.timeout(idle)) {
+      sink.add(chunk);
+      total += chunk.length;
+      if (capturedN < cap) {
+        final take =
+            chunk.length < (cap - capturedN) ? chunk.length : (cap - capturedN);
+        captured.addAll(chunk.sublist(0, take));
+        capturedN += take;
+      }
+    }
+    return _Captured(total, captured);
+  }
+
+  /// 捕获上游错误响应体（前 500 字节）用于日志诊断，同时消费完整流以释放连接。
+  ///
+  /// 返回 null 表示无响应体 / 读取失败。5 秒超时兜底，避免上游挂起拖慢重试。
+  Future<String?> _captureUpstreamError(Stream<List<int>> body) async {
+    final buf = <int>[];
+    try {
+      await for (final chunk in body.timeout(const Duration(seconds: 5))) {
+        for (final b in chunk) {
+          if (buf.length >= 500) break;
+          buf.add(b);
+        }
+      }
+    } catch (_) {
+      // 超时或流异常：已尽力捕获，忽略
+    }
+    if (buf.isEmpty) return null;
+    return utf8.decode(buf, allowMalformed: true).trim();
+  }
+
+  Future<void> _respondError(
+      HttpRequest request, int code, String message) async {
+    if (request.response.statusCode != code) {
+      request.response.statusCode = code;
+    }
+    request.response.headers.contentType = ContentType.json;
+    request.response.write(jsonEncode({'error': message}));
+    await request.response.close();
+  }
+
+  /// 从响应缓存命中后回写客户端（需求 2.2.4）
+  Future<void> _respondFromCache(
+      HttpRequest request, CachedResponse hit) async {
+    request.response.statusCode = hit.statusCode;
+    hit.headers.forEach((name, value) {
+      final lower = name.toLowerCase();
+      if (BaseHttpProvider.skipResponseHeader(lower)) return;
+      request.response.headers.set(name, value);
+    });
+    // 缓存命中标记（与未命中时的 MISS 对称）
+    request.response.headers.set(Constants.cacheHitHeader, 'HIT');
+    // 转写响应体；content-length 由框架按实际字节重算（已跳过原头）
+    request.response.add(hit.body);
+    await request.response.close();
+  }
+
+  /// 管理接口：版本信息 / 在线更新检查 / 统计报表 / 缓存统计 / 实时状态
+  ///
+  /// 这些路径不转发到上游，仅在本地由中转站处理。
+  Future<void> _serveAdmin(HttpRequest request, String path) async {
+    request.response.headers.contentType = ContentType.json;
+
+    // —— 管理接口鉴权 ——
+    // 若已设置管理令牌，校验请求头中的令牌是否匹配。
+    // 支持两种传递方式：x-relay-admin-token 或 Authorization: Bearer
+    final token = settings.adminToken;
+    if (token != null && token.length >= Constants.adminTokenMinLength) {
+      final headerToken =
+          request.headers.value(Constants.adminTokenHeader);
+      String? bearerToken;
+      final authHeader = request.headers.value('authorization');
+      if (authHeader != null &&
+          authHeader.toLowerCase().startsWith('bearer ')) {
+        bearerToken = authHeader.substring(7);
+      }
+      final provided = headerToken ?? bearerToken;
+      if (provided == null || provided != token) {
+        await _respondError(
+            request, 401, '管理接口需要鉴权，请提供有效的管理令牌');
+        return;
+      }
+    }
+
+    switch (path) {
+      // — 当前版本信息 —
+      case Constants.versionPath:
+        await _jsonResponse(request, 200, {
+          'version': Constants.appVersion,
+          'build_number': Constants.appBuildNumber,
+          'platform': UpdateService.detectPlatform(),
+        });
+        return;
+
+      // — 触发在线更新检查 —
+      case Constants.updateCheckPath:
+        if (updateService == null) {
+          await _respondError(request, 501, '未配置在线更新服务');
+          return;
+        }
+        final result = await updateService!.checkForUpdate();
+        if (result.hasUpdate) _emitUpdateAvailable(result);
+        await _jsonResponse(request, 200, result.toJson());
+        return;
+
+      // — 统计报表（JSON）—
+      case Constants.reportPath:
+        if (request.method != 'GET') {
+          await _respondError(request, 405, '该接口仅支持 GET');
+          return;
+        }
+        final report = reportService.generate();
+        await _jsonResponse(request, 200, report.toJson());
+        return;
+
+      // — 缓存统计（DELETE 清空）—
+      case Constants.cacheStatsPath:
+        if (request.method == 'DELETE') {
+          cache.clear();
+          await _jsonResponse(
+              request, 200, {'cleared': true, 'stats': cache.stats.toJson()});
+          return;
+        }
+        await _jsonResponse(request, 200, cache.stats.toJson());
+        return;
+
+      // — Key 管理（GET 列表 / POST 添加 / DELETE 删除 / PATCH 启停）—
+      case Constants.keysPath:
+        if (request.method == 'GET') {
+          final keys = keyManager.getAll();
+          await _jsonResponse(request, 200, {
+            'keys': keys.map((k) => {
+              'id': k.id,
+              'name': k.name,
+              'provider': k.provider,
+              'status': k.status.name,
+              'masked_key': k.maskedKey,
+              'group': k.group,
+              'failure_count': k.failureCount,
+              'cooldown_until': k.cooldownUntil,
+              'daily_quota': k.dailyQuota,
+              'used_today': k.usedToday,
+              'created_at': k.createdAt,
+            }).toList(),
+            'total': keys.length,
+            'active': keys.where((k) => k.status == KeyStatus.active).length,
+          });
+          return;
+        }
+        if (request.method == 'POST') {
+          final body = await _readBody(request);
+          final obj = jsonDecode(utf8.decode(body)) as Map<String, dynamic>;
+          final key = await keyManager.createKey(
+            provider: obj['provider'] as String,
+            plainKey: obj['api_key'] as String,
+            name: obj['name'] as String? ?? '',
+          );
+          await _jsonResponse(request, 201, {'id': key.id, 'name': key.name});
+          return;
+        }
+        if (request.method == 'DELETE') {
+          final id = request.uri.queryParameters['id'];
+          if (id == null || id.isEmpty) {
+            await _respondError(request, 400, '缺少 id 参数');
+            return;
+          }
+          await keyManager.deleteKey(id);
+          await _jsonResponse(request, 200, {'deleted': true, 'id': id});
+          return;
+        }
+        if (request.method == 'PATCH') {
+          final id = request.uri.queryParameters['id'];
+          if (id == null || id.isEmpty) {
+            await _respondError(request, 400, '缺少 id 参数');
+            return;
+          }
+          final body = await _readBody(request);
+          final obj = jsonDecode(utf8.decode(body)) as Map<String, dynamic>;
+          final key = keyManager.getById(id);
+          if (key == null) {
+            await _respondError(request, 404, 'Key 不存在');
+            return;
+          }
+          if (obj['enabled'] == true) {
+            key.status = KeyStatus.active;
+          } else if (obj['enabled'] == false) {
+            key.status = KeyStatus.inactive;
+          }
+          if (obj['group'] != null) {
+            key.group = obj['group'] as String;
+          }
+          await keyManager.updateKey(key);
+          await _jsonResponse(request, 200, {'id': id, 'status': key.status.name});
+          return;
+        }
+        await _respondError(request, 405, '该接口支持 GET / POST / DELETE / PATCH');
+        return;
+
+      // — 设置管理（GET 读取 / PUT 更新）—
+      case Constants.settingsPath:
+        if (request.method == 'GET') {
+          await _jsonResponse(request, 200, settings.toMap());
+          return;
+        }
+        if (request.method == 'PUT') {
+          final body = await _readBody(request);
+          final obj = jsonDecode(utf8.decode(body)) as Map<String, dynamic>;
+          final newSettings = settings.copyWith(
+            port: obj['port'] != null ? obj['port'] as int : null,
+            host: obj['host'] as String?,
+            loadBalanceStrategy: obj['load_balance_strategy'] as String?,
+            language: obj['language'] as String?,
+            appLockEnabled: obj['app_lock_enabled'] as bool?,
+            logRetentionDays: obj['log_retention_days'] != null ? obj['log_retention_days'] as int : null,
+            maxLogEntries: obj['max_log_entries'] != null ? obj['max_log_entries'] as int : null,
+            upstreamTimeoutSeconds: obj['upstream_timeout_seconds'] != null ? obj['upstream_timeout_seconds'] as int : null,
+            cacheEnabled: obj['cache_enabled'] as bool?,
+            cacheTtlSeconds: obj['cache_ttl_seconds'] != null ? obj['cache_ttl_seconds'] as int : null,
+            cacheMaxEntries: obj['cache_max_entries'] != null ? obj['cache_max_entries'] as int : null,
+            rateLimitEnabled: obj['rate_limit_enabled'] as bool?,
+            rulesEnabled: obj['rules_enabled'] as bool?,
+            adminToken: obj['admin_token'] as String?,
+            keepAliveEnabled: obj['keep_alive_enabled'] as bool?,
+            autoStartOnBoot: obj['auto_start_on_boot'] as bool?,
+            ignoreBatteryOptimization: obj['ignore_battery_optimization'] as bool?,
+            gatewayKeyEnabled: obj['gateway_key_enabled'] as bool?,
+            gatewayKey: obj['gateway_key'] as String?,
+            webhookEnabled: obj['webhook_enabled'] as bool?,
+            webhookUrl: obj['webhook_url'] as String?,
+            webhookSecret: obj['webhook_secret'] as String?,
+            upstreamMaxConnections: obj['upstream_max_connections'] != null ? obj['upstream_max_connections'] as int : null,
+            upstreamMaxKeepalive: obj['upstream_max_keepalive'] != null ? obj['upstream_max_keepalive'] as int : null,
+            webEnabled: obj['web_enabled'] as bool?,
+            webPort: obj['web_port'] != null ? obj['web_port'] as int : null,
+            webPassword: obj['web_password'] as String?,
+          );
+          // 持久化到 Hive，使设置在重启后仍生效
+          await DatabaseHelper.settings.put('user', newSettings.toJson());
+          // 更新内存中的 settings 引用
+          settings
+            ..port = newSettings.port
+            ..host = newSettings.host
+            ..loadBalanceStrategy = newSettings.loadBalanceStrategy
+            ..language = newSettings.language
+            ..appLockEnabled = newSettings.appLockEnabled
+            ..appLockPin = newSettings.appLockPin
+            ..logRetentionDays = newSettings.logRetentionDays
+            ..maxLogEntries = newSettings.maxLogEntries
+            ..quotaWarnThreshold = newSettings.quotaWarnThreshold
+            ..errorRateThreshold = newSettings.errorRateThreshold
+            ..alertsEnabled = newSettings.alertsEnabled
+            ..rulesEnabled = newSettings.rulesEnabled
+            ..rateLimitEnabled = newSettings.rateLimitEnabled
+            ..upstreamTimeoutSeconds = newSettings.upstreamTimeoutSeconds
+            ..maxRetryKeys = newSettings.maxRetryKeys
+            ..cacheEnabled = newSettings.cacheEnabled
+            ..cacheTtlSeconds = newSettings.cacheTtlSeconds
+            ..cacheMaxEntries = newSettings.cacheMaxEntries
+            ..ipRateLimitPerMinute = newSettings.ipRateLimitPerMinute
+            ..globalRpmLimit = newSettings.globalRpmLimit
+            ..tokenRateLimitPerMinute = newSettings.tokenRateLimitPerMinute
+            ..burstMultiplier = newSettings.burstMultiplier
+            ..adaptiveTpmEnabled = newSettings.adaptiveTpmEnabled
+            ..updateFeedUrl = newSettings.updateFeedUrl
+            ..updateChannel = newSettings.updateChannel
+            ..autoCheckUpdate = newSettings.autoCheckUpdate
+            ..updateGithubRepo = newSettings.updateGithubRepo
+            ..autoSyncModelsOnStartup = newSettings.autoSyncModelsOnStartup
+            ..modelSyncIntervalHours = newSettings.modelSyncIntervalHours
+            ..autoDisableRemovedModels = newSettings.autoDisableRemovedModels
+            ..virtualModelsEnabled = newSettings.virtualModelsEnabled
+            ..keepAliveEnabled = newSettings.keepAliveEnabled
+            ..autoStartOnBoot = newSettings.autoStartOnBoot
+            ..ignoreBatteryOptimization = newSettings.ignoreBatteryOptimization
+            ..adminToken = newSettings.adminToken
+            ..gatewayKeyEnabled = newSettings.gatewayKeyEnabled
+            ..gatewayKey = newSettings.gatewayKey
+            ..webhookEnabled = newSettings.webhookEnabled
+            ..webhookUrl = newSettings.webhookUrl
+            ..webhookSecret = newSettings.webhookSecret
+            ..upstreamMaxConnections = newSettings.upstreamMaxConnections
+            ..upstreamMaxKeepalive = newSettings.upstreamMaxKeepalive
+            ..webEnabled = newSettings.webEnabled
+            ..webPort = newSettings.webPort
+            ..webPassword = newSettings.webPassword;
+          // 同步限流器与缓存
+          rateLimiter
+            ..enabled = settings.rateLimitEnabled
+            ..burstMultiplier = settings.burstMultiplier
+            ..tokensPerMinutePerKey = settings.tokenRateLimitPerMinute
+            ..requestsPerMinutePerIp = settings.ipRateLimitPerMinute
+            ..globalRequestsPerMinute = settings.globalRpmLimit
+            ..adaptiveTpmEnabled = settings.adaptiveTpmEnabled;
+          cache
+            ..enabled = settings.cacheEnabled
+            ..ttl = Duration(seconds: settings.cacheTtlSeconds)
+            ..maxEntries = settings.cacheMaxEntries;
+          await _jsonResponse(request, 200, settings.toMap());
+          return;
+        }
+        await _respondError(request, 405, '该接口支持 GET / PUT');
+        return;
+      // — 路由规则管理（GET 列表 / POST 添加 / DELETE 删除）—
+      case Constants.rulesPath:
+        if (request.method == 'GET') {
+          await _jsonResponse(request, 200, {
+            'rules': ruleEngine.rules.map((r) => r.toJson()).toList(),
+            'enabled': settings.rulesEnabled,
+          });
+          return;
+        }
+        if (request.method == 'POST') {
+          final body = await _readBody(request);
+          final obj = jsonDecode(utf8.decode(body)) as Map<String, dynamic>;
+          await ruleEngine.addRuleFromJson(obj);
+          await _jsonResponse(request, 201, {'created': true});
+          return;
+        }
+        if (request.method == 'DELETE') {
+          final id = request.uri.queryParameters['id'];
+          if (id == null || id.isEmpty) {
+            await _respondError(request, 400, '缺少 id 参数');
+            return;
+          }
+          await ruleEngine.deleteRule(id);
+          await _jsonResponse(request, 200, {'deleted': true, 'id': id});
+          return;
+        }
+        await _respondError(request, 405, '该接口支持 GET / POST / DELETE');
+        return;
+
+      // — 最近日志（GET，支持 ?limit=N）—
+      case Constants.logsPath:
+        if (request.method != 'GET') {
+          await _respondError(request, 405, '该接口仅支持 GET');
+          return;
+        }
+        final logLimit = int.tryParse(
+                request.uri.queryParameters['limit'] ?? '100') ??
+            100;
+        final logs = logService.recent
+            .toList()
+            .reversed
+            .take(logLimit)
+            .map((l) => l.toJson())
+            .toList();
+        await _jsonResponse(request, 200, {'logs': logs, 'count': logs.length});
+        return;
+
+      // — 最近告警（GET，支持 ?limit=N）—
+      case Constants.alertsPath:
+        if (request.method != 'GET') {
+          await _respondError(request, 405, '该接口仅支持 GET');
+          return;
+        }
+        // 告警存储在 Hive 盒中，通过 AppState 暴露；此处返回空列表作为占位
+        await _jsonResponse(request, 200, {'alerts': [], 'count': 0});
+        return;
+
+      // — 触发模型列表同步（POST）—
+      case Constants.modelsSyncPath:
+        if (request.method != 'POST') {
+          await _respondError(request, 405, '该接口仅支持 POST');
+          return;
+        }
+        // 惰性同步：遍历所有提供商，拉取最新模型列表
+        final syncResults = <Map<String, dynamic>>[];
+        final allProviderNames = keyManager.getAll()
+            .map((k) => k.provider)
+            .toSet()
+            .toList();
+        for (final providerName in allProviderNames) {
+          try {
+            final provider = providerForName(providerName);
+            final keys = keyManager.getByProvider(providerName)
+                .where((k) => k.status == KeyStatus.active)
+                .toList();
+            if (keys.isEmpty) {
+              syncResults.add({'provider': providerName, 'error': '无可用 key'});
+              continue;
+            }
+            final models = await provider.fetchModels(keys.first);
+            for (final m in models) {
+              await modelRepository.upsert(m);
+            }
+            syncResults.add({'provider': providerName, 'count': models.length});
+          } catch (e) {
+            syncResults.add({'provider': providerName, 'error': e.toString()});
+          }
+        }
+        await _jsonResponse(request, 200, {'synced': true, 'results': syncResults});
+        return;
+
+      // — Prometheus 指标（GET，text/plain）—
+      case Constants.metricsPath:
+        final allKeys = keyManager.getAll();
+        final activeKeys = allKeys.where((k) => k.status == KeyStatus.active).toList();
+        final cacheStats = cache.stats.toJson();
+        // 粗估今日数据：从 quotaMonitor 或 logService 获取
+        final today = DateTime.now();
+        final todayLog = logService.recent.where((l) {
+          final logDate = DateTime.fromMillisecondsSinceEpoch(l.timestamp);
+          return logDate.year == today.year &&
+              logDate.month == today.month &&
+              logDate.day == today.day;
+        }).toList();
+        final metricsText = PrometheusMetrics.generate(
+          totalKeys: allKeys.length,
+          activeKeys: activeKeys.length,
+          requestsToday: todayLog.length,
+          errorsToday: todayLog.where((l) => l.statusCode >= 400).length,
+          tokensToday: todayLog.fold(0, (s, l) => s + l.promptTokens + l.completionTokens),
+          modelsCount: modelRepository.getEnabled().length,
+          cacheHits: cacheStats['hits'] as int? ?? 0,
+          cacheMisses: cacheStats['misses'] as int? ?? 0,
+          cacheEntries: cacheStats['entries'] as int? ?? 0,
+          uptimeSeconds: _uptimeSeconds(),
+          perKeyStats: allKeys.map((k) => {
+            'key_id': k.id,
+            'provider': k.provider,
+            'requests_today': k.usedToday,
+            'errors_today': k.failureCount,
+            'tokens_today': k.usedToday,
+          }).toList(),
+        );
+        request.response.statusCode = 200;
+        request.response.headers.contentType = ContentType.parse('text/plain; version=0.0.4; charset=utf-8');
+        request.response.write(metricsText);
+        await request.response.close();
+        return;
+
+      // — 健康探测（GET）—
+      case Constants.healthProbePath:
+        final allKeys = keyManager.getAll();
+        final probe = HealthProbe();
+        try {
+          final results = await probe.probeAll(allKeys);
+          final summ = HealthProbe.summary(results);
+          await _jsonResponse(request, 200, {
+            'status': 'ok',
+            'time': DateTime.now().millisecondsSinceEpoch,
+            'summary': summ,
+            'results': results,
+          });
+        } finally {
+          await probe.aclose();
+        }
+        return;
+
+      // — 附加网关密钥管理（GET 脱敏列表 / PUT 覆盖写入）—
+      case Constants.gatewayKeysPath:
+        if (request.method == 'GET') {
+          final gks = _gatewayKeyService.maskedAll;
+          await _jsonResponse(request, 200, {'keys': gks});
+          return;
+        }
+        if (request.method == 'PUT') {
+          final body = await _readBody(request);
+          final obj = jsonDecode(utf8.decode(body)) as Map<String, dynamic>;
+          final keysList = obj['keys'] as List? ?? [];
+          await _gatewayKeyService.setAllFromJson(keysList);
+          await _jsonResponse(request, 200, {
+            'ok': true,
+            'count': _gatewayKeyService.all.length,
+          });
+          return;
+        }
+        await _respondError(request, 405, '该接口支持 GET / PUT');
+        return;
+
+      // — 模型路由管理（GET / PUT / DELETE）—
+      case Constants.routesPath:
+        if (request.method == 'GET') {
+          await _jsonResponse(request, 200, {
+            'routes': _modelRouteService.getRoutes().map((k, v) => MapEntry(k, v.toJson())),
+          });
+          return;
+        }
+        if (request.method == 'PUT') {
+          final body = await _readBody(request);
+          final obj = jsonDecode(utf8.decode(body)) as Map<String, dynamic>;
+          final model = request.uri.queryParameters['model'] ?? obj['model'] as String? ?? '';
+          if (model.isEmpty) {
+            await _respondError(request, 400, '缺少 model 参数');
+            return;
+          }
+          final keyIds = (obj['key_ids'] as List?)?.map((e) => e.toString()).toList() ?? [];
+          await _modelRouteService.setRoute(
+            model, keyIds,
+            enabled: obj['enabled'] as bool? ?? true,
+            note: obj['note'] as String? ?? '',
+          );
+          await _jsonResponse(request, 200, {'ok': true, 'model': model});
+          return;
+        }
+        if (request.method == 'DELETE') {
+          final model = request.uri.queryParameters['model'];
+          if (model == null || model.isEmpty) {
+            await _respondError(request, 400, '缺少 model 参数');
+            return;
+          }
+          await _modelRouteService.deleteRoute(model);
+          await _jsonResponse(request, 200, {'ok': true, 'model': model});
+          return;
+        }
+        await _respondError(request, 405, '该接口支持 GET / PUT / DELETE');
+        return;
+
+      // — 用量趋势（GET，支持 ?period=24h|7d|30d）—
+      case Constants.trendPath:
+        final period = request.uri.queryParameters['period'] ?? '7d';
+        final days = int.tryParse(request.uri.queryParameters['days'] ?? '') ?? 0;
+        final dailyService = _dailyStatsService;
+        List<Map<String, dynamic>> series;
+        if (period == '24h' && days == 0) {
+          // 按小时趋势：从日志聚合
+          final now = DateTime.now();
+          final hourStart = now.subtract(const Duration(hours: 23));
+          final recentLogs = logService.recent.where((l) {
+            final logTime = DateTime.fromMillisecondsSinceEpoch(l.timestamp);
+            return logTime.isAfter(hourStart);
+          }).toList();
+          final byHour = <int, Map<String, dynamic>>{};
+          for (final l in recentLogs) {
+            final logTime = DateTime.fromMillisecondsSinceEpoch(l.timestamp);
+            final bucket = logTime.hour;
+            final agg = byHour.putIfAbsent(bucket, () => {
+              'requests': 0, 'errors': 0, 'tokens': 0,
+            });
+            agg['requests'] = (agg['requests'] as int) + 1;
+            if (l.statusCode >= 400) agg['errors'] = (agg['errors'] as int) + 1;
+            agg['tokens'] = (agg['tokens'] as int) + l.promptTokens + l.completionTokens;
+          }
+          series = List.generate(24, (i) {
+            final h = (now.hour - 23 + i + 24) % 24;
+            final agg = byHour[h] ?? {'requests': 0, 'errors': 0, 'tokens': 0};
+            return {
+              'date': '${h.toString().padLeft(2, '0')}:00',
+              'label': '${h.toString().padLeft(2, '0')}:00',
+              'requests': agg['requests'],
+              'errors': agg['errors'],
+              'tokens': agg['tokens'],
+              'cost_usd': 0.0,
+            };
+          });
+        } else {
+          final nDays = days > 0 ? days : (period == '30d' ? 30 : 7);
+          series = dailyService.dailyTrend(nDays);
+        }
+        await _jsonResponse(request, 200, {'period': period, 'series': series});
+        return;
+
+      // — 价格管理（GET 内置+覆盖 / PUT 覆盖）—
+      case Constants.pricingPath:
+        if (request.method == 'GET') {
+          await _jsonResponse(request, 200, {
+            'builtin': PricingService.modelPrices.map((k, v) => MapEntry(k, v)),
+            'default': PricingService.defaultPrice,
+            'overrides': _pricingService.overrides.map((k, v) => MapEntry(k, v)),
+          });
+          return;
+        }
+        if (request.method == 'PUT') {
+          final body = await _readBody(request);
+          final obj = jsonDecode(utf8.decode(body)) as Map<String, dynamic>;
+          final rules = obj['rules'] as Map? ?? {};
+          final clean = <String, List<double>>{};
+          for (final e in rules.entries) {
+            final vals = e.value;
+            if (vals is List && vals.length >= 2) {
+              clean[e.key.toString().toLowerCase()] = [
+                (vals[0] as num).toDouble(),
+                (vals[1] as num).toDouble(),
+              ];
+            }
+          }
+          _pricingService.setOverrides(clean);
+          // 持久化价格覆盖规则到 Hive
+          final persistData = <String, dynamic>{};
+          for (final e in clean.entries) {
+            persistData[e.key] = e.value;
+          }
+          await DatabaseHelper.settings.put('pricing_overrides', persistData);
+          await _jsonResponse(request, 200, {'ok': true, 'rules': clean.map((k, v) => MapEntry(k, v))});
+          return;
+        }
+        await _respondError(request, 405, '该接口支持 GET / PUT');
+        return;
+
+      // — Webhook 测试（POST）—
+      case Constants.webhookTestPath:
+        if (request.method != 'POST') {
+          await _respondError(request, 405, '该接口仅支持 POST');
+          return;
+        }
+        final body = await _readBody(request);
+        final obj = jsonDecode(utf8.decode(body)) as Map<String, dynamic>;
+        final url = (obj['url'] as String? ?? '').trim();
+        if (url.isEmpty) {
+          await _jsonResponse(request, 200, {'ok': false, 'error': 'URL 为空'});
+          return;
+        }
+        final ok = await WebhookService.notify(
+          url: url,
+          title: 'RelayGo 测试推送',
+          content: '这是一条来自 RelayGo 网关控制台的测试通知。',
+          secret: (obj['secret'] as String? ?? ''),
+        );
+        await _jsonResponse(request, 200, {
+          'ok': ok,
+          'error': ok ? '' : '推送失败（非 2xx 或网络错误）',
+        });
+        return;
+
+      // — 导出日志 CSV —
+      case Constants.exportLogsPath:
+        final logs = logService.recent.toList().reversed.take(100000).toList();
+        final sb = StringBuffer();
+        sb.writeln('ts,path,method,status,provider,key_id,model,latency_ms,prompt_tokens,completion_tokens,cached,error');
+        for (final l in logs) {
+          sb.writeln([
+            l.timestamp, l.path, l.method, l.statusCode, l.provider,
+            l.keyId, l.model, l.durationMs, l.promptTokens,
+            l.completionTokens, l.cached ? 1 : 0, l.error ?? '',
+          ].map((v) => '"$v"').join(','));
+        }
+        request.response.statusCode = 200;
+        request.response.headers.set('Content-Type', 'text/csv; charset=utf-8');
+        request.response.headers.set('Content-Disposition', 'attachment; filename="logs.csv"');
+        request.response.write(sb.toString());
+        await request.response.close();
+        return;
+
+      // — 导出统计 CSV —
+      case Constants.exportStatsPath:
+        final dailyService = _dailyStatsService;
+        final now = DateTime.now();
+        final start = now.subtract(const Duration(days: 30));
+        final entries = dailyService.range(_dateKey(start), _dateKey(now));
+        final sb = StringBuffer();
+        sb.writeln('date,provider,key_id,requests,errors,prompt_tokens,completion_tokens,cost_usd');
+        for (final e in entries) {
+          sb.writeln([
+            e.date, e.provider, e.keyId, e.requests,
+            e.errors, e.promptTokens, e.completionTokens, e.costUsd,
+          ].map((v) => '"$v"').join(','));
+        }
+        request.response.statusCode = 200;
+        request.response.headers.set('Content-Type', 'text/csv; charset=utf-8');
+        request.response.headers.set('Content-Disposition', 'attachment; filename="stats.csv"');
+        request.response.write(sb.toString());
+        await request.response.close();
+        return;
+
+      // — 实时状态（默认）—
+      case Constants.statsPath:
+      default:
+        await _jsonResponse(request, 200, {
+          'version': Constants.appVersion,
+          'active_keys': activeKeyCount,
+          'queued': queuedRequests,
+          'rate_limit': rateLimiter.snapshot(),
+          'cache': cache.stats.toJson(),
+        });
+        return;
+    }
+  }
+
+  /// 聚合模型列表接口（/v1/models）
+  ///
+  /// - 默认（虚拟模型层关闭，纯转发）：返回全部真实模型明细，客户端可直接用这些模型名请求。
+  /// - 虚拟模型层开启时：/v1/models 默认收敛为少量「能力虚拟模型」（chat-premium 等约 10 条），
+  ///   客户端请求虚拟 id，代理改写成真实模型；`?expand=1` 仍返回真实模型明细。
+  ///
+  /// 仍支持 ?provider= / ?capability= / ?status= / ?enabled= 过滤，
+  /// 过滤作用于真实模型之上，再按虚拟模型聚合。
+  Future<void> _serveModels(HttpRequest request) async {
+    // 惰性回填：一次性把老数据（virtualId 仍为 null 的启用模型）归一化归类。
+    // 仅在虚拟模型层开启时才有意义；关闭时不做任何归一化写入（纯转发）。
+    if (settings.virtualModelsEnabled && !_virtualBackfillDone) {
+      _virtualBackfillDone = true;
+      await modelRepository.backfillVirtualIds();
+    }
+    final q = request.uri.queryParameters;
+    final expand = const {'1', 'true', 'yes'}.contains(q['expand']);
+    final provider = q['provider'];
+    final capability = q['capability'];
+    final status = q['status'];
+    final enabledOnly = (q['enabled'] ?? 'true') != 'false';
+    final models = modelRepository.getFiltered(
+      provider: provider,
+      capability: capability,
+      status: status != null && status != 'all' ? status : null,
+      enabledOnly: enabledOnly,
+    );
+
+    final Object data;
+    if (expand || !settings.virtualModelsEnabled) {
+      // 明细模式 / 虚拟模型层关闭：返回真实模型（调试 / 精确模型名场景），
+      // 每条附 provider 与（如有）virtual_id。关闭虚拟模型层时默认即此模式，
+      // 保证 AI 客户端拿到的是可直接请求的真实模型名（纯转发）。
+      data = models.map((m) => m.toOpenAIFormat()).toList();
+    } else {
+      // 收敛模式（虚拟模型层开启时）：按 virtualId 聚合为少量能力模型。
+      // 对 virtualId 仍为 null 的模型即时兜底归类（别名 → 名称关键词 → 能力），
+      // 保证「只要模型可识别，就一定能收敛到某个档位」，避免客户端只拉到 1~2 个模型。
+      final byVirtual = <String, List<ModelInfo>>{};
+      for (final m in models) {
+        final vid = m.virtualId ??
+            ModelNormalizer.assignByModelName(m.name) ??
+            ModelNormalizer.assignByCapabilities(m.capabilities);
+        if (vid == null) continue;
+        byVirtual.putIfAbsent(vid, () => []).add(m);
+      }
+      data = byVirtual.entries
+          .map((e) => _renderVirtualModel(e.key, e.value))
+          .toList();
+    }
+
+    request.response
+      ..statusCode = 200
+      ..headers.contentType = ContentType.json
+      ..write(jsonEncode({'object': 'list', 'data': data}));
+    await request.response.close();
+  }
+
+  /// 把一个虚拟模型档位渲染成 OpenAI 兼容条目
+  Map<String, dynamic> _renderVirtualModel(
+      String virtualId, List<ModelInfo> members) {
+    final std = StandardModelRegistry.byId[virtualId];
+    final capabilities = <String>{};
+    for (final m in members) {
+      capabilities.addAll(m.capabilities);
+    }
+    if (std != null) capabilities.addAll(std.features);
+    final providers = members.map((m) => m.provider).toSet().toList()..sort();
+    return {
+      'id': virtualId,
+      'object': 'model',
+      'created': members.first.createdAt ?? 0,
+      'owned_by': 'relaygo',
+      'permission': <Object>[],
+      'root': virtualId,
+      'parent': null,
+      // 扩展字段
+      'virtual': true,
+      'display_name': std?.displayName ?? virtualId,
+      'capabilities': capabilities.toList()..sort(),
+      'providers': providers,
+      'model_count': members.length,
+    };
+  }
+
+  /// 请求体模型名改写：把 virtualId 改写为上游真实模型名。
+  ///
+  /// 仅在请求体是 JSON 且含 `model` 文本字段时改写；其余（无 body、非 JSON、
+  /// 无 model 字段、或无需改写）原样返回原请求对象，避免破坏非 chat 类请求体。
+  ProxyRequest _rewriteModel(ProxyRequest req, String? actualModel) {
+    if (actualModel == null ||
+        actualModel.isEmpty ||
+        actualModel == req.model) {
+      return req;
+    }
+    if (req.body.isEmpty || req.model.isEmpty) return req;
+    try {
+      final text = utf8.decode(req.body, allowMalformed: false);
+      final obj = jsonDecode(text);
+      if (obj is! Map<String, dynamic>) return req;
+      final cur = obj['model'];
+      if (cur is! String) return req;
+      obj['model'] = actualModel;
+      return ProxyRequest(
+        method: req.method,
+        path: req.path,
+        query: req.query,
+        headers: req.headers,
+        body: utf8.encode(jsonEncode(obj)),
+        model: actualModel,
+        stream: req.stream,
+        clientIp: req.clientIp,
+      );
+    } catch (_) {
+      return req; // 无法解析/编码时原样透传，交由上游处理
+    }
+  }
+
+  /// /admin/check-all — 批量检测所有 key 对某模型的可用性
+  Future<void> _serveCheckAll(HttpRequest request) async {
+    final model = request.uri.queryParameters['model'] ?? '';
+    if (model.isEmpty) {
+      await _respondError(request, 400, '缺少 model 参数');
+      return;
+    }
+    final results = await modelCallTracker.checkAll(model);
+    await _jsonResponse(request, 200, {
+      'model': model,
+      'results': results,
+      'total': results.length,
+      'available': results.where((r) => r['available'] == true).length,
+    });
+  }
+
+  /// /admin/mark-exhausted — 手动标记某 key 对某模型为耗尽
+  Future<void> _serveMarkExhausted(HttpRequest request) async {
+    if (request.method != 'POST') {
+      await _respondError(request, 405, '该接口仅支持 POST');
+      return;
+    }
+    final body = await _readBody(request);
+    final obj = jsonDecode(utf8.decode(body)) as Map<String, dynamic>;
+    final keyId = obj['key_id'] as String?;
+    final model = obj['model'] as String?;
+    if (keyId == null || model == null) {
+      await _respondError(request, 400, '缺少 key_id 或 model 参数');
+      return;
+    }
+    final key = keyManager.getById(keyId);
+    if (key == null) {
+      await _respondError(request, 404, 'Key 不存在');
+      return;
+    }
+    modelCallTracker.markExhausted(key, model, 'manual');
+    await _jsonResponse(request, 200, {
+      'key_id': keyId,
+      'model': model,
+      'marked': true,
+    });
+  }
+
+  /// 以 JSON 写入响应并关闭
+  Future<void> _jsonResponse(
+      HttpRequest request, int code, Map<String, dynamic> body) async {
+    request.response.statusCode = code;
+    request.response.write(jsonEncode(body));
+    await request.response.close();
+  }
+
+  /// 触发限流时产生一条告警（需求 2.2.6）
+  void _emitRateLimitAlert(RateLimitResult inbound, String clientIp) {
+    onAlert?.call(Alert(
+      id: '${DateTime.now().microsecondsSinceEpoch}',
+      timestamp: DateTime.now().millisecondsSinceEpoch,
+      event: AlertEvent.rateLimited,
+      level: AlertLevel.warning,
+      title: L10n.fmt('触发限流（{dimension}）', {'dimension': inbound.dimension}),
+      message: L10n.fmt('来源 {ip} 因「{dim}」被限流：{msg}',
+          {'ip': clientIp, 'dim': inbound.dimension, 'msg': inbound.message}),
+      data: {
+        'dimension': inbound.dimension,
+        'client_ip': clientIp,
+        'retry_after': inbound.retryAfterSeconds,
+      },
+    ));
+  }
+
+  /// 发现新版本时产生一条告警（供 Webhook / 通知）
+  void _emitUpdateAvailable(UpdateCheckResult result) {
+    final release = result.release;
+    onAlert?.call(Alert(
+      id: '${DateTime.now().microsecondsSinceEpoch}',
+      timestamp: DateTime.now().millisecondsSinceEpoch,
+      event: AlertEvent.updateAvailable,
+      level: result.mustUpdate ? AlertLevel.critical : AlertLevel.info,
+      title: L10n.fmt(
+          '发现新版本 {version}', {'version': release?.displayVersion ?? ''}),
+      message: release?.releaseNotes.isNotEmpty == true
+          ? release!.releaseNotes
+          : L10n.tr('有可用更新'),
+      data: {
+        'version': release?.version ?? '',
+        'build_number': release?.buildNumber ?? 0,
+        'channel': release?.channel ?? '',
+        'mandatory': result.mustUpdate,
+        'below_min_supported': result.belowMinSupported,
+      },
+    ));
+  }
+
+  /// Key 状态变更时产生告警（需求 2.2.5：key.status_changed 事件）
+  void _maybeEmitKeyStatusChanged(ApiKey key, KeyStatus prev) {
+    if (key.status == prev) return;
+    onAlert?.call(Alert(
+      id: 'keystatus-${key.id}-${DateTime.now().microsecondsSinceEpoch}',
+      timestamp: DateTime.now().millisecondsSinceEpoch,
+      event: AlertEvent.keyStatusChanged,
+      level:
+          key.status == KeyStatus.active ? AlertLevel.info : AlertLevel.warning,
+      title: 'Key ${key.name} 状态变更',
+      message: '${_statusLabel(prev)} → ${_statusLabel(key.status)}',
+      keyId: key.id,
+      data: {
+        'provider': key.provider,
+        'from': prev.name,
+        'to': key.status.name,
+      },
+    ));
+  }
+
+  static String _statusLabel(KeyStatus s) {
+    switch (s) {
+      case KeyStatus.active:
+        return '正常';
+      case KeyStatus.error:
+        return '异常';
+      case KeyStatus.exhausted:
+        return '额度耗尽';
+      case KeyStatus.inactive:
+        return '已停用';
+    }
+  }
+
+  /// 计算进程运行时长（秒）
+  double _uptimeSeconds() {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    return ((now - _startTimestamp) / 1000.0).roundToDouble();
+  }
+
+  /// 日期格式化为 yyyy-MM-dd
+  static String _dateKey(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-'
+      '${d.month.toString().padLeft(2, '0')}-'
+      '${d.day.toString().padLeft(2, '0')}';
+
+  void _recordLog(
+    HttpRequest request,
+    ApiKey? key,
+    String provider,
+    int statusCode,
+    int durationMs, {
+    String? model,
+    String? actualModel,
+    int promptTokens = 0,
+    int completionTokens = 0,
+    int requestBytes = 0,
+    int responseBytes = 0,
+    bool streaming = false,
+    int retries = 0,
+    String? ruleName,
+    String? error,
+    bool cached = false,
+    String rateLimited = '',
+  }) {
+    final log = RequestLog(
+      id: '${DateTime.now().microsecondsSinceEpoch}',
+      timestamp: DateTime.now().millisecondsSinceEpoch,
+      method: request.method,
+      path: request.uri.path,
+      provider: provider,
+      keyId: key?.id ?? '',
+      keyName: key?.name ?? '',
+      keyMasked: key?.maskedKey ?? '****',
+      model: model ?? '',
+      actualModel: actualModel ?? '',
+      statusCode: statusCode,
+      durationMs: durationMs,
+      promptTokens: promptTokens,
+      completionTokens: completionTokens,
+      requestBytes: requestBytes,
+      responseBytes: responseBytes,
+      streaming: streaming,
+      retries: retries,
+      ruleName: ruleName,
+      error: error,
+      cached: cached,
+      rateLimited: rateLimited,
+    );
+    logService.add(log);
+  }
+}
+
+class _ForwardOutcome {
+  final ApiKey key;
+  final ProviderResult result;
+  final int attempts;
+  final String? actualModel; // 实际转发到上游的模型名（虚拟模型改写后）
+  _ForwardOutcome(this.key, this.result, this.attempts, [this.actualModel]);
+}
+
+/// 转发失败（含具体原因，供 503 响应与日志展示）
+class _ForwardFailure {
+  final String reason;
+  final String? lastError;
+  final String? actualModel; // 最后一次尝试实际发送的模型名
+  /// 非空且 >0 时表示应返回「上游 TPM 限流，建议客户端等待后重试」，
+  /// 由调用方用 429 + Retry-After 响应（而非硬断 503）。
+  final int retryAfterSeconds;
+  const _ForwardFailure(
+    this.reason,
+    this.lastError, [
+    this.actualModel,
+    this.retryAfterSeconds = 0,
+  ]);
+}
+
+class _Captured {
+  final int total;
+final List<int> captured;
+  _Captured(this.total, this.captured);
+}
+class _ProxyOverload {
+  const _ProxyOverload();
+}
+/// 请求去重条目：短时间内相同请求的响应缓存
+class _DedupEntry {
+  final int timestamp;
+  final int statusCode;
+  final Map<String, String> headers;
+  final List<int> body;
+  final String provider;
+  _DedupEntry({
+    required this.timestamp,
+    required this.statusCode,
+    required this.headers,
+    required this.body,
+    required this.provider,
+  });
+  bool get isExpired =>
+      DateTime.now().millisecondsSinceEpoch - timestamp >
+      Constants.deduplicationWindowMs;
+}

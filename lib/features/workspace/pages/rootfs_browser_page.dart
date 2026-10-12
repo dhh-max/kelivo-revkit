@@ -1,0 +1,154 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
+import 'package:provider/provider.dart';
+
+import 'package:solab/core/providers/environment_provider.dart';
+import 'package:solab/core/services/haptics.dart';
+import 'package:solab/core/services/sandbox/rootfs_disk_usage.dart';
+import 'package:solab/features/workspace/widgets/environment/environment_labels.dart';
+import 'package:solab/features/workspace/widgets/files/file_browser.dart';
+import 'package:solab/icons/lucide_adapter.dart';
+import 'package:solab/l10n/app_localizations.dart';
+import 'package:solab/shared/widgets/ios_tactile.dart';
+import 'package:solab/theme/app_font_weights.dart';
+
+/// Host directory shown as guest `/`. iOS fakefs files live under `data/`.
+Future<Directory> resolveRootfsBrowserDir({String? rootfsDir}) async {
+  final usage = await resolveRootfsUsageDir(rootfsDir: rootfsDir);
+  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+    return Directory(p.join(usage.path, 'data'));
+  }
+  return usage;
+}
+
+class RootfsBrowserPage extends StatefulWidget {
+  const RootfsBrowserPage({super.key});
+
+  @override
+  State<RootfsBrowserPage> createState() => _RootfsBrowserPageState();
+}
+
+class _RootfsBrowserPageState extends State<RootfsBrowserPage> {
+  final GlobalKey<FileBrowserState> _browserKey = GlobalKey<FileBrowserState>();
+  Directory? _root;
+  Object? _error;
+  bool _loading = true;
+
+  /// 解析出来的根目录**不存在**时的路径（用户 2026-10-04 实测：点「浏览文件系统」
+  /// 进来只看到笼统的「无法加载这些文件」，看不出是环境没装还是目录没了）。
+  String? _missingRoot;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_resolve());
+  }
+
+  Future<void> _resolve() async {
+    try {
+      final rootfsDir = context.read<EnvironmentProvider>().state.rootfsDir;
+      final dir = await resolveRootfsBrowserDir(rootfsDir: rootfsDir);
+      // 这里必须自己判存在性：FileBrowser 的 root 不存在时只会抛内部错误，
+      // 页面拿到的是「无法加载这些文件」这种没法行动的信息。
+      final exists = await dir.exists();
+      if (!mounted) return;
+      setState(() {
+        _root = exists ? dir : null;
+        _missingRoot = exists ? null : dir.path;
+        _error = exists ? null : StateError('rootfs missing');
+        _loading = false;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() {});
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = error;
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final l10n = AppLocalizations.of(context)!;
+    final root = _root;
+    return Scaffold(
+      backgroundColor: cs.surface,
+      appBar: AppBar(
+        leading: Tooltip(
+          message: l10n.settingsPageBackButton,
+          child: IosIconButton(
+            icon: Lucide.ArrowLeft,
+            color: cs.onSurface,
+            size: 22,
+            minSize: 44,
+            semanticLabel: l10n.settingsPageBackButton,
+            onTap: () {
+              Haptics.light();
+              Navigator.of(context).maybePop();
+            },
+          ),
+        ),
+        title: Text(l10n.workspaceEnvRootfsTitle),
+        actions: [
+          if (_browserKey.currentState != null)
+            ...fileBrowserToolbarActions(_browserKey.currentState!),
+          const SizedBox(width: 12),
+        ],
+      ),
+      body: _loading
+          ? const Center(child: CupertinoActivityIndicator(radius: 12))
+          : _error != null || root == null
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      l10n.workspaceEnvBrowserUnavailable,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: AppFontWeights.medium,
+                        color: cs.onSurface.withValues(alpha: 0.6),
+                      ),
+                    ),
+                    // 把「到底缺什么」写出来：环境没装 → 提示去装；目录被清掉 →
+                    // 给出实际路径（用户 2026-10-04 反馈这句太笼统）。
+                    if (_missingRoot != null) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        'rootfs 目录不存在：\n$_missingRoot\n'
+                        '请先在上方「环境」里安装/重新安装 Linux 环境。',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          height: 1.45,
+                          color: cs.onSurface.withValues(alpha: 0.5),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            )
+          : FileBrowser(
+              key: _browserKey,
+              root: root,
+              rootLabel: l10n.workspaceEnvRootfsTitle,
+              readOnly: true,
+              showToolbar: false,
+              modelPathOf: (host) => workspaceEnvGuestPath(host, root.path),
+            ),
+    );
+  }
+}

@@ -1,0 +1,181 @@
+[1mdiff --git a/apk_reverse_engine/cli.py b/apk_reverse_engine/cli.py[m
+[1mold mode 100755[m
+[1mnew mode 100644[m
+[1mindex c972c31..c9f8d79[m
+[1m--- a/apk_reverse_engine/cli.py[m
+[1m+++ b/apk_reverse_engine/cli.py[m
+[36m@@ -1,63 +1,26 @@[m
+ #!/usr/bin/env python3[m
+[31m-"""APK Reverse Engineering Engine v2 - CLI"""[m
+[32m+[m[32m"""APK Reverse Engineering Engine v2 - CLI (基于扁平化API)"""[m
+ import sys, os, json[m
+ sys.path.insert(0, '/home')[m
+ [m
+[31m-from apk_reverse_engine.core.apk_context import APKContext[m
+[31m-from apk_reverse_engine.core.manifest_parser import ManifestParser[m
+[31m-from apk_reverse_engine.core.dex_parser import DexParser[m
+[31m-from apk_reverse_engine.analysis.static_analyzer import StaticAnalyzer[m
+[31m-from apk_reverse_engine.analysis.permission_analyzer import PermissionAnalyzer[m
+[31m-from apk_reverse_engine.analysis.obfuscation_detector import ObfuscationDetector[m
+[31m-from apk_reverse_engine.analysis.security_analyzer import SecurityAnalyzer[m
+[31m-from apk_reverse_engine.tools.unpacker import APKUnpacker[m
+[31m-from apk_reverse_engine.tools.repacker import APKRepacker[m
+[31m-from apk_reverse_engine.tools.signer import APKSigner[m
+[31m-from apk_reverse_engine.tools.searcher import APKSearch[m
+[31m-from apk_reverse_engine.tools.decompiler import APKDecompiler[m
+[32m+[m[32mfrom apk_reverse_engine import *[m
+ [m
+ def cmd_inspect(args):[m
+[31m-    sa = StaticAnalyzer(args.apk)[m
+[31m-    r = sa.analyze()[m
+[31m-    sa.close()[m
+[31m-    print(json.dumps(r, indent=2, ensure_ascii=False))[m
+[32m+[m[32m    print(json.dumps(static_analyze(args.apk), indent=2, ensure_ascii=False))[m
+ [m
+ def cmd_analyze(args):[m
+[31m-    sa = StaticAnalyzer(args.apk)[m
+[31m-    r = sa.analyze()[m
+[31m-    sa.close()[m
+[31m-    perms = r.get("manifest", {}).get("permissions", [])[m
+[31m-    r["permission_analysis"] = PermissionAnalyzer.analyze(perms)[m
+[31m-    dex_names = [][m
+[31m-    try:[m
+[31m-        with APKContext(args.apk) as ctx:[m
+[31m-            for d in ctx.get_dex_files():[m
+[31m-                data = ctx.read_file(d)[m
+[31m-                dp = DexParser(data)[m
+[31m-                h = dp.parse_header()[m
+[31m-                for ci in range(min(h.get("class_defs", 0), 200)):[m
+[31m-                    dex_names.append(dp.get_string(ci))[m
+[31m-    except: pass[m
+[31m-    r["obfuscation"] = ObfuscationDetector.detect_class_names(dex_names)[m
+[31m-    with APKContext(args.apk) as ctx:[m
+[31m-        packers = ObfuscationDetector.detect_packer(ctx.zip)[m
+[31m-    r["security"] = SecurityAnalyzer.analyze([m
+[31m-        r.get("manifest", {}), r["permission_analysis"],[m
+[31m-        r["obfuscation"].get("score", 0), packers)[m
+[31m-    print(json.dumps(r, indent=2, ensure_ascii=False))[m
+[32m+[m[32m    print(json.dumps(analyze_full(args.apk), indent=2, ensure_ascii=False))[m
+ [m
+ def cmd_manifest(args):[m
+[31m-    with APKContext(args.apk) as ctx:[m
+[32m+[m[32m    with open_apk(args.apk) as ctx:[m
+         data = ctx.get_manifest_xml()[m
+[31m-        r = ManifestParser.get_simple(data)[m
+[31m-        print(json.dumps(r, indent=2, ensure_ascii=False))[m
+[32m+[m[32m        print(json.dumps(get_manifest_info(data), indent=2, ensure_ascii=False))[m
+ [m
+ def cmd_dex(args):[m
+[31m-    with APKContext(args.apk) as ctx:[m
+[32m+[m[32m    with open_apk(args.apk) as ctx:[m
+         for d in ctx.get_dex_files():[m
+             data = ctx.read_file(d)[m
+[31m-            dp = DexParser(data)[m
+[31m-            h = dp.parse_header()[m
+[32m+[m[32m            h = dex_header(data)[m
+             print(f"DEX: {d}")[m
+             print(f"  Size: {len(data)} bytes")[m
+             print(f"  Classes: {h.get('class_defs', 0)}")[m
+[36m@@ -65,28 +28,53 @@[m [mdef cmd_dex(args):[m
+             print(f"  Strings: {h.get('string_ids', 0)}")[m
+ [m
+ def cmd_search(args):[m
+[31m-    r = APKSearch.search_in_apk(args.apk, args.query, args.scope or "all", args.max or 100)[m
+[31m-    print(json.dumps(r, indent=2, ensure_ascii=False))[m
+[32m+[m[32m    print(json.dumps(search_apk(args.apk, args.query, args.scope or "all", args.max or 100), indent=2, ensure_ascii=False))[m
+ [m
+ def cmd_unpack(args):[m
+[31m-    r = APKUnpacker.extract_raw(args.apk, args.output)[m
+[31m-    print(json.dumps(r, indent=2))[m
+[32m+[m[32m    print(json.dumps(unpack_apk(args.apk, args.output), indent=2))[m
+ [m
+ def cmd_decode(args):[m
+[31m-    r = APKUnpacker.apktool_decode(args.apk, args.output, args.force or False)[m
+[31m-    print(json.dumps(r, indent=2))[m
+[32m+[m[32m    print(json.dumps(apktool_decode(args.apk, args.output, args.force or False), indent=2))[m
+ [m
+ def cmd_build(args):[m
+[31m-    r = APKRepacker.apktool_build(args.input, args.output)[m
+[31m-    print(json.dumps(r, indent=2))[m
+[32m+[m[32m    print(json.dumps(apktool_build(args.input, args.output), indent=2))[m
+ [m
+ def cmd_sign(args):[m
+[31m-    r = APKSigner.sign_debug(args.apk, args.output)[m
+[31m-    print(json.dumps(r, indent=2))[m
+[32m+[m[32m    print(json.dumps(sign_debug(args.apk, args.output), indent=2))[m
+ [m
+ def cmd_jadx(args):[m
+[31m-    r = APKDecompiler.jadx_decompile(args.apk, args.output, deobf=not args.no_deobf)[m
+[31m-    print(json.dumps(r, indent=2))[m
+[32m+[m[32m    print(json.dumps(jadx_decompile(args.apk, args.output, deobf=not args.no_deobf), indent=2))[m
+[32m+[m
+[32m+[m[32mdef cmd_classes(args):[m
+[32m+[m[32m    with open_apk(args.apk) as ctx:[m
+[32m+[m[32m        for d in ctx.get_dex_files():[m
+[32m+[m[32m            data = ctx.read_file(d)[m
+[32m+[m[32m            names = dex_class_names(data)[m
+[32m+[m[32m            print(f"=== {d} ({len(names)} classes) ===")[m
+[32m+[m[32m            for n in names[:args.max]:[m
+[32m+[m[32m                print(f"  {n}")[m
+[32m+[m
+[32m+[m[32mdef cmd_so(args):[m
+[32m+[m[32m    with open_apk(args.apk) as ctx:[m
+[32m+[m[32m        for s in ctx.get_so_files():[m
+[32m+[m[32m            data = ctx.read_file(s)[m
+[32m+[m[32m            r = analyze_elf(data)[m
+[32m+[m[32m            print(f"=== {s} ===")[m
+[32m+[m[32m            print(json.dumps(r, indent=2, ensure_ascii=False))[m
+[32m+[m
+[32m+[m[32mdef cmd_patch(args):[m
+[32m+[m[32m    with open(args.apk, 'rb') as f:[m
+[32m+[m[32m        data = f.read()[m
+[32m+[m[32m    if args.type == 'hex':[m
+[32m+[m[32m        data = native_patch_hex(data, args.old, args.new)[m
+[32m+[m[32m    elif args.type == 'string':[m
+[32m+[m[32m        data = native_patch_string(data, args.old, args.new)[m
+[32m+[m[32m    elif args.type == 'ret':[m
+[32m+[m[32m        data = native_patch_ret(data, int(args.offset, 0), args.arch or 'aarch64')[m
+[32m+[m[32m    elif args.type == 'nop':[m
+[32m+[m[32m        data = native_nop_out(data, int(args.offset, 0), int(args.count or 4))[m
+[32m+[m[32m    safe_write(args.output, data)[m
+[32m+[m[32m    print(json.dumps({'success': True, 'output': args.output, 'size': len(data)}))[m
+ [m
+ if __name__ == "__main__":[m
+     import argparse[m
+[36m@@ -96,7 +84,7 @@[m [mif __name__ == "__main__":[m
+     p = sub.add_parser("inspect", help="Inspect APK基本信息")[m
+     p.add_argument("apk"); p.set_defaults(func=cmd_inspect)[m
+ [m
+[31m-    p = sub.add_parser("analyze", help="全面分析APK(含权限/混淆/安全)")[m
+[32m+[m[32m    p = sub.add_parser("analyze", help="全面分析APK(含权限/混淆/加固/安全/SO)")[m
+     p.add_argument("apk"); p.set_defaults(func=cmd_analyze)[m
+ [m
+     p = sub.add_parser("manifest", help="解析AndroidManifest")[m
+[36m@@ -105,6 +93,13 @@[m [mif __name__ == "__main__":[m
+     p = sub.add_parser("dex", help="DEX文件分析")[m
+     p.add_argument("apk"); p.set_defaults(func=cmd_dex)[m
+ [m
+[32m+[m[32m    p = sub.add_parser("classes", help="列出DEX类名")[m
+[32m+[m[32m    p.add_argument("apk"); p.add_argument("--max", type=int, default=100)[m
+[32m+[m[32m    p.set_defaults(func=cmd_classes)[m
+[32m+[m
+[32m+[m[32m    p = sub.add_parser("so", help="分析SO文件")[m
+[32m+[m[32m    p.add_argument("apk"); p.set_defaults(func=cmd_so)[m
+[32m+[m
+     p = sub.add_parser("search", help="在APK中搜索")[m
+     p.add_argument("apk"); p.add_argument("query")[m
+     p.add_argument("--scope", default="all"); p.add_argument("--max", type=int, default=100)[m
+[36m@@ -127,6 +122,13 @@[m [mif __name__ == "__main__":[m
+     p.add_argument("apk"); p.add_argument("output")[m
+     p.add_argument("--no-deobf", action="store_true"); p.set_defaults(func=cmd_jadx)[m
+ [m
+[32m+[m[32m    p = sub.add_parser("patch", help="原生SO补丁")[m
+[32m+[m[32m    p.add_argument("apk"); p.add_argument("output"); p.add_argument("--type", choices=['hex','string','ret','nop'], required=True)[m
+[32m+[m[32m    p.add_argument("--old", default=""); p.add_argument("--new", default="")[m
+[32m+[m[32m    p.add_argument("--offset", default="0"); p.add_argument("--count", default="4")[m
+[32m+[m[32m    p.add_argument("--arch", default="aarch64")[m
+[32m+[m[32m    p.set_defaults(func=cmd_patch)[m
+[32m+[m
+     args = parser.parse_args()[m
+     if hasattr(args, "func"):[m
+         args.func(args)[m

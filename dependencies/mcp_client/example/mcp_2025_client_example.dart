@@ -287,7 +287,7 @@ class MockToolTransport implements ClientTransport {
   Future<void> get onClose => _closeCompleter.future;
 
   @override
-  TransportSendOperation send(dynamic message) {
+  void send(dynamic message) {
     final method = message['method'] as String;
     final id = message['id'];
 
@@ -337,7 +337,6 @@ class MockToolTransport implements ClientTransport {
         });
         break;
     }
-    return TransportSendOperation.completed();
   }
 
   @override
@@ -362,7 +361,7 @@ class MockResourceTransport implements ClientTransport {
   Future<void> get onClose => _closeCompleter.future;
 
   @override
-  TransportSendOperation send(dynamic message) {
+  void send(dynamic message) {
     final method = message['method'] as String;
     final id = message['id'];
 
@@ -421,7 +420,6 @@ class MockResourceTransport implements ClientTransport {
         });
         break;
     }
-    return TransportSendOperation.completed();
   }
 
   @override
@@ -446,7 +444,7 @@ class MockProgressTransport implements ClientTransport {
   Future<void> get onClose => _closeCompleter.future;
 
   @override
-  TransportSendOperation send(dynamic message) {
+  void send(dynamic message) {
     final method = message['method'] as String;
     final id = message['id'];
 
@@ -495,7 +493,6 @@ class MockProgressTransport implements ClientTransport {
         });
         break;
     }
-    return TransportSendOperation.completed();
   }
 
   @override
