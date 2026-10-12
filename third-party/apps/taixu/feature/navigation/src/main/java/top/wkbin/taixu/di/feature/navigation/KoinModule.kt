@@ -1,0 +1,29 @@
+package top.wkbin.taixu.di.feature.navigation
+
+import org.koin.dsl.module
+import top.wkbin.taixu.di.feature.browser.featureBrowserModule
+import top.wkbin.taixu.di.feature.chat.featureChatModule
+import top.wkbin.taixu.di.feature.custom.iteration.featureCustomIterationModule
+import top.wkbin.taixu.di.feature.developer.featureDeveloperModule
+import top.wkbin.taixu.di.feature.git.featureGitModule
+import top.wkbin.taixu.di.feature.home.featureHomeModule
+import top.wkbin.taixu.di.feature.settings.featureSettingsModule
+import top.wkbin.taixu.di.feature.terminal.featureTerminalModule
+import top.wkbin.taixu.di.feature.workflow.featureWorkflowModule
+import top.wkbin.taixu.di.feature.workspace.featureWorkspaceModule
+
+/** Feature composition stays at the navigation boundary. */
+val navigationModule = module {
+    includes(
+        featureBrowserModule,
+        featureChatModule,
+        featureCustomIterationModule,
+        featureDeveloperModule,
+        featureGitModule,
+        featureHomeModule,
+        featureSettingsModule,
+        featureTerminalModule,
+        featureWorkflowModule,
+        featureWorkspaceModule,
+    )
+}
