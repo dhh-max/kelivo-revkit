@@ -11,7 +11,7 @@ import android.view.View
 import android.view.ViewOutlineProvider
 import android.widget.ImageView
 import android.widget.TextView
-import zhou.solab.R
+import com.psyche.kelivo.R
 import java.io.File
 
 /**

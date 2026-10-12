@@ -32,7 +32,7 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import zhou.solab.R
+import com.psyche.kelivo.R
 import kotlin.math.abs
 
 /** 无操作满三秒贴边，滑动 220ms——沿用桌宠的手感，不做可调参数。 */

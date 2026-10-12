@@ -23,10 +23,21 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import org.json.JSONObject
-import zhou.solab.KeepAliveService
-import zhou.solab.MainActivity
+import com.psyche.kelivo.MainActivity as KelivoMainActivity
+
+// KeepAlive overlay prefs 常量：与 zhou.solab.KeepAliveService 保持一致，
+// 直接内联以避免依赖 SoLab 原生 APK 引擎包（该包因 LFS 大 jar 在 CI 上不可编译）。
+private const val OVERLAY_PREFS = "keepalive_overlay"
+private const val KEY_ICON_KIND = "icon_kind"
+private const val KEY_ICON_VALUE = "icon_value"
+private const val KEY_SNAP_TO_EDGE = "snap_to_edge"
+private const val KEY_APPEARANCE = "appearance"
+
+private object KeepAliveCompat {
+    fun refreshOverlay() { /* no-op: overlay 由 GenerationForegroundService 驱动 */ }
+}
 import com.psyche.kelivo.KelivoApplication
-import zhou.solab.R
+import com.psyche.kelivo.R
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodChannel
 import java.lang.ref.WeakReference
@@ -192,7 +203,7 @@ class BackgroundRuntime(private val context: Context) {
         val capsule = capsuleVisible()
         if (capsule != capsuleShown) {
             capsuleShown = capsule
-            KeepAliveService.refreshOverlay()
+            KeepAliveCompat.refreshOverlay()
         }
         reconcileService()
     }
@@ -209,19 +220,19 @@ class BackgroundRuntime(private val context: Context) {
         // 整份外观一起带走：小标记的窗口尺寸/图标大小/圆角/背景/进度环都
         // 按它渲染，设置页预览看到什么，浮窗就是什么。
         val appearanceJson = JSONObject(appearance ?: emptyMap<String, Any>()).toString()
-        val store = context.getSharedPreferences(KeepAliveService.OVERLAY_PREFS, Context.MODE_PRIVATE)
-        val unchanged = store.getString(KeepAliveService.KEY_ICON_KIND, "app") == kind &&
-            store.getString(KeepAliveService.KEY_ICON_VALUE, "") == value &&
-            store.getBoolean(KeepAliveService.KEY_SNAP_TO_EDGE, true) == snap &&
-            store.getString(KeepAliveService.KEY_APPEARANCE, "") == appearanceJson
+        val store = context.getSharedPreferences(OVERLAY_PREFS, Context.MODE_PRIVATE)
+        val unchanged = store.getString(KEY_ICON_KIND, "app") == kind &&
+            store.getString(KEY_ICON_VALUE, "") == value &&
+            store.getBoolean(KEY_SNAP_TO_EDGE, true) == snap &&
+            store.getString(KEY_APPEARANCE, "") == appearanceJson
         if (unchanged) return
         store.edit()
-            .putString(KeepAliveService.KEY_ICON_KIND, kind)
-            .putString(KeepAliveService.KEY_ICON_VALUE, value)
-            .putBoolean(KeepAliveService.KEY_SNAP_TO_EDGE, snap)
-            .putString(KeepAliveService.KEY_APPEARANCE, appearanceJson)
+            .putString(KEY_ICON_KIND, kind)
+            .putString(KEY_ICON_VALUE, value)
+            .putBoolean(KEY_SNAP_TO_EDGE, snap)
+            .putString(KEY_APPEARANCE, appearanceJson)
             .apply()
-        KeepAliveService.refreshOverlay()
+        KeepAliveCompat.refreshOverlay()
     }
 
     /** 上游任务/常驻胶囊此刻是否在屏幕上（自研小标记据此让位）。 */
@@ -293,7 +304,7 @@ class BackgroundRuntime(private val context: Context) {
         context.startActivity(openIntent(id))
     }
 
-    fun openIntent(id: String) = Intent(context, MainActivity::class.java)
+    fun openIntent(id: String) = Intent(context, KelivoMainActivity::class.java)
         .putExtra(CONVERSATION_EXTRA, id)
         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
 
