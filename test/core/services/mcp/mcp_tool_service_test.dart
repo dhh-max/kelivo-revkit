@@ -3,9 +3,9 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mcp_client/mcp_client.dart' as mcp;
 
-import 'package:solab/core/providers/assistant_provider.dart';
-import 'package:solab/core/providers/mcp_provider.dart';
-import 'package:solab/core/services/mcp/mcp_tool_service.dart';
+import 'package:Kelivo/core/providers/assistant_provider.dart';
+import 'package:Kelivo/core/providers/mcp_provider.dart';
+import 'package:Kelivo/core/services/mcp/mcp_tool_service.dart';
 
 import '../../../support/business_test_harness.dart';
 

@@ -1,7 +1,7 @@
-import 'package:solab/features/workspace/pages/workspaces_page.dart';
-import 'package:solab/icons/lucide_adapter.dart';
-import 'package:solab/l10n/app_localizations.dart';
-import 'package:solab/shared/widgets/ios_tactile.dart';
+import 'package:Kelivo/features/workspace/pages/workspaces_page.dart';
+import 'package:Kelivo/icons/lucide_adapter.dart';
+import 'package:Kelivo/l10n/app_localizations.dart';
+import 'package:Kelivo/shared/widgets/ios_tactile.dart';
 import 'package:flutter/material.dart';
 
 class WorkspacesMobileLayout extends StatelessWidget {

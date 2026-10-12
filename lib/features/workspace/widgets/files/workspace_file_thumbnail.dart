@@ -1,11 +1,11 @@
 import 'dart:io';
 import 'dart:ui' as ui;
 
-import 'package:solab/features/chat/widgets/workspace_tool_ui.dart'
+import 'package:Kelivo/features/chat/widgets/workspace_tool_ui.dart'
     show workspaceFileTypeIcon;
-import 'package:solab/features/workspace/widgets/files/file_browser_ops.dart';
-import 'package:solab/features/workspace/widgets/preview/preview_file_type.dart';
-import 'package:solab/utils/safe_resize_image.dart';
+import 'package:Kelivo/features/workspace/widgets/files/file_browser_ops.dart';
+import 'package:Kelivo/features/workspace/widgets/preview/preview_file_type.dart';
+import 'package:Kelivo/utils/safe_resize_image.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 

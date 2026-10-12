@@ -8,14 +8,14 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:solab/core/database/app_database.dart';
-import 'package:solab/core/database/business_data.dart';
-import 'package:solab/core/database/business_preferences.dart';
-import 'package:solab/core/database/business_repository.dart';
-import 'package:solab/core/database/business_restore_service.dart';
-import 'package:solab/core/models/backup.dart';
-import 'package:solab/core/services/backup/data_sync.dart';
-import 'package:solab/core/services/chat/chat_service.dart';
+import 'package:Kelivo/core/database/app_database.dart';
+import 'package:Kelivo/core/database/business_data.dart';
+import 'package:Kelivo/core/database/business_preferences.dart';
+import 'package:Kelivo/core/database/business_repository.dart';
+import 'package:Kelivo/core/database/business_restore_service.dart';
+import 'package:Kelivo/core/models/backup.dart';
+import 'package:Kelivo/core/services/backup/data_sync.dart';
+import 'package:Kelivo/core/services/chat/chat_service.dart';
 
 class _FakePathProvider extends PathProviderPlatform {
   _FakePathProvider(this.root);

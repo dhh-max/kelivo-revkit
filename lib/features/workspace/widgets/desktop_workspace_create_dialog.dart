@@ -5,13 +5,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 
-import 'package:solab/core/models/workspace.dart';
-import 'package:solab/core/providers/workspace_provider.dart';
-import 'package:solab/features/settings/widgets/custom_theme_widgets.dart';
-import 'package:solab/icons/lucide_adapter.dart';
-import 'package:solab/l10n/app_localizations.dart';
+import 'package:Kelivo/core/models/workspace.dart';
+import 'package:Kelivo/core/providers/workspace_provider.dart';
+import 'package:Kelivo/features/settings/widgets/custom_theme_widgets.dart';
+import 'package:Kelivo/icons/lucide_adapter.dart';
+import 'package:Kelivo/l10n/app_localizations.dart';
 import 'desktop_workspace_text_field.dart';
-import 'package:solab/theme/app_font_weights.dart';
+import 'package:Kelivo/theme/app_font_weights.dart';
 
 import 'desktop_workspace_button.dart';
 

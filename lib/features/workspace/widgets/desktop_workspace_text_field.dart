@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import 'package:solab/theme/app_font_weights.dart';
-import 'package:solab/theme/app_semantic_colors.dart';
+import 'package:Kelivo/theme/app_font_weights.dart';
+import 'package:Kelivo/theme/app_semantic_colors.dart';
 
 /// Compact desktop field with one shared line metric for its hint and value.
 class DesktopWorkspaceTextField extends StatelessWidget {

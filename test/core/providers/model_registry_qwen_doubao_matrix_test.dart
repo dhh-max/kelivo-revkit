@@ -1,4 +1,4 @@
-import 'package:solab/core/providers/model_provider.dart';
+import 'package:Kelivo/core/providers/model_provider.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

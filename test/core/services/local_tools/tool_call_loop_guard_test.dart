@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:solab/core/services/local_tools/tool_call_loop_guard.dart';
+import 'package:Kelivo/core/services/local_tools/tool_call_loop_guard.dart';
 
 void main() {
   test('blocks a repeated call inside a short cycle', () {

@@ -1,8 +1,8 @@
 import 'dart:convert';
 
-import 'package:solab/core/services/api/providers/openai/responses_decoder.dart';
-import 'package:solab/core/services/api/stream/sse_event.dart';
-import 'package:solab/core/services/api/stream/stream_chunk.dart';
+import 'package:Kelivo/core/services/api/providers/openai/responses_decoder.dart';
+import 'package:Kelivo/core/services/api/stream/sse_event.dart';
+import 'package:Kelivo/core/services/api/stream/stream_chunk.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 SseEvent _event(Map<String, dynamic> data) => SseEvent(data: jsonEncode(data));

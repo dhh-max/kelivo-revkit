@@ -1,9 +1,9 @@
 import "../../../support/business_test_harness.dart";
-import 'package:solab/core/models/message_part.dart';
-import 'package:solab/core/providers/settings_provider.dart';
-import 'package:solab/core/services/chat/chat_service.dart';
-import 'package:solab/features/home/controllers/chat_actions.dart';
-import 'package:solab/features/home/controllers/stream_controller.dart';
+import 'package:Kelivo/core/models/message_part.dart';
+import 'package:Kelivo/core/providers/settings_provider.dart';
+import 'package:Kelivo/core/services/chat/chat_service.dart';
+import 'package:Kelivo/features/home/controllers/chat_actions.dart';
+import 'package:Kelivo/features/home/controllers/stream_controller.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 

@@ -1,6 +1,6 @@
-import 'package:solab/core/models/conversation.dart';
-import 'package:solab/core/services/chat/chat_service.dart';
-import 'package:solab/features/home/controllers/chat_controller.dart';
+import 'package:Kelivo/core/models/conversation.dart';
+import 'package:Kelivo/core/services/chat/chat_service.dart';
+import 'package:Kelivo/features/home/controllers/chat_controller.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _FakeChatService extends ChatService {

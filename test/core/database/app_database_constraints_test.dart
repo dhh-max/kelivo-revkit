@@ -1,4 +1,4 @@
-import 'package:solab/core/database/app_database.dart';
+import 'package:Kelivo/core/database/app_database.dart';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';

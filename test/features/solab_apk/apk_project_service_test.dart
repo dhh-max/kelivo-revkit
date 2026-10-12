@@ -2,9 +2,9 @@ import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/core/database/app_database.dart';
-import 'package:solab/core/database/chat_database_repository.dart';
-import 'package:solab/features/solab_apk/services/apk_project_service.dart';
+import 'package:Kelivo/core/database/app_database.dart';
+import 'package:Kelivo/core/database/chat_database_repository.dart';
+import 'package:Kelivo/features/solab_apk/services/apk_project_service.dart';
 
 void main() {
   driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;

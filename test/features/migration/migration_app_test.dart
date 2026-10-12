@@ -5,12 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/features/migration/hive_to_sqlite_migration_page.dart';
-import 'package:solab/features/migration/hive_to_sqlite_migration_service.dart';
-import 'package:solab/icons/lucide_adapter.dart';
-import 'package:solab/l10n/app_localizations.dart';
-import 'package:solab/main.dart' show MigrationApp;
-import 'package:solab/shared/widgets/snackbar.dart';
+import 'package:Kelivo/features/migration/hive_to_sqlite_migration_page.dart';
+import 'package:Kelivo/features/migration/hive_to_sqlite_migration_service.dart';
+import 'package:Kelivo/icons/lucide_adapter.dart';
+import 'package:Kelivo/l10n/app_localizations.dart';
+import 'package:Kelivo/main.dart' show MigrationApp;
+import 'package:Kelivo/shared/widgets/snackbar.dart';
 
 void main() {
   testWidgets('mobile retry does not export an already saved backup again', (

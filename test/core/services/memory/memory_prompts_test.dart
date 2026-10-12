@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/core/services/memory/memory_prompts.dart';
+import 'package:Kelivo/core/services/memory/memory_prompts.dart';
 
 void main() {
   test('v4 rules keep the on-demand contract with a smaller prompt', () {

@@ -1,11 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:solab/core/database/app_database.dart';
-import 'package:solab/core/database/chat_database_observer.dart';
-import 'package:solab/core/database/chat_database_repository.dart';
-import 'package:solab/core/models/chat_message.dart';
-import 'package:solab/core/models/conversation.dart';
+import 'package:Kelivo/core/database/app_database.dart';
+import 'package:Kelivo/core/database/chat_database_observer.dart';
+import 'package:Kelivo/core/database/chat_database_repository.dart';
+import 'package:Kelivo/core/models/chat_message.dart';
+import 'package:Kelivo/core/models/conversation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

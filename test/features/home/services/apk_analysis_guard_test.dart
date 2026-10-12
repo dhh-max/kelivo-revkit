@@ -2,8 +2,8 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/core/services/local_tools/local_tool_names.dart';
-import 'package:solab/features/home/services/apk_analysis_guard.dart';
+import 'package:Kelivo/core/services/local_tools/local_tool_names.dart';
+import 'package:Kelivo/features/home/services/apk_analysis_guard.dart';
 
 void main() {
   test('会员和广告分析调用不受次数限制', () {

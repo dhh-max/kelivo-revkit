@@ -6,10 +6,10 @@ import 'package:path_provider_platform_interface/path_provider_platform_interfac
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart';
 
-import 'package:solab/core/database/app_database.dart';
-import 'package:solab/core/database/chat_database_repository.dart';
-import 'package:solab/core/services/backup/restore_workspace_lock.dart';
-import 'package:solab/core/services/storage/storage_usage_service.dart';
+import 'package:Kelivo/core/database/app_database.dart';
+import 'package:Kelivo/core/database/chat_database_repository.dart';
+import 'package:Kelivo/core/services/backup/restore_workspace_lock.dart';
+import 'package:Kelivo/core/services/storage/storage_usage_service.dart';
 
 class _FakePathProviderPlatform extends PathProviderPlatform {
   _FakePathProviderPlatform(this.path);

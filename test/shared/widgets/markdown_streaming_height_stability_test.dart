@@ -2,9 +2,9 @@ import 'dart:io';
 
 import "../../support/business_test_harness.dart";
 
-import 'package:solab/core/providers/settings_provider.dart';
-import 'package:solab/shared/widgets/markdown_with_highlight.dart';
-import 'package:solab/l10n/app_localizations.dart';
+import 'package:Kelivo/core/providers/settings_provider.dart';
+import 'package:Kelivo/shared/widgets/markdown_with_highlight.dart';
+import 'package:Kelivo/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';

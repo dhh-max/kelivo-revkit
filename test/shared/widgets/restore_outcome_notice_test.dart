@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/core/services/backup/restore_receipt.dart';
-import 'package:solab/l10n/app_localizations.dart';
-import 'package:solab/shared/widgets/restore_outcome_notice.dart';
+import 'package:Kelivo/core/services/backup/restore_receipt.dart';
+import 'package:Kelivo/l10n/app_localizations.dart';
+import 'package:Kelivo/shared/widgets/restore_outcome_notice.dart';
 
 Widget _testApp(RestoreReceiptState? outcome) {
   return MaterialApp(

@@ -6,15 +6,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
 import '../../../support/business_test_harness.dart';
-import 'package:solab/core/models/chat_message.dart';
-import 'package:solab/core/models/conversation.dart';
-import 'package:solab/core/providers/assistant_provider.dart';
-import 'package:solab/core/providers/settings_provider.dart';
-import 'package:solab/core/services/chat/chat_service.dart';
-import 'package:solab/features/home/controllers/home_page_controller.dart';
-import 'package:solab/features/home/controllers/scroll_controller.dart';
-import 'package:solab/features/home/widgets/chat_input_bar.dart';
-import 'package:solab/l10n/app_localizations.dart';
+import 'package:Kelivo/core/models/chat_message.dart';
+import 'package:Kelivo/core/models/conversation.dart';
+import 'package:Kelivo/core/providers/assistant_provider.dart';
+import 'package:Kelivo/core/providers/settings_provider.dart';
+import 'package:Kelivo/core/services/chat/chat_service.dart';
+import 'package:Kelivo/features/home/controllers/home_page_controller.dart';
+import 'package:Kelivo/features/home/controllers/scroll_controller.dart';
+import 'package:Kelivo/features/home/widgets/chat_input_bar.dart';
+import 'package:Kelivo/l10n/app_localizations.dart';
 
 class _PageRequest {
   _PageRequest({required this.conversationId, required this.completer});

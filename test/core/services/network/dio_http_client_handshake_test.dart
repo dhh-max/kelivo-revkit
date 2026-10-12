@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'dart:async';
 
-import 'package:solab/core/services/network/dio_http_client.dart';
+import 'package:Kelivo/core/services/network/dio_http_client.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 

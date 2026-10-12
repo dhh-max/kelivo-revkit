@@ -4,9 +4,9 @@ import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/core/database/app_database.dart';
-import 'package:solab/core/database/business_data.dart';
-import 'package:solab/core/database/business_repository.dart';
+import 'package:Kelivo/core/database/app_database.dart';
+import 'package:Kelivo/core/database/business_data.dart';
+import 'package:Kelivo/core/database/business_repository.dart';
 
 void main() {
   late AppDatabase database;

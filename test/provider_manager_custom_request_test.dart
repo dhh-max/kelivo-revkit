@@ -3,8 +3,8 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/core/providers/model_provider.dart';
-import 'package:solab/core/providers/settings_provider.dart';
+import 'package:Kelivo/core/providers/model_provider.dart';
+import 'package:Kelivo/core/providers/settings_provider.dart';
 
 void main() {
   test(

@@ -7,15 +7,15 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 
-import 'package:solab/core/providers/environment_provider.dart';
-import 'package:solab/core/services/haptics.dart';
-import 'package:solab/core/services/sandbox/rootfs_disk_usage.dart';
-import 'package:solab/features/workspace/widgets/environment/environment_labels.dart';
-import 'package:solab/features/workspace/widgets/files/file_browser.dart';
-import 'package:solab/icons/lucide_adapter.dart';
-import 'package:solab/l10n/app_localizations.dart';
-import 'package:solab/shared/widgets/ios_tactile.dart';
-import 'package:solab/theme/app_font_weights.dart';
+import 'package:Kelivo/core/providers/environment_provider.dart';
+import 'package:Kelivo/core/services/haptics.dart';
+import 'package:Kelivo/core/services/sandbox/rootfs_disk_usage.dart';
+import 'package:Kelivo/features/workspace/widgets/environment/environment_labels.dart';
+import 'package:Kelivo/features/workspace/widgets/files/file_browser.dart';
+import 'package:Kelivo/icons/lucide_adapter.dart';
+import 'package:Kelivo/l10n/app_localizations.dart';
+import 'package:Kelivo/shared/widgets/ios_tactile.dart';
+import 'package:Kelivo/theme/app_font_weights.dart';
 
 /// Host directory shown as guest `/`. iOS fakefs files live under `data/`.
 Future<Directory> resolveRootfsBrowserDir({String? rootfsDir}) async {

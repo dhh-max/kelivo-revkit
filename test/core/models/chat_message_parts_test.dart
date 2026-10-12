@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/core/models/chat_message.dart';
-import 'package:solab/core/models/message_part.dart';
+import 'package:Kelivo/core/models/chat_message.dart';
+import 'package:Kelivo/core/models/message_part.dart';
 
 void main() {
   group('ChatMessage.parts as source of truth', () {

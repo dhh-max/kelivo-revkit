@@ -1,11 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/core/models/assistant.dart';
-import 'package:solab/core/services/local_tools/local_tool_names.dart';
-import 'package:solab/core/services/local_tools/local_tool_registry.dart';
-import 'package:solab/core/services/mcp_server/mcp_http_server.dart';
-import 'package:solab/features/home/services/local_tools_service.dart';
-import 'package:solab/features/home/services/tool_router.dart';
+import 'package:Kelivo/core/models/assistant.dart';
+import 'package:Kelivo/core/services/local_tools/local_tool_names.dart';
+import 'package:Kelivo/core/services/local_tools/local_tool_registry.dart';
+import 'package:Kelivo/core/services/mcp_server/mcp_http_server.dart';
+import 'package:Kelivo/features/home/services/local_tools_service.dart';
+import 'package:Kelivo/features/home/services/tool_router.dart';
 
 /// 注册点防漂移：同一个工具名目前登记在多处（LocalToolNames 常量、
 /// schema 定义、UI 元数据表、MCP 白名单、ToolRouter 分层集合）。任何一处

@@ -9,9 +9,9 @@ import 'package:path/path.dart' as p;
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import 'package:solab/l10n/app_localizations.dart';
-import 'package:solab/shared/utils/save_file_picker.dart';
-import 'package:solab/shared/widgets/snackbar.dart';
+import 'package:Kelivo/l10n/app_localizations.dart';
+import 'package:Kelivo/shared/utils/save_file_picker.dart';
+import 'package:Kelivo/shared/widgets/snackbar.dart';
 
 HttpServer? _previewBrowserServer;
 Timer? _previewBrowserServerTtl;

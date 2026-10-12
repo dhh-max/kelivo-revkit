@@ -2,12 +2,12 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:solab/core/providers/mcp_provider.dart';
-import 'package:solab/core/services/mcp/mcp_oauth_callback.dart';
-import 'package:solab/core/services/mcp/mcp_oauth_http_client.dart';
-import 'package:solab/core/services/mcp/mcp_oauth_http_client_io.dart'
+import 'package:Kelivo/core/providers/mcp_provider.dart';
+import 'package:Kelivo/core/services/mcp/mcp_oauth_callback.dart';
+import 'package:Kelivo/core/services/mcp/mcp_oauth_http_client.dart';
+import 'package:Kelivo/core/services/mcp/mcp_oauth_http_client_io.dart'
     show isPublicMcpOAuthAddress;
-import 'package:solab/core/services/mcp/mcp_oauth_service.dart';
+import 'package:Kelivo/core/services/mcp/mcp_oauth_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';

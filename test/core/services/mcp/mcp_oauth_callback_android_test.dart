@@ -1,4 +1,4 @@
-import 'package:solab/core/services/mcp/mcp_oauth_callback_io.dart'
+import 'package:Kelivo/core/services/mcp/mcp_oauth_callback_io.dart'
     show createAndroidMcpOAuthCallbackForTesting;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';

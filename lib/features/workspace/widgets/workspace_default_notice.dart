@@ -3,12 +3,12 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
 
-import 'package:solab/core/providers/assistant_provider.dart';
-import 'package:solab/core/providers/workspace_provider.dart';
-import 'package:solab/core/services/workspace/workspace_binding_actions.dart';
-import 'package:solab/features/assistant/pages/assistant_settings_edit_page.dart';
-import 'package:solab/l10n/app_localizations.dart';
-import 'package:solab/shared/widgets/snackbar.dart';
+import 'package:Kelivo/core/providers/assistant_provider.dart';
+import 'package:Kelivo/core/providers/workspace_provider.dart';
+import 'package:Kelivo/core/services/workspace/workspace_binding_actions.dart';
+import 'package:Kelivo/features/assistant/pages/assistant_settings_edit_page.dart';
+import 'package:Kelivo/l10n/app_localizations.dart';
+import 'package:Kelivo/shared/widgets/snackbar.dart';
 
 void showWorkspaceDefaultNotice(
   BuildContext context, {

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/core/providers/settings_provider.dart';
-import 'package:solab/theme/chat_bubble_style.dart';
+import 'package:Kelivo/core/providers/settings_provider.dart';
+import 'package:Kelivo/theme/chat_bubble_style.dart';
 
 void main() {
   final cs = ColorScheme.fromSeed(seedColor: const Color(0xFF4D5C92));

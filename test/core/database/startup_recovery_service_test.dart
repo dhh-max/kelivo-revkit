@@ -1,9 +1,9 @@
 import 'dart:io';
 
-import 'package:solab/core/database/app_database.dart';
-import 'package:solab/core/database/chat_database_repository.dart';
-import 'package:solab/core/database/database_installation_gate.dart';
-import 'package:solab/core/database/startup_recovery_service.dart';
+import 'package:Kelivo/core/database/app_database.dart';
+import 'package:Kelivo/core/database/chat_database_repository.dart';
+import 'package:Kelivo/core/database/database_installation_gate.dart';
+import 'package:Kelivo/core/database/startup_recovery_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 

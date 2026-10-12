@@ -3,14 +3,14 @@ import 'dart:convert';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/core/database/app_database.dart';
-import 'package:solab/core/database/business_preferences.dart';
-import 'package:solab/core/database/business_repository.dart';
-import 'package:solab/core/models/agent_skill.dart';
-import 'package:solab/core/models/assistant.dart';
-import 'package:solab/core/providers/agent_skill_provider.dart';
-import 'package:solab/core/services/local_tools/local_tool_names.dart';
-import 'package:solab/features/home/services/local_tools_service.dart';
+import 'package:Kelivo/core/database/app_database.dart';
+import 'package:Kelivo/core/database/business_preferences.dart';
+import 'package:Kelivo/core/database/business_repository.dart';
+import 'package:Kelivo/core/models/agent_skill.dart';
+import 'package:Kelivo/core/models/assistant.dart';
+import 'package:Kelivo/core/providers/agent_skill_provider.dart';
+import 'package:Kelivo/core/services/local_tools/local_tool_names.dart';
+import 'package:Kelivo/features/home/services/local_tools_service.dart';
 
 void main() {
   late AppDatabase database;

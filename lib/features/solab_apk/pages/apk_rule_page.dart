@@ -1,8 +1,8 @@
-import 'package:solab/core/database/app_database.dart';
+import 'package:Kelivo/core/database/app_database.dart';
 import '../../../shared/widgets/snackbar.dart';
-import 'package:solab/icons/lucide_adapter.dart';
-import 'package:solab/theme/app_font_weights.dart';
-import 'package:solab/theme/app_semantic_colors.dart';
+import 'package:Kelivo/icons/lucide_adapter.dart';
+import 'package:Kelivo/theme/app_font_weights.dart';
+import 'package:Kelivo/theme/app_semantic_colors.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 

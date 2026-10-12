@@ -4,17 +4,17 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 
-import 'package:solab/core/providers/external_mounts_provider.dart';
-import 'package:solab/core/providers/workspace_provider.dart';
-import 'package:solab/core/services/chat/chat_service.dart';
-import 'package:solab/core/services/workspace/workspace_paths.dart';
-import 'package:solab/core/services/workspace/workspace_runtime.dart';
-import 'package:solab/core/services/workspace/workspace_tools_service.dart';
-import 'package:solab/features/workspace/terminal/terminal_page.dart';
-import 'package:solab/features/workspace/terminal/terminal_session_manager.dart';
-import 'package:solab/l10n/app_localizations.dart';
-import 'package:solab/shared/widgets/snackbar.dart';
-import 'package:solab/utils/app_directories.dart';
+import 'package:Kelivo/core/providers/external_mounts_provider.dart';
+import 'package:Kelivo/core/providers/workspace_provider.dart';
+import 'package:Kelivo/core/services/chat/chat_service.dart';
+import 'package:Kelivo/core/services/workspace/workspace_paths.dart';
+import 'package:Kelivo/core/services/workspace/workspace_runtime.dart';
+import 'package:Kelivo/core/services/workspace/workspace_tools_service.dart';
+import 'package:Kelivo/features/workspace/terminal/terminal_page.dart';
+import 'package:Kelivo/features/workspace/terminal/terminal_session_manager.dart';
+import 'package:Kelivo/l10n/app_localizations.dart';
+import 'package:Kelivo/shared/widgets/snackbar.dart';
+import 'package:Kelivo/utils/app_directories.dart';
 
 /// Resolves mounts/cwd and pushes [TerminalPage].
 ///

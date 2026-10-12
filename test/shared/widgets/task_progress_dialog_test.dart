@@ -3,12 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reel_text/reel_text.dart';
 
-import 'package:solab/icons/lucide_adapter.dart';
-import 'package:solab/l10n/app_localizations.dart';
-import 'package:solab/shared/widgets/animated_progress_bar.dart';
-import 'package:solab/shared/widgets/ios_tile_button.dart';
-import 'package:solab/shared/widgets/task_progress_dialog.dart';
-import 'package:solab/shared/widgets/throttled_progress_label.dart';
+import 'package:Kelivo/icons/lucide_adapter.dart';
+import 'package:Kelivo/l10n/app_localizations.dart';
+import 'package:Kelivo/shared/widgets/animated_progress_bar.dart';
+import 'package:Kelivo/shared/widgets/ios_tile_button.dart';
+import 'package:Kelivo/shared/widgets/task_progress_dialog.dart';
+import 'package:Kelivo/shared/widgets/throttled_progress_label.dart';
 
 Widget _wrap(Widget child) {
   return MaterialApp(

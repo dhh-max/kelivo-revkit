@@ -3,16 +3,16 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import 'package:solab/core/providers/workspace_provider.dart';
-import 'package:solab/core/services/workspace/workspace_tools_service.dart';
-import 'package:solab/features/chat/widgets/workspace_tool_ui.dart';
-import 'package:solab/icons/lucide_adapter.dart';
-import 'package:solab/l10n/app_localizations.dart';
-import 'package:solab/shared/widgets/ios_settings_rows.dart';
-import 'package:solab/shared/widgets/ios_switch.dart';
-import 'package:solab/shared/widgets/section_card.dart';
-import 'package:solab/shared/widgets/segmented_tabs.dart';
-import 'package:solab/shared/widgets/snackbar.dart';
+import 'package:Kelivo/core/providers/workspace_provider.dart';
+import 'package:Kelivo/core/services/workspace/workspace_tools_service.dart';
+import 'package:Kelivo/features/chat/widgets/workspace_tool_ui.dart';
+import 'package:Kelivo/icons/lucide_adapter.dart';
+import 'package:Kelivo/l10n/app_localizations.dart';
+import 'package:Kelivo/shared/widgets/ios_settings_rows.dart';
+import 'package:Kelivo/shared/widgets/ios_switch.dart';
+import 'package:Kelivo/shared/widgets/section_card.dart';
+import 'package:Kelivo/shared/widgets/segmented_tabs.dart';
+import 'package:Kelivo/shared/widgets/snackbar.dart';
 
 class WorkspaceDetailTabs extends StatelessWidget {
   const WorkspaceDetailTabs({

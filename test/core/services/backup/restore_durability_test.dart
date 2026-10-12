@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
-import 'package:solab/core/services/backup/restore_durability.dart';
+import 'package:Kelivo/core/services/backup/restore_durability.dart';
 
 void main() {
   group('RestorePlatformDurability', () {

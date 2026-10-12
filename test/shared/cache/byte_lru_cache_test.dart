@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
-import 'package:solab/shared/cache/byte_lru_cache.dart';
-import 'package:solab/shared/widgets/mermaid_image_cache.dart';
+import 'package:Kelivo/shared/cache/byte_lru_cache.dart';
+import 'package:Kelivo/shared/widgets/mermaid_image_cache.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

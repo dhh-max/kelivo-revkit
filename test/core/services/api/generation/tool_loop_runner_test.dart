@@ -1,8 +1,8 @@
-import 'package:solab/core/models/token_usage.dart';
-import 'package:solab/core/services/api/chat_api_service.dart';
-import 'package:solab/core/services/api/stream/stream_chunk.dart';
-import 'package:solab/core/services/api/stream/stream_chunk_handler.dart';
-import 'package:solab/core/services/api/stream/stream_chunk_ids.dart';
+import 'package:Kelivo/core/models/token_usage.dart';
+import 'package:Kelivo/core/services/api/chat_api_service.dart';
+import 'package:Kelivo/core/services/api/stream/stream_chunk.dart';
+import 'package:Kelivo/core/services/api/stream/stream_chunk_handler.dart';
+import 'package:Kelivo/core/services/api/stream/stream_chunk_ids.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

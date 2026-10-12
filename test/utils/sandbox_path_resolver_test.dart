@@ -1,7 +1,7 @@
 import 'dart:io';
 
-import 'package:solab/utils/solab_file_uri.dart';
-import 'package:solab/utils/sandbox_path_resolver.dart';
+import 'package:Kelivo/utils/solab_file_uri.dart';
+import 'package:Kelivo/utils/sandbox_path_resolver.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 

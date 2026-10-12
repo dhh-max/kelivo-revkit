@@ -8,13 +8,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/sqlite3.dart' show SqliteException;
 
-import 'package:solab/core/database/app_database.dart';
-import 'package:solab/core/database/chat_database_repository.dart';
-import 'package:solab/core/services/backup/backup_cancel_token.dart';
-import 'package:solab/core/services/backup/backup_task_progress.dart';
-import 'package:solab/core/services/backup/backup_isolate_runner.dart';
-import 'package:solab/core/services/backup/restore_bundle_staging.dart';
-import 'package:solab/core/services/backup/restore_workspace_lock.dart';
+import 'package:Kelivo/core/database/app_database.dart';
+import 'package:Kelivo/core/database/chat_database_repository.dart';
+import 'package:Kelivo/core/services/backup/backup_cancel_token.dart';
+import 'package:Kelivo/core/services/backup/backup_task_progress.dart';
+import 'package:Kelivo/core/services/backup/backup_isolate_runner.dart';
+import 'package:Kelivo/core/services/backup/restore_bundle_staging.dart';
+import 'package:Kelivo/core/services/backup/restore_workspace_lock.dart';
 
 Future<String> _manifestSha256(Directory extracted) async {
   return (await sha256

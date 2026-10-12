@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:solab/core/services/api/providers/openai/openai_vendor_compat.dart';
+import 'package:Kelivo/core/services/api/providers/openai/openai_vendor_compat.dart';
 
 void main() {
   test('Agnes uses its documented OpenAI thinking switch', () {

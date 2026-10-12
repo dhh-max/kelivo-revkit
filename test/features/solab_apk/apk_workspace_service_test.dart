@@ -5,9 +5,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:solab/features/solab_apk/services/apk_workspace_service.dart';
-import 'package:solab/features/solab_apk/services/apk_analysis_service.dart';
-import 'package:solab/features/solab_apk/services/apk_workspace_binding_service.dart';
+import 'package:Kelivo/features/solab_apk/services/apk_workspace_service.dart';
+import 'package:Kelivo/features/solab_apk/services/apk_analysis_service.dart';
+import 'package:Kelivo/features/solab_apk/services/apk_workspace_binding_service.dart';
 
 /// 报告语义修正（缺陷 5/6/7）的测试：
 /// decision 段必须标注「字符串命中 ≠ 可 patch」语义并提示方法级定位。

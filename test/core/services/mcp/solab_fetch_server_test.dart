@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/core/services/mcp/solab_fetch/solab_fetch_server.dart';
+import 'package:Kelivo/core/services/mcp/solab_fetch/solab_fetch_server.dart';
 
 void main() {
   group('Kelivo fetch MCP', () {

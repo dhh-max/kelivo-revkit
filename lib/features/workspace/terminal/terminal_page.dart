@@ -1,4 +1,4 @@
-import 'package:solab/features/workspace/workspace_file_navigation.dart';
+import 'package:Kelivo/features/workspace/workspace_file_navigation.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -8,22 +8,22 @@ import 'package:provider/provider.dart';
 import 'package:terminal_view/terminal_view.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import 'package:solab/core/services/haptics.dart';
-import 'package:solab/core/services/workspace/file_link_resolver.dart';
-import 'package:solab/core/services/workspace/workspace_runtime.dart';
-import 'package:solab/features/settings/widgets/custom_theme_widgets.dart';
-import 'package:solab/features/workspace/terminal/terminal_session_manager.dart';
-import 'package:solab/features/workspace/terminal/widgets/system_terminal_card.dart';
-import 'package:solab/features/workspace/terminal/widgets/terminal_key_bar.dart';
-import 'package:solab/features/workspace/terminal/widgets/terminal_tab_strip.dart';
-import 'package:solab/features/workspace/widgets/files/workspace_prompts.dart';
-import 'package:solab/icons/lucide_adapter.dart';
-import 'package:solab/l10n/app_localizations.dart';
-import 'package:solab/shared/widgets/action_sheet.dart';
-import 'package:solab/shared/widgets/ios_tactile.dart';
-import 'package:solab/shared/widgets/ios_tile_button.dart';
-import 'package:solab/shared/widgets/snackbar.dart';
-import 'package:solab/theme/app_font_weights.dart';
+import 'package:Kelivo/core/services/haptics.dart';
+import 'package:Kelivo/core/services/workspace/file_link_resolver.dart';
+import 'package:Kelivo/core/services/workspace/workspace_runtime.dart';
+import 'package:Kelivo/features/settings/widgets/custom_theme_widgets.dart';
+import 'package:Kelivo/features/workspace/terminal/terminal_session_manager.dart';
+import 'package:Kelivo/features/workspace/terminal/widgets/system_terminal_card.dart';
+import 'package:Kelivo/features/workspace/terminal/widgets/terminal_key_bar.dart';
+import 'package:Kelivo/features/workspace/terminal/widgets/terminal_tab_strip.dart';
+import 'package:Kelivo/features/workspace/widgets/files/workspace_prompts.dart';
+import 'package:Kelivo/icons/lucide_adapter.dart';
+import 'package:Kelivo/l10n/app_localizations.dart';
+import 'package:Kelivo/shared/widgets/action_sheet.dart';
+import 'package:Kelivo/shared/widgets/ios_tactile.dart';
+import 'package:Kelivo/shared/widgets/ios_tile_button.dart';
+import 'package:Kelivo/shared/widgets/snackbar.dart';
+import 'package:Kelivo/theme/app_font_weights.dart';
 
 /// Full-screen in-app terminal. On desktop without a PTY, shows a system
 /// terminal fallback card instead of the emulator.

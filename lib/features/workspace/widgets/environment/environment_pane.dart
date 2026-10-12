@@ -1,11 +1,11 @@
-import 'package:solab/core/services/sandbox/environment_dependencies.dart';
-import 'package:solab/core/services/sandbox/environment_installer.dart';
-import 'package:solab/core/services/sandbox/workspace_channel.dart';
-import 'package:solab/features/workspace/pages/external_mounts_page.dart';
-import 'package:solab/features/workspace/pages/environment_download_page.dart';
-import 'package:solab/features/workspace/pages/proot_options_page.dart';
-import 'package:solab/features/workspace/widgets/files/workspace_prompts.dart';
-import 'package:solab/features/workspace/pages/environment_variables_page.dart';
+import 'package:Kelivo/core/services/sandbox/environment_dependencies.dart';
+import 'package:Kelivo/core/services/sandbox/environment_installer.dart';
+import 'package:Kelivo/core/services/sandbox/workspace_channel.dart';
+import 'package:Kelivo/features/workspace/pages/external_mounts_page.dart';
+import 'package:Kelivo/features/workspace/pages/environment_download_page.dart';
+import 'package:Kelivo/features/workspace/pages/proot_options_page.dart';
+import 'package:Kelivo/features/workspace/widgets/files/workspace_prompts.dart';
+import 'package:Kelivo/features/workspace/pages/environment_variables_page.dart';
 import 'environment_dependencies_section.dart';
 import 'dart:async';
 
@@ -15,27 +15,27 @@ import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 
-import 'package:solab/core/models/environment_state.dart';
-import 'package:solab/core/providers/environment_provider.dart';
-import 'package:solab/core/services/sandbox/environment_manager.dart';
-import 'package:solab/core/services/sandbox/mirror_service.dart';
-import 'package:solab/core/services/sandbox/rootfs_disk_usage.dart';
-import 'package:solab/core/services/workspace/workspace_runtime.dart';
-import 'package:solab/features/workspace/widgets/environment/environment_chrome.dart';
-import 'package:solab/features/workspace/widgets/environment/environment_dialogs.dart';
-import 'package:solab/features/workspace/widgets/environment/environment_keys.dart';
-import 'package:solab/features/workspace/widgets/environment/environment_labels.dart';
-import 'package:solab/icons/lucide_adapter.dart';
-import 'package:solab/l10n/app_localizations.dart';
-import 'package:solab/features/workspace/workspace_layout.dart';
-import 'package:solab/shared/utils/format_bytes.dart';
-import 'package:solab/shared/widgets/animated_progress_bar.dart';
-import 'package:solab/shared/widgets/ios_settings_rows.dart';
-import 'package:solab/shared/widgets/ios_tile_button.dart';
-import 'package:solab/shared/widgets/section_card.dart';
-import 'package:solab/shared/widgets/snackbar.dart';
-import 'package:solab/theme/app_font_weights.dart';
-import 'package:solab/theme/app_semantic_colors.dart';
+import 'package:Kelivo/core/models/environment_state.dart';
+import 'package:Kelivo/core/providers/environment_provider.dart';
+import 'package:Kelivo/core/services/sandbox/environment_manager.dart';
+import 'package:Kelivo/core/services/sandbox/mirror_service.dart';
+import 'package:Kelivo/core/services/sandbox/rootfs_disk_usage.dart';
+import 'package:Kelivo/core/services/workspace/workspace_runtime.dart';
+import 'package:Kelivo/features/workspace/widgets/environment/environment_chrome.dart';
+import 'package:Kelivo/features/workspace/widgets/environment/environment_dialogs.dart';
+import 'package:Kelivo/features/workspace/widgets/environment/environment_keys.dart';
+import 'package:Kelivo/features/workspace/widgets/environment/environment_labels.dart';
+import 'package:Kelivo/icons/lucide_adapter.dart';
+import 'package:Kelivo/l10n/app_localizations.dart';
+import 'package:Kelivo/features/workspace/workspace_layout.dart';
+import 'package:Kelivo/shared/utils/format_bytes.dart';
+import 'package:Kelivo/shared/widgets/animated_progress_bar.dart';
+import 'package:Kelivo/shared/widgets/ios_settings_rows.dart';
+import 'package:Kelivo/shared/widgets/ios_tile_button.dart';
+import 'package:Kelivo/shared/widgets/section_card.dart';
+import 'package:Kelivo/shared/widgets/snackbar.dart';
+import 'package:Kelivo/theme/app_font_weights.dart';
+import 'package:Kelivo/theme/app_semantic_colors.dart';
 
 /// Embeddable environment body for the Environment page and desktop settings.
 class EnvironmentPane extends StatefulWidget {

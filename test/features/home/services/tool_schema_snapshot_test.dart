@@ -4,8 +4,8 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/core/models/assistant.dart';
-import 'package:solab/features/home/services/local_tools_service.dart';
+import 'package:Kelivo/core/models/assistant.dart';
+import 'package:Kelivo/features/home/services/local_tools_service.dart';
 
 void main() {
   test('local tool schemas match the approved snapshot', () {

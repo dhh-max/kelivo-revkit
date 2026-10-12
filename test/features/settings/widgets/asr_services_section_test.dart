@@ -1,8 +1,8 @@
-import 'package:solab/core/providers/settings_provider.dart';
-import 'package:solab/core/services/asr/asr_service_options.dart';
-import 'package:solab/features/settings/widgets/asr_services_section.dart';
-import 'package:solab/features/settings/widgets/voice_service_widgets.dart';
-import 'package:solab/l10n/app_localizations.dart';
+import 'package:Kelivo/core/providers/settings_provider.dart';
+import 'package:Kelivo/core/services/asr/asr_service_options.dart';
+import 'package:Kelivo/features/settings/widgets/asr_services_section.dart';
+import 'package:Kelivo/features/settings/widgets/voice_service_widgets.dart';
+import 'package:Kelivo/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';

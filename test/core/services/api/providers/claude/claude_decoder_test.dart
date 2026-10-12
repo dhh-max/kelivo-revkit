@@ -1,8 +1,8 @@
 import 'dart:convert';
 
-import 'package:solab/core/services/api/providers/claude/claude_decoder.dart';
-import 'package:solab/core/services/api/stream/sse_event.dart';
-import 'package:solab/core/services/api/stream/stream_chunk.dart';
+import 'package:Kelivo/core/services/api/providers/claude/claude_decoder.dart';
+import 'package:Kelivo/core/services/api/stream/sse_event.dart';
+import 'package:Kelivo/core/services/api/stream/stream_chunk.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 SseEvent _event(String type, Map<String, dynamic> data) {

@@ -4,19 +4,19 @@ import 'package:path/path.dart' as p;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import 'package:solab/core/providers/environment_provider.dart';
-import 'package:solab/core/services/sandbox/environment_installer.dart';
-import 'package:solab/core/services/sandbox/mirror_speed_test.dart';
-import 'package:solab/core/services/sandbox/rootfs_source.dart';
-import 'package:solab/features/workspace/widgets/environment/environment_chrome.dart';
-import 'package:solab/icons/lucide_adapter.dart';
-import 'package:solab/l10n/app_localizations.dart';
-import 'package:solab/shared/widgets/ios_form_text_field.dart';
-import 'package:solab/shared/widgets/ios_settings_rows.dart';
-import 'package:solab/shared/widgets/ios_tactile.dart';
-import 'package:solab/shared/widgets/ios_tile_button.dart';
-import 'package:solab/shared/widgets/option_sheet.dart';
-import 'package:solab/shared/widgets/section_card.dart';
+import 'package:Kelivo/core/providers/environment_provider.dart';
+import 'package:Kelivo/core/services/sandbox/environment_installer.dart';
+import 'package:Kelivo/core/services/sandbox/mirror_speed_test.dart';
+import 'package:Kelivo/core/services/sandbox/rootfs_source.dart';
+import 'package:Kelivo/features/workspace/widgets/environment/environment_chrome.dart';
+import 'package:Kelivo/icons/lucide_adapter.dart';
+import 'package:Kelivo/l10n/app_localizations.dart';
+import 'package:Kelivo/shared/widgets/ios_form_text_field.dart';
+import 'package:Kelivo/shared/widgets/ios_settings_rows.dart';
+import 'package:Kelivo/shared/widgets/ios_tactile.dart';
+import 'package:Kelivo/shared/widgets/ios_tile_button.dart';
+import 'package:Kelivo/shared/widgets/option_sheet.dart';
+import 'package:Kelivo/shared/widgets/section_card.dart';
 
 String environmentDownloadSourceLabel(
   AppLocalizations l10n,

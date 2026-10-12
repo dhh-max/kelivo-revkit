@@ -1,16 +1,16 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:solab/core/models/workspace.dart';
-import 'package:solab/core/providers/workspace_provider.dart';
-import 'package:solab/features/workspace/pages/workspace_files_page.dart';
-import 'package:solab/features/workspace/widgets/workspace_tools_pane.dart';
-import 'package:solab/features/workspace/terminal/open_terminal.dart';
-import 'package:solab/features/workspace/widgets/files/file_browser.dart';
-import 'package:solab/features/workspace/widgets/files/file_browser_ops.dart';
-import 'package:solab/icons/lucide_adapter.dart';
-import 'package:solab/l10n/app_localizations.dart';
-import 'package:solab/shared/widgets/ios_tactile.dart';
+import 'package:Kelivo/core/models/workspace.dart';
+import 'package:Kelivo/core/providers/workspace_provider.dart';
+import 'package:Kelivo/features/workspace/pages/workspace_files_page.dart';
+import 'package:Kelivo/features/workspace/widgets/workspace_tools_pane.dart';
+import 'package:Kelivo/features/workspace/terminal/open_terminal.dart';
+import 'package:Kelivo/features/workspace/widgets/files/file_browser.dart';
+import 'package:Kelivo/features/workspace/widgets/files/file_browser_ops.dart';
+import 'package:Kelivo/icons/lucide_adapter.dart';
+import 'package:Kelivo/l10n/app_localizations.dart';
+import 'package:Kelivo/shared/widgets/ios_tactile.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';

@@ -3,8 +3,8 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/core/services/mcp_server/mcp_http_server.dart';
-import 'package:solab/features/solab_apk/services/apk_agent_policy.dart';
+import 'package:Kelivo/core/services/mcp_server/mcp_http_server.dart';
+import 'package:Kelivo/features/solab_apk/services/apk_agent_policy.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

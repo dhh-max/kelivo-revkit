@@ -5,12 +5,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:solab/core/models/assistant.dart';
-import 'package:solab/core/services/local_tools/local_tool_names.dart';
-import 'package:solab/features/solab_apk/services/apk_analysis_service.dart';
-import 'package:solab/features/solab_apk/services/apk_workspace_binding_service.dart';
-import 'package:solab/features/solab_apk/services/apk_workspace_service.dart';
-import 'package:solab/features/home/services/local_tools_service.dart';
+import 'package:Kelivo/core/models/assistant.dart';
+import 'package:Kelivo/core/services/local_tools/local_tool_names.dart';
+import 'package:Kelivo/features/solab_apk/services/apk_analysis_service.dart';
+import 'package:Kelivo/features/solab_apk/services/apk_workspace_binding_service.dart';
+import 'package:Kelivo/features/solab_apk/services/apk_workspace_service.dart';
+import 'package:Kelivo/features/home/services/local_tools_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

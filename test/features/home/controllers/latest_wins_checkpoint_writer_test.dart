@@ -1,7 +1,7 @@
 import 'dart:async';
 
-import 'package:solab/features/home/controllers/chat_actions.dart';
-import 'package:solab/features/home/controllers/latest_wins_checkpoint_writer.dart';
+import 'package:Kelivo/features/home/controllers/chat_actions.dart';
+import 'package:Kelivo/features/home/controllers/latest_wins_checkpoint_writer.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

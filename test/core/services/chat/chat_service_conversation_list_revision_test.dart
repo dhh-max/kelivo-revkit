@@ -1,4 +1,4 @@
-import 'package:solab/core/models/message_part.dart';
+import 'package:Kelivo/core/models/message_part.dart';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -6,7 +6,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 // ignore: depend_on_referenced_packages
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 
-import 'package:solab/core/services/chat/chat_service.dart';
+import 'package:Kelivo/core/services/chat/chat_service.dart';
 
 class _FakePathProviderPlatform extends PathProviderPlatform {
   _FakePathProviderPlatform(this.path);

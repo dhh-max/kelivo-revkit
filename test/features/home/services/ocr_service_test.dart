@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:solab/features/home/services/ocr_service.dart';
+import 'package:Kelivo/features/home/services/ocr_service.dart';
 
 void main() {
   group('OcrService content-hash cache', () {
