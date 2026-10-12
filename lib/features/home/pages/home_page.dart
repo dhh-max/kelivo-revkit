@@ -1594,18 +1594,20 @@ class _HomePageState extends State<HomePage>
           context,
         ).push(MaterialPageRoute(builder: (_) => const ProvidersPage()));
       },
-      onOpenWorkspace: () {
+      onOpenWorkspace: () async {
         final a = context.read<AssistantProvider>().currentAssistant;
-        if (PlatformUtils.isDesktop) {
-          showDesktopWorkspaceDialog(
-            context,
-            conversationListenable: _controller,
-            conversationId: () => _controller.currentConversation?.id,
-            assistantId: a?.id,
-          );
-        } else {
-          _toggleTools();
-        }
+        final id = await ensureConversationId(
+          context,
+          conversationId: _controller.currentConversation?.id,
+          assistantId: a?.id,
+        );
+        if (id == null || !context.mounted) return;
+        showDesktopWorkspaceDialog(
+          context,
+          conversationListenable: _controller,
+          conversationId: () => _controller.currentConversation?.id,
+          assistantId: a?.id,
+        );
       },
       onOpenSkills: () async {
         final assistant = context.read<AssistantProvider>().currentAssistant;
