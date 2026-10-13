@@ -3,6 +3,7 @@ package com.psyche.kelivo.workspace
 import android.app.Activity
 import android.content.Intent
 import android.content.Context
+import android.content.Context.MODE_PRIVATE
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -165,7 +166,7 @@ class WorkspacePlugin(private val context: Context) {
      */
     private val extraProotSearchDirs: List<String> =
         runCatching {
-            val prefs = context.getSharedPreferences("workspace", context.MODE_PRIVATE)
+            val prefs = context.getSharedPreferences("workspace", MODE_PRIVATE)
             val raw = prefs.getString("extraProotSearchDirs", "") ?: ""
             val defaults = listOf(
                 "/data/local/tmp",
