@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'dart:io';
 import 'dart:math';
 
@@ -304,6 +305,16 @@ class EnvironmentInstaller implements EnvironmentManager {
     _minFreeBytes = local ? 64 * 1024 * 1024 : image.minFreeBytes;
     final probe = await _safeProbe();
     if (!probe.supported) {
+      debugPrint([
+        'env: PRoot probe failed',
+        '  reason: ${probe.reason ?? "(none)"}',
+        '  abi:    ${probe.abi}',
+        '  prootPath: ${probe.prootPath}',
+        '  loaderPath: ${probe.loaderPath}',
+        '  nativeLibDir: ${probe.nativeLibDir}',
+        '  missing: ${(probe.missing ?? const <String>[]).join(", ")}',
+        '  searched: ${(probe.searched ?? const <String>[]).join("; ")}',
+      ].join("\n"));
       await _fail(EnvironmentError.prootMissing);
       return;
     }

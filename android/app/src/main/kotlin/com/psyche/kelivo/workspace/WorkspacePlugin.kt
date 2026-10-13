@@ -153,41 +153,117 @@ class WorkspacePlugin(private val context: Context) {
     fun onRequestPermissionsResult(requestCode: Int): Boolean =
         directories.onRequestPermissionsResult(requestCode)
 
+    /**
+     * Extra directories searched for the packaged PRoot loader.
+     * The primary location is `applicationInfo.nativeLibraryDir`, which only
+     * contains libs the current APK ABI built for. Older / mixed-ABI installs
+     * (e.g. an armeabi-v7a-only APK on an arm64 device) leave the loader
+     * missing there and would report a false "proot missing" failure. We
+     * fall back to a few well-known locations used by sibling builds, by
+     * third-party apps that ship PRoot, and by common file managers.
+     * User-supplied paths can be added via `extraProotSearchDirs`.
+     */
+    private val extraProotSearchDirs: List<String> =
+        runCatching {
+            val prefs = context.getSharedPreferences("workspace", context.MODE_PRIVATE)
+            val raw = prefs.getString("extraProotSearchDirs", "") ?: ""
+            val defaults = listOf(
+                "/data/local/tmp",
+                "/data/local/tmp/proot",
+                "/data/data/${context.packageName}/files/proot",
+                "/data/data/${context.packageName}/files",
+                "/sdcard/Android/data/${context.packageName}/files/proot",
+                "/sdcard/Android/data/${context.packageName}/files",
+            )
+            val user = raw.split("\n").map { it.trim() }.filter { it.isNotEmpty() }
+            defaults + user
+        }.getOrDefault(
+            listOf(
+                "/data/local/tmp",
+                "/data/local/tmp/proot",
+                "/data/data/${context.packageName}/files/proot",
+                "/data/data/${context.packageName}/files",
+            ),
+        )
+
+    /**
+     * Directory that actually contains the PRoot bundle the app will exec.
+     * Populated by [probe]; used by [exec] / [ptyOpen] to construct argv. When
+     * the primary `applicationInfo.nativeLibraryDir` does not ship the loader
+     * (stale ABI builds), this can be a fallback search-root that does.
+     */
+    private var resolvedProotDir: File? = null
+
     private fun probe(): Map<String, Any?> {
         val nativeLibDir = File(context.applicationInfo.nativeLibraryDir)
-        val proot = File(nativeLibDir, ProotCommand.EXEC_LIB)
-        val loader = File(nativeLibDir, ProotCommand.LOADER_LIB)
-        // proot is dynamically linked against these two; a build that ships
-        // proot without them reports "supported" and then fails every exec with
-        // an exec-time dlopen error, which reads as a broken environment.
-        val talloc = File(nativeLibDir, ProotCommand.TALLOC_LIB)
-        val shmem = File(nativeLibDir, ProotCommand.SHMEM_LIB)
-        if (proot.isFile) proot.setExecutable(true, false)
-        if (loader.isFile) loader.setExecutable(true, false)
-        val supported = proot.isFile && proot.canExecute() && loader.isFile && loader.canExecute() &&
-            talloc.isFile && shmem.isFile
+        // Search the bundled lib dir first; fall back to well-known / user-
+        // specified locations so that installs with a stale nativeLibraryDir
+        // (e.g. missing arm64 jniLibs) do not fail with a false proot-missing.
+        val searchRoots = listOf(nativeLibDir) + extraProotSearchDirs
+            .map { File(it) }.filter { it.isDirectory }
+
+        fun findIn(dirs: List<File>, names: List<String>): File? {
+            for (d in dirs) for (n in names) {
+                val f = File(d, n)
+                if (f.isFile) return f
+            }
+            return null
+        }
+
+        val proot = findIn(searchRoots, listOf(ProotCommand.EXEC_LIB, "libproot.so"))
+            ?: runCatching {
+                // Last resort: a shell `proot` on PATH (usually needs root).
+                val envPath = System.getenv("PATH") ?: "/usr/bin:/bin:/system/bin"
+                envPath.split(':').map { File(it, "proot") }.firstOrNull { it.isFile && it.canExecute() }
+            }.getOrNull()
+        val prootDir = proot?.parentFile ?: nativeLibDir
+        val loader = findIn(listOf(prootDir, nativeLibDir) + searchRoots,
+            listOf(ProotCommand.LOADER_LIB, "libproot.so", "libproot-loader.so"))
+        val talloc = findIn(listOf(prootDir, nativeLibDir) + searchRoots,
+            listOf(ProotCommand.TALLOC_LIB, ProotCommand.TALLOC_SONAME, "libtalloc.so.2"))
+        val shmem = findIn(listOf(prootDir, nativeLibDir) + searchRoots,
+            listOf(ProotCommand.SHMEM_LIB, "libshmem.so"))
+
+        proot?.let { if (it.isFile) it.setExecutable(true, false) }
+        loader?.let { if (it.isFile) it.setExecutable(true, false) }
+
+        val prootOk = proot != null && proot.isFile && proot.canExecute()
+        val loaderOk = loader != null && loader.isFile && loader.canExecute()
+        val tallocOk = talloc != null && talloc.isFile
+        val shmemOk = shmem != null && shmem.isFile
+        val supported = prootOk && loaderOk && tallocOk && shmemOk
+        resolvedProotDir = if (supported) prootDir else null
+
+        val missing = mutableListOf<String>()
+        if (!prootOk) missing += "proot"
+        if (!loaderOk) missing += "loader"
+        if (!tallocOk) missing += "libtalloc"
+        if (!shmemOk) missing += "libandroid-shmem"
+
         val reason = when {
             supported -> null
-            !proot.isFile -> "proot missing: ${proot.absolutePath}"
-            !proot.canExecute() -> "proot not executable: ${proot.absolutePath}"
-            !loader.isFile -> "loader missing: ${loader.absolutePath}"
-            !loader.canExecute() -> "loader not executable: ${loader.absolutePath}"
-            !talloc.isFile -> "proot dependency missing: ${talloc.absolutePath}"
-            else -> "proot dependency missing: ${shmem.absolutePath}"
+            !prootOk -> "proot missing or not executable (searched: ${searchRoots.map { it.absolutePath }})"
+            !loaderOk -> "loader missing or not executable"
+            !tallocOk -> "proot dependency missing: ${ProotCommand.TALLOC_LIB}"
+            else -> "proot dependency missing: ${ProotCommand.SHMEM_LIB}"
         }
+
         Log.i("WorkspacePlugin", "probe: supported=$supported abi=${runtimeAbi()} " +
             "nativeLibDir=${nativeLibDir.absolutePath} " +
-            "proot.isFile=${proot.isFile} loader.isFile=${loader.isFile} " +
-            "talloc.isFile=${talloc.isFile} shmem.isFile=${shmem.isFile} " +
-            "nativeLibDir.list=${nativeLibDir.list()?.filter { it.startsWith("libproot") || it.startsWith("libtalloc") || it.startsWith("libshmem") || it.startsWith("libandroid-shmem") }} " +
-            "reason=$reason")
+            "searchRoots=${searchRoots.map { it.absolutePath }} " +
+            "proot=${proot?.absolutePath} loader=${loader?.absolutePath} " +
+            "talloc=${talloc?.absolutePath} shmem=${shmem?.absolutePath} " +
+            "missing=${missing.joinToString(",")} reason=$reason")
+
         return hashMapOf(
             "supported" to supported,
             "abi" to runtimeAbi(),
-            "prootPath" to proot.takeIf { it.isFile }?.absolutePath,
-            "loaderPath" to loader.takeIf { it.isFile }?.absolutePath,
+            "prootPath" to proot?.absolutePath,
+            "loaderPath" to loader?.absolutePath,
             "nativeLibDir" to nativeLibDir.absolutePath,
             "reason" to reason,
+            "missing" to missing.toList(),
+            "searched" to searchRoots.map { it.absolutePath },
         )
     }
 
@@ -196,7 +272,7 @@ class WorkspacePlugin(private val context: Context) {
         execRunner.start(
             ExecRequest(
                 runId = runId,
-                nativeLibDir = File(context.applicationInfo.nativeLibraryDir),
+                nativeLibDir = resolvedProotDir ?: File(context.applicationInfo.nativeLibraryDir),
                 rootfsDir = File(requiredString(args, "rootfsDir")),
                 tmpDir = File(requiredString(args, "tmpDir")),
                 binds = commandBinds(args),
@@ -214,7 +290,7 @@ class WorkspacePlugin(private val context: Context) {
     private fun ptyOpen(args: Map<*, *>): Int {
         return ptySessions.open(
             sessionId = requiredString(args, "sessionId"),
-            nativeLibDir = File(context.applicationInfo.nativeLibraryDir),
+            nativeLibDir = resolvedProotDir ?: File(context.applicationInfo.nativeLibraryDir),
             rootfsDir = File(requiredString(args, "rootfsDir")),
             tmpDir = File(requiredString(args, "tmpDir")),
             binds = commandBinds(args),

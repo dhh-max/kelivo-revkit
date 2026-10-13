@@ -329,6 +329,8 @@ class ProbeResult {
     this.rootfsVersion,
     this.bundledVersion,
     this.rootfsDir,
+    this.missing,
+    this.searched,
   });
 
   final bool supported;
@@ -349,6 +351,10 @@ class ProbeResult {
   final String? rootfsVersion;
   final String? bundledVersion;
   final String? rootfsDir;
+  /// Components reported missing by the native probe (e.g. `proot`, `loader`).
+  final List<String>? missing;
+  /// Absolute paths the native probe searched for the PRoot bundle.
+  final List<String>? searched;
 
   factory ProbeResult.fromMap(Map<String, Object?> map) {
     return ProbeResult(
@@ -366,6 +372,8 @@ class ProbeResult {
       rootfsVersion: _readString(map['rootfsVersion']),
       bundledVersion: _readString(map['bundledVersion']),
       rootfsDir: _readString(map['rootfsDir']),
+      missing: _readStringList(map['missing']),
+      searched: _readStringList(map['searched']),
     );
   }
 }
@@ -464,6 +472,17 @@ String? _readString(Object? value) {
   if (value == null) return null;
   final text = value.toString();
   return text.isEmpty ? null : text;
+}
+
+List<String>? _readStringList(Object? value) {
+  if (value is List) {
+    final out = <String>[];
+    for (final e in value) {
+      if (e is String && e.isNotEmpty) out.add(e);
+    }
+    return out;
+  }
+  return null;
 }
 
 int? _readInt(Object? value) {
