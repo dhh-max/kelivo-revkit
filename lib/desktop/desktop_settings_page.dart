@@ -71,6 +71,7 @@ import 'setting/backup_pane.dart';
 import 'setting/scheduled_tasks_pane.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart' show LucideIcons;
 import 'setting/network_proxy_pane.dart';
+import 'setting/relaygo_pane.dart';
 import 'setting/auto_retry_pane.dart';
 import 'setting/about_pane.dart';
 import 'setting/stats_pane.dart';
@@ -124,6 +125,7 @@ enum _SettingsMenuItem {
   memory,
   tts,
   networkProxy,
+  relaygo,
   backup,
   scheduledTasks,
   hotkeys,
@@ -317,6 +319,10 @@ class _DesktopSettingsPageState extends State<DesktopSettingsPage> {
                           return const DesktopNetworkProxyPane(
                             key: ValueKey('networkProxy'),
                           );
+                        case _SettingsMenuItem.relaygo:
+                          return const DesktopRelayGoPane(
+                            key: ValueKey('relaygo'),
+                          );
                         case _SettingsMenuItem.backup:
                           return const DesktopBackupPane(
                             key: ValueKey('backup'),
@@ -436,6 +442,11 @@ class _SettingsMenu extends StatelessWidget {
         _SettingsMenuItem.networkProxy,
         lucide.Lucide.EthernetPort,
         l10n.settingsPageNetworkProxy,
+      ),
+      (
+        _SettingsMenuItem.relaygo,
+        lucide.Lucide.Route,
+        'AI 网关 (RelayGo)',
       ),
       (
         _SettingsMenuItem.backup,

@@ -30,6 +30,8 @@ import '../../instruction_injection/pages/instruction_injection_page.dart';
 import '../../world_book/pages/world_book_page.dart';
 import '../../../shared/widgets/section_card.dart';
 import 'network_proxy_page.dart';
+import '../../../desktop/setting/relaygo_pane.dart'
+    show DesktopRelayGoPane;
 import 'phone_control_settings_page.dart';
 import '../../home/services/local_tools_service.dart';
 import 'storage_space_page.dart';
@@ -451,6 +453,19 @@ class SettingsPage extends StatelessWidget {
                 onTap: () {
                   Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const NetworkProxyPage()),
+                  );
+                },
+              ),
+              _iosDivider(context),
+              _iosNavRow(
+                context,
+                icon: Lucide.Route,
+                label: 'AI 网关 (RelayGo)',
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const DesktopRelayGoPane(),
+                    ),
                   );
                 },
               ),
